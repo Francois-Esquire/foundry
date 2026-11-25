@@ -232,6 +232,17 @@ export async function removeAnnexes(
     );
 }
 
+export async function executionScopes(
+  database: Queries,
+  id: string
+): Promise<readonly string[]> {
+  const rows = await database
+    .select({ scope: queueRuns.scope })
+    .from(queueRuns)
+    .where(eq(queueRuns.id, id as Run["id"]));
+  return rows.map((row) => row.scope);
+}
+
 async function annexesIn(
   database: Queries,
   scope: string,

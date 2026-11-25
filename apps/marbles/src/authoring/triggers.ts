@@ -115,7 +115,7 @@ export function monitor(source: string): MonitorBuilder {
       }
       if (WHITESPACE.test(key)) {
         throw new Error(
-          `monitor("${source}").name(${JSON.stringify(key)}): a name is one word, as \`marbles roll <name>\` takes it`
+          `monitor("${source}").name(${JSON.stringify(key)}): a name is one word, as \`marbles run <name>\` takes it`
         );
       }
       return build({ ...fields, key });

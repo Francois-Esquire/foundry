@@ -118,11 +118,11 @@ step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }
     expect(
       listed.split("\n").filter((line) => line.startsWith("[step]"))
     ).toEqual(["[step] second", "[step] inspect"]);
-    const result = cli(root, "roll", "inspect", "--dry-run");
+    const result = cli(root, "run", "inspect", "--dry-run");
     expect(result).toContain(root);
     expect(result).toContain("helper imported");
     expect(
-      cli(tmpdir(), "roll", "inspect", "--source", source, "--dry-run")
+      cli(tmpdir(), "run", "inspect", "--source", source, "--dry-run")
     ).toContain(root);
   } finally {
     await rm(root, { force: true, recursive: true });

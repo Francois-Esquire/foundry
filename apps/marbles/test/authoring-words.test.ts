@@ -268,8 +268,8 @@ describe("locking a leaf", () => {
       review.series();
       // @ts-expect-error nor be run with nothing
       greet.run();
-      // @ts-expect-error nor launched with nothing
-      greet.launch();
+      // @ts-expect-error nor enqueued with nothing
+      greet.enqueue();
     };
     expect(typeOnly).toBeTypeOf("function");
     expectTypeOf(greet({}, { name: "Ada" })).toEqualTypeOf<

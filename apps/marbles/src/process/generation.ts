@@ -120,7 +120,9 @@ function call(
     case "dispatchAgent":
       return host.dispatchAgent(dispatchSchema.parse(p));
     case "dispatchWorkflow":
-      return host.dispatchWorkflow(text(p.name, "name"), p.input);
+      return host.dispatchWorkflow(text(p.name, "name"), p.input, {
+        ...(p.key === undefined ? {} : { key: text(p.key, "key") }),
+      });
     case "getRun":
       return host.getRun(text(p.runId, "runId"));
     case "launch":

@@ -34,6 +34,7 @@ export interface LaunchOptions {
 export interface Launched<O> {
   readonly id: string;
   readonly result: Promise<O>;
+  readonly reused?: true;
 }
 
 export interface DispatchedRun {
@@ -328,7 +329,7 @@ export class Launcher {
       return;
     }
     await this.executions.refresh(run.id);
-    return { id: run.id, result: this.resultOf(run.id) };
+    return { id: run.id, result: this.resultOf(run.id), reused: true };
   }
 
   follow(id: string, dispatched: DispatchedRun): void {

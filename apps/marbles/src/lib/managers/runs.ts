@@ -26,24 +26,24 @@ export interface RunQuery {
 }
 
 export interface Runs {
-  get(runId: string): Promise<RunView | null>;
-  launch(
+  enqueue(
     definition: AnyDefinition,
     input: unknown,
     options?: DefinitionLaunch
   ): Promise<Launched<unknown>>;
+  get(runId: string): Promise<RunView | null>;
   list(query?: RunQuery): Promise<readonly RunView[]>;
   named(name: string): NamedDefinition | undefined;
 }
 
 export interface RunsSource {
-  execution(runId: string): ExecutionRun | undefined;
-  executions(): readonly ExecutionRun[];
-  launch(
+  enqueue(
     definition: AnyDefinition,
     input: unknown,
     options?: DefinitionLaunch
   ): Promise<Launched<unknown>>;
+  execution(runId: string): ExecutionRun | undefined;
+  executions(): readonly ExecutionRun[];
   named(name: string): NamedDefinition | undefined;
   nameOf(name: string): string;
   resultOf(runId: string): Promise<unknown>;
@@ -126,6 +126,8 @@ function matches(view: RunView, query: RunQuery): boolean {
 
 export function engineRuns(source: RunsSource): Runs {
   return {
+    enqueue: (definition, input, options) =>
+      source.enqueue(definition, input, options),
     async get(runId) {
       return runView(
         source,
@@ -134,8 +136,6 @@ export function engineRuns(source: RunsSource): Runs {
         source.execution(runId)
       );
     },
-    launch: (definition, input, options) =>
-      source.launch(definition, input, options),
     async list(query = {}) {
       const stored = new Map(
         (await source.storedAll()).map((record) => [record.id, record])
@@ -159,7 +159,7 @@ export function scopedRuns(source: RunsSource, args: ManagerArgs): Runs {
   const plain = engineRuns(source);
   return {
     ...plain,
-    async launch(definition, input, options) {
+    async enqueue(definition, input, options) {
       const { key } = args.scope.claim(args.frame, LAUNCH_KIND);
       const recorded = args.scope.ledger.get<RecordedLaunch>(key);
       const identity = definitionIdentity(definition);
@@ -167,7 +167,7 @@ export function scopedRuns(source: RunsSource, args: ManagerArgs): Runs {
         return { id: recorded.run, result: source.resultOf(recorded.run) };
       }
       const launched = await current.exit(() =>
-        source.launch(definition, input, options)
+        source.enqueue(definition, input, options)
       );
       args.scope.ledger.set(key, {
         definition: identity,

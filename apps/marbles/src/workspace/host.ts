@@ -98,7 +98,7 @@ async function inputHint(
     .map((record) => record.key);
   const carried =
     keys.length > 0
-      ? `, or roll a schedule key that carries it: ${keys.join(", ")}`
+      ? `, or run a schedule key that carries it: ${keys.join(", ")}`
       : "";
   return [
     `${error.message}.`,
@@ -468,8 +468,8 @@ function hosted(
     },
     dispatchAgent: (options: DispatchOptions): Promise<DispatchInfo> =>
       dispatches.start(options),
-    dispatchWorkflow: (name, input): Promise<DispatchInfo> =>
-      dispatches.startWorkflow(name, input),
+    dispatchWorkflow: (name, input, options): Promise<DispatchInfo> =>
+      dispatches.startWorkflow(name, input, options),
     engine,
     files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
@@ -486,7 +486,9 @@ function hosted(
         return { lines, ...value };
       }
       if (!dispatches.definitions().some((entry) => entry.name === name)) {
-        throw new Error(`no workflow or schedule named "${name}"`);
+        throw new Error(
+          `no step, workflow, schedule, or monitor named "${name}"`
+        );
       }
       const { lines, value } = await capture(() =>
         engine.run<unknown>(name, launchInput).catch(async (error: unknown) => {

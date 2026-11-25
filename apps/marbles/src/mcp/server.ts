@@ -31,7 +31,7 @@ const WORKSPACE_INPUT = z
   );
 
 const NEEDS_HOST =
-  "Needs a running Marbles process that hosts the workspace (marbles attach); this server starts none.";
+  "Needs a running Marbles process that hosts the workspace (marbles daemon attach); this server starts none.";
 
 export function createMcpServer(options: McpServerOptions): McpServer {
   const { hosted, tasks, workspaces } = options;

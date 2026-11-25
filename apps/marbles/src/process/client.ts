@@ -285,7 +285,7 @@ export async function connect(options: ConnectOptions): Promise<MarblesClient> {
   if (found && !start) {
     found.channel.close();
     throw new ProcessMismatchError(
-      `the Marbles process for ${layout.state} runs version ${found.hello.version}, not ${version}; stop it with \`marbles stop\` first`
+      `the Marbles process for ${layout.state} runs version ${found.hello.version}, not ${version}; stop it with \`marbles daemon stop\` first`
     );
   }
   if (found) {
@@ -337,7 +337,7 @@ function sameStore(opened: Opened, layout: Layout): Opened {
   }
   opened.channel.close();
   throw new ProcessMismatchError(
-    `the Marbles process for ${layout.state} keeps artifacts in ${opened.hello.artifacts}, not ${layout.artifacts}; stop it with \`marbles stop\` to start one with the other store`
+    `the Marbles process for ${layout.state} keeps artifacts in ${opened.hello.artifacts}, not ${layout.artifacts}; stop it with \`marbles daemon stop\` to start one with the other store`
   );
 }
 
@@ -524,8 +524,12 @@ function remoteWorkspace(
     describe: () => call<WorkspaceConfig>(WORKSPACE_METHODS.describe),
     dispatchAgent: (options: DispatchOptions) =>
       call<DispatchInfo>(WORKSPACE_METHODS.dispatchAgent, options),
-    dispatchWorkflow: (name, input) =>
-      call<DispatchInfo>(WORKSPACE_METHODS.dispatchWorkflow, { input, name }),
+    dispatchWorkflow: (name, input, options) =>
+      call<DispatchInfo>(WORKSPACE_METHODS.dispatchWorkflow, {
+        input,
+        name,
+        ...(options?.key === undefined ? {} : { key: options.key }),
+      }),
     getRun: (runId) => call<RunInfo>(WORKSPACE_METHODS.getRun, { runId }),
     id,
     roll: (name, input) =>

@@ -40,12 +40,12 @@ import { temporaryDirectory } from "./helpers/temporary";
 const BLANK = /give it the name of a (step|workflow) the workspace declares/;
 const UNDECLARED = /declares no step or workflow named "missing"/;
 const NOT_A_WORKFLOW =
-  /"by-name-leaf" is a step, not a workflow; use step\.launch\("by-name-leaf"\)/;
+  /"by-name-leaf" is a step, not a workflow; use step\.enqueue\("by-name-leaf"\)/;
 const NOT_A_STEP =
-  /"by-name-flow" is a workflow, not a step; use workflow\.launch\("by-name-flow"\)/;
+  /"by-name-flow" is a workflow, not a step; use workflow\.enqueue\("by-name-flow"\)/;
 const RETIRING = /this engine is retiring/;
-const DISPOSED = /host that held these runs was disposed; nothing was launched/;
-const LOADING = /runs are not available while its source loads; launch them/;
+const DISPOSED = /host that held these runs was disposed; nothing was enqueued/;
+const LOADING = /runs are not available while its source loads; enqueue them/;
 const RELEASED = /no longer hosted in this process/;
 const AMBIGUOUS = /hosts 2 workspaces/;
 
@@ -115,7 +115,7 @@ async function answerOpen(engine: Engine): Promise<void> {
   await engine.answer(question?.id ?? "", "yes");
 }
 
-describe("step.launch(name) and workflow.launch(name)", () => {
+describe("step.enqueue(name) and workflow.enqueue(name)", () => {
   it("launches the step or workflow the workspace declares by that name, with the input it is given", async () => {
     step("by-name-build")
       .input(z.object({ ref: z.string() }))
@@ -125,10 +125,10 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     const engine = host();
     await engine.start();
 
-    const built = await step.launch<string>("by-name-build", { ref: "main" });
+    const built = await step.enqueue<string>("by-name-build", { ref: "main" });
     await expect(built.result).resolves.toBe("built main");
     expect((await runs.get(built.id))?.name).toBe("by-name-build");
-    const flowed = await workflow.launch("by-name-flow");
+    const flowed = await workflow.enqueue("by-name-flow");
     await expect(flowed.result).resolves.toBe("leaf");
     expect((await runs.get(flowed.id))?.name).toBe("by-name-flow");
   });
@@ -141,25 +141,25 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     const engine = host();
     await engine.start();
 
-    await expect(step.launch("")).rejects.toThrow(BLANK);
-    await expect(workflow.launch("   ")).rejects.toThrow(BLANK);
+    await expect(step.enqueue("")).rejects.toThrow(BLANK);
+    await expect(workflow.enqueue("   ")).rejects.toThrow(BLANK);
     await expect(
-      step.launch(undefined as unknown as string)
+      step.enqueue(undefined as unknown as string)
     ).rejects.toBeInstanceOf(TypeError);
-    await expect(step.launch("missing")).rejects.toThrow(UNDECLARED);
-    await expect(workflow.launch("missing")).rejects.toThrow(UNDECLARED);
+    await expect(step.enqueue("missing")).rejects.toThrow(UNDECLARED);
+    await expect(workflow.enqueue("missing")).rejects.toThrow(UNDECLARED);
     expect(watcher).toBeTypeOf("string");
-    await expect(step.launch(watcher ?? "")).rejects.toThrow(
+    await expect(step.enqueue(watcher ?? "")).rejects.toThrow(
       "declares no step or workflow"
     );
-    await expect(workflow.launch("by-name-leaf")).rejects.toThrow(
+    await expect(workflow.enqueue("by-name-leaf")).rejects.toThrow(
       NOT_A_WORKFLOW
     );
-    await expect(step.launch("by-name-flow")).rejects.toThrow(NOT_A_STEP);
+    await expect(step.enqueue("by-name-flow")).rejects.toThrow(NOT_A_STEP);
     expect(engine.executions.list()).toHaveLength(0);
   });
 
-  it("shares one key with the definition's own launch, whichever comes first", async () => {
+  it("shares one key with the definition's own enqueue, whichever comes first", async () => {
     let bodies = 0;
     const build = step("by-name-keyed")
       .input(z.object({ ref: z.string() }))
@@ -175,8 +175,8 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     const engine = host();
     await engine.start();
 
-    const direct = await build.launch({ ref: "a" }, { key: "one" });
-    const named = await step.launch(
+    const direct = await build.enqueue({ ref: "a" }, { key: "one" });
+    const named = await step.enqueue(
       "by-name-keyed",
       { ref: "b" },
       { key: "one" }
@@ -184,27 +184,27 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     expect(named.id).toBe(direct.id);
     await expect(named.result).resolves.toBe("built a");
 
-    const first = await step.launch(
+    const first = await step.enqueue(
       "by-name-keyed",
       { ref: "c" },
       { key: "two" }
     );
-    const then = await build.launch({ ref: "d" }, { key: "two" });
+    const then = await build.enqueue({ ref: "d" }, { key: "two" });
     expect(then.id).toBe(first.id);
     await expect(then.result).resolves.toBe("built c");
 
-    const flowed = await workflow.launch(
+    const flowed = await workflow.enqueue(
       "by-name-keyed-flow",
       {},
       { key: "f" }
     );
-    const again = await flow.launch({}, { key: "f" });
+    const again = await flow.enqueue({}, { key: "f" });
     expect(again.id).toBe(flowed.id);
     await expect(again.result).resolves.toBe("leaf");
 
     expect(bodies).toBe(3);
     await expect(
-      step.launch("by-name-keyed", { ref: "e" }, { key: " " })
+      step.enqueue("by-name-keyed", { ref: "e" }, { key: " " })
     ).rejects.toThrow("a key must be a non-blank string");
   });
 
@@ -226,7 +226,7 @@ describe("step.launch(name) and workflow.launch(name)", () => {
             continue;
           }
           deliveries += 1;
-          const { id } = await step.launch(
+          const { id } = await step.enqueue(
             "by-name-review",
             { title: delta.after.title },
             { key: `review:${delta.after.id}` }
@@ -268,7 +268,7 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     });
     const parent = step("by-name-parent").do(async ({ ask }) => {
       bodies += 1;
-      const launched = await step.launch<string>("by-name-child");
+      const launched = await step.enqueue<string>("by-name-child");
       await ask.question({ title: "Continue?" });
       return { id: launched.id, value: await launched.result };
     });
@@ -292,8 +292,8 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     const leaf = step("by-name-awaited-leaf").do(() => "flow");
     const flowDefinition = workflow("by-name-awaited-flow", () => leaf());
     const parent = step("by-name-awaiting").do(async () => {
-      const child = await step.launch<string>("by-name-awaited");
-      const flow = await workflow.launch<string>("by-name-awaited-flow");
+      const child = await step.enqueue<string>("by-name-awaited");
+      const flow = await workflow.enqueue<string>("by-name-awaited-flow");
       return `${await child.result} and ${await flow.result}`;
     });
     catalog.definitions.delete("by-name-awaited");
@@ -317,7 +317,7 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     const results: string[] = [];
     step("by-name-on-change").do(() => "noticed");
     monitor("**/*.md").do(async () => {
-      const launched = await step.launch<string>("by-name-on-change");
+      const launched = await step.enqueue<string>("by-name-on-change");
       results.push(await launched.result);
     });
     const [key] = [...catalog.monitors.keys()] as [string];
@@ -334,7 +334,7 @@ describe("step.launch(name) and workflow.launch(name)", () => {
   });
 
   it("from a step body refuses a name its engine does not declare, failing the step", async () => {
-    const parent = step("by-name-lost").do(() => step.launch("missing"));
+    const parent = step("by-name-lost").do(() => step.enqueue("missing"));
     const engine = unhosted();
     await engine.start();
 
@@ -346,13 +346,13 @@ describe("step.launch(name) and workflow.launch(name)", () => {
       throw new Error("child failed");
     });
     const parent = step("by-name-fire-and-forget").do(async () => {
-      await step.launch("by-name-failing");
+      await step.enqueue("by-name-failing");
       return "launched";
     });
     const engine = host();
     await engine.start();
 
-    await step.launch("by-name-failing");
+    await step.enqueue("by-name-failing");
     await expect(engine.execute(parent, {})).resolves.toBe("launched");
     await vi.waitFor(() => {
       const children = engine.executions
@@ -368,13 +368,13 @@ describe("step.launch(name) and workflow.launch(name)", () => {
     const engine = host();
     await engine.start();
     await engine.retire({ pid: thisProcess().pid + 1, started: null });
-    await expect(step.launch("by-name-refused")).rejects.toThrow(RETIRING);
+    await expect(step.enqueue("by-name-refused")).rejects.toThrow(RETIRING);
     await engine.dispose();
-    await expect(step.launch("by-name-refused")).rejects.toThrow(DISPOSED);
+    await expect(step.enqueue("by-name-refused")).rejects.toThrow(DISPOSED);
   });
 });
 
-describe("step.launch(name) bound to a load", () => {
+describe("step.enqueue(name) bound to a load", () => {
   it("refuses while the source loads, building no engine", async () => {
     const fallback = vi.fn(() =>
       Promise.reject(new Error("built a fallback engine"))
@@ -389,7 +389,7 @@ describe("step.launch(name) bound to a load", () => {
         const bound = libraryOfLoad(library, load) as typeof library;
         bound.step("by-name-early").do(() => "early");
         refused = await bound.step
-          .launch("by-name-early")
+          .enqueue("by-name-early")
           .catch((error) => error);
       },
       { dry: false }
@@ -431,8 +431,8 @@ describe("step.launch(name) bound to a load", () => {
     const a = await loaded("by-name-a", "from a");
     const b = await loaded("by-name-b", "from b");
     const relay = b.words.step("relay").do(async () => {
-      const mine = await b.words.step.launch<string>("shared-name");
-      const theirs = await a.words.step.launch<string>("shared-name");
+      const mine = await b.words.step.enqueue<string>("shared-name");
+      const theirs = await a.words.step.enqueue<string>("shared-name");
       return {
         mine: await mine.result,
         theirId: theirs.id,
@@ -440,11 +440,11 @@ describe("step.launch(name) bound to a load", () => {
       };
     });
 
-    const fromA = await a.words.step.launch("shared-name");
+    const fromA = await a.words.step.enqueue("shared-name");
     await expect(fromA.result).resolves.toBe("from a");
     expect(a.engine.executions.get(fromA.id)).toBeDefined();
     expect(b.engine.executions.get(fromA.id)).toBeUndefined();
-    const fromB = await b.words.step.launch("shared-name");
+    const fromB = await b.words.step.enqueue("shared-name");
     await expect(fromB.result).resolves.toBe("from b");
 
     const relayed = await b.engine.execute<{
@@ -456,12 +456,12 @@ describe("step.launch(name) bound to a load", () => {
     expect(relayed.theirs).toBe("from a");
     expect(a.engine.executions.get(relayed.theirId)?.name).toBe("shared-name");
 
-    await expect(step.launch("shared-name")).rejects.toThrow(AMBIGUOUS);
+    await expect(step.enqueue("shared-name")).rejects.toThrow(AMBIGUOUS);
 
     await a.engine.dispose();
     releaseEngine(a.engine);
-    await expect(a.words.step.launch("shared-name")).rejects.toThrow(RELEASED);
-    const stillB = await b.words.step.launch<string>("shared-name");
+    await expect(a.words.step.enqueue("shared-name")).rejects.toThrow(RELEASED);
+    const stillB = await b.words.step.enqueue<string>("shared-name");
     await expect(stillB.result).resolves.toBe("from b");
   });
 
@@ -494,10 +494,10 @@ describe("step.launch(name) bound to a load", () => {
       async (load) => {
         const words = libraryOfLoad(library, load) as typeof library;
         words.step("fresh-step").do(() => "fresh");
-        await expect(words.step.launch("old-step")).rejects.toThrow(
+        await expect(words.step.enqueue("old-step")).rejects.toThrow(
           "not available while its source loads"
         );
-        await expect(words.step.launch("fresh-step")).rejects.toThrow(
+        await expect(words.step.enqueue("fresh-step")).rejects.toThrow(
           "not available while its source loads"
         );
       },

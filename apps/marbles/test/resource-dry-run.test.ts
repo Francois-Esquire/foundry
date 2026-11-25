@@ -6,6 +6,7 @@ import { ArtifactManager } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
+import { parseArgs } from "~/cli/args";
 import { COMMANDS, dryRunRefusal } from "~/cli/command-line";
 import { initializeDatabase } from "~/database/open";
 import { resourceAssociations } from "~/database/resources";
@@ -31,29 +32,45 @@ interface Case {
   readonly stopAfterMs?: number;
 }
 
-function cases(artifact: string): Readonly<Record<string, Case>> {
+function cases(artifact: string): Readonly<Record<string, readonly Case[]>> {
   return {
-    artifacts: { args: ["artifacts", "--all"], exits: 0 },
-    attach: { args: ["attach"] },
-    daemon: { args: ["daemon"] },
-    detach: { args: ["detach"] },
-    help: { args: ["help"], exits: 0 },
-    init: { args: ["init", "developer"] },
-    list: { args: ["list"] },
-    mcp: { args: ["mcp"] },
-    relink: { args: ["relink", "--all"] },
-    roll: { args: ["roll", "hello"] },
-    run: { args: ["run"], stopAfterMs: 10_000 },
-    runs: { args: ["runs", "--all"], exits: 0 },
-    sandboxes: { args: ["sandboxes", "--all"], exits: 0 },
-    sessions: { args: ["sessions", "--all"], exits: 0 },
-    settings: { args: ["settings", "get", "theme"], exits: 0 },
-    share: { args: ["share", "artifact", artifact, "../two"] },
-    status: { args: ["status"], exits: 0 },
-    stop: { args: ["stop"] },
-    tasks: { args: ["tasks", "create", "Dry"], exits: 0 },
-    unshare: { args: ["unshare", "artifact", artifact, "../two"] },
-    watch: { args: ["watch", "rn-missing"] },
+    artifacts: [
+      { args: ["artifacts", "--all"], exits: 0 },
+      { args: ["artifacts", "list", "--all"], exits: 0 },
+      { args: ["artifacts", "relink", "--all"] },
+      { args: ["artifacts", "share", artifact, "../two"] },
+      { args: ["artifacts", "unshare", artifact, "../two"] },
+    ],
+    daemon: [
+      { args: ["daemon"] },
+      { args: ["daemon", "stop"] },
+      { args: ["daemon", "attach"] },
+      { args: ["daemon", "detach"] },
+    ],
+    dashboard: [{ args: [], stopAfterMs: 10_000 }],
+    enqueue: [{ args: ["enqueue", "hello", "--key", "dry"] }],
+    help: [{ args: ["help"], exits: 0 }],
+    init: [{ args: ["init", "developer"] }],
+    list: [{ args: ["list"] }],
+    mcp: [{ args: ["mcp"] }],
+    run: [{ args: ["run", "hello"] }],
+    runs: [
+      { args: ["runs", "--all"], exits: 0 },
+      { args: ["runs", "share", "rn-missing", "../two"] },
+    ],
+    sandboxes: [{ args: ["sandboxes", "--all"], exits: 0 }],
+    sessions: [
+      { args: ["sessions", "--all"], exits: 0 },
+      { args: ["sessions", "unshare", "ses-missing", "../two"] },
+    ],
+    status: [{ args: ["status"], exits: 0 }],
+    tasks: [{ args: ["tasks", "create", "Dry"], exits: 0 }],
+    theme: [
+      { args: ["theme"], exits: 0 },
+      { args: ["theme", "list"], exits: 0 },
+      { args: ["theme", "light"] },
+    ],
+    watch: [{ args: ["watch", "rn-missing"] }],
   };
 }
 
@@ -124,35 +141,39 @@ function walk(
   for (const command of Object.keys(COMMANDS).filter(
     options.only ?? (() => true)
   )) {
-    const how = table[command];
-    if (how === undefined) {
+    const ways = table[command];
+    if (ways === undefined) {
       throw new Error(`no case for ${command}: say how to run it here`);
     }
-    const refusal = dryRunRefusal(command);
-    const line = [...how.args, "--source", join(root, "marbles.ts")];
-    for (const position of positions) {
-      const flagged =
-        position === "before" ? ["--dry-run", ...line] : [...line, "--dry-run"];
-      const done = spawnSync("bun", cliArgs(...flagged), {
-        cwd: root,
-        encoding: "utf8",
-        env,
-        input: "",
-        killSignal: "SIGINT",
-        timeout: how.stopAfterMs ?? 60_000,
-      });
-      const what = `marbles ${flagged.join(" ")}`;
-      if (refusal === undefined) {
-        expect(done.stderr, what).not.toMatch(REFUSED);
-        if (how.exits !== undefined) {
-          expect(done.status, `${what}: ${done.stderr}`).toBe(how.exits);
+    for (const how of ways) {
+      const refusal = dryRunRefusal(parseArgs([...how.args]));
+      const line = [...how.args, "--source", join(root, "marbles.ts")];
+      for (const position of positions) {
+        const flagged =
+          position === "before"
+            ? ["--dry-run", ...line]
+            : [...line, "--dry-run"];
+        const done = spawnSync("bun", cliArgs(...flagged), {
+          cwd: root,
+          encoding: "utf8",
+          env,
+          input: "",
+          killSignal: "SIGINT",
+          timeout: how.stopAfterMs ?? 60_000,
+        });
+        const what = `marbles ${flagged.join(" ")}`;
+        if (refusal === undefined) {
+          expect(done.stderr, what).not.toMatch(REFUSED);
+          if (how.exits !== undefined) {
+            expect(done.status, `${what}: ${done.stderr}`).toBe(how.exits);
+          }
+        } else {
+          expect(done.status, what).toBe(1);
+          expect(done.stderr, what).toContain(refusal);
         }
-      } else {
-        expect(done.status, what).toBe(1);
-        expect(done.stderr, what).toContain(refusal);
+        expect(snapshot(), what).toEqual(before);
+        options.after?.(what);
       }
-      expect(snapshot(), what).toEqual(before);
-      options.after?.(what);
     }
   }
 }
@@ -184,12 +205,31 @@ function repository(root: string): string {
 }
 
 describe("every command under --dry-run", { timeout: 600_000 }, () => {
-  it("refuses the flag for a command whose handler says nothing of it", () => {
-    expect(dryRunRefusal("no-such-command")).toMatch(REFUSED);
-    expect(dryRunRefusal("init")).toBe(
+  it("refuses the flag for each action that writes, and only for those", () => {
+    const refusal = (...args: string[]) => dryRunRefusal(parseArgs(args));
+    expect(refusal("init")).toBe(
       "init writes a starter module; it takes no --dry-run"
     );
-    expect(dryRunRefusal("tasks")).toBeUndefined();
+    expect(refusal("tasks", "list")).toBeUndefined();
+    expect(refusal()).toBeUndefined();
+    expect(refusal("run", "hello")).toBeUndefined();
+    expect(refusal("enqueue", "hello")).toMatch(REFUSED);
+    for (const action of ["start", "stop", "attach", "detach"]) {
+      expect(refusal("daemon", action), action).toMatch(REFUSED);
+    }
+    expect(refusal("runs")).toBeUndefined();
+    expect(refusal("artifacts", "list", "--all")).toBeUndefined();
+    expect(refusal("artifacts", "relink")).toBe(
+      "artifacts relink rebuilds links from the Marbles database; it takes no --dry-run"
+    );
+    expect(refusal("sessions", "share", "ses-1", "../two")).toBe(
+      "sessions share changes what the Marbles database keeps; it takes no --dry-run"
+    );
+    expect(refusal("theme")).toBeUndefined();
+    expect(refusal("theme", "list")).toBeUndefined();
+    expect(refusal("theme", "light")).toBe(
+      "theme <name> saves the theme; it takes no --dry-run"
+    );
   });
 
   it("has a dry mode, only reads, or refuses the flag before or after the command, and changes nothing", async () => {
@@ -225,8 +265,9 @@ describe("every command under --dry-run", { timeout: 600_000 }, () => {
       return needs === "triggers" || needs === "connection";
     };
     expect(Object.keys(COMMANDS).filter(loads).sort()).toEqual([
+      "dashboard",
+      "enqueue",
       "list",
-      "roll",
       "run",
     ]);
     walk(home, top, root, "artifact#missing", ["after"], {
@@ -248,7 +289,7 @@ describe("every command under --dry-run", { timeout: 600_000 }, () => {
         input: "",
         timeout: 60_000,
       });
-    const attached = marbles("attach");
+    const attached = marbles("daemon", "attach");
     expect(attached.status, attached.stderr).toBe(0);
     const dry = marbles("tasks", "create", "Dry", "--dry-run");
     expect(dry.status, dry.stderr).toBe(0);

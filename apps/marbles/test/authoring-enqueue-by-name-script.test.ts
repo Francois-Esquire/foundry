@@ -15,7 +15,7 @@ afterAll(async () => {
   await dispose();
 });
 
-describe("step.launch(name) in a script no workspace hosts", () => {
+describe("step.enqueue(name) in a script no workspace hosts", () => {
   it("launches what the script declared on the engine it starts, as the definition's own launch does", async () => {
     const engine = testEngine({
       pools: { default: { limit: 4 } },
@@ -25,20 +25,20 @@ describe("step.launch(name) in a script no workspace hosts", () => {
     const leaf = step("script-leaf").do(() => "leaf");
     workflow("script-flow", () => leaf());
 
-    const launched = await step.launch<string>("script-leaf");
+    const launched = await step.enqueue<string>("script-leaf");
     await expect(launched.result).resolves.toBe("leaf");
-    const flowed = await workflow.launch<string>("script-flow");
+    const flowed = await workflow.enqueue<string>("script-flow");
     await expect(flowed.result).resolves.toBe("leaf");
     expect(engine.executions.get(flowed.id)).toBeDefined();
-    await expect(step.launch("script-flow")).rejects.toThrow(NOT_A_STEP);
-    await expect(step.launch("script-leaf", {}, { key: "k" })).rejects.toThrow(
+    await expect(step.enqueue("script-flow")).rejects.toThrow(NOT_A_STEP);
+    await expect(step.enqueue("script-leaf", {}, { key: "k" })).rejects.toThrow(
       NO_NAME
     );
-    await expect(leaf.launch({}, { key: "k" })).rejects.toThrow(NO_NAME);
+    await expect(leaf.enqueue({}, { key: "k" })).rejects.toThrow(NO_NAME);
 
     const parent = step("script-parent").do(async () => {
-      const child = await step.launch<string>("script-leaf");
-      const flow = await workflow.launch<string>("script-flow");
+      const child = await step.enqueue<string>("script-leaf");
+      const flow = await workflow.enqueue<string>("script-flow");
       return `${await child.result} and ${await flow.result}`;
     });
     await expect(parent.run()).resolves.toBe("leaf and leaf");
@@ -57,10 +57,10 @@ export const ship = workflow("ship", () => build({}, { ref: "shipped" }));
 const DISPATCH = `import { defineConfig, step, workflow } from "@foundry.sh/marbles";
 export default defineConfig({ pools: { default: 1 } });
 export const dispatch = step("dispatch").do(async () => {
-  const first = await step.launch("build", { ref: "main" }, { key: "k" });
-  const again = await step.launch("build", { ref: "other" }, { key: "k" });
-  const shipped = await workflow.launch("ship");
-  const wrong = await workflow.launch("build").catch((error) => error.message);
+  const first = await step.enqueue("build", { ref: "main" }, { key: "k" });
+  const again = await step.enqueue("build", { ref: "other" }, { key: "k" });
+  const shipped = await workflow.enqueue("ship");
+  const wrong = await workflow.enqueue("build").catch((error) => error.message);
   const built = await again.result;
   const shippedBuild = await shipped.result;
   return {
@@ -73,7 +73,7 @@ export const dispatch = step("dispatch").do(async () => {
 });
 `;
 
-describe("step.launch(name) across a workspace's files", {
+describe("step.enqueue(name) across a workspace's files", {
   timeout: 60_000,
 }, () => {
   it("launches a definition another file declares, never importing it, with a key that matches across launches", () => {
@@ -113,7 +113,7 @@ process.exit(0);
       same: true,
       shipped: "built shipped",
       wrong:
-        'workflow.launch("build"): "build" is a step, not a workflow; use step.launch("build")',
+        'workflow.enqueue("build"): "build" is a step, not a workflow; use step.enqueue("build")',
     });
   });
 });

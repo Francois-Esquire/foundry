@@ -37,9 +37,9 @@ import type {
 import type { InstanceRuntime, Scope } from "./runtime";
 import {
   captureScope,
+  enqueuingRuntime,
   instanceRoot,
   instanceRuntime,
-  launchingRuntime,
   ownRun,
   scriptCatalog,
 } from "./runtime";
@@ -349,10 +349,10 @@ export function runDefinition(
 
 function quiet(launched: Launched<unknown>): Launched<unknown> {
   launched.result.catch(() => undefined);
-  return launched;
+  return { id: launched.id, result: launched.result };
 }
 
-export function launchDefinition(
+export function enqueueDefinition(
   definition: AnyDefinition,
   input: unknown,
   scope: Scope = (work) => work(),
@@ -366,22 +366,22 @@ export function launchDefinition(
       scope: running.scope,
       write: running.write,
     })
-      .launch(definition, input, options)
+      .enqueue(definition, input, options)
       .then(quiet);
   }
   return scope(instanceRuntime)
-    .then((runtime) => runtime.launchDefinition(definition, input, options))
+    .then((runtime) => runtime.enqueueDefinition(definition, input, options))
     .then(quiet);
 }
 
 type Kind = AnyDefinition["kind"];
 
-function launchable(
+function enqueueable(
   kind: Kind,
   name: string,
   found: NamedDefinition | undefined
 ): NamedDefinition {
-  const word = `${kind}.launch(${JSON.stringify(name)})`;
+  const word = `${kind}.enqueue(${JSON.stringify(name)})`;
   if (found === undefined) {
     throw new Error(
       `${word}: this workspace declares no step or workflow named ${JSON.stringify(name)}`
@@ -389,13 +389,13 @@ function launchable(
   }
   if (found.kind !== kind) {
     throw new Error(
-      `${word}: ${JSON.stringify(name)} is a ${found.kind}, not a ${kind}; use ${found.kind}.launch(${JSON.stringify(name)})`
+      `${word}: ${JSON.stringify(name)} is a ${found.kind}, not a ${kind}; use ${found.kind}.enqueue(${JSON.stringify(name)})`
     );
   }
   return found;
 }
 
-export async function launchNamed(
+export async function enqueueNamed(
   kind: Kind,
   name: unknown,
   input: unknown,
@@ -403,7 +403,7 @@ export async function launchNamed(
 ): Promise<Launched<unknown>> {
   if (typeof name !== "string" || name.trim() === "") {
     throw new TypeError(
-      `${kind}.launch(): give it the name of a ${kind} the workspace declares`
+      `${kind}.enqueue(): give it the name of a ${kind} the workspace declares`
     );
   }
   const running = ownRun();
@@ -416,16 +416,16 @@ export async function launchNamed(
     });
     const found = scoped.named(name) ?? scriptCatalog()?.definitions.get(name);
     return await scoped
-      .launch(launchable(kind, name, found), input, options)
+      .enqueue(enqueueable(kind, name, found), input, options)
       .then(quiet);
   }
-  const { declared, runtime } = await launchingRuntime(`${kind}.launch()`);
-  const definition = launchable(
+  const { declared, runtime } = await enqueuingRuntime(`${kind}.enqueue()`);
+  const definition = enqueueable(
     kind,
     name,
     runtime.definition(name) ?? declared?.definitions.get(name)
   );
-  return quiet(await runtime.launchDefinition(definition, input, options));
+  return quiet(await runtime.enqueueDefinition(definition, input, options));
 }
 
 export function workspaceInstance(

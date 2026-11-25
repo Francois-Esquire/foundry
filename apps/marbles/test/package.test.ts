@@ -36,6 +36,7 @@ import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
 import { inspectDashboard } from "./helpers/terminal";
 
+const QUEUED_RUN_ID = /^rn-\S+$/;
 const CURRENT_GENERATION = /engine generation \d+: pid \d+ · current/;
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
@@ -627,12 +628,10 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     expect(embedded).toContain("persisted Kept across a dispose true true");
     expect(embedded).toContain("host sessions 1 function");
     const cli = join(consumer, "node_modules/.bin/marbles");
-    for (const command of [[], ["run"]]) {
-      const terminal = await inspectDashboard(cli, consumer, command);
-      expect(terminal.code).toBe(0);
-      expect(terminal.output).toContain("Triggers");
-      expect(terminal.output).toContain("Runs");
-    }
+    const terminal = await inspectDashboard(cli, consumer, []);
+    expect(terminal.code).toBe(0);
+    expect(terminal.output).toContain("Triggers");
+    expect(terminal.output).toContain("Runs");
     expect(run(cli, ["--help"], consumer)).toContain(
       "programmable workspace automation"
     );
@@ -651,7 +650,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       run(
         cli,
         [
-          "roll",
+          "run",
           "packed-workflow",
           "--dry-run",
           "--input",
@@ -666,8 +665,21 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       run(cli, args, consumer, env);
     try {
       expect(
-        marbles(["roll", "packed-workflow", "--input", '{"name":"daemon"}'])
+        marbles(["run", "packed-workflow", "--input", '{"name":"daemon"}'])
       ).toContain("Hello daemon");
+      const queued = marbles([
+        "enqueue",
+        "packed-workflow",
+        "--input",
+        '{"name":"queue"}',
+        "--key",
+        "packed",
+      ]).trim();
+      expect(queued).toMatch(QUEUED_RUN_ID);
+      expect(marbles(["watch", queued])).toContain("Hello queue");
+      expect(
+        marbles(["enqueue", "packed-workflow", "--key", "packed"]).trim()
+      ).toBe(queued);
       const status = marbles(["status"]);
       expect(status).toContain("marbles process: pid");
       expect(status).toContain("(generation)");
@@ -678,7 +690,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
         "Through the generation"
       );
     } finally {
-      expect(marbles(["stop"])).toContain("stopped Marbles process");
+      expect(marbles(["daemon", "stop"])).toContain("stopped Marbles process");
     }
     expect(marbles(["status"])).toContain(consumer);
     const listedTasks = (env: Record<string, string>) =>
@@ -712,7 +724,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       },
     });
     expect(strayLines(ended.stdout)).toEqual([]);
-    expect(marbles(["stop"], mcpHome.env)).toContain(
+    expect(marbles(["daemon", "stop"], mcpHome.env)).toContain(
       "no Marbles process is running"
     );
     writeFileSync(join(standalone, "workspace-marker.txt"), "workspace root");
@@ -727,7 +739,7 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
 `
     );
     expect(run(cli, ["list", "--dry-run"], standalone)).toContain("inventory");
-    const inventory = execFileSync(cli, ["roll", "inventory", "--dry-run"], {
+    const inventory = execFileSync(cli, ["run", "inventory", "--dry-run"], {
       cwd: standalone,
       encoding: "utf8",
       env: { ...process.env, PATH: dirname(process.execPath) },
@@ -762,7 +774,7 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
       machine.close();
     }
     const rolled = () => {
-      const result = spawnSync(cli, ["roll", "inventory", "--dry-run"], {
+      const result = spawnSync(cli, ["run", "inventory", "--dry-run"], {
         cwd: standalone,
         encoding: "utf8",
         env: {
@@ -815,16 +827,12 @@ if (defineProvider(vercel) !== vercel) throw new Error("defineProvider returns i
       const bin = join(directory, "bin");
       mkdirSync(bin);
       fakeCodex(bin);
-      const result = execFileSync(
-        cli,
-        ["roll", "packed-summary", "--dry-run"],
-        {
-          cwd: directory,
-          encoding: "utf8",
-          env: { ...process.env, PATH: `${bin}:${dirname(process.execPath)}` },
-          timeout: 10_000,
-        }
-      );
+      const result = execFileSync(cli, ["run", "packed-summary", "--dry-run"], {
+        cwd: directory,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${bin}:${dirname(process.execPath)}` },
+        timeout: 10_000,
+      });
       expect(result).toContain("[run] packed-summary complete");
       expect(result).toContain("Summarize this codebase");
     }

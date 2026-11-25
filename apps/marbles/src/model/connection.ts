@@ -106,6 +106,10 @@ export type DispatchInfo = Pick<
   "kind" | "name" | "runId" | "session" | "status"
 >;
 
+export interface EnqueueOptions {
+  readonly key?: string;
+}
+
 export interface RollResult {
   readonly lines: readonly string[];
   readonly skipped?: string;
@@ -118,7 +122,11 @@ export interface WorkspaceConnection {
   readonly config: string | null;
   describe(): Promise<WorkspaceConfig>;
   dispatchAgent(options: DispatchOptions): Promise<DispatchInfo>;
-  dispatchWorkflow(name: string, input: unknown): Promise<DispatchInfo>;
+  dispatchWorkflow(
+    name: string,
+    input: unknown,
+    options?: EnqueueOptions
+  ): Promise<DispatchInfo>;
   getRun(runId: string): Promise<RunInfo>;
   readonly id: string;
   roll(name: string, input?: unknown): Promise<RollResult>;

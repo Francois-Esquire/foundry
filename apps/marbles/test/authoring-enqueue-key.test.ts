@@ -56,7 +56,7 @@ function host(state = machine.workspace()): Engine {
   return engine;
 }
 
-describe(".launch(input, { key })", () => {
+describe(".enqueue(input, { key })", () => {
   it("hands back the run a key already launched, while it runs and once it is done, with its result", async () => {
     const release = Promise.withResolvers<void>();
     let bodies = 0;
@@ -70,15 +70,15 @@ describe(".launch(input, { key })", () => {
     const engine = host();
     await engine.start();
 
-    const first = await build.launch({ ref: "main" }, { key: "task-1" });
+    const first = await build.enqueue({ ref: "main" }, { key: "task-1" });
     expect(engine.executions.get(first.id)?.source).toBeUndefined();
-    const again = await build.launch({ ref: "main" }, { key: "task-1" });
+    const again = await build.enqueue({ ref: "main" }, { key: "task-1" });
     expect(again.id).toBe(first.id);
     release.resolve();
     await expect(first.result).resolves.toBe("built main");
     await expect(again.result).resolves.toBe("built main");
 
-    const after = await build.launch({ ref: "other" }, { key: "task-1" });
+    const after = await build.enqueue({ ref: "other" }, { key: "task-1" });
     expect(after.id).toBe(first.id);
     await expect(after.result).resolves.toBe("built main");
     expect(bodies).toBe(1);
@@ -86,7 +86,7 @@ describe(".launch(input, { key })", () => {
       engine.executions.list().filter((run) => run.name === "keyed-build")
     ).toHaveLength(1);
 
-    const other = await build.launch({ ref: "next" }, { key: "task-2" });
+    const other = await build.enqueue({ ref: "next" }, { key: "task-2" });
     expect(other.id).not.toBe(first.id);
     await expect(other.result).resolves.toBe("built next");
   });
@@ -100,9 +100,9 @@ describe(".launch(input, { key })", () => {
     const engine = host();
     await engine.start();
 
-    const first = await flaky.launch({}, { key: "once" });
+    const first = await flaky.enqueue({}, { key: "once" });
     await expect(first.result).rejects.toThrow(BROKE);
-    const again = await flaky.launch({}, { key: "once" });
+    const again = await flaky.enqueue({}, { key: "once" });
     expect(again.id).toBe(first.id);
     await expect(again.result).rejects.toThrow(BROKE);
     expect(bodies).toBe(1);
@@ -114,14 +114,14 @@ describe(".launch(input, { key })", () => {
     const engine = host();
     await engine.start();
 
-    await expect(anonymous.launch({}, { key: "k" })).rejects.toThrow(NO_NAME);
-    await expect(leaf.launch({}, { key: " " })).rejects.toThrow(BLANK);
+    await expect(anonymous.enqueue({}, { key: "k" })).rejects.toThrow(NO_NAME);
+    await expect(leaf.enqueue({}, { key: " " })).rejects.toThrow(BLANK);
     const undeclared = step("not-declared-on-engine").do(() => "late");
-    await expect(undeclared.launch({}, { key: "k" })).rejects.toThrow(NO_NAME);
+    await expect(undeclared.enqueue({}, { key: "k" })).rejects.toThrow(NO_NAME);
     await expect(
-      leaf.launch({}, { key: 1 as unknown as string })
+      leaf.enqueue({}, { key: 1 as unknown as string })
     ).rejects.toThrow(BLANK);
-    await expect(anonymous.launch()).resolves.toMatchObject({});
+    await expect(anonymous.enqueue()).resolves.toMatchObject({});
   });
 
   it("launches once for an observer that throws after launching and is delivered the change again", async () => {
@@ -142,7 +142,7 @@ describe(".launch(input, { key })", () => {
             continue;
           }
           deliveries += 1;
-          const { id } = await review.launch(
+          const { id } = await review.enqueue(
             { title: delta.after.title },
             { key: `review:${delta.after.id}` }
           );
@@ -184,7 +184,7 @@ describe(".launch(input, { key })", () => {
     const before = definitions();
     const first = host(state);
     await first.start();
-    const launched = await before.launch({ ref: "a" }, { key: "k" });
+    const launched = await before.enqueue({ ref: "a" }, { key: "k" });
     await expect(launched.result).resolves.toBe("built a");
     await first.dispose();
     releaseEngine(first);
@@ -193,7 +193,7 @@ describe(".launch(input, { key })", () => {
     const after = definitions();
     const second = host(state);
     await second.start();
-    const again = await after.launch({ ref: "b" }, { key: "k" });
+    const again = await after.enqueue({ ref: "b" }, { key: "k" });
     expect(again.id).toBe(launched.id);
     await expect(again.result).resolves.toBe("built a");
     expect(
@@ -246,23 +246,23 @@ describe(".launch(input, { key })", () => {
     const second = open();
     await second.start();
 
-    const okOne = await first.launchDefinition<string>(
+    const okOne = await first.enqueueDefinition<string>(
       firstDefs.build,
       { ref: "main" },
       { key: "k-ok" }
     );
-    const failOne = await first.launchDefinition(
+    const failOne = await first.enqueueDefinition(
       firstDefs.flaky,
       {},
       { key: "k-fail" }
     );
 
-    const okTwo = await second.launchDefinition<string>(
+    const okTwo = await second.enqueueDefinition<string>(
       secondDefs.build,
       { ref: "other" },
       { key: "k-ok" }
     );
-    const failTwo = await second.launchDefinition(
+    const failTwo = await second.enqueueDefinition(
       secondDefs.flaky,
       {},
       { key: "k-fail" }
@@ -287,8 +287,8 @@ describe(".launch(input, { key })", () => {
       return "child";
     });
     const parent = step("keyed-parent").do(async () => {
-      const one = await child.launch({}, { key: "shared" });
-      const two = await child.launch({}, { key: "shared" });
+      const one = await child.enqueue({}, { key: "shared" });
+      const two = await child.enqueue({}, { key: "shared" });
       return { same: one.id === two.id, value: await two.result };
     });
     const engine = host();
@@ -313,14 +313,14 @@ it.each(["stop", "dispose"] as const)(
     const state = machine.workspace();
     const owner = host(state);
     await owner.start();
-    const launched = await owner.launchDefinition<string>(
+    const launched = await owner.enqueueDefinition<string>(
       definition,
       {},
       { key: "close" }
     );
     const observer = host(state);
     await observer.start();
-    const remote = await observer.launchDefinition<string>(
+    const remote = await observer.enqueueDefinition<string>(
       definition,
       {},
       { key: "close" }
@@ -346,7 +346,7 @@ it("graceful stop lets a draining in-run parent finish awaiting a nonlocal keyed
   });
   const owner = host(state);
   await owner.start();
-  const childRun = await owner.launchDefinition<string>(
+  const childRun = await owner.enqueueDefinition<string>(
     childA,
     {},
     { key: "drain-key" }
@@ -355,13 +355,13 @@ it("graceful stop lets a draining in-run parent finish awaiting a nonlocal keyed
   catalog.reset();
   const childB = step("remote-child").do(() => "unused");
   const parentB = step("draining-parent").do(async () => {
-    const joined = await childB.launch({}, { key: "drain-key" });
+    const joined = await childB.enqueue({}, { key: "drain-key" });
     parentEntered.resolve();
     return `parent:${await joined.result}`;
   });
   const peer = host(state);
   await peer.start();
-  const parentRun = await peer.launchDefinition<string>(parentB, {});
+  const parentRun = await peer.enqueueDefinition<string>(parentB, {});
   await parentEntered.promise;
 
   const stopping = peer.stop();
@@ -378,7 +378,7 @@ it("stop() before start() does not poison later nonlocal result lookups", async 
   await owner.start();
   await expect(
     owner
-      .launchDefinition<string>(childA, {}, { key: "pre-stop" })
+      .enqueueDefinition<string>(childA, {}, { key: "pre-stop" })
       .then((run) => run.result)
   ).resolves.toBe("ready");
 
@@ -387,7 +387,7 @@ it("stop() before start() does not poison later nonlocal result lookups", async 
   const peer = host(state);
   await peer.stop();
   await peer.start();
-  const joined = await peer.launchDefinition<string>(
+  const joined = await peer.enqueueDefinition<string>(
     childB,
     {},
     { key: "pre-stop" }
