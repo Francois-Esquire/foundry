@@ -1,16 +1,22 @@
 use std::env;
 use std::ffi::OsString;
+use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use marbles_daemon::protocol::PROTOCOL_VERSION;
+use marbles_daemon::lifecycle::{self, DaemonOptions, StartError as DaemonStartError};
 use marbles_daemon::{Layout, LayoutError};
 use thiserror::Error;
+use tokio::signal::unix::{SignalKind, signal};
 
 #[derive(Debug, Error)]
 enum StartError {
     #[error(transparent)]
     Layout(#[from] LayoutError),
+    #[error(transparent)]
+    Daemon(#[from] DaemonStartError),
+    #[error("could not listen for stop signals: {0}")]
+    Signals(#[source] io::Error),
     #[error("{0} needs a value")]
     MissingValue(&'static str),
     #[error("{0} must not be empty")]
@@ -27,8 +33,9 @@ struct Overrides {
     version: Option<String>,
 }
 
-fn main() -> ExitCode {
-    match run() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> ExitCode {
+    match run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("marbles-daemon: {error}");
@@ -37,7 +44,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(), StartError> {
+async fn run() -> Result<(), StartError> {
     let overrides = parse_args(env::args_os().skip(1))?;
     let layout = match overrides.home {
         Some(home) => Layout::resolve_home(home)?,
@@ -46,12 +53,14 @@ fn run() -> Result<(), StartError> {
     let version = overrides
         .version
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-
-    println!("marbles-daemon v{version} (protocol {PROTOCOL_VERSION})");
-    println!("  exe:    {}", executable_path());
-    println!("  state:  {}", layout.state.display());
-    println!("  socket: {}", layout.socket.display());
-
+    let mut interrupt = signal(SignalKind::interrupt()).map_err(StartError::Signals)?;
+    let mut terminate = signal(SignalKind::terminate()).map_err(StartError::Signals)?;
+    let daemon = lifecycle::start(DaemonOptions::new(layout, version)).await?;
+    tokio::select! {
+        () = daemon.wait_closed() => {}
+        _ = interrupt.recv() => daemon.shutdown().await,
+        _ = terminate.recv() => daemon.shutdown().await,
+    }
     Ok(())
 }
 
@@ -81,12 +90,6 @@ fn value_of(flag: &'static str, value: Option<OsString>) -> Result<OsString, Sta
         Some(value) if value.is_empty() => Err(StartError::EmptyValue(flag)),
         Some(value) => Ok(value),
     }
-}
-
-fn executable_path() -> String {
-    env::current_exe()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| "<unknown>".to_owned())
 }
 
 #[cfg(test)]
