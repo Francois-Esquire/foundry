@@ -32,6 +32,16 @@ Clean scripts remove only named generated directories, never source, env files,
 or node_modules. Dependency removal is a separate manual maintenance action.
 Do not run clean concurrently with builds, tests, or typechecking.
 
+## Package architecture and runtime seams
+
+See [ADR-0001](./docs/adr/0001-package-architecture-and-runtime-boundaries.md) and [CONTEXT-MAP.md](./CONTEXT-MAP.md) for the full architecture and domain map.
+
+- **Three tiers (`packages/*`)**: **Primitives** (`core`, `lib`), **Tools / Engines** (`prompts`, `usage`, `models`), and **Domains** (`workspaces`, `artifacts`, `tasks`, `modules`, `agents`, `sandbox`, `workflows`, `queue`, `scheduling`). Dependencies are strictly acyclic across tiers (`Primitives` ← `Tools / Engines` ← `Domains`); tools never depend on domains, and shared contracts move down to `@foundry/core`.
+- **Naming**: Primary Domain entry points use plural domain nouns (`Workspaces`, `Artifacts`, `Tasks`, `Modules`, `Sessions`, `Sandboxes`); documented exemptions are collective/Effect/DSL nouns (`Queue`, `Scheduler`, `Workflow`, `Step`). Never use `*Manager` or `*System` in `packages/*` (`*Manager` is reserved for host facades in `apps/*/src/lib/managers/`). Name in-memory store adapters `Memory<Domain>Store` (not `InMemory*Store`). In `@foundry/artifacts`, the port interface is `ArtifactSubstrate` so `Artifacts` names the concrete class.
+- **Web-standard `.` and `./store/memory`**: Both entry points must be 100% Web-standard JS/TS — zero direct or transitive `node:*` imports, zero unguarded Node/Bun globals (`process`, `Buffer`, `Bun`, `__dirname`, `__filename`, `setImmediate`), zero import-time I/O, and no Node-dependent defaults.
+- **Explicit canonical subpaths**: Declare explicit `exports` in `package.json` with no `./*` wildcards. Domain packages use `.`, `./store`, `./store/{memory,sqlite,tables}`, `./testing/store`, and `./node` (for OS/fs/git/watch/child-process adapters and Node convenience factories).
+- **`AsyncScope` discipline**: Runtime-conditional `"node"`/`"bun"` vs. `"default"` exports (`@foundry/lib/async-scope`) are permitted only for best-effort diagnostics and guards (such as `Turns` reentrancy errors), never for load-bearing control flow.
+
 ## Code style
 
 Ultracite (Biome) enforces code style and lint rules; run `bun run fix` on the
