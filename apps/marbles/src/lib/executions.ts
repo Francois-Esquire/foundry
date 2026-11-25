@@ -13,8 +13,8 @@ import type {
   ExecutionRun,
   ExecutionRuns,
   ExecutionSubscription,
-  QueueSettings,
-  QueueState,
+  PoolConfig,
+  PoolStats,
   RetentionGap,
 } from "./execution-record";
 import {
@@ -38,17 +38,18 @@ export type {
   HostObservation,
   ModelTurnObservation,
   ObservationStatus,
-  QueueSettings,
-  QueueState,
+  PoolConfig,
+  PoolStats,
   RetentionGap,
   ToolCallObservation,
 } from "./execution-record";
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing execution API while its record boundary has a canonical home.
-export { DEFAULT_QUEUE } from "./execution-record";
+export { DEFAULT_POOL } from "./execution-record";
 
 type QueueReads = Pick<
   RunQueue,
   | "configurePool"
+  | "pools"
   | "instanceId"
   | "awaitJob"
   | "getJob"
@@ -65,25 +66,11 @@ interface Known {
 }
 
 export interface ExecutionsOptions {
-  readonly queues?: Readonly<Record<string, QueueSettings>>;
+  readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly removed?: (run: ExecutionRun) => Promise<void> | void;
   readonly store: ExecutionStore;
   readonly warn: (line: string) => void;
 }
-
-function validLimit(queue: string, concurrency: number): number {
-  if (
-    concurrency === Number.POSITIVE_INFINITY ||
-    (Number.isInteger(concurrency) && concurrency >= 1)
-  ) {
-    return concurrency;
-  }
-  throw new Error(
-    `queue "${queue}": concurrency must be a positive integer or Infinity, not ${String(concurrency)}`
-  );
-}
-
-const DEFAULT_LIMIT = 1;
 
 function ownedBy(run: Run, instanceId: string | undefined): boolean {
   if (run.state.kind === "running") {
@@ -102,7 +89,7 @@ export class Executions implements ExecutionRuns {
   readonly #store: ExecutionStore;
   readonly #warn: (line: string) => void;
   readonly #removed: (run: ExecutionRun) => Promise<void> | void;
-  readonly #limits = new Map<string, number>();
+  readonly #initial = new Map<string, ConcurrencyPool>();
   readonly #known = new Map<string, Known>();
   readonly #runOf = new Map<JobId, string>();
   readonly #submitted = new Map<JobId, Job>();
@@ -120,50 +107,34 @@ export class Executions implements ExecutionRuns {
     this.#store = options.store;
     this.#warn = options.warn;
     this.#removed = options.removed ?? (() => undefined);
-    for (const [name, settings] of Object.entries(options.queues ?? {})) {
-      this.configure(name, settings);
-    }
-  }
-
-  configure(queue: string, settings: QueueSettings): void {
-    const limit = validLimit(queue, settings.concurrency);
-    this.#limits.set(queue, limit);
-    this.#queue
-      ?.configurePool({ limit, name: queue, state: "active" })
-      .catch((error: unknown) =>
-        this.#warn(`[queue] "${queue}" not configured: ${String(error)}`)
-      );
-  }
-
-  pools(): readonly ConcurrencyPool[] {
-    return [...this.#limits].map(([name, limit]) => ({
-      limit,
-      name,
-      state: "active",
-    }));
-  }
-
-  queues(): readonly QueueState[] {
-    const states = new Map<string, QueueState>(
-      [...this.#limits].map(([name, concurrency]) => [
+    for (const [name, config] of Object.entries(options.pools ?? {})) {
+      this.#initial.set(name, {
+        limit: typeof config === "number" ? config : config.limit,
         name,
-        { active: 0, concurrency, name, waiting: 0 },
-      ])
-    );
-    for (const run of this.owned()) {
-      const state = states.get(run.queue) ?? {
-        active: 0,
-        concurrency: DEFAULT_LIMIT,
-        name: run.queue,
-        waiting: 0,
-      };
-      states.set(run.queue, {
-        ...state,
-        active: state.active + (run.status === "running" ? 1 : 0),
-        waiting: state.waiting + (run.status === "queued" ? 1 : 0),
+        state: "active",
       });
     }
-    return [...states.values()];
+  }
+
+  async configurePool(pool: string, config: PoolConfig): Promise<void> {
+    const configured: ConcurrencyPool = {
+      limit: typeof config === "number" ? config : config.limit,
+      name: pool,
+      state: "active",
+    };
+    if (this.#queue === undefined) {
+      this.#initial.set(pool, configured);
+    } else {
+      await this.#queue.configurePool(configured);
+    }
+  }
+
+  initialPools(): readonly ConcurrencyPool[] {
+    return [...this.#initial.values()];
+  }
+
+  pools(): Promise<readonly PoolStats[]> {
+    return this.#queue?.pools() ?? Promise.resolve([]);
   }
 
   attach(queue: QueueReads): void {
@@ -299,6 +270,13 @@ export class Executions implements ExecutionRuns {
     if (run === undefined || job === undefined) {
       this.#forget(id);
       return;
+    }
+    const stored = await this.#store.get(id);
+    if (
+      stored !== undefined &&
+      stored.revision > (this.#annexes.get(id)?.revision ?? -1)
+    ) {
+      this.#annexes.set(id, this.#parsed(stored));
     }
     this.#learn(job, run);
   }

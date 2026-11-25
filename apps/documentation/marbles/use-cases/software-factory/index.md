@@ -91,10 +91,10 @@ once, in any one module:
 ```ts
 import { queue } from "@foundry.sh/marbles";
 
-queue({ concurrency: 2 });
+export default defineConfig({ pools: { default: 2 } });
 ```
 
-A delivery parked on its approval does not hold a place in the queue. See
+A delivery suspended on its approval does not hold a place in the queue. See
 [how many runs at once](/marbles/concepts/durability#how-many-runs-at-once).
 
 ## Where to grow it

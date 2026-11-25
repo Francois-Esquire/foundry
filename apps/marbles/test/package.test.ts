@@ -490,14 +490,14 @@ const engine = new Engine({
   artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
   containers: () => Promise.reject(new Error("this host has no sandbox runtime")),
   models: new ModelManager(),
-  queues: { system: { concurrency: Number.POSITIVE_INFINITY } },
+  pools: { system: { limit: Number.POSITIVE_INFINITY } },
   root: ".",
   sessions,
   workspaceId: "embedded",
 });
 engine.task<{ n: number }, number>({
   name: "host-save",
-  queue: "system",
+  pool: "system",
   run: (input, context) => {
     context.observe({ kind: "result", type: "save" });
     return input.n + 1;
@@ -507,7 +507,7 @@ await engine.start();
 const value = await engine.run<number>("host-save", { n: 1 });
 const [recorded] = engine.executions.list();
 await engine.dispose();
-console.log("embedded", value, recorded?.queue, recorded?.status, recorded?.observations.length);
+console.log("embedded", value, recorded?.pool, recorded?.status, recorded?.observations.length);
 // Given a state dir, the engine keeps its tasks across a dispose, in the
 // Marbles database it opens there; a host may hand in its own records.
 const state = mkdtempSync(join(tmpdir(), "marbles-embedded-"));

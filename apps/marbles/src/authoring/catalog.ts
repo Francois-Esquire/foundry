@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { DEFAULT_POOL } from "@foundry/queue";
 import type { Output } from "ai";
 import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
 import { isNamed, quoteOrigin } from "~/lib/definition";
@@ -8,6 +10,18 @@ import type { ProviderPlugin } from "~/lib/providers/plugins";
 import type { MonitorRecord } from "~/lib/registry";
 import type { Schedule } from "~/lib/triggers";
 import type { AgentLike } from "~/lib/types";
+import type { PoolConfig } from "./config";
+import { configOf } from "./config";
+
+const ORIGIN_LINE = /:\d+$/;
+
+function normalized(file: string): string {
+  try {
+    return realpathSync(file);
+  } catch {
+    return file;
+  }
+}
 
 export interface DeclaredObserver {
   readonly handler: Handler<unknown>;
@@ -18,6 +32,54 @@ export interface DeclaredObserver {
 }
 
 export class Catalog {
+  readonly pools = new Map<
+    string,
+    { readonly config: PoolConfig; readonly file: string }
+  >();
+  readonly filePools = new Map<string, string>();
+
+  configure(file: string, value: unknown): void {
+    const config = configOf(file, value);
+    if (config === undefined) {
+      return;
+    }
+    for (const [name, pool] of Object.entries(config.pools ?? {})) {
+      const previous = this.pools.get(name);
+      if (
+        previous !== undefined &&
+        normalized(previous.file) !== normalized(file)
+      ) {
+        throw new Error(
+          `pool "${name}" declared in both ${previous.file} and ${file}`
+        );
+      }
+      this.pools.set(name, { config: pool, file });
+    }
+    if (config.pool !== undefined) {
+      this.filePools.set(normalized(file), config.pool);
+    }
+  }
+
+  validateConfig(): void {
+    for (const [file, pool] of this.filePools) {
+      if (pool !== DEFAULT_POOL && !this.pools.has(pool)) {
+        throw new Error(`${file}: unknown pool "${pool}"`);
+      }
+    }
+  }
+
+  poolRecords(): Readonly<Record<string, PoolConfig>> {
+    return Object.fromEntries(
+      [...this.pools].map(([name, entry]) => [name, entry.config])
+    );
+  }
+
+  poolFor(origin: string | undefined): string | undefined {
+    return origin === undefined
+      ? undefined
+      : this.filePools.get(normalized(origin.replace(ORIGIN_LINE, "")));
+  }
+
   readonly agents = new Map<string, AgentLike<Output.Output>>();
   readonly definitions = new Map<string, NamedDefinition>();
   readonly monitors = new Map<string, MonitorRecord>();
@@ -164,6 +226,8 @@ export class Catalog {
   }
 
   reset(): void {
+    this.pools.clear();
+    this.filePools.clear();
     this.agents.clear();
     this.definitions.clear();
     this.schedules.clear();

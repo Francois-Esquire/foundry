@@ -153,7 +153,11 @@ async function loadSource(
     async (load) => {
       const reading = read === undefined ? undefined : onRead(load, read);
       try {
-        await importLoad(sourceRoot(configPath), files, load);
+        const modules = await importLoad(sourceRoot(configPath), files, load);
+        for (const mod of modules) {
+          catalog.configure(mod.file, mod.exports.default);
+        }
+        catalog.validateConfig();
       } catch (error) {
         reading?.forget();
         throw error;

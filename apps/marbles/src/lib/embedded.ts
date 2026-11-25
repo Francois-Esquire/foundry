@@ -53,12 +53,12 @@ export type {
   HostObservation,
   ModelTurnObservation,
   ObservationStatus,
-  QueueSettings,
-  QueueState,
+  PoolConfig,
+  PoolStats,
   RetentionGap,
   ToolCallObservation,
 } from "./executions";
-export { DEFAULT_QUEUE } from "./executions";
+export { DEFAULT_POOL } from "./executions";
 export type { Launched, LaunchOptions } from "./launcher";
 export type { RunQuery, RunView } from "./managers/runs";
 export type { RecordedScope } from "./run-scope";

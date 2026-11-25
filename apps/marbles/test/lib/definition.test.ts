@@ -13,7 +13,6 @@ const UNDECLARED_CHILD = /"other" is not an input key \(declared: findings\)/;
 const UNDECLARED_CHILD_TYPED = /"other" is not an input key/;
 const NOT_A_NODE = /not a locked node/;
 const EXPECTED_NODE = /expected a locked node/;
-const WORKFLOW_CHILD = /child "a" is a workflow/;
 
 afterEach(() => {
   catalog.reset();
@@ -89,12 +88,15 @@ describe("definitions and locking", () => {
     ).toThrow(NOT_A_NODE);
   });
 
-  it("rejects a workflow as a child: only a run's root may be one", () => {
+  it("locks a workflow as a child, as it locks a step", () => {
     const inner = workflow("inner", step().do(() => 1)({}));
     const parent = step()
       .input(z.object({ a: z.number() }))
       .do(({ input }) => input.a);
-    expect(() => parent({ a: inner({}) })).toThrow(WORKFLOW_CHILD);
+    const node = parent({ a: inner({}) });
+    expect(
+      node.children.map(([key, child]) => [key, child.definition])
+    ).toEqual([["a", inner]]);
   });
 
   it("workflow accepts a tree, a function returning one, or the builder", async () => {

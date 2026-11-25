@@ -27,8 +27,9 @@ import {
 const fixture = executionFixture();
 const engineWith = fixture.engine;
 
-it("admits a queue in FIFO order, one at a time by default", async () => {
+it("admits a pool in FIFO order, one at a time by default", async () => {
   const engine = engineWith();
+  expect(await engine.executions.pools()).toEqual([]);
   const order: number[] = [];
   engine.task<number, number>({
     name: "note",
@@ -49,8 +50,8 @@ it("admits a queue in FIFO order, one at a time by default", async () => {
   expect(engine.executions.list().map((run) => run.status)).toEqual(
     new Array(5).fill("complete")
   );
-  expect(engine.executions.list().map((run) => run.queue)).toEqual(
-    new Array(5).fill("marbles")
+  expect(engine.executions.list().map((run) => run.pool)).toEqual(
+    new Array(5).fill("default")
   );
 });
 
@@ -83,7 +84,7 @@ it.each(["anonymous", "registered"] as const)(
         "running",
       ]);
       expect(started).toEqual([1]);
-      expect(records.every((run) => run.queue === "marbles")).toBe(true);
+      expect(records.every((run) => run.pool === "default")).toBe(true);
       for (const record of records) {
         expect(await storedExecution(state, record.id)).toMatchObject({
           name: record.name,
@@ -104,11 +105,11 @@ it.each(["anonymous", "registered"] as const)(
 );
 
 it("never refuses a run for capacity: a deep system backlog is all admitted in order", async () => {
-  const engine = engineWith({ queues: { system: { concurrency: 1 } } });
+  const engine = engineWith({ pools: { system: { limit: 1 } } });
   const order: number[] = [];
   engine.task<number, number>({
     name: "save",
-    queue: "system",
+    pool: "system",
     run: (n) => {
       order.push(n);
       return n;
@@ -128,7 +129,7 @@ it("never refuses a run for capacity: a deep system backlog is all admitted in o
 
 it("bounds each queue by its own concurrency, and one queue's backlog never holds another", async () => {
   const engine = engineWith({
-    queues: { authoring: { concurrency: 2 }, workflows: { concurrency: 1 } },
+    pools: { authoring: { limit: 2 }, workflows: { limit: 1 } },
   });
   const started: string[] = [];
   const gates = new Map<string, () => void>();
@@ -144,10 +145,10 @@ it("bounds each queue by its own concurrency, and one queue's backlog never hold
   );
   await until(() => started.length === 3);
   expect(started).toEqual(["f1", "t1", "t2"]);
-  expect(engine.executions.queues()).toEqual(
+  expect(await engine.executions.pools()).toEqual(
     expect.arrayContaining([
-      { active: 2, concurrency: 2, name: "authoring", waiting: 1 },
-      { active: 1, concurrency: 1, name: "workflows", waiting: 2 },
+      { active: 2, limit: 2, name: "authoring", state: "active", waiting: 1 },
+      { active: 1, limit: 1, name: "workflows", state: "active", waiting: 2 },
     ])
   );
 
@@ -176,11 +177,11 @@ it("applies a concurrency change live, without stopping what already runs", asyn
   );
   await until(() => started.length === 1);
 
-  engine.executions.configure("module:a:authoring", { concurrency: 3 });
+  await engine.executions.configurePool("module:a:authoring", { limit: 3 });
   await until(() => started.length === 3);
   expect(started).toEqual(["a", "b", "c"]);
 
-  engine.executions.configure("module:a:authoring", { concurrency: 1 });
+  await engine.executions.configurePool("module:a:authoring", { limit: 1 });
   gates.get("a")?.();
   gates.get("b")?.();
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -189,9 +190,9 @@ it("applies a concurrency change live, without stopping what already runs", asyn
   await until(() => started.length === 4);
   gates.get("d")?.();
   await Promise.all(runs.map((run) => run.result));
-  expect(() => engine.executions.configure("x", { concurrency: 0 })).toThrow(
-    "positive integer"
-  );
+  await expect(
+    engine.executions.configurePool("x", { limit: 0 })
+  ).rejects.toMatchObject({ _tag: "InvalidPoolLimitError" });
 });
 
 it("records workflow runs under the Orchestrator's own id, and shows queued ones on the dashboard", async () => {
@@ -401,13 +402,13 @@ it("aborts exec through a lent container when its task is cancelled", async () =
 it("keeps a long-lived run in an unbounded queue running beside bounded work, until it is cancelled", async () => {
   const state = join(fixture.root, "state");
   const engine = engineWith({
-    queues: { programs: { concurrency: Number.POSITIVE_INFINITY } },
+    pools: { programs: { limit: Number.POSITIVE_INFINITY } },
     state,
   });
   let stopped = 0;
   engine.task({
     name: "program",
-    queue: "programs",
+    pool: "programs",
     run: async (_input, { signal }: TaskContext) => {
       await new Promise<void>((resolve) =>
         signal.addEventListener("abort", () => resolve(), { once: true })
@@ -526,7 +527,7 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
   }
   const factory = new Record().factory();
   const engine = engineWith({
-    queues: { slow: { concurrency: 1 }, work: { concurrency: 1 } },
+    pools: { slow: { limit: 1 }, work: { limit: 1 } },
   });
   const dispatch = gate();
   const dispatching = gate();
@@ -539,18 +540,18 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
   const holding = gate();
   engine.task({
     name: "hold",
-    queue: "work",
+    pool: "work",
     run: async (_input, { signal }) => {
       signal.addEventListener("abort", holding.open, { once: true });
       await holding.opened;
     },
   });
   await engine.start();
-  const launching = engine.launch<string>("slow", "slow", { queue: "slow" });
+  const launching = engine.launch<string>("slow", "slow", { pool: "slow" });
   await dispatching.opened;
   await engine.launch("hold", {});
   const queued = await engine.launch<string>("queued", "queued", {
-    queue: "work",
+    pool: "work",
   });
   expect(engine.executions.get(queued.id)?.status).toBe("queued");
 
@@ -574,4 +575,44 @@ it("admits nothing on a cancelling stop while it waits on a dispatch in flight",
   expect(ran).toEqual([]);
   expect(engine.executions.get(queued.id)?.status).toBe("cancelled");
   expect(engine.executions.get(slow.id)?.status).toBe("cancelled");
+});
+
+it("peek reloads progress and observations persisted by another instance", async () => {
+  const store = Layer.succeed(QueueStore, Effect.runSync(makeMemoryQueueStore));
+  const queue = createQueueClient({ store });
+  const annexes = new MemoryExecutionStore();
+  const first = new Executions({ store: annexes, warn: () => undefined });
+  const second = new Executions({ store: annexes, warn: () => undefined });
+  first.attach({ ...queue, instanceId: randomUUID() });
+  second.attach({ ...queue, instanceId: randomUUID() });
+  try {
+    await queue.register("held", () => ({ kind: "complete", output: null }));
+    await queue.configurePool({ limit: 1, name: "held", state: "paused" });
+    await queue.submit({
+      handler: { name: "held" },
+      input: null,
+      pool: "held",
+      runId: "rn-annex",
+    });
+    await first.peek("rn-annex");
+    await second.peek("rn-annex");
+    first.progress("rn-annex", { stage: "review" });
+    await first.observe("rn-annex", {
+      id: "obs",
+      kind: "effect",
+      startedAt: new Date().toISOString(),
+      status: "complete",
+      type: "review",
+    });
+    await first.flush();
+    const refreshed = await second.peek("rn-annex");
+    expect(refreshed?.progress).toEqual({ stage: "review" });
+    expect(refreshed?.observations).toEqual([
+      expect.objectContaining({ id: "obs" }),
+    ]);
+  } finally {
+    first.detach();
+    second.detach();
+    await queue.dispose();
+  }
 });

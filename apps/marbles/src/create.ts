@@ -9,6 +9,7 @@ import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
 import { ModelManager } from "@foundry/models";
+import { DEFAULT_POOL } from "@foundry/queue";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import type { ContainerStore } from "@foundry/sandbox/store";
@@ -52,6 +53,7 @@ import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import { sourceKey } from "~/lib/events/source";
+import type { PoolConfig } from "~/lib/execution-record";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
@@ -62,6 +64,8 @@ import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
 import { containerHolder } from "~/lib/sandbox/holders";
+
+export const DEFAULT_HOSTED_POOL_LIMIT = 4;
 
 export interface CreateEngineOptions {
   readonly artifacts?: string;
@@ -75,6 +79,7 @@ export interface CreateEngineOptions {
   readonly home?: string;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   readonly plugins?: readonly ProviderPlugin[];
+  readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print: (line: string) => void;
   readonly providers?: readonly Provider[];
   readonly root: string;
@@ -89,7 +94,7 @@ type Declarable = Pick<Engine, "define" | "monitor" | "schedule"> &
 
 export function declareCatalog(target: Declarable, catalog: Catalog): void {
   for (const definition of catalog.definitions.values()) {
-    target.define(definition);
+    target.define(definition, catalog.poolFor(definition.origin));
   }
   for (const record of catalog.schedules.values()) {
     target.schedule(record);
@@ -405,6 +410,11 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const git = dry ? { run: echoGit(print) } : {};
   const { links, ...artifacts } = artifactsFor(stores, options);
   const engineOptions: EngineOptions = {
+    pools: {
+      [DEFAULT_POOL]: DEFAULT_HOSTED_POOL_LIMIT,
+      ...catalog.poolRecords(),
+      ...options.pools,
+    },
     ...artifacts,
     askable: options.askable,
     ...(stores === undefined ? {} : { containerRows: stores.containers }),

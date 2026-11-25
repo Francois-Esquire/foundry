@@ -415,11 +415,16 @@ export function copyModules(builder: PluginBuilder): void {
   });
 }
 
+export interface LoadedModule {
+  readonly exports: Readonly<Record<string, unknown>>;
+  readonly file: string;
+}
+
 export async function importLoad(
   root: string,
   files: readonly string[],
   load: number = newLoad()
-): Promise<void> {
+): Promise<readonly LoadedModule[]> {
   if (modules === undefined) {
     throw new Error("the source library is not linked yet");
   }
@@ -431,12 +436,15 @@ export async function importLoad(
       loader: "object",
     }));
   }
-  const contents = files
-    .map(
-      (file) => `import ${JSON.stringify(copyPath(realpathSync(file), load))};`
-    )
-    .join("\n");
+  const contents =
+    files
+      .map(
+        (file, i) =>
+          `import * as m${i} from ${JSON.stringify(copyPath(realpathSync(file), load))};`
+      )
+      .join("\n") +
+    `\nexport const modules = [${files.map((file, i) => `{ exports: m${i}, file: ${JSON.stringify(file)} }`).join(",")}];`;
   const specifier = `marbles-load:${String(load)}`;
   modules.module(specifier, () => ({ contents, loader: "js" }));
-  await import(specifier);
+  return (await import(specifier)).modules;
 }

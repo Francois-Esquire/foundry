@@ -7,7 +7,7 @@ import type { QueueHandlerContext } from "@foundry/queue/client";
 import type { Container } from "@foundry/sandbox/container/containers";
 import { asRun, callingRun } from "~/lib/calling-run";
 import type { ExecutionRun } from "~/lib/execution-record";
-import { DEFAULT_QUEUE, isTask, linksOf } from "~/lib/execution-record";
+import { DEFAULT_POOL, isTask, linksOf } from "~/lib/execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { Executions } from "~/lib/executions";
 import { errorCode } from "~/lib/observations";
@@ -18,10 +18,14 @@ import type { Agents, SandboxHandle } from "~/lib/types";
 import type { ExecutionContext } from "./execution-context";
 import { withinContext } from "./execution-context";
 
+export interface DefinitionLaunch {
+  readonly key?: string;
+}
+
 export interface LaunchOptions {
   readonly correlation?: Readonly<Record<string, string>>;
   readonly idempotencyKey?: string;
-  readonly queue?: string;
+  readonly pool?: string;
   readonly recordErrorMessage?: boolean;
   readonly source?: string;
   readonly triggerId?: string;
@@ -44,6 +48,7 @@ interface WorkflowDispatch {
     options: SubmitOptions
   ): Promise<{ readonly dispatched?: DispatchedRun; readonly job: Job }>;
   has(name: string): boolean;
+  poolOf(name: string): string | undefined;
 }
 
 interface TaskRunSite {
@@ -91,7 +96,7 @@ export type QueuedAdoption =
   | { readonly taken: true }
   | { readonly taken: false; readonly why: string };
 
-const idempotencyKeyOf = (name: string, source: string): string =>
+export const idempotencyKeyOf = (name: string, source: string): string =>
   JSON.stringify([name, source]);
 
 const isRetiring = (error: unknown): boolean =>
@@ -107,9 +112,10 @@ function submitOptionsOf(
   idempotencyKey: string | undefined,
   task: TaskDefinition | undefined,
   options: LaunchOptions,
-  parent: string | undefined
+  parent: string | undefined,
+  definitionPool: string | undefined
 ): SubmitOptions {
-  const { correlation, queue, source, triggerId } = options;
+  const { correlation, pool, source, triggerId } = options;
   return {
     ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
     links: linksOf({
@@ -121,7 +127,7 @@ function submitOptionsOf(
       ...(source === undefined ? {} : { source }),
       ...(triggerId === undefined ? {} : { triggerId }),
     }),
-    pool: queue ?? task?.queue ?? DEFAULT_QUEUE,
+    pool: pool ?? task?.pool ?? definitionPool ?? DEFAULT_POOL,
     runId,
   };
 }
@@ -143,6 +149,8 @@ export class Launcher {
   readonly #live = new Map<string, Promise<void>>();
   readonly #launching = new Set<Promise<void>>();
   readonly #dispatching = new Set<string>();
+  readonly #closed = Promise.withResolvers<never>();
+  #closedReason: Error | undefined;
   #queue: RunQueue | undefined;
   #retiring = false;
   #cancelling = false;
@@ -235,7 +243,8 @@ export class Launcher {
       idempotencyKey,
       task,
       options,
-      parent
+      parent,
+      this.#options.workflows.poolOf(name)
     );
     const owed = this.#owe(runId, options.recordErrorMessage ?? true);
     let job: Job;
@@ -305,12 +314,17 @@ export class Launcher {
     if (job === undefined) {
       return;
     }
-    const [run] = await queue.listRuns({ jobId: job.id });
+    const runs = await queue.listRuns({ jobId: job.id });
+    const run = runs.reduce<(typeof runs)[number] | undefined>(
+      (last, each) =>
+        last === undefined || each.attempt > last.attempt ? each : last,
+      undefined
+    );
     if (run === undefined) {
       return;
     }
     await this.executions.refresh(run.id);
-    return { id: run.id, result: this.#resultOf(run.id) };
+    return { id: run.id, result: this.resultOf(run.id) };
   }
 
   follow(id: string, dispatched: DispatchedRun): void {
@@ -543,10 +557,6 @@ export class Launcher {
     await Promise.all(this.#live.values());
   }
 
-  owedResult(id: string): Promise<unknown> | undefined {
-    return this.#owed.get(id)?.promise;
-  }
-
   beginRetiring(): void {
     this.#retiring = true;
   }
@@ -577,30 +587,35 @@ export class Launcher {
     }
   }
 
-  #resultOf(id: string): Promise<unknown> {
-    const owed = this.#owed.get(id);
-    if (owed) {
-      return owed.promise;
-    }
-    const run = this.executions.get(id);
-    if (run?.status === "complete") {
-      return Promise.resolve(undefined);
-    }
-    if (run !== undefined && !SETTLED_EXECUTION_STATUSES.has(run.status)) {
-      return this.#endOf(id);
-    }
-    return Promise.reject(
-      new Error(
-        `run ${id} is ${run?.status ?? "gone"}; its value is not held here`
-      )
-    );
+  close(reason: Error): void {
+    this.#closedReason ??= reason;
+    this.#closed.promise.catch(() => undefined);
+    this.#closed.reject(this.#closedReason);
   }
 
-  async #endOf(id: string): Promise<void> {
-    const settled = await this.executions.settled(id);
-    if (settled.status !== "complete") {
-      throw new Error(this.#endedWith(settled));
+  resultOf(id: string): Promise<unknown> {
+    const owed = this.#owed.get(id);
+    if (owed !== undefined) {
+      return owed.promise;
     }
+    const result = this.#settledResult(id);
+    result.catch(() => undefined);
+    return result;
+  }
+
+  async #settledResult(id: string): Promise<unknown> {
+    if (this.#closedReason !== undefined) {
+      throw this.#closedReason;
+    }
+    const settled = await Promise.race([
+      this.#requireQueue().settled(id),
+      this.#closed.promise,
+    ]);
+    if (settled.status === "complete") {
+      return settled.value;
+    }
+    const run = await this.executions.peek(id);
+    throw new Error(run ? this.#endedWith(run) : `run ${id} ${settled.status}`);
   }
 
   #activeCaller(): string | undefined {

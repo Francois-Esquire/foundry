@@ -8,7 +8,7 @@ import type { Output } from "ai";
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
 import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "~/lib/handles";
-import type { Launched } from "~/lib/launcher";
+import type { DefinitionLaunch, Launched } from "~/lib/launcher";
 import { deferredStream } from "~/lib/managers/agent-turns";
 import type { AgentTurns } from "~/lib/managers/agents";
 import { inputSnapshot } from "~/lib/managers/agents";
@@ -348,21 +348,23 @@ function quiet(launched: Launched<unknown>): Launched<unknown> {
 export function launchDefinition(
   definition: AnyDefinition,
   input: unknown,
-  scope: Scope = (work) => work()
+  scope: Scope = (work) => work(),
+  options: DefinitionLaunch = {}
 ): Promise<Launched<unknown>> {
   const running = ownRun();
   const runs = running?.bindings.runs;
-  const launched =
-    running !== undefined && runs !== undefined
-      ? runs({
-          frame: running.frame,
-          scope: running.scope,
-          write: running.write,
-        }).launch(definition, input)
-      : scope(instanceRuntime).then((runtime) =>
-          runtime.launchDefinition(definition, input)
-        );
-  return launched.then(quiet);
+  if (running !== undefined && runs !== undefined) {
+    return runs({
+      frame: running.frame,
+      scope: running.scope,
+      write: running.write,
+    })
+      .launch(definition, input, options)
+      .then(quiet);
+  }
+  return scope(instanceRuntime)
+    .then((runtime) => runtime.launchDefinition(definition, input, options))
+    .then(quiet);
 }
 
 export function workspaceInstance(

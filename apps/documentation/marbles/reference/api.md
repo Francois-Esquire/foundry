@@ -23,7 +23,7 @@ import {
   agent,
   artifact,
   monitor,
-  queue,
+  defineConfig,
   sandbox,
   schedule,
   skills,
@@ -44,7 +44,7 @@ import {
 | `workflow` | `workflow(name?, tree)`, `workflow(name?, () => tree)`, `workflow(name?).input(s).do(fn)` | A named tree of steps and nested workflows. |
 | `schedule` | `schedule(target).at(slot)` or `.every(interval)` | Runs a step or workflow on a clock. |
 | `monitor` | `monitor(source).name?(key).request?(init).every?(interval).do(fn)` | Runs when files or an HTTP response change. |
-| `queue` | `queue({ concurrency })` | How many of the workspace's runs may run at once. |
+| `defineConfig` | `export default defineConfig({ pools, pool })` | Pool limits and routing for this source file. |
 
 Steps, workflows, and triggers register as modules load. Exports are optional
 and useful for sharing definitions. Import singular factories to declare resources. A step uses the plural
@@ -280,7 +280,7 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   the definition's name in one database transaction, so any engine over the
   same store finds it. An enqueue whose name and key match an existing run
   returns that run's `{ id, result }`, whatever its status (queued,
-  running, parked, complete, failed, or cancelled) and whatever input the
+  running, suspended, complete, failed, or cancelled) and whatever input the
   new call passed; `result` settles with that run's output or error. The
   match lasts as long as the run's record, which the CLI keeps and an
   embedding host removes with `engine.executions.prune`. A blank key throws
@@ -312,13 +312,6 @@ const lines = await countLines.run({ text: "First line\nSecond line" });
   hosts, the name is found among the script's own declarations, from top
   level, a step body, or a monitor handler. See [Enqueue by
   name](/marbles/concepts/steps-and-workflows#enqueue-by-name).
-- **Awaiting an enqueued run from a step does not deadlock.** Reading
-  `result` of a run a step body enqueued gives the enqueuing run's queue
-  slot up until that result settles, as a parked run does, and takes it
-  back afterwards, above the queue's bound if need be. A body that keeps
-  only `id` keeps its slot; on a full queue the enqueued run waits until
-  the enqueuing run ends.
-
 ## The builder
 
 A builder ends with either `.do(body)` or `.exec(command)`. The forms below
@@ -968,24 +961,21 @@ call. One no host has declared for a week is not waited for: when it next
 moves on, it is told which facts it missed (once, in the host's output,
 and in `marbles status`) and goes on after them.
 
-`queue({ concurrency })` sets how many of the workspace's runs may run at
-once. It takes `QueueOptions`, `{ concurrency: number }`: a positive integer
-or `Infinity`; anything else throws `queue(): concurrency must be a positive
-integer or Infinity`, and a call without `concurrency` throws a
-`TypeError`. Call it once per workspace, in any one module; a second call
-throws `queue(): the workspace's queue is set already`. It configures the
-workspace's default queue, `marbles`, where runs of its steps and
-workflows wait for a place. A hosted workspace and a plain script's default
-engine run four at once without it. An [`Engine`](/marbles/reference/engine)
-you build yourself does not read `queue()`; it runs one at a time unless
-its `queues` option says otherwise. A run parked on a question gives its place up, so parked runs do
-not count against the bound.
+`defineConfig(config)` returns a `MarblesConfig`. Export it as a source file's
+`default` to configure `pools` and choose the file's `pool`:
 
 ```ts
-import { queue } from "@foundry.sh/marbles";
+import { defineConfig } from "@foundry.sh/marbles";
 
-queue({ concurrency: 2 });
+export default defineConfig({ pools: { review: 2 }, pool: "review" });
 ```
+
+A pool config is a number or `{ limit: number }`, a positive integer or
+`Infinity`. Unknown config keys, blank names, duplicate pool declarations,
+and undeclared per-file pools fail source loading with the file name.
+Hosted and script engines use limit 4 in `default`; raw `Engine` uses 1.
+Programmatic `pools` override source config. Suspended runs release capacity.
+Use `.run()` for inline awaiting or launch work in a separate pool.
 
 `@foundry.sh/marbles/prebuilt` exports the
 [prebuilt step factories](/marbles/reference/project#prebuilt-steps).
@@ -1058,7 +1048,7 @@ and `create(setup)` for the instance, and optionally `detect`, `list`,
 Do not write modules that depend on these.
 
 - Race, branch, and loops between steps. Only series and parallel.
-- Named queues. `queue()` configures the workspace's one default queue.
+
 - A built-in model provider. No `provider` or `model` means the first installed CLI.
 - Recovery of a step that was mid-body when the process stopped. A step
   suspended on an `ask` or a pause does survive a quit, a crash, or a kill.

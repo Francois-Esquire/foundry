@@ -206,7 +206,7 @@ const { id } = await build.enqueue({ task: task.id }, { key: `build:${task.id}` 
 Marbles matches the key together with the definition's name, across every
 engine that shares the workspace's store. A second enqueue with the same
 name and key returns the first run's handle, with a real `result`, whatever
-that run's state: queued, running, parked on a question, complete, failed,
+that run's state: queued, running, suspended on a question, complete, failed,
 or cancelled. The second call's input is ignored. `result` resolves with
 the first run's output, or rejects with its failure. The match holds for as
 long as the run's record is kept. The CLI keeps them, and an embedding host
@@ -270,8 +270,8 @@ enqueues it as its own `.enqueue()` would:
   with a type argument, as in `step.enqueue<{ ok: boolean }>("package-build")`;
   `result` is `unknown` without one.
 - **Replay and the queue work as for `.enqueue()`.** A step body that runs
-  again gets the same run back, and awaiting `result` gives up the queue
-  slot. See [Enqueue from a step](#enqueue-from-a-step).
+  again gets the same run back. Awaiting `result` holds pool
+  capacity. See [Enqueue from a step](#enqueue-from-a-step).
 - **The word belongs to its workspace.** When one Marbles process hosts
   several workspaces, the `step` and `workflow` a workspace's source
   imports enqueue into that workspace, whichever run calls them. During
@@ -294,21 +294,9 @@ covers replay, not a retried attempt. Give the enqueue a key when a step
 with `retry` must enqueue once, and the retried attempt gets the first run
 back.
 
-A step can await what it enqueued:
-
-```ts
-step("release").do(async () => {
-  const { result } = await build.enqueue({ ref: "main" });
-  return await result;
-});
-```
-
-Reading `result` gives up the enqueuing run's queue slot until the
-enqueued run settles, then takes it back. Awaiting an enqueued run
-therefore never deadlocks the queue, even at `queue({ concurrency: 1 })`.
-A step that keeps only `id` keeps its run's slot, so on a full queue the
-enqueued run waits until the enqueuing run ends. [How many runs at once](/marbles/concepts/durability#how-many-runs-at-once)
-covers the queue.
+Awaiting a separately launched run holds the caller's pool place. Use `.run()`
+for inline work, or route the launched definition to another pool with
+`export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
 
 `.enqueue()`, `step.enqueue(name)`, `workflow.enqueue(name)`, and `key`
 need the current source checkout.
@@ -321,7 +309,7 @@ A context is the object Marbles passes to a callback.
 
 `workflow(...).do(setup)` receives `{ input, log, run: { id } }` and returns
 the tree. It has no `agents`, `exec`, `ask`, or resource managers. Setup
-can run again when Marbles rebuilds a parked run, so keep it free of work
+can run again when Marbles rebuilds a suspended run, so keep it free of work
 that should happen once.
 
 ### Step execution

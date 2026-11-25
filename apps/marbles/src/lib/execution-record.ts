@@ -4,7 +4,11 @@ import type { Job, Links, Run } from "@foundry/queue";
 import { z } from "zod";
 import type { ExecutionStatus } from "./execution-statuses";
 
-export const DEFAULT_QUEUE = "marbles";
+export type { PoolStats } from "@foundry/queue";
+// biome-ignore lint/performance/noBarrelFile: The execution API exposes the queue pool default.
+export { DEFAULT_POOL } from "@foundry/queue";
+
+import type { PoolStats } from "@foundry/queue";
 
 const TASK_TAG = "marbles.kind";
 
@@ -68,8 +72,8 @@ export interface ExecutionRun {
   readonly name: string;
   readonly observations: readonly ExecutionObservation[];
   readonly owner?: ProcessIdentity;
+  readonly pool: string;
   readonly progress?: JsonValue;
-  readonly queue: string;
   readonly revision: number;
   readonly sequence: number;
   readonly source?: string;
@@ -82,15 +86,7 @@ export interface ExecutionRun {
   };
 }
 
-export interface QueueSettings {
-  readonly concurrency: number;
-}
-
-export interface QueueState extends QueueSettings {
-  readonly active: number;
-  readonly name: string;
-  readonly waiting: number;
-}
+export type PoolConfig = number | { readonly limit: number };
 
 export interface RetentionGap {
   readonly removed: number;
@@ -105,16 +101,16 @@ export interface ExecutionSubscription {
 }
 
 export interface ExecutionRuns {
-  configure(queue: string, settings: QueueSettings): void;
+  configurePool(pool: string, config: PoolConfig): Promise<void>;
   gaps(): readonly RetentionGap[];
   get(id: string): ExecutionRun | undefined;
   list(): readonly ExecutionRun[];
   peek(id: string): Promise<ExecutionRun | undefined>;
+  pools(): Promise<readonly PoolStats[]>;
   prune(
     ids: Iterable<string>,
     scopeOf: (run: ExecutionRun) => string
   ): Promise<readonly ExecutionRun[]>;
-  queues(): readonly QueueState[];
   subscribe(
     listener: (run: ExecutionRun) => void
   ): Promise<ExecutionSubscription>;
@@ -269,7 +265,7 @@ export function executionOf(
     observations: annex?.observations ?? [],
     ...(owner === undefined ? {} : { owner }),
     ...(annex?.progress === undefined ? {} : { progress: annex.progress }),
-    queue: job.pool,
+    pool: job.pool,
     revision: run.revision + (annex?.revision ?? 0),
     sequence: job.createdAt,
     ...(links.source === undefined ? {} : { source: links.source }),

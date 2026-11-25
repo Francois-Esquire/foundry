@@ -56,8 +56,17 @@ export interface Lockable<R, O> {
 
 type RunArgs<R> = Record<string, never> extends R ? [input?: R] : [input: R];
 
+export interface LaunchOptions {
+  readonly key?: string;
+}
+
+type LaunchArgs<R> =
+  Record<string, never> extends R
+    ? [input?: R, options?: LaunchOptions]
+    : [input: R, options?: LaunchOptions];
+
 export interface Runnable<R, O> {
-  launch(...input: RunArgs<R>): Promise<Launched<O>>;
+  launch(...args: LaunchArgs<R>): Promise<Launched<O>>;
   run(...input: RunArgs<R>): Promise<O>;
 }
 
@@ -86,14 +95,14 @@ function lock(
 ): LockedNode {
   const pairs = Object.entries(children);
   for (const [key, child] of pairs) {
+    if (definition.kind === "workflow" && key === "$workflow") {
+      throw new Error(
+        `${describe(definition)}: child "${key}" is reserved for nested workflows`
+      );
+    }
     if (!isLockedNode(child)) {
       throw new Error(
         `${describe(definition)}: child "${key}" is not a locked node; call the definition first`
-      );
-    }
-    if (child.definition.kind === "workflow") {
-      throw new Error(
-        `${describe(definition)}: child "${key}" is a workflow; a workflow can only be the root of a run, so lock its steps here instead`
       );
     }
   }
@@ -151,8 +160,8 @@ export function lockable<D extends AnyDefinition>(
   Object.defineProperties(call, {
     launch: {
       configurable: true,
-      value: (input?: unknown) =>
-        launchDefinition(definition, input ?? {}, scope),
+      value: (input?: unknown, options?: LaunchOptions) =>
+        launchDefinition(definition, input ?? {}, scope, options),
     },
     run: {
       configurable: true,

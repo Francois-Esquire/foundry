@@ -5,7 +5,7 @@ import type { AnyDefinition } from "../definition";
 import type { ExecutionRun } from "../execution-record";
 import type { ExecutionStatus } from "../execution-statuses";
 import { DEFINITION_IDENTITY } from "../handles";
-import type { Launched } from "../launcher";
+import type { DefinitionLaunch, Launched } from "../launcher";
 
 export interface RunView {
   readonly endedAt?: string;
@@ -27,14 +27,22 @@ export interface RunQuery {
 
 export interface Runs {
   get(runId: string): Promise<RunView | null>;
-  launch(definition: AnyDefinition, input: unknown): Promise<Launched<unknown>>;
+  launch(
+    definition: AnyDefinition,
+    input: unknown,
+    options?: DefinitionLaunch
+  ): Promise<Launched<unknown>>;
   list(query?: RunQuery): Promise<readonly RunView[]>;
 }
 
 export interface RunsSource {
   execution(runId: string): ExecutionRun | undefined;
   executions(): readonly ExecutionRun[];
-  launch(definition: AnyDefinition, input: unknown): Promise<Launched<unknown>>;
+  launch(
+    definition: AnyDefinition,
+    input: unknown,
+    options?: DefinitionLaunch
+  ): Promise<Launched<unknown>>;
   nameOf(name: string): string;
   resultOf(runId: string): Promise<unknown>;
   stored(runId: string): Promise<RunRecord | undefined>;
@@ -124,7 +132,8 @@ export function engineRuns(source: RunsSource): Runs {
         source.execution(runId)
       );
     },
-    launch: (definition, input) => source.launch(definition, input),
+    launch: (definition, input, options) =>
+      source.launch(definition, input, options),
     async list(query = {}) {
       const stored = new Map(
         (await source.storedAll()).map((record) => [record.id, record])
@@ -147,7 +156,7 @@ export function scopedRuns(source: RunsSource, args: ManagerArgs): Runs {
   const plain = engineRuns(source);
   return {
     ...plain,
-    async launch(definition, input) {
+    async launch(definition, input, options) {
       const { key } = args.scope.claim(args.frame, LAUNCH_KIND);
       const recorded = args.scope.ledger.get<RecordedLaunch>(key);
       const identity = definitionIdentity(definition);
@@ -155,7 +164,7 @@ export function scopedRuns(source: RunsSource, args: ManagerArgs): Runs {
         return { id: recorded.run, result: source.resultOf(recorded.run) };
       }
       const launched = await current.exit(() =>
-        source.launch(definition, input)
+        source.launch(definition, input, options)
       );
       args.scope.ledger.set(key, {
         definition: identity,

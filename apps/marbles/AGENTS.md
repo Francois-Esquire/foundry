@@ -68,8 +68,8 @@ Five buckets, each importing only what sits below it:
   and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
   `lib/launcher.ts`, which submits it to the engine's one run queue at
   once, registers each host task as a queue handler, and pays each caller
-  its run's result. Concurrency is the queue's: each Marbles queue is a
-  `@foundry/queue` pool (`configure`, `queues`), so a queued run is queued
+  its run's result. Concurrency is the queue's: each Marbles pool is a
+  `@foundry/queue` pool (`configurePool`, `pools`), so a queued run is queued
   in `@foundry/queue` from its launch. `lib/executions.ts` (`Executions`)
   projects the queue's Jobs and Runs into Execution Runs
   (`executionOf` in `lib/execution-record.ts`), kept current from the
@@ -535,3 +535,8 @@ so the view builds no model for a covered main; the metrics block's
 `showsWorkflowRankings` likewise). `ui/` imports neither blocks nor layouts,
 and blocks import no layouts; the import test holds that too. A view in
 `cli/views/` places the models `cli/state/` builds into those regions.
+
+Source files configure pools with `export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
+Pool limits are positive integers or `Infinity`. Hosted and script engines use
+limit 4 in `default`; raw engines use 1. Awaiting a launched run holds the
+caller's place; use `.run()` inline or separate pools.

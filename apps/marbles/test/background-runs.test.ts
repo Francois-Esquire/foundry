@@ -406,7 +406,7 @@ it("returns only an acknowledgement even when a workflow has already completed",
 it.each(["workflow", "agent"] as const)(
   "acknowledges a queued background %s and retains it until admission",
   async (kind) => {
-    const engine = testEngine({ queues: { default: { concurrency: 1 } } });
+    const engine = testEngine({ pools: { default: { limit: 1 } } });
     engines.push(engine);
     const { promise, resolve: release } = Promise.withResolvers<void>();
     engine.define({ fn: () => promise, kind: "step", name: "blocking" });

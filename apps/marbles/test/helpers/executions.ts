@@ -65,11 +65,11 @@ export function blockingTask(
   name: string,
   started: string[],
   gates: Map<string, () => void>,
-  queue?: string
+  pool?: string
 ): void {
   engine.task<{ label: string }, string>({
     name,
-    ...(queue === undefined ? {} : { queue }),
+    ...(pool === undefined ? {} : { pool }),
     run: async ({ label }, { signal }) => {
       started.push(label);
       const { open, opened } = gate();
@@ -197,7 +197,7 @@ function seededJob(seeded: SeededRun): {
     },
   };
   const kind = seeded.kind ?? "task";
-  const pool = seeded.queue ?? (kind === "task" ? "system" : "marbles");
+  const pool = seeded.pool ?? (kind === "task" ? "system" : "marbles");
   return {
     job: {
       createdAt: at,
@@ -254,7 +254,7 @@ export async function orphan(
     kind: "workflow",
     name: "flow",
     owner: { pid: exitedPid(), started: null },
-    queue: "marbles",
+    pool: "marbles",
     revision: 3,
     status: "suspended",
     timestamps: { queuedAt: at, startedAt: at, updatedAt: at },

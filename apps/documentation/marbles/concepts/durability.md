@@ -17,7 +17,7 @@ You get the execution machinery with the CLI; no separate queue or retry
 service is needed for local use.
 
 Retries are available when configured on a step. Restart recovery adopts
-parked runs; it does not resume work interrupted mid-execution. The CLI
+suspended runs; it does not resume work interrupted mid-execution. The CLI
 persists state by default, while `--dry-run` keeps its state in memory.
 
 ## Ask a person
@@ -31,12 +31,12 @@ const region = await ask.question({ choices: ["us", "eu"], title: "Which region?
 ```
 
 `approval` returns `{ approved, note? }`, and `question` returns a string.
-While it waits, the run is **parked**: its state is saved, and the question
+While it waits, the run is **suspended**: its state is saved, and the question
 waits in the dashboard's Feed. An approval blocks the run until someone
 decides. A question holds its step while siblings keep going.
 
-Only a dashboard answers. `marbles run` and piped `marbles` leave the run parked
-until one does, and `--dry-run` cancels it at the ask. A parked run
+Only a dashboard answers. `marbles run` and piped `marbles` leave the run suspended
+until one does, and `--dry-run` cancels it at the ask. A suspended run
 survives a quit, a `marbles daemon stop`, and a crash.
 
 When the answer comes, the step body starts again from the top and reads
@@ -50,7 +50,7 @@ Factory](/marbles/use-cases/software-factory/deliver) gates a push this way.
 | Part | Guarantee |
 | --- | --- |
 | Finished step | Its recorded result is reused when the same run continues. A new run executes fresh work, unless its key matches an earlier enqueue. |
-| Waiting question or pause | The parked run is saved. The current engine generation adopts it with the same source and state, after a restart or a switch; a dashboard answers it. |
+| Waiting question or pause | The suspended run is saved. The current engine generation adopts it with the same source and state, after a restart or a switch; a dashboard answers it. |
 | Managed operations | Recorded sessions, answers, and artifact writes are matched by step path and call position during replay. |
 | Agent conversation | Messages live in the session store. A session reference can continue that conversation in another run. |
 | Artifact | A declared output has stable identity and content versions, independent of a temporary checkout. |
@@ -89,7 +89,7 @@ reconnect it to the work already done:
 | `definition.enqueue(...)`, `step.enqueue(name, ...)` | Returns the run it enqueued before, for the same definition at that position. Another definition is enqueued. With a `key`, a retried attempt gets the same run back too. |
 | Command, raw filesystem write, or `fetch` | Can execute again. The run does not make arbitrary external effects happen exactly once. |
 
-Keep step keys and managed call order stable while a run is parked. Put
+Keep step keys and managed call order stable while a run is suspended. Put
 non-repeatable work in a preceding child step, and put an approval at the
 start of its own step. The [factory's delivery step](/marbles/use-cases/software-factory/deliver)
 shows this arrangement. Return JSON data and durable references such as
@@ -136,10 +136,10 @@ errors warrant another attempt. See the [builder options](/marbles/reference/api
 
 ## Recovery after a restart
 
-The engine generation hosting a workspace adopts a saved parked run when
+The engine generation hosting a workspace adopts a saved suspended run when
 its definition is still registered and its claim on it is free: its
 previous owner is gone, or was a generation that retired and let it go,
-at the switch or the moment it parked afterwards. Keep the workspace path
+at the switch or the moment it suspended afterwards. Keep the workspace path
 and state stores stable. The generation rebuilds the workflow tree, restores its recorded inputs,
 and waits for the answer or resume action, which a dashboard gives. Workflow
 setup must therefore stay free of work that should only happen once.
@@ -214,30 +214,21 @@ commands and controls.
 
 ### How many runs at once
 
-Every run of a workspace's steps and workflows waits in one queue for a
-place to run. A hosted workspace runs up to four at once, and the fifth
-waits as `queued` until one ends. Set the number once per workspace, in any one
-module:
+Each run waits in its pool for a place. Hosted engines and plain scripts use
+four places in the `default` pool. Configure named pools and select the pool
+for definitions in a source file with a default export:
 
 ```ts
-import { queue } from "@foundry.sh/marbles";
+import { defineConfig } from "@foundry.sh/marbles";
 
-queue({ concurrency: 2 });
+export default defineConfig({ pools: { review: 2 }, pool: "review" });
 ```
 
-`concurrency` is a positive integer or `Infinity`. A second `queue()` call
-in the same workspace is an error, and there are no named queues yet.
-These runs do not hold a place:
-
-- **A parked run.** A run waiting on a question or a pause gives its place
-  up until it resumes.
-- **A run awaiting an enqueued run.** A step that reads `result` of a run it
-  enqueued gives its run's place up until that result settles, so awaiting
-  an enqueued run never deadlocks, even at `queue({ concurrency: 1 })`.
-
-A plain `bun` script's default engine also runs four at once and honors
-its own `queue()`. An [`Engine`](/marbles/reference/engine#host-settings)
-you construct runs one at a time unless you pass `queues`.
+Limits are positive integers or `Infinity`. Pool declarations across source
+files are combined; declaring the same pool twice is an error. A suspended
+run releases its place until it resumes. Awaiting a separately launched run
+keeps the caller's place: use `.run()` for inline work, or separate pools.
+A raw `Engine` uses limit 1 unless its `pools` option overrides it.
 
 ### Different stores remember different things
 
@@ -265,7 +256,7 @@ the files and their ownership rules.
 
 ### What a restart keeps
 
-A new engine generation reads the saved state. It adopts a parked run when its
+A new engine generation reads the saved state. It adopts a suspended run when its
 definition remains available and its previous ownership has ended, and the
 question waits on the Feed for a dashboard. A run interrupted while
 actively executing is not adopted.

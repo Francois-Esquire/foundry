@@ -15,7 +15,7 @@ function worker(engine: Engine, label: string, ran: string[]) {
   const finish = gate();
   engine.task<{ readonly n: number }, string>({
     name: "work",
-    queue: "system",
+    pool: "system",
     run: async ({ n }) => {
       ran.push(`${label}:${String(n)}`);
       if (n === 1) {
@@ -159,7 +159,7 @@ it("follows a keyed run another engine launched to its end when launched again w
   const again = await other.launch("keyed", {}, { idempotencyKey: "keyed" });
   finish.open();
   await first.result;
-  await expect(again.result).resolves.toBeUndefined();
+  await expect(again.result).resolves.toBeNull();
   expect(again.id).toBe(first.id);
   expect(ran).toEqual(["owner"]);
 });

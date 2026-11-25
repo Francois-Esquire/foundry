@@ -29,10 +29,9 @@ import { notJson, validate } from "./schema";
 
 type Input = Readonly<Record<string, unknown>>;
 
-interface StepNode extends LockedNode {
-  readonly children: readonly (readonly [string, StepNode])[];
-  readonly definition: StepRecord<Input, unknown>;
-}
+type Nesting = readonly WorkflowRecord<Input>[];
+
+const NESTED = "$workflow";
 
 function describe(definition: AnyDefinition, key: string): string {
   return definition.name ? `"${definition.name}"` : `"${key}"`;
@@ -50,21 +49,24 @@ function isWorkflow(
   return definition.kind === "workflow";
 }
 
-function stepTree(node: LockedNode, key: string): StepNode {
-  const { definition } = node;
-  if (!isStep(definition)) {
-    throw new Error(
-      `${describe(definition, key)}: a workflow can only be the root of a run, not a node in its tree`
-    );
+type Body =
+  | { readonly kind: "step"; readonly step: StepRecord<Input, unknown> }
+  | { readonly kind: "workflow"; readonly workflow: WorkflowRecord<Input> };
+
+function bodyOf(definition: AnyDefinition, key: string): Body {
+  if (isStep(definition)) {
+    return { kind: "step", step: definition };
   }
-  return {
-    ...node,
-    children: node.children.map(([childKey, child]) => [
-      childKey,
-      stepTree(child, childKey),
-    ]),
-    definition,
-  };
+  if (isWorkflow(definition)) {
+    return { kind: "workflow", workflow: definition };
+  }
+  throw new Error(
+    `${describe(definition, key)}: a node must lock a step or a workflow`
+  );
+}
+
+function nestingOf(definition: AnyDefinition): Nesting {
+  return isWorkflow(definition) ? [definition] : [];
 }
 
 async function driveSeries(
@@ -105,11 +107,13 @@ async function driveParallel(
 }
 
 async function runBody(
-  node: StepNode,
+  node: LockedNode,
+  body: Body,
   key: string,
   ctx: StepContext,
   scope: RunScope,
-  bindings: Bindings
+  bindings: Bindings,
+  nesting: Nesting
 ): Promise<unknown> {
   const frame = scope.frame(ctx.path);
   await scope.enter(frame);
@@ -130,6 +134,24 @@ async function runBody(
       ? await validate(definition.input, merged, `${where} input`)
       : merged
   ) as Input;
+  if (body.kind === "workflow") {
+    const outcome = await settle(frame, ctx, scope, () =>
+      current.exit(() =>
+        runNested(
+          body.workflow,
+          key,
+          input,
+          ctx,
+          scope,
+          bindings,
+          nesting,
+          node.children.length
+        )
+      )
+    );
+    return "suspended" in outcome ? outcome.suspended : outcome.output;
+  }
+  const { step } = body;
   const store = {
     bindings,
     cwd: workingDirectory(scope.cwd),
@@ -143,20 +165,52 @@ async function runBody(
     scope,
     write: (value: unknown) => ctx.write(value),
   };
-  let output: unknown;
-  let attempt: Promise<unknown> | undefined;
-  const timer = startTimeout(definition, where, frame);
+  const timer = startTimeout(step, where, frame);
+  let outcome: Attempt;
   try {
-    attempt = current.run(store, () =>
-      setupCounters.exit(() =>
-        Promise.resolve(
-          definition.fn(buildContext({ bindings, ctx, frame, input, scope }))
+    outcome = await settle(frame, ctx, scope, () =>
+      current.run(store, () =>
+        setupCounters.exit(() =>
+          Promise.resolve(
+            step.fn(buildContext({ bindings, ctx, frame, input, scope }))
+          )
         )
       )
     );
-    output = await raceAbort(frame, attempt);
+  } finally {
+    clearTimeout(timer);
+  }
+  if ("suspended" in outcome) {
+    return outcome.suspended;
+  }
+  const { output } = outcome;
+  const result =
+    step.output && !isBail(output)
+      ? await validate(step.output, output, `${where} output`)
+      : output;
+  const problem = notJson(result);
+  if (problem) {
+    throw new Error(
+      `${where} returned a value that is not JSON: ${problem}; return plain data (an ISO string for a date)`
+    );
+  }
+  return result;
+}
+
+type Attempt = { readonly output: unknown } | { readonly suspended: unknown };
+
+async function settle(
+  frame: Frame,
+  ctx: StepContext,
+  scope: RunScope,
+  work: () => Promise<unknown>
+): Promise<Attempt> {
+  let running: Promise<unknown> | undefined;
+  try {
+    running = work();
+    return { output: await raceAbort(frame, running) };
   } catch (error) {
-    await attempt?.catch(() => undefined);
+    await running?.catch(() => undefined);
     const { paused } = frame;
     if (!paused) {
       if (!isSuspendSignal(error)) {
@@ -168,26 +222,60 @@ async function runBody(
       throw error;
     }
     frame.paused = undefined;
-    return await ctx.suspend({
-      kind: PAUSE_KIND,
-      name: scope.pauseName(frame),
-      reason: paused.reason,
-      request: {},
-    });
-  } finally {
-    clearTimeout(timer);
+    return {
+      suspended: await ctx.suspend({
+        kind: PAUSE_KIND,
+        name: scope.pauseName(frame),
+        reason: paused.reason,
+        request: {},
+      }),
+    };
   }
-  const result =
-    definition.output && !isBail(output)
-      ? await validate(definition.output, output, `${where} output`)
-      : output;
-  const problem = notJson(result);
-  if (problem) {
+}
+
+function nameOfNested(definition: WorkflowRecord<Input>, key: string): string {
+  return definition.name ?? key;
+}
+
+async function runNested(
+  definition: WorkflowRecord<Input>,
+  key: string,
+  input: Input,
+  ctx: StepContext,
+  scope: RunScope,
+  bindings: Bindings,
+  nesting: Nesting,
+  declaredChildren: number
+): Promise<unknown> {
+  if (nesting.includes(definition)) {
+    const chain = [...nesting, definition]
+      .map((each) => `"${nameOfNested(each, key)}"`)
+      .join(" → ");
     throw new Error(
-      `${where} returned a value that is not JSON: ${problem}; return plain data (an ISO string for a date)`
+      `${describe(definition, key)}: a workflow cannot be locked inside itself (${chain}); to recurse, call it with .run() from a step`
     );
   }
-  return result;
+  const existing = ctx.children
+    .slice(declaredChildren)
+    .find((candidate) => candidate.name === NESTED);
+  if (existing) {
+    return await existing.run();
+  }
+  const tree = await setupTree(
+    definition,
+    nameOfNested(definition, key),
+    input,
+    scope,
+    bindings
+  );
+  return await ctx
+    .fork(
+      materialize(tree, NESTED, scope, bindings, ctx.path, [
+        ...nesting,
+        definition,
+      ])
+    )
+    .run();
 }
 
 async function runChild(
@@ -213,13 +301,10 @@ async function runChild(
   if (notJson(input) === undefined) {
     scope.ledger.set(key, { input });
   }
-  const node = stepTree(
-    await rootNode(definition, name, input, scope, bindings),
-    name
-  );
+  const node = await rootNode(definition, name, input, scope, bindings);
   frame.signal.throwIfAborted();
   const child = parent.fork(
-    materialize(node, name, scope, bindings, parent.path)
+    materialize(node, name, scope, bindings, parent.path, nestingOf(definition))
   );
   return child.run();
 }
@@ -264,27 +349,40 @@ function startTimeout(
 }
 
 function materialize(
-  fresh: StepNode,
+  fresh: LockedNode,
   key: string,
   scope: RunScope,
   bindings: Bindings,
-  parent: readonly string[] = []
+  parent: readonly string[] = [],
+  nesting: Nesting = []
 ): StepSpec<unknown, unknown> {
   const path = [...parent, key];
-  const node: StepNode = {
+  const node: LockedNode = {
     ...fresh,
     literal: scope.literal(path, fresh.literal),
   };
+  const body = bodyOf(node.definition, key);
+  if (
+    body.kind === "workflow" &&
+    node.children.some(([childKey]) => childKey === NESTED)
+  ) {
+    throw new Error(
+      `${describe(node.definition, key)}: child "${NESTED}" is reserved for nested workflows`
+    );
+  }
   const children = node.children.map(([childKey, child]) =>
-    materialize(child, childKey, scope, bindings, path)
+    materialize(child, childKey, scope, bindings, path, nesting)
   );
-  const retry = asRunPolicy(scope.id, bindings, node.definition.config?.retry);
+  const retry =
+    body.kind === "step"
+      ? asRunPolicy(scope.id, bindings, body.step.config?.retry)
+      : undefined;
   return {
     children,
     ...(retry === undefined ? {} : { config: { retry } }),
     execute: (_input, ctx) =>
       asRunWork(scope.id, bindings, () =>
-        runBody(node, key, ctx as StepContext, scope, bindings)
+        runBody(node, body, key, ctx as StepContext, scope, bindings, nesting)
       ),
     input: node.literal,
     name: key,
@@ -354,10 +452,12 @@ async function openRun(
     async (scope) =>
       Step.create(
         materialize(
-          stepTree(await rootNode(definition, name, input, scope, bound), name),
+          await rootNode(definition, name, input, scope, bound),
           name,
           scope,
-          bound
+          bound,
+          [],
+          nestingOf(definition)
         )
       ),
     resolutions
@@ -381,6 +481,16 @@ async function rootNode(
   if (!isWorkflow(definition)) {
     return rootLock(definition, input);
   }
+  return await setupTree(definition, name, input, scope, bindings);
+}
+
+async function setupTree(
+  definition: WorkflowRecord<Input>,
+  name: string,
+  input: Input,
+  scope: RunScope,
+  bindings: Bindings
+): Promise<LockedNode> {
   const tree: unknown = await setupCounters.run(new Map(), () =>
     definition.setup({
       input,

@@ -43,19 +43,20 @@ import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
 import type { ExecutionStore } from "~/lib/execution-store";
-import type {
-  ExecutionRun,
-  ExecutionRuns,
-  QueueSettings,
-} from "~/lib/executions";
+import type { ExecutionRun, ExecutionRuns, PoolConfig } from "~/lib/executions";
 import { Executions } from "~/lib/executions";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
-import type { Launched, LaunchOptions, QueuedAdoption } from "~/lib/launcher";
-import { Launcher } from "~/lib/launcher";
+import type {
+  DefinitionLaunch,
+  Launched,
+  LaunchOptions,
+  QueuedAdoption,
+} from "~/lib/launcher";
+import { idempotencyKeyOf, Launcher } from "~/lib/launcher";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
@@ -108,9 +109,9 @@ export interface EngineOptions {
   readonly home?: string;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   readonly models: ModelManager;
+  readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print?: (line: string) => void;
   readonly providers?: ProviderConfiguration;
-  readonly queues?: Readonly<Record<string, QueueSettings>>;
   readonly records?: WorkspaceRecords;
   readonly recoveryLog?: RecoveryLog;
   readonly root: string;
@@ -175,7 +176,8 @@ export class Engine {
   readonly #runsSource: RunsSource = {
     execution: (runId) => this.executions.get(runId),
     executions: () => this.executions.list(),
-    launch: (definition, input) => this.launchDefinition(definition, input),
+    launch: (definition, input, options) =>
+      this.launchDefinition(definition, input, options),
     nameOf: (name) => this.#definitions.nameOf(name),
     resultOf: (runId) => this.#resultOf(runId),
     stored: async (runId) => await this.#running?.record(runId),
@@ -269,7 +271,7 @@ export class Engine {
     );
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
-      ...(options.queues === undefined ? {} : { queues: options.queues }),
+      ...(options.pools === undefined ? {} : { pools: options.pools }),
       removed: (run) => this.#removeRun(run),
       store: executions,
       warn: print,
@@ -286,6 +288,7 @@ export class Engine {
         dispatch: (name, input, submit) =>
           this.#live().dispatch(name, input, submit),
         has: (name) => this.#definitions.registered(name),
+        poolOf: (name) => this.#definitions.poolOf(name),
       },
     });
     this.#records = options.records ?? new MemoryWorkspaceRecords();
@@ -382,8 +385,8 @@ export class Engine {
     ];
   }
 
-  define(definition: AnyDefinition): void {
-    this.#definitions.define(definition);
+  define(definition: AnyDefinition, pool?: string): void {
+    this.#definitions.define(definition, pool);
   }
 
   has(name: string): boolean {
@@ -482,7 +485,7 @@ export class Engine {
         feed,
         feedEntries: this.#feedEntries,
         follow: (runId, dispatched) => this.#launcher.follow(runId, dispatched),
-        pools: this.#executions.pools(),
+        pools: this.#executions.initialPools(),
         print,
         registered: (name) => this.#definitions.registered(name),
         scopes: this.#scopes,
@@ -598,8 +601,13 @@ export class Engine {
 
   async launchDefinition<O>(
     definition: AnyDefinition,
-    input: unknown
+    input: unknown,
+    options: DefinitionLaunch = {}
   ): Promise<Launched<O>> {
+    const { key } = options;
+    if (key !== undefined && (typeof key !== "string" || key.trim() === "")) {
+      throw new TypeError("launch(): a key must be a non-blank string");
+    }
     if (this.disposed) {
       throw new Error("engine is stopping");
     }
@@ -608,9 +616,18 @@ export class Engine {
     } else if (this.#phase === "starting") {
       await this.#starting;
     }
+    const declared = this.#definitions.declaredName(definition);
+    if (key !== undefined && declared === undefined) {
+      throw new Error(
+        `launch(): a key is matched by the definition's name, and ${definition.name === undefined ? "this definition has none" : `"${definition.name}" is not a definition this workspace declares`}; declare it by name in the workspace's source to launch it with a key`
+      );
+    }
+    const name =
+      declared ?? this.#definitions.directName(definition, this.#live());
     return await this.launch<O>(
-      this.#definitions.directName(definition, this.#live()),
-      input
+      name,
+      input,
+      key === undefined ? {} : { idempotencyKey: idempotencyKeyOf(name, key) }
     );
   }
 
@@ -627,20 +644,8 @@ export class Engine {
     return engineRuns(this.#runsSource).list(query);
   }
 
-  async #resultOf(runId: string): Promise<unknown> {
-    const owed = this.#launcher.owedResult(runId);
-    if (owed !== undefined) {
-      return await owed;
-    }
-    const view = await this.readRun(runId);
-    if (view?.status === "complete") {
-      return view.output;
-    }
-    throw new Error(
-      view === null
-        ? `run ${runId} is not recorded here`
-        : `run ${runId} is ${view.status}; its value is not held here${view.error === undefined ? "" : ` (${view.error})`}`
-    );
+  #resultOf(runId: string): Promise<unknown> {
+    return this.#launcher.resultOf(runId);
   }
 
   async readUsage(): Promise<UsageRecords> {
@@ -741,6 +746,7 @@ export class Engine {
   }
 
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
+    this.#launcher.close(new Error("engine is stopping"));
     if (this.#phase === "starting") {
       return (
         this.#starting?.then(
@@ -837,6 +843,7 @@ export class Engine {
   }
 
   async #dispose(): Promise<void> {
+    this.#launcher.close(new Error("engine is stopping"));
     const errors: unknown[] = [];
     const close = async (action: () => Promise<void>) => {
       try {

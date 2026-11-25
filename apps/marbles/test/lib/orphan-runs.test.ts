@@ -54,7 +54,7 @@ async function leftBehind(run: SeededRun): Promise<void> {
       kind: "task",
       name: "save",
       owner: { pid: exitedPid(), started: null },
-      queue: "system",
+      pool: "system",
       status: "queued",
       timestamps: { queuedAt: at, updatedAt: at },
       ...run,
@@ -91,7 +91,7 @@ it.each([
     const engine = engineWith({ records: unreadable });
     engine.task({
       name: "save",
-      queue: "system",
+      pool: "system",
       run: async (_input, { signal }) => {
         started += 1;
         await new Promise((resolve) =>
@@ -115,7 +115,7 @@ it("lets a run in again after delivery starts, on an engine that accepts launche
   const launched: string[] = [];
   engine.task({
     name: "save",
-    queue: "system",
+    pool: "system",
     run: async () => {
       launched.push((await engine.launch("note", {})).id);
     },
