@@ -1,4 +1,4 @@
-import type { Artifacts, ContentId } from "@foundry/artifacts";
+import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { assertOwnsArtifactCommit } from "./cross-store";
 import type {
@@ -78,7 +78,7 @@ export function ensureInstallation(input: {
 }
 
 export function createModuleManagement(options: {
-  readonly artifacts: Artifacts;
+  readonly artifacts: ArtifactSubstrate;
   readonly store: ModuleCommands;
   readonly programs: Pick<ModuleProgramSupervisor, "selectVersion" | "delete">;
   readonly now?: () => Date;

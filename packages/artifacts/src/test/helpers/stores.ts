@@ -9,7 +9,7 @@ import { onTestFinished } from "vitest";
 
 import { JsonArtifactStore } from "../../node/json-store";
 import type { ArtifactStore } from "../../store";
-import { InMemoryArtifactStore } from "../../store/memory";
+import { MemoryArtifactStore } from "../../store/memory";
 import { SqliteArtifactStore } from "../../store/sqlite";
 import { ARTIFACT_TABLES } from "./sqlite";
 
@@ -19,7 +19,7 @@ export type StoreKind = (typeof STORE_KINDS)[number];
 export async function openStore(kind: StoreKind): Promise<ArtifactStore> {
   switch (kind) {
     case "memory":
-      return new InMemoryArtifactStore();
+      return new MemoryArtifactStore();
     case "json": {
       const root = await mkdtemp(join(tmpdir(), "artifact-store-"));
       onTestFinished(() => rm(root, { force: true, recursive: true }));

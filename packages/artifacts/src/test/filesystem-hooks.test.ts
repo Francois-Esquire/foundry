@@ -11,9 +11,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { WorkspaceSourceUnavailableError } from "@foundry/workspaces";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import { ArtifactApplicationError } from "../errors";
-import { ArtifactManager } from "../manager";
 import {
   ARTIFACT_CONFLICTS_DIRECTORY,
   type ArtifactDiskConflict,
@@ -37,7 +36,7 @@ afterEach(async () => {
 });
 
 async function text(
-  artifacts: ArtifactManager,
+  artifacts: Artifacts,
   id: string,
   path: string
 ): Promise<string> {
@@ -52,7 +51,7 @@ describe.each(STORE_KINDS)(
     it("applies each commit without waiting on the store's own turn or lock", async () => {
       const root = await mkdtemp(join(tmpdir(), "artifact-json-fs-"));
       cleanups.push(() => rm(root, { force: true, recursive: true }));
-      const artifacts = new ArtifactManager({
+      const artifacts = new Artifacts({
         store: await openStore(storeKind),
       });
       const filesystem = artifactFileSystem({
@@ -165,7 +164,7 @@ describe.each(STORE_KINDS)("%s store: mutation hooks", (storeKind) => {
     );
     cleanups.push(() => rm(root, { force: true, recursive: true }));
     const commit: { fails: boolean } = { fails: false };
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: interceptCommits(await openStore(storeKind), (write, land) =>
         commit.fails ? Promise.reject(new Error("commit failed")) : land(write)
       ),
@@ -390,7 +389,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are left in place by a commit that keeps the Content, and restored when removed", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-metadata-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const conflicts: ArtifactDiskConflict[] = [];
@@ -467,7 +466,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("left by a previous process are kept before records are applied", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-restart-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
@@ -496,7 +495,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are not found in files a previous process left from a committed version", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-stale-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
@@ -528,7 +527,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("are not found in files a previous process applied before an in-place write it never applied", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-unapplied-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const before = artifactFileSystem({ artifacts, root: join(root, "files") });
@@ -559,7 +558,7 @@ describe.each(STORE_KINDS)("%s store: conflicting disk edits", (storeKind) => {
   it("forget what was applied for an Artifact deleted while the filesystem was closed", async () => {
     const root = await mkdtemp(join(tmpdir(), "artifact-orphan-note-fs-"));
     cleanups.push(() => rm(root, { force: true, recursive: true }));
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(storeKind),
     });
     const files = join(root, "files");

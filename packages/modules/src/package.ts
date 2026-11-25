@@ -1,7 +1,7 @@
 import type {
   Artifact,
   ArtifactOperations,
-  Artifacts,
+  ArtifactSubstrate,
   Content,
   EntryInputs,
 } from "@foundry/artifacts";
@@ -152,7 +152,7 @@ export async function encodeModulePackage(input: {
   return encoded;
 }
 
-export type ModulePackageArtifacts = Pick<Artifacts, "transaction">;
+export type ModulePackageArtifacts = Pick<ArtifactSubstrate, "transaction">;
 
 type ModulePackageOperations = Pick<
   ArtifactOperations,

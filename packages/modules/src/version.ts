@@ -1,4 +1,4 @@
-import type { Artifacts, ContentId } from "@foundry/artifacts";
+import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
 
 import { decodeUtf8 } from "@foundry/lib/encoding";
@@ -19,7 +19,7 @@ import type { ModuleCommands } from "./registry";
 export const MODULE_CONTENT_MANIFEST_PATH = `source/${MODULE_MANIFEST_SOURCE_PATH}`;
 
 export type ModuleVersionArtifacts = Pick<
-  Artifacts,
+  ArtifactSubstrate,
   "getContent" | "listContents" | "readFile"
 >;
 
@@ -85,7 +85,7 @@ export function createModuleVersions(options: {
 }
 
 export async function embeddedManifest(
-  artifacts: Pick<Artifacts, "readFile">,
+  artifacts: Pick<ArtifactSubstrate, "readFile">,
   contentId: ContentId
 ): Promise<ModuleManifest | null> {
   const file = await artifacts.readFile(
@@ -105,7 +105,7 @@ export async function embeddedManifest(
 }
 
 export async function pruneRetainedManifests(options: {
-  readonly artifacts: Pick<Artifacts, "readFile">;
+  readonly artifacts: Pick<ArtifactSubstrate, "readFile">;
   readonly store: Pick<
     ModuleCommands,
     "listRetainedManifests" | "dropRetainedManifest"

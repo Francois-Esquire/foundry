@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
@@ -19,7 +19,7 @@ const SEEN = "2026-11-01T00:00:00.000Z";
 const SOURCE = { definition: "d", path: ["d"], runId: "rn-1" };
 
 function manager(database: StoreDatabase, artifacts: string, scope: string) {
-  return new ArtifactManager({
+  return new Artifacts({
     files: blobFiles(artifactBlobs(artifacts, scope)),
     store: new SqliteArtifactStore({ database, scope }),
   });

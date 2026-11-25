@@ -1,5 +1,5 @@
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it } from "vitest";
 
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
@@ -132,8 +132,8 @@ describe.each(STORES)("Create, import and delete over %s", (_name, open) => {
 
 describe("Artifacts on their own", () => {
   it("let a create run when no Artifact transaction is open", async () => {
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
     });
     const projects = createModuleProjects({
       artifacts,

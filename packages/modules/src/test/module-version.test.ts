@@ -1,10 +1,10 @@
 import type { Content, FileInputs } from "@foundry/artifacts";
 import {
-  ArtifactManager,
+  Artifacts,
   artifactIdSchema,
   contentIdSchema,
 } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it } from "vitest";
 
 import { MODULE_MIME } from "../constants";
@@ -34,7 +34,7 @@ function built(manifest: unknown = VALID_MANIFEST): FileInputs {
 }
 
 async function fixture(entries: FileInputs = built(), tag = "1.0.0") {
-  const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+  const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
   const artifact = await artifacts.create({
     entries,
     freeze: { tag },

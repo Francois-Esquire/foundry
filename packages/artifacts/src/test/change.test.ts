@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import { ArtifactChange } from "../change";
 import type { ListArtifactsInput } from "../index";
-import { ArtifactManager } from "../manager";
 import { artifactIdSchema } from "../ref";
 import type { Artifact, Blob } from "../schema";
 import { required } from "./helpers/required";
@@ -10,7 +9,7 @@ import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
 async function seeded(kind: StoreKind) {
   const store = await openStore(kind);
-  const artifacts = new ArtifactManager({ store });
+  const artifacts = new Artifacts({ store });
   const created = await artifacts.create({
     entries: { "a.txt": { bytes: "a" } },
     name: "A",

@@ -2,7 +2,7 @@ import { basename, join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { QueueEvent, Run } from "@foundry/queue";
@@ -121,7 +121,7 @@ describe("observing every source", () => {
     await delivery.start();
 
     await new Tasks({ store: records.taskStore }).create({ title: "Task" });
-    const artifacts = new ArtifactManager({ store: stores.artifacts });
+    const artifacts = new Artifacts({ store: stores.artifacts });
     await artifacts.create({
       entries: { "a.md": { bytes: "# A" } },
       name: "Notes",
@@ -349,7 +349,7 @@ describe("a write the recorder hands a store", () => {
           Promise.resolve(workspaceStores(database, scope).artifacts),
         seed: async (store: ArtifactStore) =>
           (
-            await new ArtifactManager({ store }).create({
+            await new Artifacts({ store }).create({
               entries: { "a.md": { bytes: "# A" } },
               name: "Notes",
               type: "text/markdown",
@@ -505,7 +505,7 @@ describe("a commit carrying more facts than one statement can bind", () => {
     const { artifacts } = workspaceStores(machine.database.database, scope, {
       changes: records.changes,
     });
-    const manager = new ArtifactManager({ store: artifacts });
+    const manager = new Artifacts({ store: artifacts });
     const { id } = await manager.create({
       entries: { "a.md": { bytes: "# A" } },
       name: "Renamed",

@@ -1,4 +1,4 @@
-import type { Artifacts } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
 import type { Containers } from "@foundry/sandbox/container/containers";
 import type { ContainerRuntime } from "@foundry/sandbox/container/types";
 
@@ -20,7 +20,7 @@ import { createModuleProgramSupervisor } from "./program-supervisor";
 import { createModuleRuntimeRecovery } from "./runtime-recovery";
 
 export interface CreateModuleSystemOptions {
-  readonly artifacts: Artifacts;
+  readonly artifacts: ArtifactSubstrate;
   readonly checkouts: ModuleCheckouts;
   readonly containerRuntime: Pick<
     ContainerRuntime,

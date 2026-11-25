@@ -1,5 +1,5 @@
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { vi } from "vitest";
 
 import { moduleIdSchema, runtimeInstanceIdSchema } from "../../domain";
@@ -68,7 +68,7 @@ export async function publishedModule(
     readonly registry?: ModuleRegistry;
   } = {}
 ) {
-  const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+  const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
   const store =
     options.registry ??
     new ModuleRegistry({

@@ -1,4 +1,4 @@
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { DatabaseAssociationStore } from "~/database/associations";
@@ -29,7 +29,7 @@ export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
     let reader = readers.get(owner);
     if (reader === undefined) {
       reader = feedReader(
-        new ArtifactManager({
+        new Artifacts({
           files: blobFiles(artifactBlobs(artifacts, owner)),
           store: new SqliteArtifactStore({ database, scope: owner }),
         })

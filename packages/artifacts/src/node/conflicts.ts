@@ -27,7 +27,7 @@ export interface ArtifactDiskConflict {
   readonly paths: readonly string[];
 }
 
-export interface AppliedDirectory {
+interface AppliedDirectory {
   readonly applied: StorageTree | undefined;
   readonly id: ArtifactId;
   readonly root: string;

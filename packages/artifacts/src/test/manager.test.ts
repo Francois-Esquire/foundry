@@ -1,6 +1,7 @@
 import { StorageApplicationError } from "@foundry/core/storage";
+import { ReentrantCallError } from "@foundry/lib/turns";
 import { describe, expect, it, vi } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import type { Blob, StoredFile } from "../blob";
 import { ArtifactChange } from "../change";
 import { CHUNK_BYTES } from "../constants";
@@ -9,7 +10,7 @@ import {
   StaleContentError,
   TransactionRolledBackError,
 } from "../errors";
-import { ArtifactManager } from "../manager";
+import { nodeArtifacts } from "../node";
 import type { Content } from "../substrate";
 import { fixture, publishedFiles } from "./helpers/directory";
 import { required } from "./helpers/required";
@@ -23,10 +24,10 @@ function file(content: Content, path = "a.txt"): StoredFile {
   return node;
 }
 
-describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
+describe.each(STORE_KINDS)("%s store: Artifacts blob objects", (kind) => {
   it("updates an exclusive ready blob in place without changing Content identity", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
       name: "A",
@@ -45,7 +46,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 
   it("preserves shared bytes through edits and deletion of a fork", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "shared" } },
       name: "A",
@@ -82,7 +83,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 
   it("retains a blob referenced by a sibling file during a multi-file write", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "old" } },
       name: "A",
@@ -109,7 +110,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 
   it("shares streamed chunks and reads a range across chunk boundaries", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const first = new Uint8Array(CHUNK_BYTES).fill(1);
     const last = new Uint8Array(7).fill(2);
     async function* source() {
@@ -152,7 +153,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 
   it("rewrites an owned object in place even when another object holds the new bytes", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const other = await artifacts.create({
       entries: { "a.txt": { bytes: "target" } },
       name: "Other",
@@ -175,7 +176,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 
   it("does not rewrite an object a sibling byte write joined in the same change", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "old" } },
       name: "A",
@@ -202,7 +203,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 
   it("chunks large in-memory bytes like a stream and shares the result", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const bytes = new Uint8Array(CHUNK_BYTES + 5).fill(3);
     async function* stream() {
       yield await Promise.resolve(bytes.subarray(0, 10));
@@ -244,7 +245,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 
   it("rejects a blob with two byte sources without persisting it", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
     const original = await artifacts.create({
       entries: { "a.txt": { bytes: "a" } },
       name: "A",
@@ -263,7 +264,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager blob objects", (kind) => {
 });
 
 describe.each(STORE_KINDS)(
-  "%s store: ArtifactManager operation boundaries",
+  "%s store: Artifacts operation boundaries",
   (kind) => {
     it("rolls back records and newly published files without notifying observers", async () => {
       const { artifacts, artifact, store, root } = await fixture(
@@ -323,7 +324,7 @@ describe.each(STORE_KINDS)(
     });
 
     it("publishes only on explicit freeze, not on the freezes revise and fork imply", async () => {
-      const artifacts = new ArtifactManager({
+      const artifacts = new Artifacts({
         store: await openStore(kind),
       });
       const create = (name: string) =>
@@ -356,7 +357,7 @@ describe.each(STORE_KINDS)(
     });
 
     it("expires the transaction handle after settlement", async () => {
-      const artifacts = new ArtifactManager({
+      const artifacts = new Artifacts({
         store: await openStore(kind),
       });
       const scoped = await artifacts.transaction((transaction) =>
@@ -404,7 +405,7 @@ describe.each(STORE_KINDS)(
     });
 
     it("tells observers of a commit whose application failed, and recovery as recovery", async () => {
-      const artifacts = new ArtifactManager({
+      const artifacts = new Artifacts({
         store: await openStore(kind),
       });
       const artifact = await artifacts.create({
@@ -434,10 +435,30 @@ describe.each(STORE_KINDS)(
   }
 );
 
-describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
-  it("joins calls made inside a transaction: reads see its writes, nested transactions commit with it", async () => {
+describe.each(STORE_KINDS)("%s store: Artifacts transactions", (kind) => {
+  it("rejects ambient calls on portable Artifacts without a transactionScope while explicit ops succeed", async () => {
     const store = await openStore(kind);
-    const artifacts = new ArtifactManager({ store });
+    const artifacts = new Artifacts({ store });
+    await artifacts.transaction(async (scoped) => {
+      await scoped.create({
+        entries: { "a.txt": { bytes: "ok" } },
+        name: "Explicit",
+        type: "text/plain",
+      });
+      await expect(
+        artifacts.create({
+          entries: { "b.txt": { bytes: "ambient" } },
+          name: "Ambient",
+          type: "text/plain",
+        })
+      ).rejects.toBeInstanceOf(ReentrantCallError);
+    });
+    expect((await artifacts.list()).total).toBe(1);
+  });
+
+  it("joins calls made inside a transaction via nodeArtifacts: reads see its writes, nested transactions commit with it", async () => {
+    const store = await openStore(kind);
+    const artifacts = nodeArtifacts({ store });
     const created = await artifacts.create({
       entries: { "a.txt": { bytes: "before" } },
       name: "A",
@@ -468,7 +489,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
   });
 
   it("rolls joined calls back with the transaction they joined", async () => {
-    const artifacts = new ArtifactManager({
+    const artifacts = nodeArtifacts({
       store: await openStore(kind),
     });
     const created = await artifacts.create({
@@ -488,7 +509,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
   });
 
   it("rolls the whole transaction back when a joined write fails, even if the failure was caught", async () => {
-    const artifacts = new ArtifactManager({
+    const artifacts = nodeArtifacts({
       store: await openStore(kind),
     });
     const created = await artifacts.create({
@@ -515,7 +536,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
   });
 
   it("starts its own transaction for work that outlives the one it was scheduled in", async () => {
-    const artifacts = new ArtifactManager({
+    const artifacts = nodeArtifacts({
       store: await openStore(kind),
     });
     const created = await artifacts.create({
@@ -538,7 +559,7 @@ describe.each(STORE_KINDS)("%s store: ArtifactManager transactions", (kind) => {
     });
   });
   it("runs every outer commit effect after application failure and retains all original errors", async () => {
-    const artifacts = new ArtifactManager({
+    const artifacts = new Artifacts({
       store: await openStore(kind),
     });
     const original = new Error("host application failed");

@@ -190,7 +190,7 @@ export type ArtifactObserver = (
   cause: ArtifactChangeCause
 ) => void;
 
-export interface Artifacts extends ArtifactOperations {
+export interface ArtifactSubstrate extends ArtifactOperations {
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
   observe(changed: ArtifactObserver): () => void;
   recover(): Promise<void>;

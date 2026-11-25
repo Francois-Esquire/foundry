@@ -1,5 +1,5 @@
 import { contentIdSchema } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { moduleIdSchema } from "@foundry/modules/domain";
 import { ModuleStoreConflictError } from "@foundry/modules/errors";
@@ -20,7 +20,7 @@ const source = {
 
 describe("Module persistence over Artifact metadata", () => {
   it("lets exactly one of two concurrent creates of one id register it", async () => {
-    const persistence = createModulePersistence(new InMemoryArtifactStore());
+    const persistence = createModulePersistence(new MemoryArtifactStore());
     const projects = createModuleProjects({
       artifacts: persistence.artifacts,
       store: persistence.modules,
@@ -44,7 +44,7 @@ describe("Module persistence over Artifact metadata", () => {
   });
 
   it("lets exactly one of two concurrent registrations of one id on two Artifacts land", async () => {
-    const persistence = createModulePersistence(new InMemoryArtifactStore());
+    const persistence = createModulePersistence(new MemoryArtifactStore());
     const [a, b] = await Promise.all(
       ["a", "b"].map((name) =>
         persistence.artifacts.create({ name, type: MODULE_MIME })
@@ -71,7 +71,7 @@ describe("Module persistence over Artifact metadata", () => {
   });
 
   it("lets exactly one of two concurrent, different retained manifests for one Content land", async () => {
-    const persistence = createModulePersistence(new InMemoryArtifactStore());
+    const persistence = createModulePersistence(new MemoryArtifactStore());
     const artifact = await persistence.artifacts.create({
       name: "a",
       type: MODULE_MIME,

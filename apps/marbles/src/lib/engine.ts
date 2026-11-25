@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { SessionStore } from "@foundry/agents/store";
-import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
 import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type { Models } from "@foundry/models";

@@ -18,18 +18,18 @@ import type {
 } from "./index";
 import { ownedRecords, ownedWrite } from "./owned";
 
-export interface InMemoryArtifactStoreOptions {
+export interface MemoryArtifactStoreOptions {
   readonly records?: ArtifactRecords;
 }
 
 const REENTRY =
-  "InMemoryArtifactStore was called from inside its own transaction; use the view passed to the transaction's work instead";
+  "MemoryArtifactStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-export class InMemoryArtifactStore implements ArtifactStore {
+export class MemoryArtifactStore implements ArtifactStore {
   #records: Records;
   readonly #turns = new Turns(REENTRY);
 
-  constructor(options: InMemoryArtifactStoreOptions = {}) {
+  constructor(options: MemoryArtifactStoreOptions = {}) {
     this.#records = Records.from(
       ownedRecords(
         options.records ?? { artifacts: [], blobs: [], contents: [] }

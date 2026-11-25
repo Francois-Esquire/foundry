@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { ArtifactOperations } from "@foundry/artifacts";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { ContainerStore } from "@foundry/sandbox/store";
@@ -99,11 +99,11 @@ export function readArtifacts(
 ): Pick<ArtifactOperations, "get" | "readFile"> {
   const files = blobFiles(artifactBlobs(dir, scope));
   const read = async <T>(
-    work: (artifacts: ArtifactManager) => Promise<T | null>
+    work: (artifacts: Artifacts) => Promise<T | null>
   ): Promise<T | null> =>
     (await readDatabase(stateDatabase(state), (database) =>
       work(
-        new ArtifactManager({
+        new Artifacts({
           files,
           store: new SqliteArtifactStore({ database, scope }),
         })

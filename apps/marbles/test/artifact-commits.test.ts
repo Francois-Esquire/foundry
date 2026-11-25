@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ArtifactEvent } from "@foundry/artifacts";
-import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describeArtifactStore } from "@foundry/artifacts/testing/store";
 import { sql } from "drizzle-orm";
@@ -128,7 +128,7 @@ describe("a store that follows its commits", () => {
     const id = artifactIdSchema.parse("nested");
     await store.transaction(async (outer) => {
       await outer.transaction?.(async (inner) => {
-        await new ArtifactManager({ store: inner }).create({
+        await new Artifacts({ store: inner }).create({
           entries: { "a.txt": { bytes: "hello", mime: "text/plain" } },
           id,
           name: "nested",
@@ -144,7 +144,7 @@ describe("a store that follows its commits", () => {
     const { landed, store } = await followed();
     await expect(
       store.transaction(async (view) => {
-        await new ArtifactManager({ store: view }).create({
+        await new Artifacts({ store: view }).create({
           entries: { "a.txt": { bytes: "gone", mime: "text/plain" } },
           name: "gone",
           type: "text/plain",
@@ -157,7 +157,7 @@ describe("a store that follows its commits", () => {
 
   it("follows a plain commit once it resolves, and none that is refused", async () => {
     const { landed, store } = await followed();
-    await new ArtifactManager({ store }).create({
+    await new Artifacts({ store }).create({
       entries: { "a.txt": { bytes: "plain", mime: "text/plain" } },
       name: "plain",
       type: "text/plain",

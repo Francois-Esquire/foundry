@@ -1,8 +1,7 @@
 import { resolve } from "node:path";
 import type { SessionRecord } from "@foundry/agents/schema";
 import type { MessageTally } from "@foundry/agents/store/sqlite";
-import type { Artifact, ArtifactId } from "@foundry/artifacts";
-import type { ArtifactCursor } from "@foundry/artifacts/listing";
+import type { Artifact, ArtifactCursor, ArtifactId } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";

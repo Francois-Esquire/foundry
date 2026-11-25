@@ -2,9 +2,8 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import { Artifacts } from "../artifacts";
 import { CHUNK_BYTES } from "../constants";
-import { ArtifactManager } from "../manager";
 import { blobFiles } from "../node";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
@@ -82,7 +81,7 @@ async function harness(kind: StoreKind) {
   roots.push(root);
   const blobs = join(root, "blobs");
   const store = await openStore(kind);
-  const artifacts = new ArtifactManager({ files: blobFiles(blobs), store });
+  const artifacts = new Artifacts({ files: blobFiles(blobs), store });
   const staged = async () => {
     const found: string[] = [];
     const area = join(blobs, ".staging");

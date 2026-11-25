@@ -69,7 +69,7 @@ function sameNode(
   return previous?.type === node.type;
 }
 
-export async function scan(root: string): Promise<StorageTree> {
+async function scan(root: string): Promise<StorageTree> {
   const tree: Record<string, StorageNode> = Object.create(null);
   async function walk(directory: string, prefix: string): Promise<void> {
     for (const entry of await readdir(directory, { withFileTypes: true })) {

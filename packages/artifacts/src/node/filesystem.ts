@@ -21,7 +21,7 @@ import { artifactIdSchema } from "../ref";
 import type {
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   ContentResolved,
   EntryInput,
   TreeChanges,
@@ -68,7 +68,7 @@ export interface ArtifactFileStamp {
 }
 
 export interface ArtifactFileSystemOptions {
-  readonly artifacts: Artifacts;
+  readonly artifacts: ArtifactSubstrate;
   readonly conflicted?: (conflict: ArtifactDiskConflict) => void;
   readonly includes?: (artifact: ArtifactResolved) => boolean;
   readonly keptConflicts?: number;

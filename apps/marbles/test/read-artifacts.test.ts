@@ -1,6 +1,6 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { expect, it } from "vitest";
@@ -17,7 +17,7 @@ it("reads an artifact whose blobs directory is gone as missing, and makes no dir
   const opened = await initializeDatabase(stateDatabase(state));
   let contentId: string;
   try {
-    const created = await new ArtifactManager({
+    const created = await new Artifacts({
       files: blobFiles(blobs),
       store: new SqliteArtifactStore({
         database: opened.database,

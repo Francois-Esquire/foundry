@@ -1,4 +1,4 @@
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { ModuleVersion } from "@foundry/modules/domain";
 import { expect, it, vi } from "vitest";
 import { ModuleBuilds } from "~/main/modules/builds/controller";
@@ -8,7 +8,7 @@ import { ModuleSessions } from "~/main/modules/runtime/controller";
 import { successfulBuildRuntime } from "../helpers/module-build";
 
 it("builds on first open, opens the latest release next time, and closes each app VM", async () => {
-  const library = createModuleLibrary(new InMemoryArtifactStore());
+  const library = createModuleLibrary(new MemoryArtifactStore());
   const module = await library.create("App first");
   const run = vi.fn(successfulBuildRuntime.run);
   const builds = new ModuleBuilds(library, { ...successfulBuildRuntime, run });

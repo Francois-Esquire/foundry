@@ -1,6 +1,6 @@
 import { promises as real } from "node:fs";
 import { join } from "node:path";
-import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
+import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { tryFileLock } from "@foundry/lib/node/file-lock";
 import { thisProcess } from "@foundry/lib/node/process-identity";
@@ -262,7 +262,7 @@ describe("keepers of one workspace's links", () => {
     try {
       const plain = workspaceStores(database, "one").artifacts;
       const id = artifactIdSchema.parse("item");
-      await new ArtifactManager({
+      await new Artifacts({
         files: blobFiles(artifactBlobs(artifacts, "one")),
         store: plain,
       }).create({
@@ -364,7 +364,7 @@ describe("keepers of one workspace's links", () => {
       );
       const id = artifactIdSchema.parse("again");
       await store.transaction(async (view) => {
-        const artifacts = new ArtifactManager({ store: view });
+        const artifacts = new Artifacts({ store: view });
         await artifacts.create({
           entries: { a: { bytes: "1", mime: "text/plain" } },
           id,

@@ -16,13 +16,13 @@ A Module has stable identity separate from its backing Artifact. A version is a 
 SemVer-tagged Content of that Artifact; nothing else persists it.
 
 ```ts
-import type { Artifacts, ContentId } from "@foundry/artifacts";
+import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
 import type { ModuleId } from "@foundry/modules/domain";
 import type { ModuleRegistry } from "@foundry/modules/registry";
 import { createModuleVersions } from "@foundry/modules/version";
 
 export async function loadVersion(
-  artifacts: Artifacts,
+  artifacts: ArtifactSubstrate,
   store: ModuleRegistry,
   moduleId: ModuleId,
   contentId: ContentId,
@@ -344,7 +344,7 @@ while the Artifact step runs.
 
 That order needs the Artifact step to commit when it returns, so each of these
 operations must own its Artifact commit. Called inside a caller's Artifact transaction
-(which `ArtifactManager.transaction` would join, committing the Artifact only with the
+(which `Artifacts.transaction` would join, committing the Artifact only with the
 caller's), it is refused before anything is written, Installations included, with a
 `ModuleCrossStoreError`. The manager offers no way to ask whether a transaction is open,
 so the operation asks by effect: it runs an empty Artifact transaction whose

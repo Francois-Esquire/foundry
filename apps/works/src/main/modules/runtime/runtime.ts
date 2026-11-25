@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import {
   type InstallationId,
@@ -29,7 +29,7 @@ export async function createModuleRuntime(
   const { createMicrosandboxRuntime } = await import(
     "@foundry/sandbox/container/microsandbox-runtime"
   );
-  const artifacts = new ArtifactManager({ store: artifactStore });
+  const artifacts = new Artifacts({ store: artifactStore });
   const store = new ModuleRegistry({
     artifactOfContent: async (contentId) =>
       (await artifacts.getContent(contentId))?.artifactId ?? null,

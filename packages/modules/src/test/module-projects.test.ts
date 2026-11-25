@@ -1,5 +1,5 @@
-import { ArtifactManager, artifactIdSchema } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it, vi } from "vitest";
 
 import { moduleIdSchema } from "../domain";
@@ -25,7 +25,7 @@ const source = {
 };
 
 async function fixture() {
-  const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+  const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
   const store = new ModuleRegistry();
   const projects = createModuleProjects({ artifacts, store });
   const project = await projects.create({ id, name: "Notes", source });
@@ -88,8 +88,8 @@ describe("Module projects", () => {
     });
 
     it("archives the Artifact a failed registration made, and a retry creates the Module", async () => {
-      const artifacts = new ArtifactManager({
-        store: new InMemoryArtifactStore(),
+      const artifacts = new Artifacts({
+        store: new MemoryArtifactStore(),
       });
       const registry = new ModuleRegistry();
       const registryDown: { refuse: boolean } = { refuse: true };
@@ -116,8 +116,8 @@ describe("Module projects", () => {
     });
 
     it("refuses, before writing anything, a create inside a caller's Artifact transaction", async () => {
-      const artifacts = new ArtifactManager({
-        store: new InMemoryArtifactStore(),
+      const artifacts = new Artifacts({
+        store: new MemoryArtifactStore(),
       });
       const store = new ModuleRegistry();
       const projects = createModuleProjects({ artifacts, store });
@@ -138,8 +138,8 @@ describe("Module projects", () => {
     });
 
     it("succeeds when its registration committed but the acknowledgment was lost", async () => {
-      const artifacts = new ArtifactManager({
-        store: new InMemoryArtifactStore(),
+      const artifacts = new Artifacts({
+        store: new MemoryArtifactStore(),
       });
       const registry = new ModuleRegistry();
       const store = {
@@ -167,8 +167,8 @@ describe("Module projects", () => {
     });
 
     it("archives nothing, and keeps the original error, when the reconciling read fails", async () => {
-      const artifacts = new ArtifactManager({
-        store: new InMemoryArtifactStore(),
+      const artifacts = new Artifacts({
+        store: new MemoryArtifactStore(),
       });
       const registry = new ModuleRegistry();
       const unreadable: { on: boolean } = { on: false };
@@ -202,8 +202,8 @@ describe("Module projects", () => {
     });
 
     it("refuses to return as idempotent a Module whose Artifact does not exist", async () => {
-      const artifacts = new ArtifactManager({
-        store: new InMemoryArtifactStore(),
+      const artifacts = new Artifacts({
+        store: new MemoryArtifactStore(),
       });
       const store = new ModuleRegistry();
       await store.registerModule({

@@ -1,8 +1,5 @@
-import {
-  type ArtifactCursor,
-  ArtifactManager,
-  type ArtifactResolved,
-} from "@foundry/artifacts";
+import type { ArtifactCursor, ArtifactResolved } from "@foundry/artifacts";
+import { nodeArtifacts } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { type Module, moduleIdSchema } from "@foundry/modules/domain";
@@ -11,7 +8,7 @@ import { parseModuleManifest } from "@foundry/modules/manifest";
 import type { ModuleRegistryUnit } from "@foundry/modules/registry";
 
 export function createModulePersistence(store: ArtifactStore) {
-  const artifacts = new ArtifactManager({ store });
+  const artifacts = nodeArtifacts({ store });
   async function registered() {
     const records: ArtifactResolved[] = [];
     let cursor: ArtifactCursor | undefined;

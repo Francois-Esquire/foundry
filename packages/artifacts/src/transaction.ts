@@ -112,8 +112,8 @@ export class ArtifactTransaction implements ArtifactOperations {
       Object.defineProperty(ArtifactTransaction.prototype, name, {
         configurable: true,
         value(this: ArtifactTransaction, ...args: unknown[]) {
-          return this.#change.operation(() =>
-            Reflect.apply(operation, this, args)
+          return this.#change.operation((scoped) =>
+            Reflect.apply(operation, this.#fork(scoped), args)
           );
         },
         writable: true,
@@ -124,6 +124,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   readonly #change: ArtifactChange;
   readonly #effects: OperationEffects;
   readonly #blobs: BlobRepository;
+  readonly #limits: TransactionLimits;
   readonly #maxTreeBytes: number;
   readonly #staging: BlobStaging;
 
@@ -136,8 +137,18 @@ export class ArtifactTransaction implements ArtifactOperations {
     this.#change = change;
     this.#effects = effects;
     this.#blobs = new BlobRepository(change, effects, { ...limits, staging });
+    this.#limits = limits;
     this.#maxTreeBytes = limits.maxTreeBytes;
     this.#staging = staging;
+  }
+
+  #fork(change: ArtifactChange): ArtifactTransaction {
+    return new ArtifactTransaction(
+      change,
+      this.#effects,
+      this.#limits,
+      this.#staging
+    );
   }
 
   async checkCreate(input: CreateArtifactInput): Promise<void> {

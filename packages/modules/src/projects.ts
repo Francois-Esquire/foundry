@@ -2,7 +2,7 @@ import type {
   ArtifactId,
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   ContentId,
   FileInputs,
 } from "@foundry/artifacts";
@@ -93,7 +93,7 @@ export class ModuleProjectError extends Error {
 }
 
 export function createModuleProjects(options: {
-  readonly artifacts: Artifacts;
+  readonly artifacts: ArtifactSubstrate;
   readonly store: ModuleRegistryUnit<"loadModule" | "registerModule">;
 }): ModuleProjects {
   const { artifacts, store } = options;

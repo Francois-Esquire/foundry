@@ -1,5 +1,5 @@
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { MODULE_MIME } from "@foundry/modules/constants";
 import { defineModuleVersion, moduleIdSchema } from "@foundry/modules/domain";
 import { encodeModulePackage } from "@foundry/modules/package";
@@ -27,7 +27,7 @@ const program = `const server = Bun.serve({
 });`;
 
 export async function moduleReleasePackage() {
-  const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+  const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
   const bytes = new TextEncoder().encode(program);
   const artifact = await artifacts.create({
     entries: { "outputs/program.js": { bytes } },

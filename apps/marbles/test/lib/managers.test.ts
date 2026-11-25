@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineSkill } from "@foundry/agents/skills";
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/container/containers";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
@@ -332,7 +332,7 @@ describe("workspaces", () => {
 
 describe("artifacts", () => {
   it("keeps a declared artifact's identity and adds a version per write", async () => {
-    const system = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const system = new Artifacts({ store: new MemoryArtifactStore() });
     const manager = new ArtifactsManager({
       artifacts: system,
       workspaceId: "ws",
@@ -378,7 +378,7 @@ describe("artifacts", () => {
   });
 
   it("reads the latest version, from the real store under a dry run", async () => {
-    const real = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const real = new Artifacts({ store: new MemoryArtifactStore() });
     const memory = {
       id: "artifact#1",
       kind: "artifact",
@@ -395,7 +395,7 @@ describe("artifacts", () => {
     await expect(kept?.text("missing.json")).resolves.toBeUndefined();
 
     const dry = new ArtifactsManager({
-      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
       readThrough: real,
       workspaceId: "ws",
     });
@@ -411,7 +411,7 @@ describe("artifacts", () => {
 
   it("reads versions back, records who wrote them, and changes only some files", async () => {
     const manager = new ArtifactsManager({
-      artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+      artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
       workspaceId: "ws",
     });
     const site = {

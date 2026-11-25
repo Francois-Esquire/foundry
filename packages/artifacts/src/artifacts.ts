@@ -1,7 +1,7 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { Page } from "@foundry/core/pagination";
 import type { CommitEffects } from "@foundry/core/storage";
 import { runAfterCommit } from "@foundry/core/storage";
+import { type AsyncScope, asyncScope } from "@foundry/lib/async-scope";
 import { ReentrantCallError } from "@foundry/lib/turns";
 
 import type { BlobFiles } from "./blob";
@@ -13,14 +13,14 @@ import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
 import type { ArtifactCursor } from "./listing";
 import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type { ArtifactStore, ArtifactStoreWrite } from "./store";
-import { InMemoryArtifactStore } from "./store/memory";
+import { MemoryArtifactStore } from "./store/memory";
 import type {
   Artifact,
   ArtifactChangeCause,
   ArtifactObserver,
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   Content,
   ContentResolved,
   ContentSummary,
@@ -41,11 +41,12 @@ import {
   operationEffects,
 } from "./transaction";
 
-export interface ArtifactManagerOptions {
+export interface ArtifactsOptions {
   readonly files?: BlobFiles;
   readonly maxFileBytes?: number;
   readonly maxTreeBytes?: number;
   readonly store?: ArtifactStore;
+  readonly transactionScope?: AsyncScope<unknown>;
 }
 
 interface TransactionScope {
@@ -57,31 +58,36 @@ interface TransactionScope {
 
 interface StoreTurn {
   held: boolean;
+  operationOpen: boolean;
   readonly outer: StoreTurn | undefined;
+  readonly owner: Artifacts;
   readonly store: ArtifactStore;
 }
 
-const storeTurns = new AsyncLocalStorage<StoreTurn>();
+const storeTurns = asyncScope<StoreTurn>();
 
 const REENTRY =
-  "[artifacts] The Artifact store was called from inside its own transaction, through another manager over it; use the operations passed to that transaction's work instead";
+  "[artifacts] The Artifact store was called from inside its own transaction, through another Artifacts instance over it; use the operations passed to that transaction's work instead";
 
-export class ArtifactManager implements Artifacts {
+export class Artifacts implements ArtifactSubstrate {
   readonly #store: ArtifactStore;
   readonly #held: boolean;
   readonly #limits: TransactionLimits;
   readonly #bindings = new Set<(id: ArtifactId) => Promise<void>>();
   readonly #observers = new Set<ArtifactObserver>();
-  readonly #scope = new AsyncLocalStorage<TransactionScope>();
+  readonly #scope: AsyncScope<TransactionScope> | undefined;
   #tail: Promise<unknown> = Promise.resolve();
   readonly #stagingTurns = new StagingTurns();
   #lookups = 0;
   #looked: Promise<void> = Promise.resolve();
   readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
-  constructor(options: ArtifactManagerOptions = {}) {
-    this.#store = options.store ?? new InMemoryArtifactStore();
+  constructor(options: ArtifactsOptions = {}) {
+    this.#store = options.store ?? new MemoryArtifactStore();
     this.#held = this.#store.durability === "host";
+    this.#scope = options.transactionScope as
+      | AsyncScope<TransactionScope>
+      | undefined;
     this.#limits = {
       ...(options.files ? { files: options.files } : {}),
       maxFileBytes: options.maxFileBytes ?? MAX_FILE_BYTES,
@@ -161,9 +167,27 @@ export class ArtifactManager implements Artifacts {
             };
             let value: T;
             try {
-              value = await this.#scope.run(scope, () =>
-                operation(transaction, scope.effects)
-              );
+              if (this.#scope) {
+                value = await this.#scope.run(scope, () =>
+                  operation(transaction, scope.effects)
+                );
+              } else {
+                const turn: StoreTurn = {
+                  held: true,
+                  operationOpen: true,
+                  outer: storeTurns.get(),
+                  owner: this,
+                  store: this.#store,
+                };
+                try {
+                  value = await storeTurns.run(turn, () =>
+                    operation(transaction, scope.effects)
+                  );
+                } finally {
+                  turn.held = false;
+                  turn.operationOpen = false;
+                }
+              }
             } finally {
               scope.open = false;
             }
@@ -399,7 +423,7 @@ export class ArtifactManager implements Artifacts {
   async recover(): Promise<void> {
     if (this.#held) {
       throw new Error(
-        'ArtifactManager cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from a manager over the durable store, outside the host\'s transaction.'
+        'Artifacts cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from an Artifacts instance over the durable store, outside the host\'s transaction.'
       );
     }
     const refused = this.#reentry();
@@ -439,7 +463,7 @@ export class ArtifactManager implements Artifacts {
   }
 
   #joinedScope(): TransactionScope | undefined {
-    const scope = this.#scope.getStore();
+    const scope = this.#scope?.get();
     return scope?.open ? scope : undefined;
   }
 
@@ -689,7 +713,9 @@ export class ArtifactManager implements Artifacts {
     return store.transaction(async (view) => {
       const turn: StoreTurn = {
         held: true,
-        outer: storeTurns.getStore(),
+        operationOpen: false,
+        outer: storeTurns.get(),
+        owner: this,
         store,
       };
       try {
@@ -701,13 +727,20 @@ export class ArtifactManager implements Artifacts {
   }
 
   #reentry(): ReentrantCallError | undefined {
-    if (this.#scope.getStore() !== undefined) {
+    if (this.#scope?.get() !== undefined) {
       return;
     }
-    for (let turn = storeTurns.getStore(); turn; turn = turn.outer) {
-      if (turn.held && turn.store === this.#store) {
-        return new ReentrantCallError(REENTRY);
+    for (let turn = storeTurns.get(); turn; turn = turn.outer) {
+      if (!turn.held || turn.store !== this.#store) {
+        continue;
       }
+      if (turn.owner === this) {
+        if (turn.operationOpen) {
+          return new ReentrantCallError(REENTRY);
+        }
+        return;
+      }
+      return new ReentrantCallError(REENTRY);
     }
   }
 

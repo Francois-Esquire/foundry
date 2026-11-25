@@ -2,10 +2,10 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { Artifacts } from "@foundry/artifacts";
-import { ArtifactManager } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { showArgv } from "@foundry/lib/argv";
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
@@ -136,8 +136,8 @@ export function readTriggers(
   return { automations, registry };
 }
 
-function artifactsInMemory(): Artifacts {
-  return new ArtifactManager({ store: new InMemoryArtifactStore() });
+function artifactsInMemory(): ArtifactSubstrate {
+  return new Artifacts({ store: new MemoryArtifactStore() });
 }
 
 function artifactsFor(
@@ -176,7 +176,7 @@ function artifactsFor(
           state: options.stateRoot ?? layout().state,
         });
   return {
-    artifacts: new ArtifactManager({
+    artifacts: new Artifacts({
       ...(dir === undefined
         ? {}
         : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),

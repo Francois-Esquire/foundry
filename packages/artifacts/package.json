@@ -6,20 +6,35 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./src/*.ts",
-      "default": "./src/*.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./constants": {
+      "types": "./dist/constants.d.ts",
+      "import": "./src/constants.ts",
+      "default": "./src/constants.ts"
+    },
+    "./delivery": {
+      "types": "./dist/delivery.d.ts",
+      "import": "./src/delivery.ts",
+      "default": "./src/delivery.ts"
     },
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./src/node/index.ts",
       "default": "./src/node/index.ts"
     },
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./src/index.ts",
-      "default": "./src/index.ts"
+    "./references": {
+      "types": "./dist/references.d.ts",
+      "import": "./src/references.ts",
+      "default": "./src/references.ts"
+    },
+    "./registry": {
+      "types": "./dist/registry.d.ts",
+      "import": "./src/registry.ts",
+      "default": "./src/registry.ts"
     },
     "./store": {
       "types": "./dist/store/index.d.ts",
@@ -46,15 +61,20 @@
       "import": "./src/testing/index.ts",
       "default": "./src/testing/index.ts"
     },
+    "./testing/artifacts": {
+      "types": "./dist/testing/artifacts.d.ts",
+      "import": "./src/testing/artifacts.ts",
+      "default": "./src/testing/artifacts.ts"
+    },
     "./testing/store": {
       "types": "./dist/testing/store.d.ts",
       "import": "./src/testing/store.ts",
       "default": "./src/testing/store.ts"
     },
-    "./testing/manager": {
-      "types": "./dist/testing/manager.d.ts",
-      "import": "./src/testing/manager.ts",
-      "default": "./src/testing/manager.ts"
+    "./transaction": {
+      "types": "./dist/transaction.d.ts",
+      "import": "./src/transaction.ts",
+      "default": "./src/transaction.ts"
     }
   },
   "files": [

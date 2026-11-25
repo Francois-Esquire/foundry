@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
@@ -88,7 +88,7 @@ async function seeded(home: TestHome, top: string) {
   await touchWorkspace(state, two, null);
   const opened = await initializeDatabase(stateDatabase(state));
   try {
-    const notes = await new ArtifactManager({
+    const notes = await new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, one.id)),
       store: new SqliteArtifactStore({
         database: opened.database,

@@ -21,7 +21,7 @@ import { step } from "@foundry.sh/marbles";
 import {
   ArtifactManager,
   Engine,
-  InMemoryArtifactStore,
+  MemoryArtifactStore,
   InMemorySessionStore,
   Models,
 } from "@foundry.sh/marbles/lib";
@@ -31,7 +31,7 @@ const engine = new Engine({
   sessions: new InMemorySessionStore(),
   // Called at the first sandbox; `createContainers` over your runtime.
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
-  artifacts: new ArtifactManager({ store: new InMemoryArtifactStore() }),
+  artifacts: new ArtifactManager({ store: new MemoryArtifactStore() }),
   root: process.cwd(),
   workspaceId: "my-app",
   // Add a state directory to persist run records and tasks. Configure
@@ -256,7 +256,7 @@ built from another copy of the same class is a different type. Besides
 | `sessions` | `InMemorySessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); the published `Engine` given `state` keeps them in the [Marbles database](/marbles/reference/state#sessions). |
 | `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
 | `containers` | `createContainers`, `MemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |
-| `artifacts` | `ArtifactManager`, `InMemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
+| `artifacts` | `ArtifactManager`, `MemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
 | `runs`, `executionStore`, `triggers`, `automationStore`, `usageStore` | `MemoryRunStore`, `MemoryExecutionStore`, `MemoryTriggerStore`, `MemoryAutomationStore`, `MemoryUsageStore` | Marbles' own stores; the published `Engine` keeps them in the Marbles database when `state` is set. |
 
 One thing a host cannot do through this entry yet: the MicroSandbox runtime

@@ -5,7 +5,7 @@ import type { SessionMessage } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import type { SQL } from "drizzle-orm";
 import { sql } from "drizzle-orm";
@@ -403,7 +403,7 @@ it("after a restart, syntactically valid but malformed facts count as unreadable
 
 it("a run read while it settles, before its file is written, is never counted as unreadable", async () => {
   const built = testEngine({
-    artifacts: new ArtifactManager({
+    artifacts: new Artifacts({
       files: blobFiles(join(state, "artifacts", "blobs")),
       store: new JsonArtifactStore({
         path: join(state, "artifacts", "records.json"),

@@ -1,6 +1,6 @@
 import type { FileInputs } from "@foundry/artifacts";
-import { ArtifactManager, digestTree } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts, digestTree } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { StorageNode, StorageTree } from "@foundry/core/storage";
 import { storageTree, withParentDirectories } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
@@ -68,7 +68,7 @@ async function encoded(source: Awaited<ReturnType<typeof fixture>>) {
   });
 }
 
-function importPackage(artifacts: ArtifactManager, text: string) {
+function importPackage(artifacts: Artifacts, text: string) {
   return importModulePackage({
     artifacts,
     encoded: text,
@@ -136,8 +136,8 @@ describe("Module Package", () => {
       "outputs/unsupported": entry,
     };
     envelope.content.digest = await digestTree(envelope.content.tree);
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
     });
     const modules = new ModuleRegistry();
 
@@ -165,8 +165,8 @@ describe("Module Package", () => {
       },
     };
     envelope.content.digest = await digestTree(envelope.content.tree);
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
     });
 
     const release = await importPackage(artifacts, canonicalizeJson(envelope));
@@ -178,7 +178,7 @@ describe("Module Package", () => {
 
   it("round-trips one version as a frozen, tagged Content on the target", async () => {
     const source = await fixture();
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
     const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
@@ -224,7 +224,7 @@ describe("Module Package", () => {
 
   it("retains nothing when the Content embeds the manifest it was packaged with", async () => {
     const source = await fixture(withEmbeddedManifest(VALID_MANIFEST));
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
     const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
@@ -260,8 +260,8 @@ describe("Module Package", () => {
         },
         manifest
       );
-      const target = new ArtifactManager({
-        store: new InMemoryArtifactStore(),
+      const target = new Artifacts({
+        store: new MemoryArtifactStore(),
       });
       const modules = new ModuleRegistry();
 
@@ -284,7 +284,7 @@ describe("Module Package", () => {
 
   it("retains a strict output-only manifest and resolves it", async () => {
     const source = await fixture(undefined, STRICT_MANIFEST);
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
     const modules = new ModuleRegistry();
 
     const imported = await importModulePackage({
@@ -300,7 +300,7 @@ describe("Module Package", () => {
 
   it("rejects a package whose embedded manifest source disagrees, before persisting", async () => {
     const source = await fixture();
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
     const modules = new ModuleRegistry();
 
     await expect(
@@ -320,7 +320,7 @@ describe("Module Package", () => {
 
   it("rejects unparseable embedded manifest source", async () => {
     const source = await fixture();
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await expect(
       importPackage(target, await alteredManifestPackage(source, "{ not json"))
@@ -342,7 +342,7 @@ describe("Module Package", () => {
 
   it("importing the same version twice reuses the existing tagged Content", async () => {
     const source = await fixture();
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
     const text = await encoded(source);
 
     const first = await importPackage(target, text);
@@ -372,7 +372,7 @@ describe("Module Package", () => {
       manifest: VALID_MANIFEST,
       module: one.module,
     });
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await importPackage(target, await encoded(one));
     const imported = await importPackage(
@@ -398,7 +398,7 @@ describe("Module Package", () => {
     const source = await fixture();
     const tampered = JSON.parse(await encoded(source)) as Envelope;
     tampered.content.digest = "not-the-real-digest";
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await expect(
       importPackage(target, canonicalizeJson(tampered))
@@ -412,7 +412,7 @@ describe("Module Package", () => {
     for (const digest of Object.keys(tampered.content.blobs)) {
       tampered.content.blobs[digest] = "bm90LXRoZS1yZWFsLWJ5dGVz";
     }
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await expect(
       importPackage(target, canonicalizeJson(tampered))
@@ -449,7 +449,7 @@ describe("Module Package", () => {
     const source = await fixture();
     const tampered = JSON.parse(await encoded(source)) as Envelope;
     tampered.content.manifest.program.entry = "outputs/program/missing.js";
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await expect(
       importPackage(target, canonicalizeJson(tampered))
@@ -467,7 +467,7 @@ describe("Module Package", () => {
       required: false,
       version: 1,
     });
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await expect(
       importPackage(target, canonicalizeJson(tampered))
@@ -484,7 +484,7 @@ describe("Module Package", () => {
         ([, node]) => node.type === "file"
       )
     );
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     const version = await importPackage(target, canonicalizeJson(envelope));
     expect(version.contentId).toBeDefined();
@@ -531,7 +531,7 @@ describe("Module Package", () => {
     }
     envelope.format = "foundry.module/2";
     envelope.content.tree = tree;
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
     vi.mocked(withParentDirectories).mockClear();
 
     await expect(
@@ -554,7 +554,7 @@ describe("Module Package", () => {
     envelope.content.tree = {
       [`${"a/".repeat(4096)}file`]: file,
     };
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await expect(
       importPackage(target, canonicalizeJson(envelope))
@@ -584,7 +584,7 @@ describe("Module Package", () => {
     envelope.content.digest = await digestTree(envelope.content.tree);
     const text = canonicalizeJson(envelope);
     expect(text.length).toBeLessThan(4 * 1024 * 1024);
-    const target = new ArtifactManager({ store: new InMemoryArtifactStore() });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
 
     await expect(importPackage(target, text)).rejects.toThrow(
       "exceed 32 MiB in total"
@@ -594,14 +594,11 @@ describe("Module Package", () => {
 
   it("rejects malformed package text and the previous format", async () => {
     await expect(
-      importPackage(
-        new ArtifactManager({ store: new InMemoryArtifactStore() }),
-        "{}"
-      )
+      importPackage(new Artifacts({ store: new MemoryArtifactStore() }), "{}")
     ).rejects.toThrow("Unsupported Module Package format");
     await expect(
       importPackage(
-        new ArtifactManager({ store: new InMemoryArtifactStore() }),
+        new Artifacts({ store: new MemoryArtifactStore() }),
         canonicalizeJson({ format: "foundry.module/1" })
       )
     ).rejects.toThrow("Unsupported Module Package format");
@@ -638,8 +635,8 @@ describe("Module Package", () => {
       });
     }
 
-    async function state(artifacts: ArtifactManager, id: string) {
-      const artifactId = id as Parameters<ArtifactManager["get"]>[0];
+    async function state(artifacts: Artifacts, id: string) {
+      const artifactId = id as Parameters<Artifacts["get"]>[0];
       return {
         artifact: await artifacts.get(artifactId),
         contents: await artifacts.listContents(artifactId),
@@ -674,8 +671,8 @@ describe("Module Package", () => {
     });
 
     it("a Module id registered on another Artifact", async () => {
-      const target = new ArtifactManager({
-        store: new InMemoryArtifactStore(),
+      const target = new Artifacts({
+        store: new MemoryArtifactStore(),
       });
       const registry = new ModuleRegistry();
       const elsewhere = await moduleFixture();
@@ -723,8 +720,8 @@ describe("Module Package", () => {
 
   it("keeps the landed Content when registering fails, and a retry completes the import", async () => {
     const source = await fixture(undefined, STRICT_MANIFEST);
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
     });
     const registry = new ModuleRegistry();
     const refusing = { on: true };

@@ -4,12 +4,12 @@ import type { BlobFiles, BlobStagingArea } from "../blob";
 import type { ByteInput, ReferenceInput } from "../blob-repository";
 import { BlobRepository, isReferenceInput } from "../blob-repository";
 import { ArtifactChange } from "../change";
-import type { Artifacts, FileInput, FileRangeResolved } from "../index";
+import type { ArtifactSubstrate, FileInput, FileRangeResolved } from "../index";
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export contract.
 import * as artifacts from "../index";
 import { blobFiles } from "../node";
 import type { ArtifactStore, ArtifactStoreWrite } from "../store";
-import { InMemoryArtifactStore } from "../store/memory";
+import { MemoryArtifactStore } from "../store/memory";
 import type { SqliteArtifactStore } from "../store/sqlite";
 import { ArtifactTransaction, operationEffects } from "../transaction";
 
@@ -19,7 +19,9 @@ describe("Artifact package public surface", () => {
     expect(artifacts).toHaveProperty("contentIdSchema");
     expect(artifacts).toHaveProperty("StaleContentError");
     expect(artifacts).not.toHaveProperty("base64ToBytes");
-    expect(artifacts).toHaveProperty("ArtifactManager");
+    expect(artifacts).toHaveProperty("Artifacts");
+    expect(artifacts).not.toHaveProperty("ArtifactManager");
+    expect(artifacts).not.toHaveProperty("MemoryArtifactStore");
     expect(artifacts).not.toHaveProperty("InMemoryArtifactStore");
     expect(artifacts).toHaveProperty("blobIdSchema");
     expect(artifacts).not.toHaveProperty("artifactFileSystem");
@@ -38,16 +40,14 @@ describe("Artifact package public surface", () => {
       readonly range: { readonly start: number; readonly end: number };
       readonly body: AsyncIterable<Uint8Array>;
     }>();
-    expectTypeOf<Artifacts["readFileRange"]>().toBeFunction();
+    expectTypeOf<ArtifactSubstrate["readFileRange"]>().toBeFunction();
   });
 
   test("keeps stores and test doubles on their own paths, apart from the domain", async () => {
     const exported = async (path: string) =>
       Object.keys((await import(path)) as object).sort();
     expect(await exported("../store")).toEqual([]);
-    expect(await exported("../store/memory")).toEqual([
-      "InMemoryArtifactStore",
-    ]);
+    expect(await exported("../store/memory")).toEqual(["MemoryArtifactStore"]);
     expect(await exported("../store/sqlite")).toEqual(["SqliteArtifactStore"]);
     expect(await exported("../store/tables")).toEqual([
       "artifactBlobChunks",
@@ -61,16 +61,20 @@ describe("Artifact package public surface", () => {
     expect(await exported("../testing/store")).toEqual([
       "describeArtifactStore",
     ]);
+    expect(await exported("../testing/artifacts")).toEqual([
+      "describeArtifacts",
+    ]);
     expect(await exported("../testing")).toEqual(["interceptCommits"]);
     expectTypeOf<ArtifactStore["commit"]>()
       .parameter(0)
       .toEqualTypeOf<ArtifactStoreWrite>();
-    expectTypeOf<InMemoryArtifactStore>().toExtend<ArtifactStore>();
+    expectTypeOf<MemoryArtifactStore>().toExtend<ArtifactStore>();
     expectTypeOf<SqliteArtifactStore>().toExtend<ArtifactStore>();
   });
 
-  test("declares each store and suite path explicitly", () => {
+  test("declares each store and suite path explicitly without wildcards", () => {
     const { exports } = manifest as { exports: Record<string, unknown> };
+    expect(exports).not.toHaveProperty("./*");
     for (const [path, file] of [
       ["./store", "store/index"],
       ["./store/memory", "store/memory"],
@@ -78,7 +82,7 @@ describe("Artifact package public surface", () => {
       ["./store/tables", "store/tables"],
       ["./testing", "testing/index"],
       ["./testing/store", "testing/store"],
-      ["./testing/manager", "testing/manager"],
+      ["./testing/artifacts", "testing/artifacts"],
     ]) {
       expect(exports[path as string]).toMatchObject({
         import: `./src/${file}.ts`,
@@ -91,7 +95,7 @@ describe("Artifact package public surface", () => {
     expectTypeOf<ReferenceInput>().toExtend<FileInput>();
     expect(isReferenceInput({ blobId: "b" } as FileInput)).toBe(true);
     expect(isReferenceInput({ bytes: "x" })).toBe(false);
-    const change = new ArtifactChange(new InMemoryArtifactStore(), {});
+    const change = new ArtifactChange(new MemoryArtifactStore(), {});
     const limits = { maxFileBytes: 64, maxTreeBytes: 64 };
     const transaction = new ArtifactTransaction(
       change,

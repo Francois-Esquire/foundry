@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { directory, Workspaces } from "@foundry/workspaces";
 import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
 import { onTestFinished } from "vitest";
-import { ArtifactManager } from "../../manager";
 import {
   type ArtifactFileSystemOptions,
   artifactFileSystem,
   blobFiles,
+  nodeArtifacts,
 } from "../../node";
 import type { EntryInputs } from "../../substrate";
 import { openStore, type StoreKind } from "./stores";
@@ -23,7 +23,7 @@ export async function fixture(
     await mkdtemp(join(tmpdir(), "artifact-directory-"))
   );
   const store = await openStore(kind);
-  const artifacts = new ArtifactManager({
+  const artifacts = nodeArtifacts({
     store,
     ...(files ? { files: blobFiles(join(root, ".blobs")) } : {}),
   });

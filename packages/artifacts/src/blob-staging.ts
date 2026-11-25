@@ -297,7 +297,7 @@ export function checkSize(path: string, size: number, max: number): void {
   }
 }
 
-export function digestOf(bytes: Uint8Array): string {
+function digestOf(bytes: Uint8Array): string {
   return bytesToHex(sha256(bytes));
 }
 

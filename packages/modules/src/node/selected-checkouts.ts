@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-import type { Artifacts } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
 import {
   type ContentProjection,
   projectionMatches,
@@ -17,7 +17,7 @@ import { ModuleCheckoutError } from "./checkouts";
 type SelectedVersion = Pick<ModuleVersion, "contentId" | "digest" | "moduleId">;
 
 export interface CreateModuleSelectedCheckoutsOptions {
-  readonly artifacts: Pick<Artifacts, "getContent" | "readFileRange">;
+  readonly artifacts: Pick<ArtifactSubstrate, "getContent" | "readFileRange">;
   readonly checkoutPath: (moduleId: string) => string;
 }
 
