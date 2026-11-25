@@ -84,6 +84,7 @@ const TEXT: {
   change: changeLines,
   dependencies: relationLines,
   get: detailLines,
+  inspect: (result) => [...detailLines(result), ...relationLines(result)],
   list: pageLines,
   ready: pageLines,
 };

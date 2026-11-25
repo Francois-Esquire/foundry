@@ -15,6 +15,7 @@ import type {
   DispatchOptions,
   RollResult,
   RunInfo,
+  RunPage,
   WorkspaceActions,
   WorkspaceConfig,
   WorkspaceConnection,
@@ -474,6 +475,7 @@ function hosted(
     files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
+    listRuns: (query): Promise<RunPage> => dispatches.list(query),
     async roll(name, input): Promise<RollResult> {
       const schedule = (await engine.schedules()).find(
         (record) => record.key === name

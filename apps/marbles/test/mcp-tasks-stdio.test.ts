@@ -188,12 +188,12 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       tasks: [{ tags: ["review", "api"], title: "From MCP" }],
     });
 
-    const run = z.object({ runId: z.string() }).parse(
+    const run = z.object({ id: z.string() }).parse(
       JSON.parse(
         text(
           await client.callTool({
             arguments: { name: "titles" },
-            name: "dispatch_workflow",
+            name: "enqueue_workflow",
           })
         )
       )
@@ -201,8 +201,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     await vi.waitFor(async () => {
       const status = text(
         await client.callTool({
-          arguments: { runId: run.runId },
-          name: "get_run",
+          arguments: { id: run.id, resource: "run" },
+          name: "get",
         })
       );
       expect(status).toContain('"status":"completed"');
@@ -240,8 +240,11 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
 
     const before = await stored(state);
     const listed = await client.callTool({
-      arguments: { tags: { all: ["review"], any: ["api", "x"] } },
-      name: "list_tasks",
+      arguments: {
+        filter: { tags: { all: ["review"], any: ["api", "x"] } },
+        resource: "tasks",
+      },
+      name: "list",
     });
     expect(listed.isError, JSON.stringify(listed)).not.toBe(true);
     expect(listed.structuredContent).toMatchObject({
@@ -249,8 +252,11 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       total: 1,
     });
     const ready = await client.callTool({
-      arguments: { tags: { all: ["missing"] } },
-      name: "ready_tasks",
+      arguments: {
+        filter: { ready: true, tags: { all: ["missing"] } },
+        resource: "tasks",
+      },
+      name: "list",
     });
     expect(ready.structuredContent).toEqual({ items: [], total: 0 });
     expect(before.tasks).toHaveLength(2);

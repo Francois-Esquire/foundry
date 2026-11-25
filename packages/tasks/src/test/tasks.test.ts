@@ -81,6 +81,37 @@ describe.each(stores)("Tasks over the %s store", (storeName, open) => {
     ).toEqual([build?.id]);
   });
 
+  test("reads a task tree and both dependency directions together", async () => {
+    const tasks = new Tasks({ clock, store: await open() });
+    const prerequisite = await tasks.create({ title: "Prerequisite" });
+    const root = await tasks.create(
+      { title: "Root" },
+      { dependsOn: [{ id: prerequisite.id }] }
+    );
+    const child = await tasks.create(
+      { title: "Child" },
+      { parent: { id: root.id } }
+    );
+    const dependent = await tasks.create(
+      { title: "Dependent" },
+      { dependsOn: [{ id: root.id }] }
+    );
+    expect(await tasks.getWithRelations(root.id)).toMatchObject({
+      dependents: [{ id: dependent.id }],
+      dependsOn: [{ id: prerequisite.id }],
+      id: root.id,
+    });
+    expect(await tasks.getWithRelations(root.id)).not.toHaveProperty(
+      "subtasks"
+    );
+    expect(await tasks.getWithRelations(root.id, { depth: 1 })).toMatchObject({
+      dependents: [{ id: dependent.id }],
+      dependsOn: [{ id: prerequisite.id }],
+      subtasks: [{ id: child.id }],
+    });
+    expect(await tasks.getWithRelations("missing")).toBeNull();
+  });
+
   test("ready offers open unblocked work oldest first and tracks settlement", async () => {
     const tasks = new Tasks({ clock, store: await open() });
     const first = await tasks.create({ title: "first" });

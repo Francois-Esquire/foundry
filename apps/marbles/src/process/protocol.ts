@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { LiveWork } from "~/lib/step-work";
 import { RunRecordSchema } from "~/lib/workflow-runs";
-import type { WorkspaceState } from "~/model/connection";
+import type { RunListQuery, WorkspaceState } from "~/model/connection";
 import type { LiveRun } from "~/model/dashboard";
 
 export const PROTOCOL = 1;
@@ -176,6 +176,25 @@ export const workspaceSummarySchema = z.object({
   state: z.enum(WORKSPACE_STATES as [WorkspaceState, ...WorkspaceState[]]),
 });
 
+export const runListQuerySchema: z.ZodType<RunListQuery> = z.strictObject({
+  cursor: z.int().min(0).optional(),
+  kind: z.enum(["agent", "workflow"]).optional(),
+  limit: z.int().min(1).optional(),
+  name: z.string().optional(),
+  status: z
+    .array(
+      z.enum([
+        "queued",
+        "running",
+        "suspended",
+        "completed",
+        "failed",
+        "cancelled",
+      ])
+    )
+    .optional(),
+});
+
 export const WORKSPACE_PREFIX = "workspace.";
 
 export const WORKSPACE_METHODS = {
@@ -188,6 +207,7 @@ export const WORKSPACE_METHODS = {
   dispatchWorkflow: "dispatchWorkflow",
   getRun: "getRun",
   launch: "launch",
+  listRuns: "listRuns",
   pause: "pause",
   resume: "resume",
   roll: "roll",

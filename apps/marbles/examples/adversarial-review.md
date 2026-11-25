@@ -99,11 +99,12 @@ workspace's source, environment configuration, and schedules in a worker.
 Hosting continues after the client disconnects. The MCP server exposes general Marbles operations, not just review.
 Once connected from an MCP client:
 
-1. `list_config` names `adversarial-review` and its input schema.
-2. `dispatch_workflow` with `{"name":"adversarial-review","input":{...}}`
-   returns a `runId`.
-3. `get_run` with that `runId` returns `status`, then the `output` above,
-   or the `error` of a failed run.
+1. `get` with `{"resource":"definition","id":"adversarial-review"}` returns
+   its input schema.
+2. `enqueue_workflow` with `{"name":"adversarial-review","input":{...}}`
+   returns a run `id`.
+3. `get` with `{"resource":"run","id":"<that id>"}` returns `status`, then
+   the `output` above, or the `error` of a failed run.
 
 The `adversarial-review-standards`, `-spec`, and `-assemble` steps are
 listed too. Launch the workflow: an axis run alone skips the check that
