@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { startScript } from "./helpers/child-script";
+import { startScript } from "../testing/child-script";
 
 describe("startScript", () => {
   test("reads lines in order, then the exit", async () => {

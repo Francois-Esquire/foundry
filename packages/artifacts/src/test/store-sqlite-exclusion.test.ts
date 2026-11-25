@@ -3,17 +3,19 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  type ChildScript,
+  startScript,
+} from "@foundry/lib/testing/child-script";
+import { execInAnotherProcess } from "@foundry/lib/testing/sqlite-process";
 import { afterAll, describe, expect, test } from "vitest";
-
 import { Artifacts } from "../artifacts";
 import type { ArtifactId } from "../ids";
 import { blobFiles } from "../node";
 import type { Artifact } from "../schema";
 import { SqliteArtifactStore } from "../store/sqlite";
-import { type ChildScript, startScript } from "./helpers/child-script";
 import { required } from "./helpers/required";
 import { libsqlDatabases } from "./helpers/sqlite";
-import { execInAnotherProcess } from "./helpers/sqlite-process";
 
 const LOCKED = /locked|busy/i;
 const AT = new Date("2026-01-01T00:00:00.000Z");

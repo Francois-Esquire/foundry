@@ -1,10 +1,10 @@
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { vi } from "vitest";
 import { createModuleAccess } from "../../access";
 import { installationIdSchema } from "../../domain";
 import { ensureInstallation } from "../../management";
 import type { ModuleActivationInput } from "../../platform/contracts";
 import { createModuleInstallations } from "../../platform/installations";
-import { KeyedTurns } from "../../platform/turns";
 import { MODULE_SETTING_HOST_POLICY } from "../../settings";
 import {
   publishedModule,
@@ -29,7 +29,7 @@ export async function installationFixture(providers = [weatherProvider]) {
   const v1 = await module.publish("1.0.0", [weatherRequest(["Oslo"])]);
   const invocations = { revoke: vi.fn() };
   const checkout: string[] = [];
-  const moduleTurns = new KeyedTurns<string>();
+  const moduleTurns = new KeyedQueue<string>();
   const installations = createModuleInstallations({
     checkouts: {
       select: (version, record) =>

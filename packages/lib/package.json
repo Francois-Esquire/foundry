@@ -192,6 +192,11 @@
       "import": "./src/sqlite.ts",
       "default": "./src/sqlite.ts"
     },
+    "./testing/child-script": {
+      "types": "./dist/testing/child-script.d.ts",
+      "import": "./src/testing/child-script.ts",
+      "default": "./src/testing/child-script.ts"
+    },
     "./testing/process-identity": {
       "types": "./dist/testing/process-identity.d.ts",
       "import": "./src/testing/process-identity.ts",
@@ -206,6 +211,11 @@
       "types": "./dist/testing/sqlite.d.ts",
       "import": "./src/testing/sqlite.ts",
       "default": "./src/testing/sqlite.ts"
+    },
+    "./testing/sqlite-process": {
+      "types": "./dist/testing/sqlite-process.d.ts",
+      "import": "./src/testing/sqlite-process.ts",
+      "default": "./src/testing/sqlite-process.ts"
     },
     "./turns": {
       "types": "./dist/turns.d.ts",

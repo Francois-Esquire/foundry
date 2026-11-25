@@ -34,4 +34,52 @@ describe("KeyedQueue", () => {
     await expect(failed).rejects.toThrow("boom");
     await expect(next).resolves.toBe("ran");
   });
+
+  it("serialises operations on non-string keys", async () => {
+    const queue = new KeyedQueue<number>();
+    const order: string[] = [];
+    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
+
+    const first = queue.run(1, async () => {
+      await gate;
+      order.push("one-a");
+    });
+    const second = queue.run(1, () => {
+      order.push("one-b");
+      return Promise.resolve();
+    });
+    await queue.run(2, () => {
+      order.push("two");
+      return Promise.resolve();
+    });
+    open();
+    await Promise.all([first, second]);
+
+    expect(order).toEqual(["two", "one-a", "one-b"]);
+  });
+
+  it("waits in idle until every key has drained", async () => {
+    const queue = new KeyedQueue();
+    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
+    let finished = 0;
+
+    const a = queue.run("a", async () => {
+      await gate;
+      finished += 1;
+    });
+    const b = queue.run("b", async () => {
+      await gate;
+      finished += 1;
+    });
+    const idle = queue.idle();
+    open();
+    await idle;
+
+    expect(finished).toBe(2);
+    await Promise.all([a, b]);
+  });
+
+  it("resolves idle immediately when nothing is queued", async () => {
+    await expect(new KeyedQueue().idle()).resolves.toBeUndefined();
+  });
 });

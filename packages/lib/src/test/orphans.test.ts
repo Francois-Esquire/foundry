@@ -26,8 +26,8 @@ import {
   writePrivate,
 } from "../node/spawn-record";
 import { anotherStart } from "../testing/process-identity";
-import { stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";
+import { stopLeftover } from "./helpers/process-cleanup";
 
 const started: ChildProcess[] = [];
 const made: string[] = [];

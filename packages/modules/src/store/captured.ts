@@ -1,3 +1,4 @@
+import { isPlainObject } from "@foundry/lib/plain-json";
 import type {
   InstallationListQuery,
   ManifestListQuery,
@@ -230,18 +231,6 @@ export function plainCopy(
   } finally {
     ancestors.delete(value);
   }
-}
-
-function isPlainObject(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return (
-    (prototype === Object.prototype || prototype === null) &&
-    Object.getOwnPropertyNames(value).length === Object.keys(value).length &&
-    Object.getOwnPropertySymbols(value).length === 0
-  );
 }
 
 export function ownedQuery<Q extends ModuleStorePageQuery>(query: Q): Q {

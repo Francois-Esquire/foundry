@@ -211,9 +211,11 @@ describe("Modules boundary", () => {
       "@foundry/lib/digest",
       "@foundry/lib/encoding",
       "@foundry/lib/json",
+      "@foundry/lib/keyed-queue",
       "@foundry/lib/network",
       "@foundry/lib/ordering",
       "@foundry/lib/pagination",
+      "@foundry/lib/plain-json",
       "@foundry/lib/turns",
       "zod",
     ]);

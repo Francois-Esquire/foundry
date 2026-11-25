@@ -24,8 +24,8 @@ import {
   type SpawnRecord,
   writePrivate,
 } from "../node/spawn-record";
-import { signalOwn, stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";
+import { signalOwn, stopLeftover } from "./helpers/process-cleanup";
 
 const made: string[] = [];
 const leftovers: { pid: number; started: string }[] = [];

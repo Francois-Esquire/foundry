@@ -1,5 +1,6 @@
 import type { ContentId } from "@foundry/artifacts";
 import { withAbort } from "@foundry/lib/abort";
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import type { Installation, InstallationId, ModuleVersion } from "../domain";
 import type {
   ModuleGateway,
@@ -22,7 +23,6 @@ import {
   startupFailureMessage,
   supervisorError,
 } from "./program-supervisor-errors";
-import { KeyedTurns } from "./turns";
 
 // biome-ignore lint/performance/noBarrelFile: Preserve the supervisor's existing public error import path while the error model lives in its own module.
 export {
@@ -67,7 +67,7 @@ const DEFAULT_TEARDOWN_OBSERVATION_MS = 10_000;
 class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
   readonly #active = new Map<InstallationId, ActiveRecord>();
   readonly #teardowns = new Map<InstallationId, TeardownRecord>();
-  readonly #turns = new KeyedTurns<InstallationId>();
+  readonly #turns = new KeyedQueue<InstallationId>();
   readonly #closing = new AbortController();
   readonly #now: () => Date;
   readonly #notifySettled: (installationId: InstallationId) => void;

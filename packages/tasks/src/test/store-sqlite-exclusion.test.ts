@@ -1,12 +1,15 @@
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import {
+  type ChildScript,
+  startScript,
+} from "@foundry/lib/testing/child-script";
+import { execInAnotherProcess } from "@foundry/lib/testing/sqlite-process";
 import { describe, expect, test } from "vitest";
 import type { Task, TaskId } from "../schema";
 import { SqliteTaskStore } from "../store/sqlite";
 import { Tasks } from "../tasks";
-import { type ChildScript, startScript } from "./helpers/child-script";
 import { libsqlDatabases } from "./helpers/sqlite";
-import { execInAnotherProcess } from "./helpers/sqlite-process";
 
 const LOCKED = /locked|busy/i;
 const clock = () => new Date("2026-11-01T00:00:00.000Z");

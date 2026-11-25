@@ -1,11 +1,11 @@
 import { TypedEmitter } from "../emitter";
-import type { LeafChange } from "./helpers";
+import type { LeafChange } from "./deep-path";
 import {
   deepMergeClearUndefined,
   getDeep,
   leafDiff,
   setDeepClearUndefined,
-} from "./helpers";
+} from "./deep-path";
 import type { DeepPartial, Path, ValueAt } from "./types";
 
 export interface LeafChangePayload {

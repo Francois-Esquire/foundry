@@ -1,9 +1,9 @@
+import { execInAnotherProcess } from "@foundry/lib/testing/sqlite-process";
 import { describe, expect, test } from "vitest";
 import { WorkspaceCatalog } from "../catalog";
 import { SqliteWorkspaceStore } from "../store/sqlite";
 import { fileRecord, hostWorkspace, newRoot, seed } from "../testing/records";
 import { libsqlDatabases } from "./helpers/sqlite";
-import { execInAnotherProcess } from "./helpers/sqlite-process";
 
 const LOCKED = /locked|busy/i;
 const memory = libsqlDatabases("memory");

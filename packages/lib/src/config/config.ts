@@ -1,10 +1,10 @@
 import type { ZodType } from "zod";
 
-import type { LeafChange } from "./helpers";
+import type { LeafChange } from "./deep-path";
 import {
   deepMergePreserveUndefined,
   setDeepPreserveUndefined,
-} from "./helpers";
+} from "./deep-path";
 import type { CommitInfo } from "./reactive-store";
 import { ReactiveStore } from "./reactive-store";
 import type {

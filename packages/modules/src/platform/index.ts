@@ -1,4 +1,5 @@
 // biome-ignore lint/performance/noBarrelFile: Public platform role entry point for @foundry/modules/platform.
+export { KeyedQueue as KeyedTurns } from "@foundry/lib/keyed-queue";
 export {
   ModuleActivationRefusedError,
   validateModuleActivation,
@@ -59,4 +60,3 @@ export {
   type ModuleRecoveryResult,
   type ModuleRuntimeRecovery,
 } from "./runtime-recovery";
-export { KeyedTurns } from "./turns";
