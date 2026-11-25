@@ -26,27 +26,27 @@
       "types": "./dist/src/airplane.d.ts",
       "import": "./src/airplane.ts"
     },
-    "./claude-code": {
+    "./node/claude-code": {
       "types": "./dist/src/claude-code.d.ts",
       "import": "./src/claude-code.ts"
     },
-    "./codex": {
+    "./node/codex": {
       "types": "./dist/src/codex.d.ts",
       "import": "./src/codex.ts"
     },
-    "./pi": {
+    "./node/pi": {
       "types": "./dist/src/pi.d.ts",
       "import": "./src/pi.ts"
     },
-    "./local": {
+    "./node/local": {
       "types": "./dist/src/local/provider.d.ts",
       "import": "./src/local/provider.ts"
     },
-    "./local/remote": {
+    "./node/local/remote": {
       "types": "./dist/src/local/remote/transport.d.ts",
       "import": "./src/local/remote/transport.ts"
     },
-    "./local/remote/provider": {
+    "./node/local/remote/provider": {
       "types": "./dist/src/local/remote/provider.d.ts",
       "import": "./src/local/remote/provider.ts"
     },
@@ -140,7 +140,7 @@
     "./src/**/*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "test": "vitest run --project unit",
     "test:coverage": "vitest run --project unit --coverage",

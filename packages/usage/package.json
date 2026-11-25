@@ -17,14 +17,6 @@
     "./provider": {
       "types": "./src/provider.ts",
       "import": "./src/provider.ts"
-    },
-    "./providers/anthropic": {
-      "types": "./src/providers/anthropic/index.ts",
-      "import": "./src/providers/anthropic/index.ts"
-    },
-    "./providers/openai": {
-      "types": "./src/providers/openai/index.ts",
-      "import": "./src/providers/openai/index.ts"
     }
   },
   "scripts": {

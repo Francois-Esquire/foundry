@@ -1,7 +1,7 @@
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import {
   agentSubject,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import { resolveHarnessApproval } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
@@ -18,12 +18,12 @@ import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { SandboxHandle } from "../../src/lib/types";
 
 const binding: { container: Container | undefined } = { container: undefined };
-vi.mock("@foundry/models/claude-code", () => ({
+vi.mock("@foundry/models/node/claude-code", () => ({
   createClaudeCodeDriver: () => {
     throw new Error("CLI not expected");
   },
 }));
-vi.mock("@foundry/models/codex", () => ({
+vi.mock("@foundry/models/node/codex", () => ({
   createCodexDriver: () => {
     throw new Error("CLI not expected");
   },
@@ -143,7 +143,7 @@ async function session(
     modelId: "gateway-model",
     ...(context.observe ? { observe: context.observe } : {}),
     options: {
-      authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+      authority: { policy: createMemoryAgentAuthorizer().authorizer },
       sandbox,
       ...overrides,
     },
@@ -219,7 +219,7 @@ describe("built-in sandbox session factory", () => {
           instructions: "inspect",
           modelId: "sonnet",
           options: {
-            authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+            authority: { policy: createMemoryAgentAuthorizer().authorizer },
             compaction,
             sandbox,
           },
@@ -235,7 +235,7 @@ describe("built-in sandbox session factory", () => {
 
   it("runs a gateway tool loop over guest files and commands with one grant claim per effect", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
+    const authority = createMemoryAgentAuthorizer();
     for (const tool of ["write", "bash"]) {
       await authority.allow(agentSubject("coder"), {
         kind: "tool.call",
@@ -269,7 +269,7 @@ describe("built-in sandbox session factory", () => {
 
   it("enforces static scoped refusals even when the custom authority allows everything", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer({
+    const authority = createMemoryAgentAuthorizer({
       policy: { byKind: { "tool.call": "allow" }, global: "allow" },
     });
     const claim = vi.spyOn(authority.authorizer, "claim");
@@ -303,7 +303,7 @@ describe("built-in sandbox session factory", () => {
 
   it("waits for an attended approval, executes once, and remembers the grant", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
+    const authority = createMemoryAgentAuthorizer();
     const store = new MemorySessionStore();
     const onApprovalRequest = vi.fn();
     const write = vi.fn();
@@ -363,7 +363,7 @@ describe("built-in sandbox session factory", () => {
 
   it("scheduled asks refuse the effect and a deferred grant enables a later run", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
+    const authority = createMemoryAgentAuthorizer();
     const store = new MemorySessionStore();
     const approve = vi.fn(() => new Promise<never>(() => undefined));
     const options = { authority: { approve, policy: authority.authorizer } };
@@ -410,7 +410,7 @@ describe("built-in sandbox session factory", () => {
 
   it("aborts a pending attended approval without executing or granting", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
+    const authority = createMemoryAgentAuthorizer();
     const controller = new AbortController();
     const approve = vi.fn(() => new Promise<never>(() => undefined));
     const harness = await session(
@@ -455,7 +455,7 @@ describe("built-in sandbox session factory", () => {
 
   it("records each model turn and tool call on the owning run, without arguments or results", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
+    const authority = createMemoryAgentAuthorizer();
     await authority.allow(agentSubject("coder"), {
       kind: "tool.call",
       source: "builtin",

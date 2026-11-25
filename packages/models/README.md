@@ -226,7 +226,7 @@ The model catalog is application data, not a dependency version catalog.
 
 ## Pi harness
 
-`@foundry/models/pi` exports `piProvider` and `createPiDriver`. Model calls use
+`@foundry/models/node/pi` exports `piProvider` and `createPiDriver`. Model calls use
 [`ai-sdk-provider-pi`](https://github.com/ben-vargas/ai-sdk-provider-pi) 0.1.0,
 with AI SDK's `wrapLanguageModel` adapting its V3 model to the V4 contract.
 The provider embeds Pi 0.52.12. Sandbox sessions use the separately pinned
@@ -234,7 +234,7 @@ Pi 1.3.0 CLI over RPC. Models remains private at 0.1.0 when Marbles releases.
 
 ```ts
 import { Models } from "@foundry/models";
-import { piProvider } from "@foundry/models/pi";
+import { piProvider } from "@foundry/models/node/pi";
 
 const provider = piProvider({
   config: { available: true, defaultSettings: { tools: "readOnly" } },

@@ -236,7 +236,9 @@ async function claudeCode(
         ),
     }),
   }));
-  const { claudeCodeProvider } = await import("@foundry/models/claude-code");
+  const { claudeCodeProvider } = await import(
+    "@foundry/models/node/claude-code"
+  );
   return new Models({
     providers: [
       claudeCodeProvider({
