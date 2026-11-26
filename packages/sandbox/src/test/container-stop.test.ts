@@ -160,6 +160,151 @@ describe("stop", () => {
   });
 });
 
+function booting() {
+  const runtime = createFakeContainerRuntime();
+  const gated = gatedStore();
+  const create = runtime.create.bind(runtime);
+  let resume = (): void => undefined;
+  const open = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  let entered = (): void => undefined;
+  const creating = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  vi.spyOn(runtime, "create").mockImplementation(async (spec) => {
+    entered();
+    await open;
+    return await create(spec);
+  });
+  const containers = createContainers({
+    instanceLabel: "stop",
+    runtime,
+    store: gated.store,
+  });
+  const started = containers.start(CONTAINER_SPEC);
+  const inserted = async () => {
+    await creating;
+    const [row] = await containers.list();
+    if (row === undefined) {
+      throw new Error("expected an inserted row");
+    }
+    return row;
+  };
+  return { containers, inserted, resume, runtime, started, ...gated };
+}
+
+describe("a first boot in flight", () => {
+  it.each(["stop", "remove"] as const)("refuses %s", async (method) => {
+    const { containers, inserted, resume, runtime, started } = booting();
+    const { id } = await inserted();
+
+    await expect(containers[method](id)).rejects.toThrow("is live");
+
+    resume();
+    await expect(started).resolves.toMatchObject({ id });
+    expect(runtime.instances).toHaveLength(1);
+    expect(runtime.instances[0]?.removed).toBe(false);
+    expect((await containers.get(id))?.status).toBe("running");
+    await containers.shutdown();
+  });
+
+  it("is joined by open", async () => {
+    const { containers, inserted, resume, runtime, started } = booting();
+    const { id } = await inserted();
+
+    const opened = containers.open(id);
+    resume();
+    const [first, second] = await Promise.all([started, opened]);
+
+    expect(second.id).toBe(first.id);
+    expect(runtime.instances).toHaveLength(1);
+    await first.close();
+    expect(runtime.instances[0]?.removed).toBe(false);
+    await second.close();
+    expect(runtime.instances[0]?.removed).toBe(true);
+    await containers.shutdown();
+  });
+
+  it("is passed over by recover", async () => {
+    const { containers, inserted, resume, runtime, started } = booting();
+    const { id } = await inserted();
+
+    await expect(containers.recover(() => true)).resolves.toMatchObject({
+      kept: [],
+      removed: [],
+    });
+
+    resume();
+    await started;
+    expect(runtime.instances[0]?.removed).toBe(false);
+    expect((await containers.get(id))?.status).toBe("running");
+    await containers.shutdown();
+  });
+
+  it("only has its next spec recorded by restart", async () => {
+    const { containers, inserted, resume, runtime, started } = booting();
+    const { id } = await inserted();
+    const image = "docker.io/library/alpine:3";
+
+    await containers.restart(id, { ...CONTAINER_SPEC, image });
+    resume();
+    await started;
+
+    expect(runtime.instances.map((each) => each.spec.image)).toEqual([
+      CONTAINER_SPEC.image,
+    ]);
+    const row = await containers.get(id);
+    expect(row?.status).toBe("running");
+    expect(JSON.parse(row?.spec ?? "")).toMatchObject({ image });
+    await containers.shutdown();
+  });
+
+  it("is waited for by shutdown, from before its row is written", async () => {
+    const runtime = createFakeContainerRuntime();
+    const { hold, store } = gatedStore();
+    const containers = createContainers({
+      instanceLabel: "stop",
+      runtime,
+      store,
+    });
+    const insert = hold(
+      (write) => write.events?.[0]?.type === "sandbox.created"
+    );
+    const started = containers.start(CONTAINER_SPEC);
+    await insert.caught;
+
+    const stopped = containers.shutdown();
+    insert.release();
+    await Promise.all([started, stopped]);
+
+    expect(runtime.instances.map((each) => each.removed)).toEqual([true]);
+    expect((await store.list()).map((row) => row.status)).toEqual(["stopped"]);
+  });
+
+  it("is forgotten once it fails", async () => {
+    const runtime = createFakeContainerRuntime();
+    vi.spyOn(runtime, "create").mockRejectedValueOnce(new Error("no boot"));
+    const { store } = gatedStore();
+    const containers = createContainers({
+      instanceLabel: "stop",
+      runtime,
+      store,
+    });
+
+    await expect(containers.start(CONTAINER_SPEC)).rejects.toThrow("no boot");
+    const [row] = await containers.list();
+    if (row === undefined) {
+      throw new Error("expected a row");
+    }
+
+    await containers.stop(row.id);
+    await containers.remove(row.id);
+    expect(await containers.list()).toEqual([]);
+    await containers.shutdown();
+  });
+});
+
 describe("closing a handle again after its close failed", () => {
   it("retries the removal and stops the row", async () => {
     const { containers, handle, instance } = await stuck();

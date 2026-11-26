@@ -247,6 +247,54 @@ describe("Module container runtime", () => {
     }
   });
 
+  it("stops an interrupted Installation's retained container and keeps its row", async () => {
+    const f = await fixture();
+    try {
+      const retained = await f.registry.start({
+        format: "foundry.sandbox.container/1",
+      });
+      const [instance] = f.native.instances;
+      if (instance === undefined) {
+        throw new Error("Expected a booted instance");
+      }
+      vi.spyOn(instance, "remove").mockRejectedValueOnce(new Error("stuck"));
+      await expect(retained.close()).rejects.toThrow("stuck");
+      const { installationId } = f.input;
+      const { generation } = await f.options.store.beginInstallationTransition({
+        expectedGeneration: 0,
+        installationId,
+        now: new Date(),
+        status: "starting",
+      });
+      await f.options.store.setInstallationContainerId({
+        containerId: retained.id,
+        expectedGeneration: generation,
+        installationId,
+        now: new Date(),
+      });
+      const platform = createNodeModulePlatform({
+        artifacts: f.artifacts,
+        checkoutsRoot: f.checkoutsRoot,
+        containers: f.options.containers,
+        files: {
+          root: f.input.files.hostPath,
+          snapshotDatabase: () =>
+            Promise.reject(new Error("No database to snapshot")),
+        },
+        providers: [],
+        store: f.options.store,
+        transport: f.options.transport,
+      });
+
+      await platform.recovery.stopInterrupted("Host restarted");
+
+      expect(instance.removed).toBe(true);
+      expect((await f.registry.get(retained.id))?.status).toBe("stopped");
+    } finally {
+      await f.cleanup();
+    }
+  });
+
   it("mounts verified code and isolated writable files, probes readiness, and reuses the refreshed registry row", async () => {
     const f = await fixture();
     try {

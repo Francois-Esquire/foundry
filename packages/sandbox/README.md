@@ -491,9 +491,9 @@ a `restart`.
 Change is restart. The microVM runtime cannot change ports or network policy on
 a live VM, so `restart(id, spec?)` replaces the VM under the same row: status
 `restarting`, old VM removed, new VM under `<rowId>-<n+1>`, status `running`.
-On a row not live in this process, `restart` only records the spec for the next
-`open`, and is refused while another holder is removing the row. A live restart
-that fails drops the row from this process and marks it `failed`; if the old VM
+On a row not live in this process, which includes one whose `start` or `open` is
+still booting, `restart` only records the spec for the next `open`, and is
+refused while another holder is removing the row. A live restart that fails drops the row from this process and marks it `failed`; if the old VM
 would not go, it is kept to retry.
 
 Row status, persisted, is the one state: `starting`, `running`, `restarting`,
@@ -520,6 +520,11 @@ an unknown id, and a row another holder is removing. It rejects, leaving the
 row's status as it was, when the inventory cannot be read, when a VM will not go
 (kept to retry), or when a VM bearing the row's id or name is not provably its
 own (left, and named in the error).
+
+A row is in flight from the moment `start` or `open` is called until its boot
+settles. Meanwhile `stop` and `remove` refuse it as they refuse a live row,
+`recover` passes it over, `open` joins the boot, and `shutdown` waits for it and
+then closes what it booted.
 
 `close` never deletes a row; the owner calls `remove(id)` when it goes, which
 refuses while a handle is open. `open`, `stop`, `remove` and `shutdown` wait
