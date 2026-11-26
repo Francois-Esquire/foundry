@@ -1,3 +1,5 @@
+import type { Page } from "@foundry/core/pagination";
+import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 import {
   assertScope,
   batches,
@@ -9,11 +11,25 @@ import {
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
 import type { SQL } from "drizzle-orm";
-import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  gt,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 
 import type { SessionMessage, SessionRecord } from "../schema";
-import type { SessionStore, SessionStoreWrite } from "./index";
+import type {
+  MessagePageQuery,
+  SessionStore,
+  SessionStoreWrite,
+} from "./index";
 import type { SessionRow, UnplacedMessageRow } from "./sqlite/rows";
 import { captured, messageOf, owned, sessionOf } from "./sqlite/rows";
 import { agentMessages, agentSessions } from "./tables";
@@ -237,6 +253,51 @@ export class SqliteSessionStore implements SessionStore {
     });
   }
 
+  listMessagesPage(
+    sessionId: string,
+    query: MessagePageQuery = {}
+  ): Promise<Page<SessionMessage, string>> {
+    return this.#turns.run(async () => {
+      const limit = pageLimit(query.limit);
+      if (!storableText(sessionId)) {
+        if (query.cursor !== undefined) {
+          throw new RangeError("Page cursor is invalid");
+        }
+        return { items: [] };
+      }
+      const conditions = messagePageConditions(this.#scope, sessionId, query);
+      if (query.cursor !== undefined) {
+        const position = await this.#cursorPosition(conditions, query.cursor);
+        conditions.push(gt(agentMessages.position, position));
+      }
+      const rows = await this.#database
+        .select(messageColumns)
+        .from(agentMessages)
+        .where(and(...conditions))
+        .orderBy(agentMessages.position)
+        .limit(limit + 1);
+      const items = rows.map((row) => messageOf(row, this.#scope));
+      return pageFromRows(items, limit, undefined, (message) => message.id);
+    });
+  }
+
+  async #cursorPosition(
+    conditions: readonly SQL[],
+    cursor: string
+  ): Promise<number> {
+    if (!storableText(cursor)) {
+      throw new RangeError("Page cursor is invalid");
+    }
+    const [anchor] = await this.#database
+      .select({ position: agentMessages.position })
+      .from(agentMessages)
+      .where(and(...conditions, eq(agentMessages.id, cursor)));
+    if (anchor === undefined) {
+      throw new RangeError("Page cursor is invalid");
+    }
+    return anchor.position;
+  }
+
   async #putSessions(
     transaction: SessionTransaction,
     rows: readonly SessionRow[]
@@ -343,3 +404,29 @@ export class SqliteSessionStore implements SessionStore {
 
 const SESSION_COLUMNS = Object.keys(getTableColumns(agentSessions)).length;
 const MESSAGE_COLUMNS = Object.keys(getTableColumns(agentMessages)).length;
+
+function messagePageConditions(
+  scope: string,
+  sessionId: string,
+  query: MessagePageQuery
+): SQL[] {
+  const conditions: SQL[] = [
+    eq(agentMessages.scope, scope),
+    eq(agentMessages.sessionId, sessionId),
+  ];
+  if (query.role !== undefined) {
+    conditions.push(eq(agentMessages.role, query.role));
+  }
+  if (query.summarized === true) {
+    conditions.push(eq(agentMessages.summarized, true));
+  } else if (query.summarized === false) {
+    const unsummarized = or(
+      eq(agentMessages.summarized, false),
+      isNull(agentMessages.summarized)
+    );
+    if (unsummarized !== undefined) {
+      conditions.push(unsummarized);
+    }
+  }
+  return conditions;
+}

@@ -213,6 +213,37 @@ describe("the SQLite container store", () => {
     );
   });
 
+  it("reads an existing identity without writing and honors an explicit identity option", async () => {
+    const queries: string[] = [];
+    const database = await files.open({
+      onQuery: (query) => {
+        queries.push(query);
+      },
+    });
+    const first = await new SqliteContainerStore({
+      database,
+      scope: "w",
+    }).identity();
+
+    queries.length = 0;
+    const second = new SqliteContainerStore({ database, scope: "w" });
+    expect(await second.identity()).toBe(first);
+    await second.transaction((view) => view.list());
+    expect(queries.some((query) => query.startsWith(INSERT))).toBe(false);
+
+    queries.length = 0;
+    const explicit = new SqliteContainerStore({
+      database,
+      identity: "fixed-store-id",
+      scope: "w",
+    });
+    expect(await explicit.identity()).toBe("fixed-store-id");
+    expect(queries).toEqual([]);
+    expect(
+      () => new SqliteContainerStore({ database, identity: "", scope: "w" })
+    ).toThrow(RangeError);
+  });
+
   it.each(UNSTORABLE_TEXT)("refuses a scope holding %s", async (_kind, bad) => {
     const database = await memory.open();
     expect(

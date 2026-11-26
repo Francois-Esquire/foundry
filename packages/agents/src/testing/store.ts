@@ -175,6 +175,59 @@ export function describeSessionStore(
       await expect(store.getMessage("m1")).resolves.toStrictEqual(folded);
     });
 
+    it("paginates and filters session messages when listMessagesPage is implemented", async () => {
+      const store = await fresh();
+      if (store.listMessagesPage === undefined) {
+        return;
+      }
+      await store.commit({
+        putMessages: [
+          message("m1", "s", 1, { role: "user", summarized: true }),
+          message("m2", "s", 2, { role: "assistant" }),
+          message("m3", "s", 3, { role: "user", summarized: false }),
+          message("m4", "s", 4, { role: "summary", summarized: false }),
+          message("m5", "s", 5, { role: "user" }),
+        ],
+        putSessions: [session("s")],
+      });
+
+      const first = await store.listMessagesPage("s", { limit: 2 });
+      expect(first.items.map((m) => m.id)).toEqual(["m1", "m2"]);
+      expect(first.nextCursor).toBe("m2");
+
+      const second = await store.listMessagesPage("s", {
+        cursor: first.nextCursor,
+        limit: 2,
+      });
+      expect(second.items.map((m) => m.id)).toEqual(["m3", "m4"]);
+      expect(second.nextCursor).toBe("m4");
+
+      const third = await store.listMessagesPage("s", {
+        cursor: second.nextCursor,
+        limit: 2,
+      });
+      expect(third.items.map((m) => m.id)).toEqual(["m5"]);
+      expect(third.nextCursor).toBeUndefined();
+
+      const unsummarizedUsers = await store.listMessagesPage("s", {
+        role: "user",
+        summarized: false,
+      });
+      expect(unsummarizedUsers.items.map((m) => m.id)).toEqual(["m3", "m5"]);
+
+      const summarizedOnly = await store.listMessagesPage("s", {
+        summarized: true,
+      });
+      expect(summarizedOnly.items.map((m) => m.id)).toEqual(["m1"]);
+
+      await expect(
+        store.listMessagesPage("s", { cursor: "missing" })
+      ).rejects.toThrow(RangeError);
+      await expect(store.listMessagesPage("s", { limit: 0 })).rejects.toThrow(
+        RangeError
+      );
+    });
+
     it("reads a message by id from any session", async () => {
       const store = await fresh();
       const kept = message("b1", "b", 1, {
