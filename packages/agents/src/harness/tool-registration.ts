@@ -86,13 +86,3 @@ export interface RegisteredToolCall<TInput = unknown> extends AgentIdentity {
   toolCallId: string;
   toolName: string;
 }
-
-export interface ToolEffectPort {
-  execute<T>(call: RegisteredToolCall, effect: () => Promise<T>): Promise<T>;
-}
-
-export const directToolEffectPort: ToolEffectPort = {
-  execute(_call, effect) {
-    return effect();
-  },
-};

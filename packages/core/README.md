@@ -16,7 +16,7 @@ runtime dependencies. Private to the workspace.
 Two packages that need the same shape import it from here instead of from
 each other. `@foundry/prompts` and `@foundry/agents` both use the reference
 protocol: prompts extends the kinds with its own notation, agents marks its
-skills and agents as referenceable, and neither depends on the other. The
+skills as referenceable, and neither depends on the other. The
 sandbox and workspaces storage implementations run the same
 `storageChecks`.
 

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { SessionRecord } from "@foundry/agents/schema";
+import type { SessionRecord } from "@foundry/agents/session";
 import type { MessageTally } from "@foundry/agents/store/sqlite";
 import type { Artifact, ArtifactCursor, ArtifactId } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";

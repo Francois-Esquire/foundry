@@ -7,19 +7,16 @@ import type { ToolSet } from "ai";
 import type { AgentAuthorizer } from "../authorization/authorization";
 import type { AgentHarnessSettings } from "../harness/agent-harness";
 import { AgentHarness } from "../harness/agent-harness";
+import { composeTools } from "../harness/compose-tools";
 import type {
   CompactionSettings,
   SessionHarnessSettings,
 } from "../harness/session-harness";
 import { SessionHarness } from "../harness/session-harness";
-import type { ToolEffectPort } from "../harness/tool-registration";
 import { createModelSummarizer } from "../session/compactor";
 import type { Skill } from "../skills/registry";
 import { createSkillRegistry } from "../skills/registry";
 import type { SessionStore } from "../store";
-import { composeTools } from "../tools/compose";
-import { createTodos } from "../tools/todos";
-import type { Mesh } from "./mesh";
 
 type AgentSettings = Omit<
   AgentHarnessSettings,
@@ -30,7 +27,6 @@ type AgentSettings = Omit<
   | "agentId"
   | "agentGeneration"
   | "policy"
-  | "effectPort"
   | "sessionId"
 >;
 
@@ -41,7 +37,6 @@ export interface AgentExecutionContext {
 
 export interface AgentPresetContext {
   agentGeneration?: number;
-  effectPort?: ToolEffectPort;
   execution?: AgentExecutionContext;
   instructions?: string;
   model?: AgentModel;
@@ -55,7 +50,6 @@ export interface AgentPresetContext {
 
 export interface AgentSessionContext extends AgentPresetContext {
   compaction?: false | CompactionSettings;
-  mesh?: Mesh;
   sessionStore?: SessionStore;
 }
 
@@ -72,7 +66,6 @@ export interface AgentPreset {
 
 export interface AgentSurface {
   mcp?: (ids: string[]) => Promise<ToolSet>;
-  mesh?: Mesh;
   model: (selection: {
     readonly model?: string;
     readonly provider?: string;
@@ -98,8 +91,8 @@ interface Configuration {
 }
 
 function splitSettings(settings: SessionHarnessSettings): Configuration {
-  const { store, mesh, registry, nodeId, compaction, ...agent } = settings;
-  return { agent, session: { compaction, mesh, nodeId, registry, store } };
+  const { store, compaction, ...agent } = settings;
+  return { agent, session: { compaction, store } };
 }
 
 async function resolveTools(
@@ -169,12 +162,7 @@ async function provisionSpec(
     model,
     observe: surface.observe,
     policy: surface.policy,
-    tools: composeTools(
-      createTodos().tools,
-      skills?.tools,
-      mcpTools,
-      domainTools
-    ),
+    tools: composeTools(skills?.tools, mcpTools, domainTools),
     toolsContext: surface.toolsContext,
   };
 }
@@ -192,7 +180,6 @@ function configureAgent(
     ...context.settings,
     agentGeneration: context.agentGeneration ?? defaults.agentGeneration,
     agentId: spec.id,
-    effectPort: context.effectPort ?? defaults.effectPort,
     instructions: defaults.instructions ?? context.instructions ?? spec.prompt,
     model: context.model ?? defaults.model,
     policy: context.policy ?? defaults.policy,
@@ -237,16 +224,10 @@ function configureSession(
   { agent, session }: Configuration,
   context: AgentSessionContext
 ): SessionHarnessSettings {
-  const mesh = context.mesh ?? session.mesh;
   return {
     ...agent,
     ...session,
     compaction: resolveCompaction(spec, agent, session, context),
-    mesh,
-    nodeId: mesh
-      ? (session.nodeId ?? spec.mesh?.node ?? spec.id)
-      : session.nodeId,
-    registry: mesh?.registry ?? session.registry,
     store: context.sessionStore ?? session.store,
   };
 }
@@ -268,10 +249,7 @@ export function createAgentPreset(
         ? splitSettings(await source(bindingContext, spec))
         : {
             agent: await provisionSpec(spec, source, context),
-            session: {
-              mesh: spec.mesh?.join ? source.mesh : undefined,
-              store: source.store,
-            },
+            session: { store: source.store },
           };
     return {
       agent: configureAgent(spec, defaults.agent, context),
@@ -285,20 +263,9 @@ export function createAgentPreset(
       return new AgentHarness(agent);
     },
     async createSession(context = {}) {
-      const settings = configureSession(
-        spec,
-        await configure(context),
-        context
+      return new SessionHarness(
+        configureSession(spec, await configure(context), context)
       );
-      const harness = new SessionHarness(settings);
-      if (settings.mesh) {
-        settings.mesh.register(harness.nodeId, {
-          agent: harness.agent,
-          role: spec.role ?? harness.nodeId,
-        });
-        settings.mesh.registry?.register(spec.id, harness.agent);
-      }
-      return harness;
     },
     spec,
   };

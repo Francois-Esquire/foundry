@@ -1,4 +1,4 @@
-import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
+import type { SessionMessage, SessionRecord } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import type {
   MessageTally,

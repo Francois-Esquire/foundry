@@ -4,7 +4,6 @@ import {
   sessionMessageSchema,
   sessionPartSchema,
   sessionRecordSchema,
-  summarySchema,
 } from "../schema";
 import { Sessions } from "../session/sessions";
 import { MemorySessionStore } from "../store/memory";
@@ -127,11 +126,5 @@ describe("session record schemas", () => {
     expect(
       sessionRecordSchema.safeParse({ ...record, status: "paused" }).success
     ).toBe(false);
-  });
-
-  it("accepts a cross-session digest", () => {
-    const summary = { digestText: "digest", subjectSessionId: "session-1" };
-
-    expect(summarySchema.parse(summary)).toEqual(summary);
   });
 });

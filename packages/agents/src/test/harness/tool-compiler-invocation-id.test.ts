@@ -1,27 +1,19 @@
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import type { AgentAuthorizationRequest } from "../../authorization/authorization";
 import { compileTool } from "../../harness/tool-compiler";
-import type {
-  HarnessToolRegistration,
-  RegisteredToolCall,
-  ToolEffectPort,
-} from "../../harness/tool-registration";
+import type { HarnessToolRegistration } from "../../harness/tool-registration";
 import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
 
-function fakeEffectPort(): {
-  port: ToolEffectPort;
-  calls: RegisteredToolCall[];
-} {
-  const calls: RegisteredToolCall[] = [];
+function recordingPolicy() {
+  const calls: AgentAuthorizationRequest[] = [];
   return {
     calls,
-    port: {
-      execute(invocation, effect) {
-        calls.push(invocation);
-        return effect();
-      },
-    },
+    policy: fakePolicy((request) => {
+      calls.push(request);
+      return { kind: "allow", source: "grant" };
+    }),
   };
 }
 
@@ -47,11 +39,10 @@ function registrationFor(
 describe("tool compiler invocation ID stability", () => {
   it("derives the same invocationId for a replayed continuation with the same toolCallId", async () => {
     const registration = registrationFor(({ x }) => x * 2);
-    const { port, calls } = fakeEffectPort();
+    const { policy, calls } = recordingPolicy();
     const compiled = compileTool(registration, {
       agentId: "agent-1",
-      effectPort: port,
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      policy,
       sessionId: "sess-1",
     });
 
@@ -65,24 +56,22 @@ describe("tool compiler invocation ID stability", () => {
     );
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.invocationId).toBe(calls[1]?.invocationId);
+    expect(new Set(calls.map((call) => call.invocationId)).size).toBe(1);
   });
 
   it("scopes invocationId by agent and session so the same toolCallId never collides across them", async () => {
     const execute = vi.fn(({ x }: { x: number }) => x * 2);
     const registration = registrationFor(execute);
-    const { port, calls } = fakeEffectPort();
+    const { policy, calls } = recordingPolicy();
 
     const compiledA = compileTool(registration, {
       agentId: "agent-a",
-      effectPort: port,
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      policy,
       sessionId: "sess-1",
     });
     const compiledB = compileTool(registration, {
       agentId: "agent-b",
-      effectPort: port,
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      policy,
       sessionId: "sess-1",
     });
 
@@ -96,6 +85,6 @@ describe("tool compiler invocation ID stability", () => {
     );
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.invocationId).not.toBe(calls[1]?.invocationId);
+    expect(new Set(calls.map((call) => call.invocationId)).size).toBe(2);
   });
 });

@@ -15,16 +15,8 @@ import {
   toolAuthorizationRequest,
   withToolCallRegistration,
 } from "../../harness/tool-compiler";
-import type {
-  HarnessToolRegistration,
-  RegisteredToolCall,
-  ToolEffectPort,
-} from "../../harness/tool-registration";
-import {
-  directToolEffectPort,
-  registrationsOf,
-  tagTool,
-} from "../../harness/tool-registration";
+import type { HarnessToolRegistration } from "../../harness/tool-registration";
+import { registrationsOf, tagTool } from "../../harness/tool-registration";
 import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
 
 function callOptions(
@@ -51,22 +43,6 @@ function needsApproval(
   return fn(input, options);
 }
 
-function fakeEffectPort(): {
-  port: ToolEffectPort;
-  calls: RegisteredToolCall[];
-} {
-  const calls: RegisteredToolCall[] = [];
-  return {
-    calls,
-    port: {
-      execute(invocation, effect) {
-        calls.push(invocation);
-        return effect();
-      },
-    },
-  };
-}
-
 function registrationFor(
   execute: (
     input: { x: number },
@@ -90,14 +66,11 @@ function registrationFor(
 }
 
 describe("tool-compiler — compileTool", () => {
-  it("allow: executes through the effect port exactly once", async () => {
+  it("allow: executes exactly once", async () => {
     const execute = vi.fn(({ x }: { x: number }) => x * 2);
     const registration = registrationFor(execute);
-    const { port, calls } = fakeEffectPort();
-
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: port,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -109,24 +82,17 @@ describe("tool-compiler — compileTool", () => {
 
     expect(result).toBe(4);
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
-      toolCallId: "call-1",
-      toolName: "double",
-    });
   });
 
-  it("streaming tool: the compiled execute is itself a generator that yields interim results through one effect", async () => {
+  it("streaming tool: the compiled execute is itself a generator that yields interim results from one execution", async () => {
     const execute = vi.fn(async function* ({ x }: { x: number }) {
       yield x;
       await Promise.resolve();
       yield x * 2;
     });
     const registration = registrationFor(execute);
-    const { port, calls } = fakeEffectPort();
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: port,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -144,7 +110,6 @@ describe("tool-compiler — compileTool", () => {
 
     expect(yielded).toEqual([2, 4]);
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(calls).toHaveLength(1);
   });
 
   it("streaming tool: a denial is yielded once and the original never runs", async () => {
@@ -154,7 +119,6 @@ describe("tool-compiler — compileTool", () => {
     });
     const compiled = compileTool(registrationFor(execute), {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({
         kind: "deny",
         reason: "nope",
@@ -181,7 +145,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({
         kind: "deny",
         reason: "nope",
@@ -210,7 +173,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "requires-approval" })),
       sessionId: "s1",
     });
@@ -231,7 +193,6 @@ describe("tool-compiler — compileTool", () => {
     const registration = registrationFor(execute);
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "requires-approval" })),
       sessionId: "s1",
     });
@@ -271,7 +232,6 @@ describe("tool-compiler — compileTool", () => {
     const registration = registrationFor(() => "ran");
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -317,7 +277,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -338,7 +297,6 @@ describe("tool-compiler — compileTool", () => {
     );
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy,
       sessionId: "s1",
     });
@@ -360,7 +318,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -380,7 +337,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -398,7 +354,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -426,7 +381,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "agent-1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "sess-1",
     });
@@ -490,7 +444,6 @@ describe("tool-compiler — compileTool", () => {
     };
     const compiled = compileRegistrations([registration], {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -543,7 +496,6 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -558,7 +510,6 @@ describe("tool-compiler — toolAuthorizationRequest", () => {
     const compiled = compileRegistrations([registrationFor(() => "ran")], {
       agentGeneration: 2,
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy((request) => {
         requests.push(request);
         return { kind: "allow", source: "grant" };
@@ -612,7 +563,6 @@ describe("tool-compiler — tagged tools", () => {
       },
       {
         agentId: "a1",
-        effectPort: directToolEffectPort,
         policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
         sessionId: "s1",
       }
@@ -657,7 +607,6 @@ describe("tool-compiler — plain tool map", () => {
 
     const compiled = compileRegistrations(registrations, {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy,
       sessionId: "s1",
     });
@@ -699,7 +648,6 @@ describe("tool-compiler — withToolCallRegistration", () => {
     };
     const compiled = compileRegistrations([registration], {
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });
@@ -759,7 +707,6 @@ describe("tool-compiler — withToolCallRegistration", () => {
     const compiled = compileRegistrations([runtime, host], {
       agentGeneration: 2,
       agentId: "a1",
-      effectPort: directToolEffectPort,
       policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
       sessionId: "s1",
     });

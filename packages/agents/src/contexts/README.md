@@ -2,43 +2,19 @@
 
 `src/contexts/` is internal to `@foundry/agents`; no package entry exports it.
 The session harness and the compactor use its two independent sets of
-helpers: session window estimates and provider cache options. Neither
-requires a model registry.
+helpers: window estimates and provider cache options. Neither requires a model
+registry.
 
-## Session window
+## Window sizing
 
-`SessionWindow` wraps a `SessionStore`, delegates its storage operations, and
-adds a budgeted view of a conversation:
+`resolveBudget` takes the explicit model window, else `FALLBACK_WINDOW`, and
+reserves output tokens and a safety margin. `effectiveLimit` applies a
+high-water ratio and optional hard cap. The session harness uses both to
+decide when to compact, with a default high-water ratio of 0.8.
 
-```ts
-import { SessionWindow } from "../contexts/session-window";
-
-const window = new SessionWindow(store);
-const result = await window.windowFor(sessionId, {
-  id: "my-model",
-  contextWindow: 128_000,
-  maxOutputTokens: 8192,
-});
-
-// result.messages, result.budget, result.plan
-window.recordUsage(sessionId, usage);
-const state = window.stateFor(sessionId);
-```
-
-`windowFor` currently returns the full history unchanged. Its plan reports
-estimated tokens and `overBudget`; `dropped` is empty and `summarized` is false.
-It does not enforce a context limit or perform compaction. The session harness
-owns its separate compaction mechanism.
-
-`resolveWindow` chooses the explicit model window, then a matching entry in
-`CONTEXT_WINDOWS`, then `FALLBACK_WINDOW`. `resolveBudget` reserves output tokens
-and a safety margin. `effectiveLimit` applies a high-water ratio and optional
-hard cap. The default high-water ratio in `SessionWindow` is 0.8.
-
-The default `estimatingCounter` uses a heuristic rather than a tokenizer. Supply
-an alternative `TokenCounter` through `SessionWindowOptions.counter` when needed.
-`recordUsage` stores actual input usage and its change between turns in memory;
-it does not recalibrate the counter or persist that bookkeeping.
+The default `estimatingCounter` uses a heuristic rather than a tokenizer.
+Supply an alternative `TokenCounter` through `SessionWindowOptions.counter`
+when needed.
 
 ## Cache directives
 
@@ -58,8 +34,7 @@ these helpers do not create cache resources or guarantee a cache hit.
 
 ## Implementation and checks
 
-- `budget.ts`, `counter.ts` and `prepare.ts` implement the sizing calculations.
-- `session-window.ts` wraps the store and records usage.
+- `budget.ts` and `counter.ts` implement the sizing calculations.
 - `cache.ts` implements provider-family rules and option merging.
 - Tests live in the package's `src/test/` directory. Run `bun run test` from
   `packages/agents`, or `bun run --cwd packages/agents test` from the repo root.

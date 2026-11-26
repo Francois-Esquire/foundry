@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import type { JSONRPCMessage, MCPTransport } from "@ai-sdk/mcp";
 import { validateJSONRPCMessage } from "@ai-sdk/mcp";
-import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import {
   recordChild,
   spawnRecordEnvironment,
@@ -47,15 +46,6 @@ function childEnv(custom: Record<string, string> = {}): Record<string, string> {
   }
   return env;
 }
-
-export const sdkStdioTransport: SpawnStdio = (config) =>
-  new Experimental_StdioMCPTransport({
-    args: config.args,
-    command: config.command,
-    ...(config.cwd ? { cwd: config.cwd } : {}),
-    env: config.env,
-    stderr: "ignore",
-  });
 
 export const spawnStdioTransport: SpawnStdio = (config, hooks) => {
   let child: ChildProcess | undefined;

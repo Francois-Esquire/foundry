@@ -6,7 +6,6 @@ import { metaOf } from "../../harness/tool-registration";
 import type { McpClient } from "../../mcp/client";
 import type { McpClientOptions, McpLogMessage } from "../../mcp/client-options";
 import { createNodeMcpClient, spawnStdioTransport } from "../../node";
-import { sdkStdioTransport } from "../../node/mcp-stdio";
 
 const NOT_CONNECTED_PATTERN = /not connected/u;
 
@@ -212,18 +211,6 @@ describe("stdio MCP server (live subprocess)", () => {
     });
     expect(seen).toEqual([process.execPath]);
     expect(client.status).toBe("connected");
-  });
-
-  it("still works over the SDK's own stdio transport, minus stderr", async () => {
-    const client = await connect({ spawnStdio: sdkStdioTransport });
-    const logs: McpLogMessage[] = [];
-    client.on("log", (m) => logs.push(m));
-    expect(
-      await textOf(toolOf(client.tools(), "echo__echo"), { text: "hi" })
-    ).toBe("hi");
-    await textOf(toolOf(client.tools(), "echo__stderr"), {});
-    await textOf(toolOf(client.tools(), "echo__log"), {});
-    expect(logs.map((l) => l.logger)).toEqual(["fixture"]);
   });
 
   it("keeps a UTF-8 character that straddles two stdout chunks", async () => {

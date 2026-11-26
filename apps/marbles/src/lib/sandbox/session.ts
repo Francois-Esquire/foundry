@@ -1,4 +1,4 @@
-import type { ObserveTurn } from "@foundry/agents/agents";
+import type { ObserveTurn } from "@foundry/agents";
 import type {
   AgentModel,
   HarnessActivityEvent,

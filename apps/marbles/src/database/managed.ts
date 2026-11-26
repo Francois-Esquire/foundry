@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
+import type { SessionMessage, SessionRecord } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
