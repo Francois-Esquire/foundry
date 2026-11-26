@@ -1,9 +1,5 @@
 import type { AgentModel, ModelRoute } from "@foundry/core/agents";
 import type { ModelMessage, Output, ProviderMetadata } from "ai";
-import type { Mesh } from "../agents/mesh";
-import { createMesh } from "../agents/mesh";
-import type { AgentCompatibilityRegistry } from "../agents/registry";
-import { createAgentCompatibilityRegistry } from "../agents/registry";
 import type { AgentAuthorizer } from "../authorization/authorization";
 import { effectiveLimit, resolveBudget } from "../contexts/budget";
 import { cacheDirectivesFor, mergeProviderOptions } from "../contexts/cache";
@@ -24,7 +20,6 @@ import type {
 import { Sessions } from "../session/sessions";
 import type { SessionStore } from "../store";
 import { MemorySessionStore } from "../store/memory";
-import { composeTools } from "../tools/compose";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
 import type { LoopAgent, TurnCallSettings, TurnContext } from "./loop-agent";
@@ -34,9 +29,6 @@ import { transformStream } from "./stream-transform";
 
 export type SessionHarnessSettings = AgentHarnessSettings & {
   store?: SessionStore;
-  registry?: AgentCompatibilityRegistry;
-  mesh?: Mesh;
-  nodeId?: string;
   compaction?: CompactionSettings;
 };
 
@@ -64,9 +56,6 @@ export class SessionHarness {
   readonly agentGeneration?: number;
   readonly sessionId: string;
   readonly store: SessionStore;
-  readonly registry: AgentCompatibilityRegistry;
-  readonly mesh: Mesh;
-  readonly nodeId: string;
   readonly #harness: AgentHarness;
   readonly #sessions: Sessions;
   readonly #compaction: CompactionSettings | undefined;
@@ -78,20 +67,12 @@ export class SessionHarness {
   constructor(settings: SessionHarnessSettings, context?: TurnContext) {
     const {
       store = new MemorySessionStore(),
-      registry = createAgentCompatibilityRegistry(),
-      mesh = createMesh({ registry, store }),
-      nodeId = "primary",
       compaction,
-      tools,
       ...harnessSettings
     } = settings;
 
     const harness = new AgentHarness(
-      {
-        ...harnessSettings,
-        allowSystemInMessages: true,
-        tools: composeTools(tools, mesh.tools(nodeId)),
-      },
+      { ...harnessSettings, allowSystemInMessages: true },
       context
     );
     this.#harness = harness;
@@ -104,9 +85,6 @@ export class SessionHarness {
     this.sessionId = harness.sessionId;
     this.store = store;
     this.#sessions = new Sessions({ store });
-    this.registry = registry;
-    this.mesh = mesh;
-    this.nodeId = nodeId;
     this.#compaction = compaction;
     this.#baseProviderOptions = settings.providerOptions;
   }

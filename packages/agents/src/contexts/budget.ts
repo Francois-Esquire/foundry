@@ -1,7 +1,5 @@
 import type { ContextBudget, SessionWindowOptions, WindowModel } from "./types";
 
-const CONTEXT_WINDOWS: Record<string, number> = {};
-
 const FALLBACK_WINDOW = 128_000;
 
 const DEFAULT_RESERVED_OUTPUT = 8192;
@@ -9,7 +7,7 @@ const DEFAULT_RESERVED_OUTPUT = 8192;
 const DEFAULT_SAFETY_MARGIN_RATIO = 0.08;
 
 function resolveWindow(model: WindowModel): number {
-  return model.contextWindow ?? CONTEXT_WINDOWS[model.id] ?? FALLBACK_WINDOW;
+  return model.contextWindow ?? FALLBACK_WINDOW;
 }
 
 export function resolveBudget(

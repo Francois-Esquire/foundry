@@ -3,20 +3,14 @@ import type { ToolSet } from "ai";
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createMesh } from "../../agents/mesh";
 import type { AgentSpec, AgentSurface } from "../../agents/preset";
 import { createAgentPreset, resolveAgent } from "../../agents/preset";
-import {
-  createAgentCompatibilityRegistry,
-  createAgentRegistry,
-} from "../../agents/registry";
 import type {
   AgentAuthorizationRequest,
   AgentAuthorizer,
 } from "../../authorization/authorization";
 import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
-import type { ToolEffectPort } from "../../harness/tool-registration";
 import { tagTool } from "../../harness/tool-registration";
 import type { Skill } from "../../skills/registry";
 import { MemorySessionStore } from "../../store/memory";
@@ -70,75 +64,64 @@ function probeTools(): ToolSet {
 }
 
 describe("resolveAgent", () => {
-  it("provisions a harness, resolves skills + mcp, and joins the mesh", async () => {
+  it("provisions a Session harness with the declared skills and MCP servers", async () => {
     const skills = vi.fn((names: string[]) =>
       Promise.resolve(names.map(skill))
     );
     const mcp = vi.fn(() => Promise.resolve({}));
-    const mesh = createMesh();
     const surface: AgentSurface = {
       mcp,
-      mesh,
       model: fakeModel,
       skills,
       store: new MemorySessionStore(),
     };
-    const spec: AgentSpec = {
-      id: "researcher",
-      mcp: ["context7"],
-      mesh: { join: true },
-      prompt: "Research thoroughly.",
-      role: "Researcher",
-      skills: ["architect"],
-    };
 
-    const harness = await resolveAgent(spec, surface);
+    const harness = await resolveAgent(
+      {
+        id: "researcher",
+        mcp: ["context7"],
+        prompt: "Research thoroughly.",
+        skills: ["architect"],
+      },
+      surface
+    );
 
     expect(harness).toBeInstanceOf(SessionHarness);
     expect(skills).toHaveBeenCalledWith(["architect"]);
     expect(mcp).toHaveBeenCalledWith(["context7"]);
-    expect(mesh.has("researcher")).toBe(true);
-    expect(mesh.get("researcher")?.role).toBe("Researcher");
   });
 
-  it("runs off-bus and skips resolvers when the spec declares none", async () => {
+  it("adds no tools to a spec that declares none", async () => {
     const skills = vi.fn((names: string[]) =>
       Promise.resolve(names.map(skill))
     );
-    const mesh = createMesh();
-    const surface: AgentSurface = {
-      mesh,
-      model: fakeModel,
-      skills,
-    };
-    const spec: AgentSpec = { id: "loner", prompt: "Work alone." };
+    const preset = createAgentPreset(
+      { id: "loner", prompt: "Work alone." },
+      { model: fakeModel, skills }
+    );
 
-    const harness = await resolveAgent(spec, surface);
+    const direct = await preset.createAgent({});
+    const session = await preset.createSession({});
 
-    expect(harness).toBeInstanceOf(SessionHarness);
+    expect(Object.keys(direct.agent.tools)).toEqual([]);
+    expect(Object.keys(session.agent.tools)).toEqual([]);
     expect(skills).not.toHaveBeenCalled();
-    expect(mesh.list()).toHaveLength(0);
   });
 });
 
 describe("createAgentPreset", () => {
   it.each([false, true])(
-    "retains one-off Session correlation without creating history or joining the mesh, factory: %s",
+    "retains one-off Session correlation without creating history, factory: %s",
     async (factory) => {
       const requests: AgentAuthorizationRequest[] = [];
       const { store, writes } = recordingStore(new MemorySessionStore());
-      const mesh = createMesh();
       const observe = vi.fn(() => null);
-      const spec: AgentSpec = {
-        id: "correlated",
-        mesh: { join: true },
-        prompt: "Work once.",
-      };
+      const spec: AgentSpec = { id: "correlated", prompt: "Work once." };
       const preset = createAgentPreset(
         spec,
         factory
-          ? () => ({ mesh, model: toolCallModel(), observe, store })
-          : { mesh, model: toolCallModel, observe, store }
+          ? () => ({ model: toolCallModel(), observe, store })
+          : { model: toolCallModel, observe, store }
       );
       const harness = await preset.createAgent({
         policy: trackingPolicy(requests),
@@ -151,7 +134,6 @@ describe("createAgentPreset", () => {
       );
       expect(requests[0]).toMatchObject({ scopeId: "existing-session" });
       expect(writes).toEqual([]);
-      expect(mesh.list()).toHaveLength(0);
     }
   );
 
@@ -202,20 +184,13 @@ describe("createAgentPreset", () => {
     "retains factory Session defaults and applies invocation overrides: %s",
     async (override) => {
       const store = new MemorySessionStore();
-      const registry = createAgentCompatibilityRegistry();
-      const mesh = createMesh({ registry });
       const overrideStore = new MemorySessionStore();
-      const overrideRegistry = createAgentCompatibilityRegistry();
-      const overrideMesh = createMesh({ registry: overrideRegistry });
       const observe = vi.fn(() => null);
       const preset = createAgentPreset(
-        { id: "configured", prompt: "", role: "researcher" },
+        { id: "configured", prompt: "" },
         () => ({
-          mesh,
           model: fakeModel(),
-          nodeId: "worker",
           observe,
-          registry,
           sessionId: "default-session",
           store,
         })
@@ -223,30 +198,20 @@ describe("createAgentPreset", () => {
       const harness = await preset.createSession(
         override
           ? {
-              mesh: overrideMesh,
               sessionId: "invoked-session",
               sessionStore: overrideStore,
             }
           : {}
       );
       const expectedStore = override ? overrideStore : store;
-      const expectedMesh = override ? overrideMesh : mesh;
       const sessionId = override ? "invoked-session" : "default-session";
       expect(harness.store).toBe(expectedStore);
-      expect(harness.mesh).toBe(expectedMesh);
-      expect(harness.registry).toBe(override ? overrideRegistry : registry);
-      expect(harness.nodeId).toBe("worker");
-      expect(expectedMesh.get("worker")).toMatchObject({ role: "researcher" });
-      expect(harness.registry.get("configured")).toBe(harness.agent);
       expect(harness.sessionId).toBe(sessionId);
       await harness.generate("go");
       expect(await expectedStore.getSession(sessionId)).toBeTruthy();
       expect(observe).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId })
       );
-      if (override) {
-        expect(mesh.list()).toHaveLength(0);
-      }
     }
   );
 
@@ -378,8 +343,6 @@ describe("createAgentPreset", () => {
       expect.objectContaining({ artifactId: "a", db: "bound-db", execution }),
       expect.objectContaining({ artifactId: "b", db: "bound-db", execution }),
     ]);
-    expect(direct.agent.tools).not.toHaveProperty("list_agents");
-    expect(session.agent.tools).toHaveProperty("list_agents");
   });
 
   it("keeps file-defined MCP registration identity through provisioning", async () => {
@@ -488,19 +451,16 @@ describe("createAgentPreset", () => {
     }
   );
 
-  it("createAgent and createSession share base tools, policy, prompt, and model; createSession adds store + mesh", async () => {
+  it("createAgent and createSession share base tools, policy, prompt, and model; createSession adds the store", async () => {
     const requests: AgentAuthorizationRequest[] = [];
     const policy = trackingPolicy(requests);
     const store = new MemorySessionStore();
-    const mesh = createMesh();
     const surface: AgentSurface = {
-      mesh,
       model: toolCallModel,
       store,
     };
     const spec: AgentSpec = {
       id: "researcher",
-      mesh: { join: true },
       prompt: "Research thoroughly.",
     };
     const preset = createAgentPreset(spec, surface);
@@ -519,14 +479,10 @@ describe("createAgentPreset", () => {
     expect(direct).not.toBeInstanceOf(SessionHarness);
     expect(session).toBeInstanceOf(SessionHarness);
 
-    const baseToolNames = ["probe", "todo"];
-    expect(Object.keys(direct.agent.tools).sort()).toEqual(baseToolNames);
-    expect(Object.keys(session.agent.tools).sort()).toEqual(
-      [...baseToolNames, "list_agents", "message_agent"].sort()
-    );
+    expect(Object.keys(direct.agent.tools)).toEqual(["probe"]);
+    expect(Object.keys(session.agent.tools)).toEqual(["probe"]);
 
     expect(session.store).toBe(store);
-    expect(mesh.has("researcher")).toBe(true);
 
     await direct.generate({ prompt: "go" });
     await session.generate("go");
@@ -592,15 +548,11 @@ describe("createAgentPreset", () => {
     expect(fromContext.model).toBe(own);
   });
 
-  it("keeps the host's policy, model, and effect port when spec settings carry those keys", async () => {
+  it("keeps the host's policy and model when spec settings carry those keys", async () => {
     const policy = trackingPolicy([]);
     const model = toolCallModel();
     const surface: AgentSurface = { model: () => model, policy };
-    const effectPort: ToolEffectPort = {
-      execute: vi.fn((_call, effect) => effect()),
-    };
     const settings = {
-      effectPort: null,
       model: null,
       policy: null,
     } as unknown as AgentSpec["settings"];
@@ -609,14 +561,10 @@ describe("createAgentPreset", () => {
       surface
     );
 
-    const agent = await preset.createAgent({
-      effectPort,
-      tools: probeTools(),
-    });
+    const agent = await preset.createAgent({ tools: probeTools() });
     expect(agent.policy).toBe(policy);
     expect(agent.model).toBe(model);
     await agent.generate({ prompt: "go" });
-    expect(effectPort.execute).toHaveBeenCalledOnce();
     const session = await preset.createSession({ sessionId: "s1" });
     expect(session.policy).toBe(policy);
   });
@@ -641,27 +589,5 @@ describe("createAgentPreset", () => {
       Object.keys(plain.agent.tools).sort()
     );
     await expect(withContext.generate("go")).resolves.toBeDefined();
-  });
-});
-
-describe("AgentRegistry preset storage", () => {
-  it("retains one canonical preset entry and exposes its named compatibility projection", () => {
-    const surface: AgentSurface = { model: fakeModel };
-    const spec: AgentSpec = { id: "researcher", prompt: "Research." };
-    const preset = createAgentPreset(spec, surface);
-    const registry = createAgentRegistry();
-
-    registry.registerPreset({ generation: 1, id: "researcher", preset });
-
-    expect(registry.getPreset("researcher")).toEqual({
-      generation: 1,
-      id: "researcher",
-      preset,
-    });
-    expect(registry.listPresets()).toEqual([
-      { generation: 1, id: "researcher", preset },
-    ]);
-    expect(registry.compatibility.has("researcher")).toBe(true);
-    expect(registry.compatibility.list()).toEqual(["researcher"]);
   });
 });

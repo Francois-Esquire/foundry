@@ -23,9 +23,8 @@ what exists, all at depth one.
 
 ```typescript
 import { prompts, ref } from "@foundry/prompts";
-import { createCatalog } from "@foundry/agents/prompts";
 
-prompts.add(createCatalog({ skills, agents }));
+prompts.add({ agent: ["reviewer"], skill: ["code-review", "review"] });
 prompts.add({ file: (path) => exists(path) });
 
 const review = prompts.claude`Run /code-review on @src/auth and ask ${ref.agent("reviewer")}.`;
@@ -61,9 +60,7 @@ when any layer has it; a kind is validated only when some layer covers it,
 so with no `file` layer no path is ever questioned. Each dialect's built-in
 commands and variables are its own layer, beneath the host's. A listed
 iterable is read once; pass a predicate for a live source such as a
-registry. `@foundry/agents/prompts` exports `createCatalog({ skills, agents })`,
-a live layer over that package's registries, built with core's
-`referenceSource`.
+registry.
 
 ### References by value
 
@@ -110,7 +107,7 @@ import { assemble, claudeCode, codex, pi } from "@foundry/prompts";
 
 const mine = assemble({
   dialects: { claude: claudeCode, codex, pi, custom },
-  sources: [createCatalog({ skills, agents })],
+  sources: [{ skill: ["review"] }],
   strict: true,
   surface: "message",
 });

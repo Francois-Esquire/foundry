@@ -112,8 +112,6 @@ describe("@foundry/agents public paths", () => {
     expect(subpaths.filter((key) => key.includes("*"))).toEqual([]);
     for (const canonical of [
       ".",
-      "./agents",
-      "./tools",
       "./node",
       "./harness",
       "./session",
@@ -124,8 +122,6 @@ describe("@foundry/agents public paths", () => {
       "./authorization",
       "./skills",
       "./mcp",
-      "./prompts",
-      "./schema",
       "./testing/store",
     ]) {
       expect(subpaths).toContain(canonical);

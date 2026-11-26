@@ -7,6 +7,7 @@ export type {
   TurnObservation,
 } from "@foundry/core/agents";
 export type {
+  AgentExecutionContext,
   AgentPreset,
   AgentPresetContext,
   AgentSessionContext,
@@ -16,13 +17,12 @@ export type {
   ResolveAgentContext,
 } from "./agents/preset";
 export { createAgentPreset, resolveAgent } from "./agents/preset";
-export type { AgentRegistry } from "./agents/registry";
-export { createAgentRegistry } from "./agents/registry";
 export type {
   AgentHarnessSettings,
   AgentHarnessStream,
 } from "./harness/agent-harness";
 export { AgentHarness } from "./harness/agent-harness";
+export { composeTools } from "./harness/compose-tools";
 export type { HarnessSession } from "./harness/harness-session";
 export type {
   CompactionSettings,

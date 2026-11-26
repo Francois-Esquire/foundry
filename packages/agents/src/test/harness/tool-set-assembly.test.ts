@@ -2,46 +2,9 @@ import { tool } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type {
-  AgentAuthorizationRequest,
-  AgentAuthorizer,
-} from "../../authorization/authorization";
 import { AgentHarness } from "../../harness/agent-harness";
-import { SessionHarness } from "../../harness/session-harness";
-import { toolAuthorizationContext } from "../../harness/tool-compiler";
 import { tagTool } from "../../harness/tool-registration";
-import type { SessionEvent } from "../../session/events";
-import { MemorySessionStore } from "../../store/memory";
-import { fakeAuthorizer } from "../helpers/authorizer";
-import {
-  createScriptedMockModel,
-  textStreamResult,
-  toolCallStreamResult,
-} from "../helpers/mock-language-model";
-
-async function drain(
-  stream: AsyncIterable<SessionEvent>
-): Promise<SessionEvent[]> {
-  const out: SessionEvent[] = [];
-  for await (const event of stream) {
-    out.push(event);
-  }
-  return out;
-}
-
-function recordingAllowPolicy(): {
-  policy: AgentAuthorizer;
-  requests: AgentAuthorizationRequest[];
-} {
-  const requests: AgentAuthorizationRequest[] = [];
-  return {
-    policy: fakeAuthorizer((request) => {
-      requests.push(request);
-      return { kind: "allow", source: "grant" };
-    }),
-    requests,
-  };
-}
+import { createScriptedMockModel } from "../helpers/mock-language-model";
 
 function noopTool(description: string) {
   return tool({
@@ -50,36 +13,6 @@ function noopTool(description: string) {
     inputSchema: z.object({}),
   });
 }
-
-describe("SessionHarness — mesh tool attribution", () => {
-  it('compiles mesh tools tagged source "mesh", not "declared"', async () => {
-    const { policy, requests } = recordingAllowPolicy();
-    const model = createScriptedMockModel({
-      stream: [
-        toolCallStreamResult("call-1", "list_agents", {}),
-        textStreamResult("done"),
-      ],
-    });
-
-    const harness = new SessionHarness(
-      {
-        instructions: "x",
-        model,
-        policy,
-        sessionId: "s1",
-        store: new MemorySessionStore(),
-      },
-      { sessionId: "s1" }
-    );
-
-    await drain(harness.stream("hi"));
-
-    const seen = requests
-      .map((r) => toolAuthorizationContext(r))
-      .find((c) => c?.tool.name === "list_agents");
-    expect(seen?.tool.source).toBe("mesh");
-  });
-});
 
 describe("AgentHarness — duplicate tool name precedence", () => {
   it("the later entry in the tools map wins on a duplicate name, tagged or not", () => {
@@ -93,16 +26,5 @@ describe("AgentHarness — duplicate tool name precedence", () => {
     });
 
     expect(harness.agent.tools.dup?.description).toBe("second");
-  });
-
-  it("rejects a caller tool that collides with a mesh tool", () => {
-    expect(
-      () =>
-        new SessionHarness({
-          instructions: "x",
-          model: createScriptedMockModel({}),
-          tools: { list_agents: noopTool("mine") },
-        })
-    ).toThrow("Duplicate tool binding: list_agents");
   });
 });

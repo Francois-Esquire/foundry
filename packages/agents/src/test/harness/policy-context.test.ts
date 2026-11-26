@@ -8,7 +8,6 @@ import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
 import { MemorySessionStore } from "../../store/memory";
-import { getPolicy } from "../../tools/context";
 import { fakeAuthorizer } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
@@ -83,8 +82,8 @@ describe("AgentHarness.policy", () => {
   });
 });
 
-describe("AgentHarness — policy on the tool context", () => {
-  it("attaches the harness policy to a tool call that had no caller context", async () => {
+describe("AgentHarness — tool context", () => {
+  it("hands a tool call with no caller context an empty object", async () => {
     const policy = allowPolicy();
     const { tools, seen } = contextCapturingTool();
     const harness = new AgentHarness({
@@ -97,10 +96,10 @@ describe("AgentHarness — policy on the tool context", () => {
     const { parts } = await harness.stream({ prompt: "hi" });
     await drainGeneric(parts);
 
-    expect(getPolicy(seen.context)).toBe(policy);
+    expect(seen.context).toEqual({});
   });
 
-  it("hands the tool the caller's own context object, unchanged, with the policy reachable", async () => {
+  it("hands the tool the caller's own context object, unchanged", async () => {
     const policy = allowPolicy();
     const { tools, seen } = contextCapturingTool();
     const callerContext = { db: "the-db", sessionId: "s1" };
@@ -116,7 +115,6 @@ describe("AgentHarness — policy on the tool context", () => {
     await drainGeneric(parts);
 
     expect(seen.context).toBe(callerContext);
-    expect(getPolicy(seen.context)).toBe(policy);
   });
 
   it("preserves a frozen, WeakSet-branded context — the shape hosts actually use", async () => {
@@ -138,7 +136,6 @@ describe("AgentHarness — policy on the tool context", () => {
     await drainGeneric(parts);
 
     expect(branded.has(seen.context as object)).toBe(true);
-    expect(getPolicy(seen.context)).toBe(policy);
   });
 
   it("never writes a property onto the caller's context object", async () => {
@@ -160,7 +157,7 @@ describe("AgentHarness — policy on the tool context", () => {
   });
 });
 
-describe("SessionHarness — policy", () => {
+describe("SessionHarness — policy and tool context", () => {
   it("runs under the same policy instance as the agent harness it wraps", () => {
     const policy = allowPolicy();
     const harness = new SessionHarness({
@@ -174,7 +171,7 @@ describe("SessionHarness — policy", () => {
     expect(harness.policy).toBe(policy);
   });
 
-  it("hands every turn's tools the caller's own context object, with the policy attached", async () => {
+  it("hands every turn's tools the caller's own context object, unchanged", async () => {
     const policy = allowPolicy();
     const { tools, seen } = contextCapturingTool();
     const callerContext = { db: "the-db", sessionId: "s1" };
@@ -191,23 +188,5 @@ describe("SessionHarness — policy", () => {
     await drain(harness.stream("hi"));
 
     expect(seen.context).toBe(callerContext);
-    expect(getPolicy(seen.context)).toBe(policy);
-  });
-
-  it("attaches it on a session turn that configures no tool context at all", async () => {
-    const policy = allowPolicy();
-    const { tools, seen } = contextCapturingTool();
-    const harness = new SessionHarness({
-      instructions: "x",
-      model: probingModel(),
-      policy,
-      sessionId: "s1",
-      store: new MemorySessionStore(),
-      tools,
-    });
-
-    await drain(harness.stream("hi"));
-
-    expect(getPolicy(seen.context)).toBe(policy);
   });
 });

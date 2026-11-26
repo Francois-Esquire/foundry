@@ -14,7 +14,6 @@ import type {
 } from "../authorization/authorization";
 import { agentSubject } from "../authorization/authorization";
 import type { Capability, ToolSource } from "../authorization/capability";
-import { createEventQueue } from "./event-queue";
 import { isHarnessQuestionTool } from "./question";
 import type { StreamPart } from "./stream-transform";
 import type {
@@ -23,12 +22,10 @@ import type {
   HarnessToolRegistration,
   RegisteredToolCall,
   ToolEffectLocation,
-  ToolEffectPort,
 } from "./tool-registration";
 import { registrationsOf } from "./tool-registration";
 
 export interface ToolCompilerDeps extends AgentIdentity {
-  effectPort: ToolEffectPort;
   permission?: HarnessPermissionCallback;
   policy: AgentAuthorizer;
 }
@@ -355,9 +352,7 @@ export function compileTool(
     if (denied) {
       return denied;
     }
-    return deps.effectPort.execute(call, () =>
-      Promise.resolve(originalExecute(input, options))
-    );
+    return originalExecute(input, options);
   };
 
   const streamingExecute = async function* (
@@ -370,29 +365,7 @@ export function compileTool(
       yield denied;
       return;
     }
-    const queue = createEventQueue<unknown>();
-    const effect = deps.effectPort
-      .execute(call, async () => {
-        const iterable = originalExecute(
-          input,
-          options
-        ) as AsyncIterable<unknown>;
-        for await (const item of iterable) {
-          queue.push(item);
-        }
-      })
-      .finally(() => {
-        queue.close();
-      });
-    const iterator = queue.iterator();
-    for (
-      let next = await iterator.next();
-      !next.done;
-      next = await iterator.next()
-    ) {
-      yield next.value;
-    }
-    await effect;
+    yield* originalExecute(input, options) as AsyncIterable<unknown>;
   };
 
   const streaming = isAsyncGeneratorFunction(originalExecute);

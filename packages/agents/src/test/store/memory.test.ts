@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { SessionWindow } from "../../contexts/session-window";
 import type { SessionChangeEvent } from "../../schema";
 import type { SessionStore } from "../../store";
 import { MemorySessionStore } from "../../store/memory";
@@ -11,20 +10,6 @@ describeSessionStore(
     const scopes = new Map<string, SessionStore>();
     return (scope) => {
       const store = scopes.get(scope) ?? new MemorySessionStore();
-      scopes.set(scope, store);
-      return store;
-    };
-  },
-  { hooked: false }
-);
-
-describeSessionStore(
-  "SessionWindow over MemorySessionStore",
-  () => {
-    const scopes = new Map<string, SessionStore>();
-    return (scope) => {
-      const store =
-        scopes.get(scope) ?? new SessionWindow(new MemorySessionStore());
       scopes.set(scope, store);
       return store;
     };

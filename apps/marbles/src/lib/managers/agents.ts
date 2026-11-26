@@ -1,5 +1,5 @@
-import type { AgentSpec } from "@foundry/agents/agents";
-import { createAgentPreset } from "@foundry/agents/agents";
+import type { AgentSpec } from "@foundry/agents";
+import { composeTools, createAgentPreset } from "@foundry/agents";
 import type {
   HarnessSession,
   SessionHarness,
@@ -16,7 +16,6 @@ import type {
 import { Sessions } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
-import { composeTools } from "@foundry/agents/tools";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { ModelSelection, Models, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";

@@ -229,14 +229,13 @@
       "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/mcp": "2.0.29",
-        "@ai-sdk/provider": "4.0.7",
         "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "ai": "7.0.58",
         "zod": "^4.4.3",
       },
       "devDependencies": {
-        "@foundry/prompts": "workspace:*",
+        "@ai-sdk/provider": "4.0.7",
         "@foundry/tsconfig": "workspace:*",
         "@libsql/client": "^0.18.0",
         "@types/bun": "1.3.14",

@@ -5,5 +5,4 @@ export type {
   SpawnStdio,
   StdioTransportHooks,
 } from "./client-options";
-export { McpClients } from "./clients";
 export type { McpServerDefinition } from "./server-definition";

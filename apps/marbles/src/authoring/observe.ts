@@ -1,4 +1,4 @@
-import type { SessionChangeEvent } from "@foundry/agents/schema";
+import type { SessionChangeEvent } from "@foundry/agents/session";
 import type { ArtifactEvent } from "@foundry/artifacts";
 import type { SandboxEvent } from "@foundry/sandbox/store";
 import type { WorkspaceEvent } from "@foundry/workspaces/schema";

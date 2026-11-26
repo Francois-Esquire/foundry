@@ -5,7 +5,7 @@ import type {
   LanguageModelV4StreamPart,
   LanguageModelV4Usage,
 } from "@ai-sdk/provider";
-import type { ObserveTurn, TurnObservation } from "@foundry/agents/agents";
+import type { ObserveTurn, TurnObservation } from "@foundry/agents";
 import {
   type HarnessToolEvent,
   isPolicyDeniedOutput,

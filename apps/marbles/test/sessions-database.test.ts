@@ -6,7 +6,7 @@ import type {
   SessionChangeEvent,
   SessionMessage,
   SessionRecord,
-} from "@foundry/agents/schema";
+} from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStoreWrite } from "@foundry/agents/store";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";

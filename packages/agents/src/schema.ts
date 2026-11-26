@@ -21,10 +21,10 @@ const providerOptionsSchema = z.record(
   z.record(z.string(), z.unknown())
 );
 
-export const toolEffectLocationSchema = z.enum(["runtime", "host", "executor"]);
+const toolEffectLocationSchema = z.enum(["runtime", "host", "executor"]);
 export type ToolEffectLocation = z.infer<typeof toolEffectLocationSchema>;
 
-export const harnessActivitySchema = z.object({
+const harnessActivitySchema = z.object({
   actions: z.array(z.literal("stop")).readonly().optional(),
   id: recordId,
   kind: z.enum(["subagent", "task", "watch", "schedule"]),
@@ -42,17 +42,17 @@ export const harnessActivitySchema = z.object({
   summary: z.string().optional(),
   title: z.string(),
 });
-export type HarnessActivity = z.infer<typeof harnessActivitySchema>;
+type HarnessActivity = z.infer<typeof harnessActivitySchema>;
 
-export const harnessActivityEventSchema = harnessActivitySchema.extend({
+const harnessActivityEventSchema = harnessActivitySchema.extend({
   agentId: z.string(),
   harness: z.string(),
   revision: z.int().positive(),
   sessionId: recordId,
 });
-export type HarnessActivityEvent = z.infer<typeof harnessActivityEventSchema>;
+type HarnessActivityEvent = z.infer<typeof harnessActivityEventSchema>;
 
-export const harnessToolEventSchema = z.object({
+const harnessToolEventSchema = z.object({
   activityId: z.string().optional(),
   agentId: z.string(),
   harness: z.string(),
@@ -63,9 +63,9 @@ export const harnessToolEventSchema = z.object({
   toolCallId: z.string(),
   toolName: z.string(),
 });
-export type HarnessToolEvent = z.infer<typeof harnessToolEventSchema>;
+type HarnessToolEvent = z.infer<typeof harnessToolEventSchema>;
 
-export const toolProvenanceSchema = z
+const toolProvenanceSchema = z
   .object({
     agentGeneration: count.optional(),
     agentId: z.string().optional(),
@@ -155,14 +155,14 @@ export const SESSION_ROLES = [
   "tool",
   "summary",
 ] as const;
-export const sessionRoleSchema = z.enum(SESSION_ROLES);
+const sessionRoleSchema = z.enum(SESSION_ROLES);
 export type SessionRole = z.infer<typeof sessionRoleSchema>;
 
 export const MESSAGE_STATUSES = ["streaming", "complete", "error"] as const;
-export const messageStatusSchema = z.enum(MESSAGE_STATUSES);
+const messageStatusSchema = z.enum(MESSAGE_STATUSES);
 export type MessageStatus = z.infer<typeof messageStatusSchema>;
 
-export const sessionUsageSchema = z.object({
+const sessionUsageSchema = z.object({
   cachedInputTokens: count.optional(),
   cacheWriteTokens: count.optional(),
   inputTokens: count,
@@ -213,7 +213,7 @@ export const sessionMessageSchema = z.object({
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;
 
 export const SESSION_STATUSES = ["active", "archived", "error"] as const;
-export const sessionStatusSchema = z.enum(SESSION_STATUSES);
+const sessionStatusSchema = z.enum(SESSION_STATUSES);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
 export const sessionRecordSchema = z.object({
@@ -227,12 +227,6 @@ export const sessionRecordSchema = z.object({
   updatedAt: epochMs,
 });
 export type SessionRecord = z.infer<typeof sessionRecordSchema>;
-
-export const summarySchema = z.object({
-  digestText: z.string(),
-  subjectSessionId: recordId,
-});
-export type Summary = z.infer<typeof summarySchema>;
 
 const changeEventFields = {
   at: z.iso.datetime(),
