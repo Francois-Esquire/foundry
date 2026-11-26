@@ -3,6 +3,7 @@ import type {
   HarnessPermissionRequest,
 } from "@foundry/core/agents";
 import { validateHarnessProfile } from "@foundry/core/agents";
+import { withAbort } from "@foundry/lib/abort";
 import type { ApprovalResolution } from "@foundry/lib/authorization";
 import type {
   AgentAuthorizationDecision,
@@ -12,7 +13,6 @@ import type { SessionMessage, SessionPart } from "../schema";
 import { validateApprovalResponse } from "../session/converter";
 import type { AgentApprovalRequest } from "../session/events";
 import { Sessions } from "../session/sessions";
-import { raceAbort } from "./abortable";
 import type { HarnessAuthoritySettings } from "./harness-session";
 import { harnessProfileDecision } from "./permission-profile";
 import { toolAuthorizationRequest } from "./tool-compiler";
@@ -176,7 +176,7 @@ async function resolveLiveApproval(
   if (!approve) {
     throw new Error("No live approver configured.");
   }
-  const resolution = await raceAbort(
+  const resolution = await withAbort(
     approve({
       ...approval,
       input: request.input,

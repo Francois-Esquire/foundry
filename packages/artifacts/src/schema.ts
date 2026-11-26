@@ -43,7 +43,7 @@ function passes(check: () => void): boolean {
   }
 }
 
-function isPlainObject(value: unknown): value is object {
+function hasPlainPrototype(value: unknown): value is object {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -58,7 +58,7 @@ function recordInPlace<V extends z.ZodType>(
 ): z.ZodType<Readonly<Record<string, z.output<V>>>> {
   return checkedInPlace(
     (input) =>
-      isPlainObject(input) &&
+      hasPlainPrototype(input) &&
       Object.entries(input).every(
         ([name, entry]) => key(name) && value.safeParse(entry).success
       ),
@@ -71,7 +71,7 @@ function jsonMetadataSchema<K extends z.ZodType>(
 ): z.ZodType<z.output<K>> {
   return checkedInPlace(
     (value) =>
-      isPlainObject(value) &&
+      hasPlainPrototype(value) &&
       passes(() => assertJsonMetadata(value)) &&
       keys.safeParse(value).success,
     "Metadata must be a plain JSON object with valid named keys"

@@ -12,9 +12,9 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { JsonArtifactStore } from "@foundry/artifacts/node";
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { isPortableRelativePath } from "@foundry/modules";
 import { captureModuleWorkspaceSource } from "@foundry/modules/node";
-import { KeyedTurns } from "@foundry/modules/platform";
 import { z } from "zod";
 import type { ModuleDetails } from "~/shared/modules";
 import { createModuleLibrary, type ModuleLibrary } from "./library";
@@ -76,7 +76,7 @@ export async function openLocalModuleLibrary(
   }
   const store = new JsonArtifactStore({ path: artifactFile });
   const core = createModuleLibrary(store);
-  const turns = new KeyedTurns<string>();
+  const turns = new KeyedQueue<string>();
   const staging = path.join(privateRoot, "staging");
   const markers = path.join(privateRoot, "workspaces");
   await mkdir(staging, { mode: 0o700, recursive: true });

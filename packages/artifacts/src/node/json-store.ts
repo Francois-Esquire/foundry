@@ -261,7 +261,7 @@ function decodeValue(value: unknown): unknown {
   const [first] = entries;
   if (entries.length === 1 && first) {
     const [tag, inner] = first;
-    if (tag === OBJECT_TAG && isPlainObject(inner)) {
+    if (tag === OBJECT_TAG && isRecord(inner)) {
       return decodeEntries(Object.entries(inner));
     }
     if (tag === DATE_TAG && typeof inner === "string") {
@@ -280,6 +280,6 @@ function decodeEntries(entries: [string, unknown][]): Record<string, unknown> {
   );
 }
 
-function isPlainObject(value: unknown): value is object {
+function isRecord(value: unknown): value is object {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

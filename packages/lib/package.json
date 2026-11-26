@@ -6,16 +6,16 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./abort": {
+      "types": "./dist/abort.d.ts",
+      "import": "./src/abort.ts",
+      "default": "./src/abort.ts"
+    },
     "./async-scope": {
       "types": "./dist/async-scope.d.ts",
       "node": "./src/node/async-scope.ts",
       "bun": "./src/node/async-scope.ts",
       "default": "./src/async-scope.ts"
-    },
-    "./config": {
-      "types": "./dist/config/index.d.ts",
-      "import": "./src/config/index.ts",
-      "default": "./src/config/index.ts"
     },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
@@ -26,21 +26,6 @@
       "types": "./dist/authorization/document.d.ts",
       "import": "./src/authorization/document.ts",
       "default": "./src/authorization/document.ts"
-    },
-    "./config/credentials": {
-      "types": "./dist/config/credentials.d.ts",
-      "import": "./src/config/credentials.ts",
-      "default": "./src/config/credentials.ts"
-    },
-    "./config/reactive-store": {
-      "types": "./dist/config/reactive-store.d.ts",
-      "import": "./src/config/reactive-store.ts",
-      "default": "./src/config/reactive-store.ts"
-    },
-    "./config/types": {
-      "types": "./dist/config/types.d.ts",
-      "import": "./src/config/types.ts",
-      "default": "./src/config/types.ts"
     },
     "./digest": {
       "types": "./dist/digest.d.ts",
@@ -97,30 +82,15 @@
       "import": "./src/network.ts",
       "default": "./src/network.ts"
     },
-    "./node/async-scope": {
-      "types": "./dist/node/async-scope.d.ts",
-      "import": "./src/node/async-scope.ts",
-      "default": "./src/node/async-scope.ts"
-    },
     "./node/atomic-file": {
       "types": "./dist/node/atomic-file.d.ts",
       "import": "./src/node/atomic-file.ts",
       "default": "./src/node/atomic-file.ts"
     },
-    "./node/authorization/file": {
-      "types": "./dist/node/authorization/file.d.ts",
-      "import": "./src/node/authorization/file.ts",
-      "default": "./src/node/authorization/file.ts"
-    },
     "./node/file-lock": {
       "types": "./dist/node/file-lock.d.ts",
       "import": "./src/node/file-lock.ts",
       "default": "./src/node/file-lock.ts"
-    },
-    "./node/instance-identity": {
-      "types": "./dist/node/instance-identity.d.ts",
-      "import": "./src/node/instance-identity.ts",
-      "default": "./src/node/instance-identity.ts"
     },
     "./node/orphans": {
       "types": "./dist/node/orphans.d.ts",
@@ -161,11 +131,6 @@
       "types": "./dist/process-identity.d.ts",
       "import": "./src/process-identity.ts",
       "default": "./src/process-identity.ts"
-    },
-    "./readable-name": {
-      "types": "./dist/readable-name.d.ts",
-      "import": "./src/readable-name.ts",
-      "default": "./src/readable-name.ts"
     },
     "./sqlite": {
       "types": "./dist/sqlite.d.ts",
@@ -223,14 +188,12 @@
     "@types/bun": "1.3.14",
     "drizzle-orm": "^0.45.4",
     "typescript": "^6.0.3",
-    "unique-names-generator": "^4.7.1",
     "vitest": "^4.1.9",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
     "drizzle-orm": "^0.45.4",
     "typescript": "^6.0.3",
-    "unique-names-generator": "^4.7.1",
     "zod": "^4.4.3"
   },
   "peerDependenciesMeta": {
@@ -238,9 +201,6 @@
       "optional": true
     },
     "typescript": {
-      "optional": true
-    },
-    "unique-names-generator": {
       "optional": true
     },
     "zod": {

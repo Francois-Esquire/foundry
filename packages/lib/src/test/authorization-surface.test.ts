@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import packageJson from "../../package.json";
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export surface.
 import * as authorization from "../authorization";
-import { FileGrantRepository } from "../node/authorization/file";
 
 const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
 
@@ -109,12 +108,9 @@ describe("@foundry/lib/authorization boundaries", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the node-bound modules under ./node/authorization and off the barrel", () => {
-    expect(Object.keys(authorization)).not.toContain("FileGrantRepository");
-    expect(FileGrantRepository).toBeTypeOf("function");
-    expect(packageJson.exports).toHaveProperty("./node/authorization/file");
+  it("keeps node-bound modules off the barrel", () => {
     const barrel = readFileSync(join(AUTHORIZATION_DIR, "index.ts"), "utf8");
-    expect(barrel).not.toContain("node/authorization");
+    expect(barrel).not.toContain("../node/");
   });
 
   it("owns no suspend port — authorization decides, execution waits", () => {
