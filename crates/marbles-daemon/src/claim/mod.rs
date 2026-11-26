@@ -161,7 +161,7 @@ fn held_message(state: &Path, holder: &str, last_recorded: Option<&ProcessStatus
         .map(|recorded| format!(" since {}", recorded.started_at))
         .unwrap_or_default();
     format!(
-        "a Marbles process already runs here: {holder}{host}{since}. Stop it first, or set FOUNDRY_HOME to another Foundry home (state: {}).",
+        "a Marbles process already runs here: {holder}{host}{since}. Stop it first, or set FOUNDRY_ROOT to another Foundry home (state: {}).",
         state.display()
     )
 }

@@ -1,5 +1,5 @@
+import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type { ArtifactCursor, ArtifactFilter } from "../listing";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactEvent, Blob, Content } from "../schema";
 
 export type { ArtifactCursor, ArtifactFilter } from "../listing";

@@ -17,9 +17,9 @@
       "default": "./src/node/index.ts"
     },
     "./node/microsandbox": {
-      "types": "./dist/container/microsandbox-runtime.d.ts",
-      "import": "./src/container/microsandbox-runtime.ts",
-      "default": "./src/container/microsandbox-runtime.ts"
+      "types": "./dist/node/microsandbox.d.ts",
+      "import": "./src/node/microsandbox.ts",
+      "default": "./src/node/microsandbox.ts"
     },
     "./store": {
       "types": "./dist/store/index.d.ts",
@@ -42,9 +42,9 @@
       "default": "./src/store/tables.ts"
     },
     "./testing": {
-      "types": "./dist/testing.d.ts",
-      "import": "./src/testing.ts",
-      "default": "./src/testing.ts"
+      "types": "./dist/testing/index.d.ts",
+      "import": "./src/testing/index.ts",
+      "default": "./src/testing/index.ts"
     },
     "./testing/store": {
       "types": "./dist/testing/store.d.ts",
@@ -57,9 +57,9 @@
       "default": "./src/tools/index.ts"
     },
     "./virtual": {
-      "types": "./dist/virtual/sandbox.d.ts",
-      "import": "./src/virtual/sandbox.ts",
-      "default": "./src/virtual/sandbox.ts"
+      "types": "./dist/virtual/index.d.ts",
+      "import": "./src/virtual/index.ts",
+      "default": "./src/virtual/index.ts"
     }
   },
   "files": [
@@ -68,7 +68,7 @@
     "!**/*.test.*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "setup:integration": "bun src/test/helpers/setup-runtime.ts",
     "test": "vitest run --project unit",

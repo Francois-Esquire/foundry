@@ -64,7 +64,7 @@ impl Initializer for SubprocessInitializer {
         Box::pin(async move {
             let ran = Command::new(&self.program)
                 .args(&self.args)
-                .env("FOUNDRY_HOME", &self.layout.home)
+                .env("FOUNDRY_ROOT", &self.layout.home)
                 .env(INITIALIZE_TRIGGER_ENV, trigger.as_str())
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -112,7 +112,7 @@ mod tests {
     #[tokio::test]
     async fn the_command_runs_with_the_home_and_what_triggered_it() {
         let checked = shell(
-            "test \"$FOUNDRY_HOME\" = /opt/foundry && test \"$MARBLES_INITIALIZE_TRIGGER\" = \"$0\"",
+            "test \"$FOUNDRY_ROOT\" = /opt/foundry && test \"$MARBLES_INITIALIZE_TRIGGER\" = \"$0\"",
         );
         let start = SubprocessInitializer {
             args: [checked.args.clone(), vec![OsString::from("start")]].concat(),

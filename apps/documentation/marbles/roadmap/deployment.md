@@ -32,7 +32,7 @@ behind a network protocol that dashboards and MCP clients can reach.
 
 | Target | Class | What hosts the engine |
 | --- | --- | --- |
-| Plain image (Docker, a VM) | Container | The daemon, with a volume at `FOUNDRY_HOME` |
+| Plain image (Docker, a VM) | Container | The daemon, with a volume at `FOUNDRY_ROOT` |
 | Railway, Render | Container | The daemon, with the platform's persistent disk |
 | Cloudflare Containers | Container | The daemon; disk is ephemeral, so state needs R2 or a snapshot |
 | Cloudflare Workers | Isolate | Cannot host the engine; a gateway in front of a container, or a client |
@@ -67,7 +67,7 @@ What already supports these targets:
   error, and id-less notifications over a `Transport` interface. Methods
   are namespaced `workspace.*`.
 - Every location is parameterized through `layout()`, from one Foundry home
-  (`FOUNDRY_HOME`).
+  (`FOUNDRY_ROOT`).
 
 What blocks them:
 
@@ -178,7 +178,7 @@ choosing a third-party backend decides where those tokens may go.
 ### Packaging
 
 A Dockerfile that builds the app, installs the harness CLIs,
-sets `FOUNDRY_HOME` to a volume, and runs `marbles daemon --attach`.
+sets `FOUNDRY_ROOT` to a volume, and runs `marbles daemon --attach`.
 Platform notes for Railway, Render, and Cloudflare Containers follow from
 it.
 

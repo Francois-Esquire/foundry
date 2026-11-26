@@ -2,8 +2,8 @@ import { generateText, tool } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import type { SessionMessage, SessionPart } from "../../schema";
 import { toModelMessages } from "../../session/converter";
-import type { SessionMessage, SessionPart } from "../../session/types";
 import {
   textGenerateResult,
   toolCallGenerateResult,

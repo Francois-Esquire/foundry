@@ -2,7 +2,7 @@ import type { StorageEntry } from "@foundry/core/storage";
 import { isStoragePath } from "@foundry/core/storage";
 import { z } from "zod";
 import { isUsableContent, rootPath } from "./content";
-import { artifactIdSchema, contentIdSchema } from "./ref";
+import { artifactIdSchema, contentIdSchema } from "./ids";
 import type { Artifact, ArtifactOperations, Content } from "./substrate";
 
 export const ArtifactReferenceSchema = z.strictObject({

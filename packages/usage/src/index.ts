@@ -1,4 +1,4 @@
-export type { BillingAccountOptions } from "./billing";
+export type { BillingAccountOptions } from "./billing-account";
 export type {
   Charge,
   Consumption,

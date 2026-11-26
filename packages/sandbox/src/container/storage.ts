@@ -3,7 +3,7 @@ import { posix } from "node:path";
 import type { EntryStats, Storage } from "@foundry/core/storage";
 
 import { SandboxError } from "../errors";
-import type { SandboxExecResult } from "../types";
+import type { SandboxExecResult } from "../sandbox";
 
 interface GuestFiles {
   list(

@@ -501,10 +501,10 @@ Five buckets, each importing only what sits below it:
   no process.
 
 `src/layout.ts` decides where things live, all of it under the Foundry
-home (`$FOUNDRY_HOME`, else `~/.foundry`): the Marbles state root, the
-Marbles database and the process socket in that root, and the shared
-artifact store. Nothing moves on its own; the daemon hands its generations the
-home in `FOUNDRY_HOME`. The README lists the final layout on disk. `src/model/` holds the plain data
+home (`$FOUNDRY_ROOT`, else `~/.foundry`): the Marbles state root, the
+Marbles database and the process socket in that root, the shared
+artifact store, and the process recovery records. Nothing moves on its own; the daemon hands its generations the
+home in `FOUNDRY_ROOT`. The README lists the final layout on disk. `src/model/` holds the plain data
 types the tiers share (snapshots, the `WorkspaceConnection`, run status,
 task commands);
 it imports types from `lib/` and nothing else.

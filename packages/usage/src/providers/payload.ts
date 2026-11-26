@@ -1,0 +1,26 @@
+const MS_PER_SECOND = 1000;
+const EPOCH_MS_FLOOR = 1e12;
+
+export const record = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+export const text = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+export const finite = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+export const count = (value: unknown): number =>
+  finite(value) && value > 0 ? Math.trunc(value) : 0;
+
+export const dateFrom = (value: unknown): Date | undefined => {
+  let ms: number | undefined;
+  if (typeof value === "string") {
+    ms = Date.parse(value);
+  } else if (finite(value) && value > 0) {
+    ms = value >= EPOCH_MS_FLOOR ? value : value * MS_PER_SECOND;
+  }
+  return ms !== undefined && Number.isFinite(ms) ? new Date(ms) : undefined;
+};

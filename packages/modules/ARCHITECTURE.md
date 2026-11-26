@@ -80,12 +80,12 @@ The package publishes explicit canonical subpaths with no wildcard exports: `.` 
 `./gateway`, `./platform`, `./sdk`, and `./template` expose the package roles.
 Only `node/` may import `node:fs/promises`, `node:path`, `node:crypto`, and
 `node:events`. SDK source is internal; Template composition injects its emitted form
-into generated workspaces as local `@foundry/module-sdk`. `src/sdk/emit.ts` compiles
+into generated workspaces as local `@foundry/module-sdk`. `scripts/emit-sdk.ts` compiles
 that source with `typescript` for the `emit-sdk` script and is never imported by a
 runtime module.
 
-`src/boundary.ts` lists the allowed package imports per role, and
-`src/test/module-boundary.test.ts` checks every import, re-export, and dynamic import
+`src/test/helpers/boundary.ts` lists the allowed package imports per role, and
+`src/test/boundary.test.ts` checks every import, re-export, and dynamic import
 in production source against it. Relative imports must resolve inside `src`.
 
 ### `@foundry/artifacts`
@@ -316,7 +316,7 @@ identity, and Module identity carry the version's meaning across stores. The pre
 2. Change a rule in `Modules`, never in a store; change the `ModuleStore` seam
    before its stores.
 3. Update `describeModuleStore` for behavior every store must share, and the registry
-   rules in `src/test/helpers/registry-conformance.ts` for every rule.
+   rules in `src/test/helpers/describe-modules.ts` for every rule.
 4. Change Gateway types before host implementations and the generated client when
    protocol behavior moves.
 5. Regenerate SDK output with `bun run --cwd=packages/modules emit-sdk` only when its

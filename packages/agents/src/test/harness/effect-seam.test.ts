@@ -9,8 +9,11 @@ import type {
   AgentAuthorizer,
 } from "../../authorization/authorization";
 import { compileRegistrations } from "../../harness/tool-compiler";
-import type { RegisteredToolCall, ToolEffectPort } from "../../harness/types";
-import { registrationsOf } from "../../harness/types";
+import type {
+  RegisteredToolCall,
+  ToolEffectPort,
+} from "../../harness/tool-registration";
+import { registrationsOf } from "../../harness/tool-registration";
 import { fakeAuthorizer } from "../helpers/authorizer";
 
 function fakeEffectPort(): {

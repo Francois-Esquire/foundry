@@ -1,9 +1,19 @@
+import type { Skill, SkillFile } from "@foundry/core/agents";
 import type { ToolSet } from "ai";
-
 import { tool } from "ai";
 import { z } from "zod";
-import { tagTools } from "../harness/types";
-import type { Skill, SkillFile, SkillRegistry } from "./types";
+import { tagTools } from "../harness/tool-registration";
+
+export type { Skill, SkillFile } from "@foundry/core/agents";
+
+export interface SkillRegistry {
+  add(...skills: Skill[]): SkillRegistry;
+  get(name: string): Skill | undefined;
+  readonly instructions: string;
+  list(): Skill[];
+  remove(name: string): SkillRegistry;
+  readonly tools: ToolSet;
+}
 
 export function createSkillRegistry(skills: Skill[] = []): SkillRegistry {
   const available = new Map<string, Skill>();

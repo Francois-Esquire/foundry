@@ -3,13 +3,16 @@ import { createMCPClient, ElicitationRequestSchema } from "@ai-sdk/mcp";
 import type { ToolSet } from "ai";
 
 import type { Capability } from "../authorization/capability";
-import { tagTool } from "../harness/types";
-import { McpEmitter } from "./emitter";
+import { tagTool } from "../harness/tool-registration";
 import type {
   McpClientOptions,
-  McpClientStatus,
   McpElicitationHandler,
   McpLogMessage,
+  SpawnStdio,
+} from "./client-options";
+import { McpEmitter } from "./emitter";
+import type {
+  McpClientStatus,
   McpPrompt,
   McpPromptMessage,
   McpResource,
@@ -17,8 +20,7 @@ import type {
   McpServerDefinition,
   McpServerState,
   McpServerSummary,
-  SpawnStdio,
-} from "./types";
+} from "./server-definition";
 
 export interface McpClientEvents {
   log: McpLogMessage;

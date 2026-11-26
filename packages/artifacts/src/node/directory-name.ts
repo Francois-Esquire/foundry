@@ -1,5 +1,5 @@
-import type { ArtifactId } from "../ref";
-import { artifactIdSchema } from "../ref";
+import type { ArtifactId } from "../ids";
+import { artifactIdSchema } from "../ids";
 
 const DOTS = /\./g;
 

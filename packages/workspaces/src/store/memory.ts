@@ -7,7 +7,7 @@ import type {
   WorkspaceEntryId,
   WorkspaceId,
   WorkspaceRegistration,
-} from "../types";
+} from "../schema";
 import type {
   WorkspaceSave,
   WorkspaceStore,

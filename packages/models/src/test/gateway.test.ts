@@ -41,7 +41,7 @@ vi.mock("@ai-sdk/openai-compatible", () => ({
   OpenAICompatibleImageModel: FakeImageModel,
 }));
 
-const { gatewayProvider } = await import("../gateway");
+const { gatewayProvider } = await import("../providers/gateway");
 
 const models = [
   { id: "served/chat", kind: "text" as const, modelId: "served/chat" },

@@ -1,27 +1,29 @@
+import type {
+  AgentModel,
+  HarnessPermissionCallback,
+  ModelRoute,
+} from "@foundry/core/agents";
+import { routeOf } from "@foundry/core/agents";
 import type { GenerateTextResult, Output, StreamTextResult, ToolSet } from "ai";
-
+import type { AgentAuthorizer } from "../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../authorization/authorization";
+import { createToolContext } from "../tools/context";
 import type {
   LoopAgentCallParameters,
   LoopAgentSettings,
   LoopAgentStreamParameters,
   TurnContext,
-} from "../agents/loop-agent";
-import { LoopAgent } from "../agents/loop-agent";
-import type { AgentModel, ModelRoute } from "../agents/model";
-import { routeOf } from "../agents/model";
-import type { AgentAuthorizer } from "../authorization/authorization";
-import { createInMemoryAgentAuthorizer } from "../authorization/authorization";
-import { createToolContext } from "../tools/context";
-import { directToolEffectPort } from "./effect-port";
+} from "./loop-agent";
+import { LoopAgent } from "./loop-agent";
 import type { StreamPart } from "./stream-transform";
 import { compileTools, withToolCallRegistration } from "./tool-compiler";
-import type { HarnessPermissionCallback } from "./turn-driver";
-import type { ToolEffectPort } from "./types";
+import type { ToolEffectPort } from "./tool-registration";
+import { directToolEffectPort } from "./tool-registration";
 
 const DEFAULT_AGENT_ID = "agent";
 
 function defaultPermissiveAuthorizer(): AgentAuthorizer {
-  return createInMemoryAgentAuthorizer({
+  return createMemoryAgentAuthorizer({
     policy: { byKind: { "tool.call": "allow" }, global: "allow" },
   }).authorizer;
 }

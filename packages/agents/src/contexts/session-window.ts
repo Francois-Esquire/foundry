@@ -1,4 +1,4 @@
-import type { SessionMessage, SessionRecord } from "../session/types";
+import type { SessionMessage, SessionRecord } from "../schema";
 import type { SessionStore, SessionStoreWrite } from "../store";
 import { effectiveLimit, resolveBudget } from "./budget";
 import { estimatingCounter } from "./counter";

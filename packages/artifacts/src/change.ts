@@ -1,8 +1,6 @@
 import type { Page } from "@foundry/core/pagination";
 import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
-
-import type { Blob } from "./blob";
-import { validateBlob } from "./blob";
+import type { ArtifactId, BlobId, ContentId } from "./ids";
 import type { ArtifactCursor, ArtifactFilter } from "./listing";
 import {
   artifactCursor,
@@ -11,8 +9,8 @@ import {
   matchesArtifactFilter,
   normalizeArtifactQuery,
 } from "./listing";
-import type { ArtifactId, BlobId, ContentId } from "./ref";
-import type { ArtifactEvent } from "./schema";
+import type { ArtifactEvent, Blob } from "./schema";
+import { validateBlob } from "./schema";
 import type { ArtifactStore, ArtifactStoreWrite, BlobListing } from "./store";
 import type {
   Artifact,

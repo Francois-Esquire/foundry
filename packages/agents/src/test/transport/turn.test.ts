@@ -3,8 +3,8 @@ import type {
   SessionHarness,
   TurnOptions,
 } from "../../harness/session-harness";
+import type { SessionMessage, SessionUsage } from "../../schema";
 import type { SessionInput, SessionStream } from "../../session/events";
-import type { SessionMessage, SessionUsage } from "../../session/types";
 
 import {
   streamSessionAgent,

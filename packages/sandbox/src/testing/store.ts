@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
+import type { ContainerRow, SandboxEvent } from "../store/schema";
 
 export type ScopedContainerStores = (scope: string) => ContainerStore;
 

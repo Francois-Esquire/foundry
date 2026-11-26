@@ -3,7 +3,8 @@ import type { Readable, Writable } from "node:stream";
 
 import { credits, type ReportedLimit, window } from "../../limit";
 import type { Reading } from "../../snapshot";
-import { dateFrom, finite, record, text, within } from "../values";
+import { within } from "../machine";
+import { dateFrom, finite, record, text } from "../payload";
 
 export interface OpenAIDetails {
   readonly limitReached?: string;

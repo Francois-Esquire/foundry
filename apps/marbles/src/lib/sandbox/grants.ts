@@ -8,8 +8,8 @@ import {
   agentSubjectSchema,
   capabilitySchema,
 } from "@foundry/agents/authorization";
-import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
-import { DocumentGrantRepository } from "@foundry/lib/config/authorization/document";
+import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
+import { DocumentGrantRepository } from "@foundry/lib/authorization/document";
 
 const FORMAT = "agent-grants/1";
 

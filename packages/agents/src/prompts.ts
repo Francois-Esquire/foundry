@@ -4,7 +4,7 @@ import {
   referenceSource,
 } from "@foundry/core/agents";
 import type { AgentRegistry } from "./agents/registry";
-import type { SkillRegistry } from "./skills/types";
+import type { SkillRegistry } from "./skills/registry";
 
 export interface CatalogRegistries {
   readonly agents?: Pick<AgentRegistry, "getPreset">;

@@ -8,12 +8,12 @@ export type {
   GrantInput,
   GrantLifetime,
   GrantProvenance,
-} from "@foundry/lib/config/authorization";
+} from "@foundry/lib/authorization";
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/authorization public API.
 export {
   encodeAddress,
   GrantClaimError,
-} from "@foundry/lib/config/authorization";
+} from "@foundry/lib/authorization";
 
 export type {
   AgentAuthorizationDecision,
@@ -25,7 +25,7 @@ export type {
   AgentGrantSpecification,
   AgentSubject,
   CreateAgentAuthorizerOptions,
-  InMemoryAgentAuthorizer,
+  MemoryAgentAuthorizer,
 } from "./authorization";
 export {
   AGENT_ASK_BY_DEFAULT,
@@ -36,7 +36,7 @@ export {
   agentFailClosedReason,
   agentSubject,
   createAgentAuthorizer,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "./authorization";
 export type {
   Capability,

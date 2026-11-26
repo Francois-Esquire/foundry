@@ -1,6 +1,20 @@
-import type { Task, TaskId, TaskSnapshot } from "./schema";
-import type { TaskAvailability } from "./types";
-import { isSettled } from "./types";
+import type { Task, TaskId, TaskSnapshot, TaskStatus } from "./schema";
+
+export type SettledStatus = Extract<TaskStatus, "completed" | "cancelled">;
+
+export type TaskAvailability =
+  | { readonly kind: "ready" }
+  | { readonly kind: "active" }
+  | {
+      readonly kind: "blocked";
+      readonly blockedBy: readonly TaskId[];
+      readonly waitingOn: readonly TaskId[];
+    }
+  | { readonly kind: "settled"; readonly status: SettledStatus };
+
+export function isSettled(status: TaskStatus): status is SettledStatus {
+  return status === "completed" || status === "cancelled";
+}
 
 export interface AvailabilityOptions {
   readonly parentGate?: boolean;

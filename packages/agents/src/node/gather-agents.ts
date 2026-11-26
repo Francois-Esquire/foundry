@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import type { AgentSource, AgentSpec } from "../agents/spec";
+import type { AgentSource, AgentSpec } from "../agents/preset";
 import { parseFrontmatter } from "../skills/frontmatter";
 
 type FileSource = Extract<AgentSource, { kind: "file" }>;

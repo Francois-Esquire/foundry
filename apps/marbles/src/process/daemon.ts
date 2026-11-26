@@ -9,7 +9,7 @@ import {
   requireDaemonBinary,
 } from "~/process/daemon-binary";
 import { ProcessHeldError, readProcess } from "~/process/instance";
-import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { recordSpawned } from "~/process/spawned";
 
 const START_TIMEOUT_MS = 15_000;
 const PROBE_TIMEOUT_MS = 2000;
@@ -238,10 +238,10 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
   const binary = options.binary ?? requireDaemonBinary(env);
   const { layout } = options;
   const child = spawn(binary, daemonArgs(options), {
-    env: { ...env, FOUNDRY_HOME: layout.home },
+    env: { ...env, FOUNDRY_ROOT: layout.home },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  recordSpawned(child.pid, false, { ...env, [SPAWN_RECOVERY_ENV]: undefined });
+  recordSpawned(child.pid, false, { env, recovery: false });
   const stderrLines: string[] = [];
   let starting = true;
   const print = (line: string): boolean => {

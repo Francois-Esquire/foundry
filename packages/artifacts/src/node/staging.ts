@@ -6,7 +6,7 @@ import {
   writeFileAtomic,
 } from "@foundry/lib/node/atomic-file";
 
-import type { BlobStagingArea } from "../blob";
+import type { BlobStagingArea } from "../blob-staging";
 
 const STAGING_DIRECTORY = ".staging";
 const STAGED_NAME = /^[a-f0-9-]+$/;

@@ -1,0 +1,258 @@
+import { EventEmitter } from "node:events";
+
+import { describe, expect, it, vi } from "vitest";
+import { Models } from "../../../models";
+import type {
+  HostTransport,
+  WorkerReply,
+  WorkerRequest,
+  WorkerSideTransport,
+} from "../../../providers/local/remote/protocol";
+import { RemoteLocalProvider } from "../../../providers/local/remote/provider";
+import { runLocalWorker } from "../../../providers/local/remote/worker";
+import type { LocalProviderSurface } from "../../../providers/local/surface";
+
+const WORKER_EXITED_CRASHED_PATTERN = /worker exited: crashed/;
+const WORKER_EXITED_PATTERN = /worker exited/;
+const WORKER_EXITED_CRASHED_PATTERN_2 = /worker exited: crashed/;
+
+function makeTransportPair() {
+  const toWorker = new EventEmitter();
+  const toHost = new EventEmitter();
+  let exitHost: ((reason: string) => void) | null = null;
+
+  const host: HostTransport = {
+    onExit: (h) => {
+      exitHost = h;
+    },
+    onMessage: (h) => {
+      toHost.on("message", h);
+    },
+    send: (m: WorkerRequest) => toWorker.emit("message", m),
+  };
+  const worker: WorkerSideTransport = {
+    onExit: () => undefined,
+    onMessage: (h) => {
+      toWorker.on("message", h);
+    },
+    send: (m: WorkerReply) => toHost.emit("message", m),
+  };
+  return { host, killWorker: (reason: string) => exitHost?.(reason), worker };
+}
+
+function makeFakeProvider() {
+  const seenSignals: AbortSignal[] = [];
+  const events = new EventEmitter();
+  const fake = {
+    download: vi.fn(() => Promise.resolve()),
+    embeddingModel: () => ({
+      doEmbed: (options: { values: string[] }) =>
+        Promise.resolve({
+          embeddings: options.values.map(() => [0.1, 0.2]),
+          warnings: [],
+        }),
+      maxEmbeddingsPerCall: undefined,
+      modelId: "fake-embed",
+      provider: "local",
+      specificationVersion: "v4" as const,
+      supportsParallelCalls: false,
+    }),
+    events,
+    languageModel: (modelId: string) => ({
+      doGenerate: (options: { abortSignal?: AbortSignal }) => {
+        if (options.abortSignal) {
+          seenSignals.push(options.abortSignal);
+        }
+        return Promise.resolve({
+          content: [{ text: "generated", type: "text" }],
+          finishReason: "stop",
+          usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+          warnings: [],
+        });
+      },
+      doStream: (options: { abortSignal?: AbortSignal }) => {
+        if (options.abortSignal) {
+          seenSignals.push(options.abortSignal);
+        }
+        return Promise.resolve({
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ delta: "a", id: "t", type: "text-delta" });
+              controller.enqueue({ delta: "b", id: "t", type: "text-delta" });
+              controller.enqueue({
+                finishReason: "stop",
+                type: "finish",
+                usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+              });
+              controller.close();
+            },
+          }),
+        });
+      },
+      modelId: `fake-${modelId}`,
+      provider: "local",
+      specificationVersion: "v4" as const,
+      supportedUrls: {},
+    }),
+    preload: vi.fn(() => Promise.resolve()),
+    progress: () => 0.5,
+    seenSignals,
+    setOffline: vi.fn(),
+    status: () => ({ progress: 1, state: "ready" as const }),
+    transcribe: vi.fn((audio: Float32Array) =>
+      Promise.resolve({ segments: [], text: `heard ${audio.length} samples` })
+    ),
+  };
+  return fake;
+}
+
+function makeBridge() {
+  const { host, worker, killWorker } = makeTransportPair();
+  const fake = makeFakeProvider();
+  runLocalWorker(worker, fake as unknown as LocalProviderSurface);
+  const provider = new RemoteLocalProvider({ transport: host });
+  return { fake, killWorker, provider };
+}
+
+const callOptions = {
+  prompt: [
+    { content: [{ text: "hi", type: "text" as const }], role: "user" as const },
+  ],
+};
+
+describe("remote-local bridge", () => {
+  it("doGenerate round-trips the result", async () => {
+    const { provider } = makeBridge();
+    const result = await provider.languageModel("m").doGenerate(callOptions);
+    expect(result.content).toEqual([{ text: "generated", type: "text" }]);
+    expect(result.usage.outputTokens).toBe(2);
+  });
+
+  it("doStream forwards every part in order, then closes", async () => {
+    const { provider } = makeBridge();
+    const { stream } = await provider.languageModel("m").doStream(callOptions);
+    const parts: unknown[] = [];
+    const reader = stream.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      parts.push(value);
+    }
+    expect(parts).toEqual([
+      { delta: "a", id: "t", type: "text-delta" },
+      { delta: "b", id: "t", type: "text-delta" },
+      {
+        finishReason: "stop",
+        type: "finish",
+        usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+      },
+    ]);
+  });
+
+  it("doEmbed round-trips embeddings", async () => {
+    const { provider } = makeBridge();
+    const result = await provider
+      .embeddingModel("e")
+      .doEmbed({ values: ["x", "y"] });
+    expect(result.embeddings).toEqual([
+      [0.1, 0.2],
+      [0.1, 0.2],
+    ]);
+  });
+
+  it("transcribe carries audio across as the same samples", async () => {
+    const { provider, fake } = makeBridge();
+    const audio = new Float32Array([0.25, -0.5, 1]);
+    const result = await provider.transcribe(audio);
+    expect(result.text).toBe("heard 3 samples");
+    const received = fake.transcribe.mock.calls[0]?.[0];
+    expect([...(received ?? [])]).toEqual([0.25, -0.5, 1]);
+  });
+
+  it("host abort reaches the worker model's signal", async () => {
+    const { provider, fake } = makeBridge();
+    const abort = new AbortController();
+    await provider
+      .languageModel("m")
+      .doStream({ ...callOptions, abortSignal: abort.signal });
+    abort.abort();
+    expect(fake.seenSignals[0]?.aborted).toBe(true);
+  });
+
+  it("worker errors reject the host call with the message", async () => {
+    const { provider, fake } = makeBridge();
+    fake.download.mockRejectedValueOnce(new Error("no disk"));
+    await expect(provider.download("text")).rejects.toThrow("no disk");
+  });
+
+  it("forwards provider events across the bridge", () => {
+    const { provider, fake } = makeBridge();
+    const seen = vi.fn();
+    provider.events.on("download-progress", seen);
+    fake.events.emit("download-progress", { modelId: "m", progress: 40 });
+    expect(seen).toHaveBeenCalledWith({ modelId: "m", progress: 40 });
+  });
+
+  it("worker exit rejects in-flight calls and fails later ones fast", async () => {
+    const { host, killWorker } = makeTransportPair();
+    const provider = new RemoteLocalProvider({ transport: host });
+    const inFlight = provider.download("text");
+    killWorker("crashed");
+    await expect(inFlight).rejects.toThrow(WORKER_EXITED_CRASHED_PATTERN);
+    expect(provider.workerLost).toBe(true);
+    await expect(provider.download("text")).rejects.toThrow(
+      WORKER_EXITED_PATTERN
+    );
+  });
+});
+
+describe("as a provider instance", () => {
+  it("serves its own resolved models through the bridge", async () => {
+    const { provider } = makeBridge();
+    const manager = new Models({ providers: [provider] });
+    const result = await manager
+      .resolve("text", { provider: provider.id })
+      .open()
+      .doGenerate(callOptions);
+    expect(result.content).toEqual([{ text: "generated", type: "text" }]);
+    expect(await provider.transcribe(new Float32Array(4))).toMatchObject({
+      text: "heard 4 samples",
+    });
+  });
+
+  it("settles setOffline once the worker applied it, and rejects when it could not", async () => {
+    const { provider, fake } = makeBridge();
+    await expect(provider.setOffline(true)).resolves.toBeUndefined();
+    expect(fake.setOffline).toHaveBeenCalledWith(true);
+
+    fake.setOffline.mockImplementationOnce(() => {
+      throw new Error("worker env unchanged");
+    });
+    await expect(provider.setOffline(true)).rejects.toThrow(
+      "worker env unchanged"
+    );
+  });
+
+  it("stops a worker that does not confirm going offline in time", async () => {
+    const { host } = makeTransportPair();
+    const terminate = vi.fn();
+    const provider = new RemoteLocalProvider({
+      offlineTimeoutMs: 20,
+      transport: { ...host, terminate },
+    });
+    await expect(provider.setOffline(true)).rejects.toThrow("worker stopped");
+    expect(terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the local worker is gone", async () => {
+    const { host, killWorker } = makeTransportPair();
+    const provider = new RemoteLocalProvider({ transport: host });
+    killWorker("crashed");
+    await expect(
+      provider.languageModel("smart").doGenerate(callOptions)
+    ).rejects.toThrow(WORKER_EXITED_CRASHED_PATTERN_2);
+    expect(provider.workerLost).toBe(true);
+  });
+});

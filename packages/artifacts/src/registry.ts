@@ -2,8 +2,16 @@ import type { StorageEntry } from "@foundry/core/storage";
 
 import { HTML_MIME, isTextMime } from "@foundry/lib/mime";
 
-import type { ARTIFACT_BASES } from "./constants";
 import type { Artifact } from "./substrate";
+
+const ARTIFACT_BASES = [
+  "html",
+  "image",
+  "video",
+  "audio",
+  "text",
+  "structured",
+] as const;
 
 export type ArtifactBase = (typeof ARTIFACT_BASES)[number];
 

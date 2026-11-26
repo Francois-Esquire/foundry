@@ -4,9 +4,10 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { errorCode } from "../errors";
-import type { GitPathStatus, GitSnapshot, WorkspaceExtension } from "../types";
+import type { WorkspaceExtension } from "../extension";
+import type { GitPathStatus, GitSnapshot } from "../source-adapter";
 
-export type { GitPathStatus, GitSnapshot } from "../types";
+export type { GitPathStatus, GitSnapshot } from "../source-adapter";
 
 const WORKTREE_PREFIX_PATTERN = /^worktree /;
 const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;

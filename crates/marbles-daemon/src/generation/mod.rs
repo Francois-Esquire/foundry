@@ -22,9 +22,7 @@ pub(crate) use self::dispatch::SupervisedRequest;
 pub use self::generations::GenerationRole;
 pub use self::launcher::{GenerationExit, GenerationLauncher, SpawnSpec, SpawnedGeneration};
 pub(crate) use self::link::{DaemonLink, ProcessChange, Publication};
-pub use self::subprocess::{
-    SPAWN_RECORD_ENV, SPAWN_RECOVERY_ENV, STDERR_TAIL, StdioMode, SubprocessLauncher,
-};
+pub use self::subprocess::{SPAWN_RECORD_ENV, STDERR_TAIL, StdioMode, SubprocessLauncher};
 pub(crate) use self::supervisor::{Supervisor, SupervisorParts};
 #[cfg(test)]
 pub use self::timings::ReadObserver;

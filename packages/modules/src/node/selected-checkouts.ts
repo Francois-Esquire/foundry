@@ -8,10 +8,9 @@ import {
   projectionMatches,
   stageProjection,
 } from "@foundry/artifacts/node";
-
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import type { ModuleVersion } from "../domain";
 import type { ModuleSelectedCheckouts } from "../platform/files";
-import { KeyedTurns } from "../platform/turns";
 import { ModuleCheckoutError } from "./checkouts";
 
 type SelectedVersion = Pick<ModuleVersion, "contentId" | "digest" | "moduleId">;
@@ -24,7 +23,7 @@ export interface CreateModuleSelectedCheckoutsOptions {
 export function createModuleSelectedCheckouts(
   options: CreateModuleSelectedCheckoutsOptions
 ): ModuleSelectedCheckouts {
-  const turns = new KeyedTurns<string>();
+  const turns = new KeyedQueue<string>();
 
   function locate(moduleId: string) {
     const checkout = options.checkoutPath(moduleId);

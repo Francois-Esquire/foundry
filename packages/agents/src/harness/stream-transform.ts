@@ -1,4 +1,4 @@
-import type { StreamPart } from "@foundry/core/agents";
+import type { ModelRoute, StreamPart } from "@foundry/core/agents";
 import type {
   InferGenerateOutput,
   InferStreamOutput,
@@ -9,8 +9,13 @@ import type {
   ToolSet,
 } from "ai";
 import { isDeepEqualData } from "ai";
-
-import type { ModelRoute } from "../agents/model";
+import type {
+  MessageMetadata,
+  MessageStatus,
+  SessionMessage,
+  SessionPart,
+  SessionUsage,
+} from "../schema";
 import type {
   AgentApprovalRequest,
   SessionEvent,
@@ -20,13 +25,6 @@ import type {
 } from "../session/events";
 import { normalizeUsage } from "../session/metadata";
 import { keptValue, stringifyValue } from "../session/serialize";
-import type {
-  MessageMetadata,
-  MessageStatus,
-  SessionMessage,
-  SessionPart,
-  SessionUsage,
-} from "../session/types";
 
 import { createEventQueue } from "./event-queue";
 

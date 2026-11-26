@@ -1,10 +1,10 @@
 import { runtimeInstanceIdSchema } from "../domain";
 import type { ModuleTransport } from "../gateway/types";
+import { rethrowAfterCleanup } from "./container-cleanup";
 import type {
   ModuleProgramRuntimeAdapter,
   ModuleProgramRuntimeHandle,
 } from "./contracts";
-import { rethrowAfterCleanup } from "./contracts";
 
 export const MODULE_FILES_ROOT = "/foundry/files";
 export const MODULE_PROGRAM_PORT = 3000;

@@ -15,10 +15,10 @@ import type {
   ArtifactDefinition,
   ArtifactFiles,
   ArtifactRef,
-  Artifacts,
   ArtifactVersion,
   ArtifactWriteOptions,
   LatestArtifact,
+  ScopedArtifacts,
 } from "../types";
 
 export interface ArtifactsDeps {
@@ -78,7 +78,7 @@ function versionOf(content: Content): ArtifactVersion {
 
 type Provenance = Readonly<Record<string, unknown>>;
 
-export class ArtifactsManager implements Artifacts {
+export class ArtifactsManager implements ScopedArtifacts {
   readonly #deps: ArtifactsDeps;
 
   constructor(deps: ArtifactsDeps) {
@@ -91,7 +91,9 @@ export class ArtifactsManager implements Artifacts {
       : artifactIdFor(this.#deps.workspaceId, artifact.name);
   }
 
-  create(input: Parameters<Artifacts["create"]>[0]): Promise<ArtifactVersion> {
+  create(
+    input: Parameters<ScopedArtifacts["create"]>[0]
+  ): Promise<ArtifactVersion> {
     return this.#create(input, {});
   }
 
@@ -102,7 +104,7 @@ export class ArtifactsManager implements Artifacts {
       metadata,
       name,
       type,
-    }: Parameters<Artifacts["create"]>[0],
+    }: Parameters<ScopedArtifacts["create"]>[0],
     provenance: Provenance
   ): Promise<ArtifactVersion> {
     const created = await this.#deps.artifacts.create({
@@ -208,7 +210,7 @@ export class ArtifactsManager implements Artifacts {
     return this.#deps.artifacts.readRoot(contentIdSchema.parse(versionId));
   }
 
-  scoped({ frame, scope }: ManagerArgs): Artifacts {
+  scoped({ frame, scope }: ManagerArgs): ScopedArtifacts {
     const provenance: Provenance = {
       runId: scope.id,
       sessionId: scope.session.id,

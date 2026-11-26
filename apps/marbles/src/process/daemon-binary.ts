@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import type { Layout } from "~/layout";
 import { ProcessHeldError, readProcess, STATE_MODE } from "~/process/instance";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { recordSpawned } from "~/process/spawned";
 import { version as marblesVersion } from "../../package.json";
 
 export const CLAIM_HELD_EXIT_CODE = 75;
@@ -181,7 +181,7 @@ function daemonEnv(
   layout: Layout,
   env: Env
 ): Record<string, string | undefined> {
-  return { ...env, FOUNDRY_HOME: layout.home };
+  return { ...env, FOUNDRY_ROOT: layout.home };
 }
 
 function spawned(child: ChildProcess): Promise<void> {
@@ -208,7 +208,7 @@ export async function spawnDetachedDaemon(
     const acknowledged = spawned(child);
     child.unref();
     await acknowledged;
-    recordSpawned(child.pid, true, { ...env, [SPAWN_RECOVERY_ENV]: undefined });
+    recordSpawned(child.pid, true, { env, recovery: false });
   } finally {
     closeSync(log);
   }
@@ -235,10 +235,7 @@ export async function runDaemonBinary(options: {
     env: daemonEnv(layout, process.env),
     stdio: "inherit",
   });
-  recordSpawned(child.pid, false, {
-    ...process.env,
-    [SPAWN_RECOVERY_ENV]: undefined,
-  });
+  recordSpawned(child.pid, false, { recovery: false });
   const forward = (signal: NodeJS.Signals) => {
     child.kill(signal);
   };

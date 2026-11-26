@@ -50,7 +50,6 @@ import type {
 import { makeSettlement } from "./settlement";
 import { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
-import { awaitingJob, JobWaiters, watchStore } from "./sync";
 import {
   cancellation,
   removal,
@@ -58,6 +57,7 @@ import {
   submission,
   suspensionCancellation,
 } from "./transitions";
+import { awaitingJob, JobWaiters, watchStore } from "./watermark";
 
 const isJobId = (id: JobId | RunId): id is JobId => id.startsWith("jb-");
 

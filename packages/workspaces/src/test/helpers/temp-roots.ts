@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll } from "vitest";
 import { nodeFileSystem } from "../../node";
 import type { WorkspaceStore } from "../../store";
-import { directorySystem } from "./directory-system";
+import { directoryWorkspaces } from "./directory-workspaces";
 
 export const roots: string[] = [];
 
@@ -17,7 +17,7 @@ afterAll(async () => {
 export async function makeRoot(
   tree: Record<string, string | Uint8Array>
 ): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "foundry-workspace-system-"));
+  const root = await mkdtemp(join(tmpdir(), "foundry-workspaces-"));
   roots.push(root);
   for (const [relativePath, contents] of Object.entries(tree)) {
     const absolute = join(root, relativePath);
@@ -27,6 +27,6 @@ export async function makeRoot(
   return await nodeFileSystem.realpath(root);
 }
 
-export function systemOver(store: WorkspaceStore) {
-  return directorySystem({ store });
+export function workspacesOver(store: WorkspaceStore) {
+  return directoryWorkspaces({ store });
 }

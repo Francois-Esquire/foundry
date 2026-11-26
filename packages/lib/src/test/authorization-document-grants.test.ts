@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import type { AuthorizationSubject } from "../config/authorization";
-import type { GrantDocumentStorage } from "../config/authorization/document";
-import { DocumentGrantRepository } from "../config/authorization/document";
+import type { AuthorizationSubject } from "../authorization";
+import type { GrantDocumentStorage } from "../authorization/document";
+import { DocumentGrantRepository } from "../authorization/document";
 import type { TestCapability } from "./helpers/authorization-support";
 import {
   fsRead,

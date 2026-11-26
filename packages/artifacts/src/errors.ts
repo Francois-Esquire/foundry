@@ -1,6 +1,6 @@
 import { StorageApplicationError } from "@foundry/core/storage";
 
-import type { ArtifactId, ContentId } from "./ref";
+import type { ArtifactId, ContentId } from "./ids";
 
 export class ArtifactError extends Error {
   constructor(message: string, options?: ErrorOptions) {

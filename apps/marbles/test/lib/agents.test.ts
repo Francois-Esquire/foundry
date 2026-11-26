@@ -1,10 +1,10 @@
-import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import { createMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessSession } from "@foundry/agents/harness";
 import type { SessionEvent } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
-import { airplaneMode } from "@foundry/models/airplane";
+import { airplaneMode } from "@foundry/models/providers/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -85,7 +85,7 @@ describe("agents.session", () => {
 
   it("rejects sandbox-only permission and credential options on a host session", async () => {
     const agents = new AgentsManager(deps()).scoped(args());
-    const authority = { policy: createInMemoryAgentAuthorizer().authorizer };
+    const authority = { policy: createMemoryAgentAuthorizer().authorizer };
     for (const options of [
       { authority },
       { apiKey: "explicit-key" },

@@ -47,7 +47,7 @@ export class ProcessHeldError extends Error {
       info?.alive && info.startedAt !== null ? ` since ${info.startedAt}` : "";
     const host = info?.alive && info.host !== null ? ` (${info.host})` : "";
     super(
-      `a Marbles process already runs here: ${holder}${host}${since}. Stop it first, or set FOUNDRY_HOME to another Foundry home (state: ${dir}).`
+      `a Marbles process already runs here: ${holder}${host}${since}. Stop it first, or set FOUNDRY_ROOT to another Foundry home (state: ${dir}).`
     );
     this.holder = holder;
   }

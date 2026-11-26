@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { Capability } from "../authorization/capability";
 
-import { tagTool } from "../harness/types";
+import { tagTool } from "../harness/tool-registration";
 
 export const WEB_FETCH_MAX_BODY_CHARS = 50_000;
 

@@ -1,8 +1,8 @@
 import type { ModelMessage, ProviderMetadata, ToolSet, UIMessage } from "ai";
 
 import { convertToModelMessages } from "ai";
+import type { SessionMessage, SessionPart } from "../schema";
 import { stringifyValue } from "./serialize";
-import type { SessionMessage, SessionPart } from "./types";
 
 type ToolResultPart = Extract<SessionPart, { type: "tool_result" }>;
 type ToolCallPart = Extract<SessionPart, { type: "tool_call" }>;

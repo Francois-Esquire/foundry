@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   createMemoryConversationStore,
   defaultThread,
-} from "../../tools/context";
+} from "../../tools/conversation-store";
 
 const m = (text: string): ModelMessage => ({ content: text, role: "user" });
 

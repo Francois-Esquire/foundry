@@ -1,5 +1,5 @@
 import { installationPrincipal } from "../access";
-import type { Installation, ModuleVersion } from "../domain";
+import type { ModuleVersion } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
 import type { ModuleCapabilityProvider } from "../gateway/types";
 import { isStrictModuleManifest, moduleSettingRequests } from "../manifest";
@@ -9,22 +9,8 @@ import {
   type ActivationPreflight,
   preflightModuleActivation,
 } from "../preflight";
-import {
-  type ModuleSettingsHostPolicy,
-  type ModuleSettingValues,
-  resolveModuleSettings,
-} from "../settings";
-import type { ModuleProgramLaunch } from "./contracts";
-
-export interface ModuleActivationInput {
-  readonly installation: Installation;
-  readonly launch: ModuleProgramLaunch;
-  readonly settings: {
-    readonly policy: ModuleSettingsHostPolicy;
-    readonly user: ModuleSettingValues;
-  };
-  readonly version: ModuleVersion;
-}
+import { resolveModuleSettings } from "../settings";
+import type { ModuleActivationInput, ModuleProgramLaunch } from "./contracts";
 
 export class ModuleActivationRefusedError extends Error {
   override readonly name = "ModuleActivationRefusedError";

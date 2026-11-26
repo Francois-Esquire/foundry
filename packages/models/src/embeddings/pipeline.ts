@@ -3,12 +3,12 @@ import type { Chunk } from "@chonkiejs/core";
 
 import { embedMany } from "ai";
 import { modelErrors } from "../errors";
-import type { AiLoggerSession } from "../logger";
+import type { AiLoggerSession } from "../observability";
+import { embedUsage, resolveEmbeddingModel, runEmbed } from "./embed";
 import { recursiveChunk } from "./recursive";
 import { semanticChunk } from "./semantic";
 import type { ChunkSource } from "./source";
 import { collectSource } from "./source";
-import { embedUsage, resolveEmbeddingModel, runEmbed } from "./text";
 import type { EmbedSource } from "./types";
 
 type ChunkMethod = "semantic" | "recursive";

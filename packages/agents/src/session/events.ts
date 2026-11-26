@@ -1,4 +1,8 @@
-import type { AgentApprovalRequest } from "@foundry/core/agents";
+import type {
+  AgentApprovalRequest,
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "@foundry/core/agents";
 import type {
   InferGenerateOutput,
   InferStreamOutput,
@@ -6,12 +10,7 @@ import type {
   StreamTextResult,
   ToolSet,
 } from "ai";
-
-import type {
-  HarnessActivityEvent,
-  HarnessToolEvent,
-} from "../harness/turn-driver";
-import type { SessionMessage, SessionUsage, ToolProvenance } from "./types";
+import type { SessionMessage, SessionUsage, ToolProvenance } from "../schema";
 
 export type { AgentApprovalRequest, SessionInput } from "@foundry/core/agents";
 
@@ -80,4 +79,10 @@ export interface SessionStream<OUTPUT extends Output.Output = never>
   >;
   readonly text: Promise<string>;
   readonly usage: Promise<SessionUsage>;
+}
+
+export interface ToolCallResult {
+  readonly isError?: boolean;
+  readonly output: unknown;
+  readonly toolCallId: string;
 }

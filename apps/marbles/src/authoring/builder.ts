@@ -1,8 +1,8 @@
-import { fillArgv, parseArgv, placeholdersOf } from "@foundry/lib/argv";
 import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Scope } from "~/authoring/runtime";
 import { captureScope, declaringCatalog, ownRun } from "~/authoring/runtime";
+import { fillArgv, parseArgv, placeholdersOf } from "~/lib/argv";
 import type { CommandResult, ExecOptions } from "~/lib/command";
 import type {
   AnyDefinition,

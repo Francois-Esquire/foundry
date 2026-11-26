@@ -3,7 +3,7 @@ import type { EntryInputs, FileInputs } from "@foundry/artifacts";
 import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 
-import { MODULE_MIME } from "../../constants";
+import { MODULE_MIME } from "../../domain";
 
 export const PROGRAM_FILES: FileInputs = {
   "outputs/program/server.js": { bytes: "export {};", mime: "text/javascript" },

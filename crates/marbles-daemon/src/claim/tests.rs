@@ -104,7 +104,7 @@ fn a_held_claim_refuses_a_second_claimant() {
     assert_eq!(
         error.to_string(),
         format!(
-            "a Marbles process already runs here: pid {} (daemon) since {}. Stop it first, or set FOUNDRY_HOME to another Foundry home (state: {}).",
+            "a Marbles process already runs here: pid {} (daemon) since {}. Stop it first, or set FOUNDRY_ROOT to another Foundry home (state: {}).",
             std::process::id(),
             claim.started_at(),
             layout.state.display()

@@ -1,13 +1,24 @@
-export type { AgentToolConfig } from "./agent-tool";
-// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/agents public API.
-export { createAgentTool } from "./agent-tool";
 export type {
   AgentModel,
   ModelLimits,
   ModelRoute,
   ObserveTurn,
   TurnObservation,
-} from "./model";
+} from "@foundry/core/agents";
+export type { AgentToolConfig } from "./agent-tool";
+// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/agents public API.
+export { createAgentTool } from "./agent-tool";
+export type {
+  AgentExecutionContext,
+  AgentPreset,
+  AgentPresetContext,
+  AgentSessionContext,
+  AgentSource,
+  AgentSpec,
+  AgentSurface,
+  ResolveAgentContext,
+} from "./preset";
+export { createAgentPreset, resolveAgent } from "./preset";
 export type {
   AgentCompatibilityProjection,
   AgentCompatibilityRegistry,
@@ -21,13 +32,3 @@ export {
   createAgentRegistry,
   resolveAgentEntry,
 } from "./registry";
-export type {
-  AgentExecutionContext,
-  AgentPreset,
-  AgentPresetContext,
-  AgentSessionContext,
-  AgentSurface,
-  ResolveAgentContext,
-} from "./resolve";
-export { createAgentPreset, resolveAgent } from "./resolve";
-export type { AgentSource, AgentSpec } from "./spec";

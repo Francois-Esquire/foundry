@@ -2,9 +2,9 @@ import { z } from "zod";
 import type {
   AuthorizationAddressing,
   AuthorizationSubject,
-} from "../../config/authorization";
+} from "../../authorization";
 
-import { authorizationAddress } from "../../config/authorization";
+import { authorizationAddress } from "../../authorization";
 
 export type TestCapability =
   | { readonly kind: "fs.read"; readonly root: string }

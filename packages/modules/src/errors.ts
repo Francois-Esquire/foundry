@@ -16,10 +16,3 @@ export class ModuleStoreNotFoundError extends Error {
     this.name = "ModuleStoreNotFoundError";
   }
 }
-
-export class ModuleCrossStoreError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "ModuleCrossStoreError";
-  }
-}

@@ -1,6 +1,6 @@
 import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
-import { assertOwnsArtifactCommit } from "./cross-store";
+import { assertOwnsArtifactCommit } from "./artifact-commit";
 import type {
   Installation,
   InstallationId,

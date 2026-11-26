@@ -17,13 +17,13 @@ import type {
   ApprovalRequest,
   ArtifactDefinition,
   ArtifactFiles,
-  Artifacts,
   Ask,
   Context,
   Question,
   Report,
   ReportEntry,
   Run,
+  ScopedArtifacts,
 } from "./types";
 
 const ASK_NAME = "marbles.ask";
@@ -134,7 +134,7 @@ function buildAsk(args: AskArgs): Ask {
 }
 
 interface ReportArgs extends AskArgs {
-  readonly artifacts: () => Artifacts;
+  readonly artifacts: () => ScopedArtifacts;
   readonly root: string;
 }
 

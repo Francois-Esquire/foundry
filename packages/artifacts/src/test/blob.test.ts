@@ -1,8 +1,7 @@
 import { describe, expect, test } from "vitest";
-
-import type { Blob } from "../blob";
-import { validateBlob } from "../blob";
-import { blobIdSchema } from "../ref";
+import { blobIdSchema } from "../ids";
+import type { Blob } from "../schema";
+import { validateBlob } from "../schema";
 
 const id = blobIdSchema.parse("blob");
 const valid = {

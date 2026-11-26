@@ -1,4 +1,4 @@
-import type { Media } from "../types";
+import type { Media } from "../media";
 import type { LiveAccess, LiveDirection, LiveTarget } from "./types";
 
 export interface TransportSend {

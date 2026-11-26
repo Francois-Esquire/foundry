@@ -342,7 +342,7 @@ interface SnapshotState { … }
 ```
 
 Every shape has a matching Zod schema (`StepSnapshotSchema`,
-`SnapshotStateSchema`, …), defined in `./schema` — decode at the persistence
+`SnapshotStateSchema`, …), exported from this entry — decode at the persistence
 boundary rather than casting.
 
 ## `@foundry/workflows/step-hooks`
@@ -387,13 +387,6 @@ SuspendSignal / isSuspendSignal(e);
 suspensionOccurrenceKey(stepPath, name, occurrence);
 parseSuspensionOccurrenceKey(key);
 ```
-
-## `@foundry/workflows/schema`
-
-The Zod schemas of the values the kernel persists and streams: step and
-workflow snapshots, the suspension state, channel events, telemetry and
-`ErrorShape`. `./snapshot`, `./channels`, and `./types` re-export the same
-schemas and types. Effect stays the runtime.
 
 ## Notes
 

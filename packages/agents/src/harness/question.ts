@@ -5,10 +5,10 @@ import type {
   HarnessQuestionResult,
 } from "@foundry/core/agents";
 import { markHarnessQuestionExecutor } from "@foundry/core/agents";
+import { withAbort } from "@foundry/lib/abort";
 import type { Tool } from "ai";
 import { tool } from "ai";
 import { z } from "zod";
-import { raceAbort } from "./abortable";
 
 export type { HarnessQuestionToolSettings } from "@foundry/core/agents";
 // biome-ignore lint/performance/noBarrelFile: Preserve @foundry/agents/harness question predicate re-export.
@@ -173,7 +173,7 @@ async function waitForAnswer(
   signal: AbortSignal
 ): Promise<HarnessQuestionResult> {
   try {
-    return await raceAbort(pending, signal);
+    return await withAbort(pending, signal);
   } catch (error) {
     if (signal.aborted) {
       throw error;

@@ -174,10 +174,11 @@ it("removes the server's recovery record once the server exits", async () => {
   let started: Started | undefined;
   try {
     started = await start(root, "", {
-      env: { MARBLES_SPAWN_RECOVERY: recovery },
+      args: [],
+      env: { FOUNDRY_ROOT: recovery },
     });
     const { server, session } = started;
-    const record = join(recovery, `${String(server)}.json`);
+    const record = join(recovery, "processes", `${String(server)}.json`);
     expect(existsSync(record)).toBe(true);
     const ended = await within(session.close(), 10_000, "the exit");
     expect(ended.code, ended.stderr).toBe(0);

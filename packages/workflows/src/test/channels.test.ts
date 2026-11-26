@@ -1,8 +1,8 @@
 import { Effect, Stream } from "effect";
 import { describe, expect, test } from "vitest";
-import { Channels } from "../channels";
-import type { StepStatus } from "../snapshot";
-import { Snapshot } from "../snapshot";
+import { Channels } from "../slices/channels";
+import type { StepStatus } from "../slices/snapshot";
+import { Snapshot } from "../slices/snapshot";
 
 const at = (msOffset = 0): string =>
   new Date(1_700_000_000_000 + msOffset).toISOString();

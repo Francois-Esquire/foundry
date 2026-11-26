@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { normalizeSandboxPath } from "../../path";
-import type { Sandbox } from "../../types";
-import { SANDBOX_ARGV_FIXTURE, SANDBOX_SHELL_FIXTURE } from "./fixtures";
+import type { Sandbox, SandboxCommand } from "../../sandbox";
+
+export const SANDBOX_ARGV_FIXTURE: SandboxCommand = Object.freeze([
+  "printf",
+  "%s",
+  "argv value",
+]);
+export const SANDBOX_SHELL_FIXTURE: SandboxCommand =
+  "printf '%s' 'shell value'";
 
 interface SandboxContractFixture {
   dispose?(): Promise<void>;

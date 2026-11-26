@@ -244,7 +244,7 @@ describe("the resource commands from the CLI", { timeout: 120_000 }, () => {
         {
           cwd: one.root,
           encoding: "utf8",
-          env: { ...process.env, FOUNDRY_HOME: home },
+          env: { ...process.env, FOUNDRY_ROOT: home },
           input: "",
           timeout: 60_000,
         }

@@ -1,4 +1,7 @@
-import { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
+import {
+  gatewayModels,
+  gatewayProvider,
+} from "@foundry/models/providers/gateway";
 import { z } from "zod";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 

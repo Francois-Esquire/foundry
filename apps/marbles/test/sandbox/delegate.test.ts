@@ -1,4 +1,4 @@
-import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import { createMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type {
   AgentModel,
   HarnessQuestionRequest,
@@ -43,7 +43,7 @@ function settings(): SandboxSessionSettings {
     instructions: "Parent instructions",
     modelId: "model",
     options: {
-      authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+      authority: { policy: createMemoryAgentAuthorizer().authorizer },
       profile: {
         allowedTools: ["Read", "delegate"],
         disallowedTools: ["Bash"],

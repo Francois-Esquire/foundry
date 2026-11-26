@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createAgentAuthorizer,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import { createHarnessPermission } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
@@ -38,7 +38,7 @@ async function fixture(approvals?: DeferredApprovalStore) {
   const feed = openFeed(undefined, { id: "test", root: "/workspace" });
   const sessions = new MemorySessionStore();
   await new Sessions({ store: sessions }).createSession({ id: "session-1" });
-  const policy = createInMemoryAgentAuthorizer().authorizer;
+  const policy = createMemoryAgentAuthorizer().authorizer;
   const bridge = new HarnessInteractions({
     askable: true,
     feed: feed.publisher,
@@ -395,7 +395,7 @@ it("keeps sessions across restarts only under an authority the host built over i
   const approvals = new MemoryDeferredApprovalStore();
   const f = await fixture(approvals);
   const session = { agentId: "coder", sessionId: "session-1", source };
-  const custom = createInMemoryAgentAuthorizer().authorizer;
+  const custom = createMemoryAgentAuthorizer().authorizer;
   await f.bridge.registerSession(
     session,
     f.bridge.authority(source, { policy: custom })
@@ -669,7 +669,7 @@ it("remembers a deferred grant after reopening both session and authority stores
 
 it("cancels a deferred feed action backed by an embedding host's unrecoverable custom policy", async () => {
   const f = await fixture();
-  const custom = createInMemoryAgentAuthorizer().authorizer;
+  const custom = createMemoryAgentAuthorizer().authorizer;
   const permission = createHarnessPermission({
     agentId: "custom",
     profile: {

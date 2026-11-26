@@ -3,11 +3,11 @@ import type { Scope } from "effect";
 import { Effect, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 
-import type { ChannelEvent } from "../channels";
-import { Channels } from "../channels";
-import type { Witness } from "../executable";
-import { Executable } from "../executable";
-import { Snapshot } from "../snapshot";
+import type { ChannelEvent } from "../slices/channels";
+import { Channels } from "../slices/channels";
+import type { Witness } from "../slices/executable";
+import { Executable } from "../slices/executable";
+import { Snapshot } from "../slices/snapshot";
 import { Step } from "../step";
 import { bail } from "../types";
 

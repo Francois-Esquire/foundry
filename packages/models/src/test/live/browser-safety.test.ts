@@ -25,13 +25,15 @@ const BEFORE_IMPORT = WEBRTC_SYMBOLS.map(
   (name) => (globalThis as Record<string, unknown>)[name]
 );
 
-const LIVE_DIR = join(import.meta.dirname, "..", "..", "live");
+const SRC_DIR = join(import.meta.dirname, "..", "..");
+const LIVE_DIR = join(SRC_DIR, "live");
+const LIVE_ENTRY = join(SRC_DIR, "live.ts");
 
 function browserSources(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      return entry.name === "node" ? [] : browserSources(path);
+      return browserSources(path);
     }
     return entry.name.endsWith(".ts") ? [path] : [];
   });
@@ -39,12 +41,12 @@ function browserSources(directory: string): string[] {
 
 describe("@foundry/models/live in a browser-like environment", () => {
   it("imports with no werift module in its graph", async () => {
-    const entry = await import("../../live/index");
+    const entry = await import("../../live");
     expect(typeof entry.open).toBe("function");
   });
 
   it("installs no WebRTC global", async () => {
-    await import("../../live/index");
+    await import("../../live");
     expect(
       WEBRTC_SYMBOLS.map(
         (name) => (globalThis as Record<string, unknown>)[name]
@@ -52,8 +54,8 @@ describe("@foundry/models/live in a browser-like environment", () => {
     ).toEqual(BEFORE_IMPORT);
   });
 
-  it("names no Node module or WebRTC library outside src/live/node", () => {
-    const offenders = browserSources(LIVE_DIR).filter((path) =>
+  it("names no Node module or WebRTC library in the browser live graph", () => {
+    const offenders = [LIVE_ENTRY, ...browserSources(LIVE_DIR)].filter((path) =>
       FROM_NODE_WERIFT_PATTERN.test(readFileSync(path, "utf8"))
     );
     expect(offenders).toEqual([]);

@@ -10,7 +10,7 @@ const STATE_DIR: &str = "marbles";
 const ARTIFACTS_DIR: &str = "artifacts";
 const DATABASE_FILE: &str = "marbles.db";
 const SOCKET_FILE: &str = "marbles.sock";
-const SPAWNED_DIR: &str = "spawned";
+const PROCESSES_DIR: &str = "processes";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layout {
@@ -24,7 +24,7 @@ pub struct Layout {
 
 #[derive(Debug, Error)]
 pub enum LayoutError {
-    #[error("none of FOUNDRY_HOME, HOME or USERPROFILE is set")]
+    #[error("none of FOUNDRY_ROOT, HOME or USERPROFILE is set")]
     MissingHome,
     #[error("could not read the working directory to resolve a relative Foundry home: {0}")]
     NoWorkingDirectory(#[source] io::Error),
@@ -33,7 +33,7 @@ pub enum LayoutError {
 impl Layout {
     pub fn resolve() -> Result<Self, LayoutError> {
         Self::resolve_home(foundry_home(
-            env::var_os("FOUNDRY_HOME"),
+            env::var_os("FOUNDRY_ROOT"),
             env::var_os("HOME"),
             env::var_os("USERPROFILE"),
         )?)
@@ -59,7 +59,7 @@ impl Layout {
             artifacts: home.join(ARTIFACTS_DIR),
             database: state.join(DATABASE_FILE),
             socket: state.join(SOCKET_FILE),
-            spawned: state.join(SPAWNED_DIR),
+            spawned: home.join(PROCESSES_DIR),
             home,
             state,
         }
@@ -127,10 +127,7 @@ mod tests {
             layout.socket,
             PathBuf::from("/tmp/foundry-test/marbles/marbles.sock")
         );
-        assert_eq!(
-            layout.spawned,
-            PathBuf::from("/tmp/foundry-test/marbles/spawned")
-        );
+        assert_eq!(layout.spawned, PathBuf::from("/tmp/foundry-test/processes"));
     }
 
     #[test]

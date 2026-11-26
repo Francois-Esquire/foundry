@@ -7,7 +7,7 @@ mod generation {
 
     use marbles_daemon::Layout;
     use marbles_daemon::channel::{self, ChannelEvent};
-    use marbles_daemon::generation::{SPAWN_RECOVERY_ENV, SubprocessLauncher, TimingConfig};
+    use marbles_daemon::generation::{SubprocessLauncher, TimingConfig};
     use marbles_daemon::identity::{pid_exists, this_process};
     use marbles_daemon::lifecycle::{self, DaemonHandle, DaemonOptions, OutputSink};
     use marbles_daemon::protocol::{
@@ -88,9 +88,8 @@ mod generation {
         let cwd = env::current_dir().map(|dir| dir.display().to_string());
         println!();
         eprintln!(
-            "home {} · spawned {} · cwd {}",
-            env::var("FOUNDRY_HOME").unwrap_or_default(),
-            env::var(SPAWN_RECOVERY_ENV).unwrap_or_default(),
+            "home {} · cwd {}",
+            env::var("FOUNDRY_ROOT").unwrap_or_default(),
             cwd.unwrap_or_default()
         );
         let stream = UnixStream::connect(&child.socket)
@@ -251,9 +250,8 @@ mod generation {
             assert_eq!(summary.root, fixture.root);
             let pid = summary.pid.expect("the generation's pid");
             let environment = format!(
-                "[generation 1] home {} · spawned {} · cwd {}",
+                "[generation 1] home {} · cwd {}",
                 fixture.layout.home.display(),
-                fixture.layout.spawned.display(),
                 fs::canonicalize(&fixture.layout.state)
                     .expect("the state root")
                     .display()

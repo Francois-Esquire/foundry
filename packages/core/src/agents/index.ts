@@ -1,4 +1,10 @@
 // biome-ignore-all lint/performance/noBarrelFile: This is the exported @foundry/core/agents public API.
+
+export type {
+  HarnessActivity,
+  HarnessActivityEvent,
+  HarnessToolEvent,
+} from "./activity";
 export type { AgentPresetIdentity, AgentSource, AgentSpec } from "./agent";
 export type {
   Capability,
@@ -10,30 +16,6 @@ export type {
   DomainCommandCapability,
   ToolSource,
 } from "./capability";
-export type {
-  AgentApprovalRequest,
-  HarnessActivity,
-  HarnessActivityEvent,
-  HarnessCapabilities,
-  HarnessPermissionCallback,
-  HarnessPermissionProfile,
-  HarnessPermissionRequest,
-  HarnessPermissionResult,
-  HarnessQuestion,
-  HarnessQuestionCallback,
-  HarnessQuestionRequest,
-  HarnessQuestionResult,
-  HarnessResponseFormat,
-  HarnessStreamPart,
-  HarnessToolEvent,
-  HarnessTurnDriver,
-  SessionInput,
-  SessionPart,
-  StreamPart,
-  ToolEffectLocation,
-  ToolProvenance,
-} from "./harness";
-export { validateHarnessProfile } from "./harness";
 export type {
   McpClientStatus,
   McpPrompt,
@@ -56,7 +38,20 @@ export type {
   TurnObservation,
 } from "./model";
 export { routeOf } from "./model";
-export type { HarnessQuestionToolSettings } from "./question";
+export type {
+  HarnessPermissionCallback,
+  HarnessPermissionProfile,
+  HarnessPermissionRequest,
+  HarnessPermissionResult,
+} from "./permission";
+export { validateHarnessProfile } from "./permission";
+export type {
+  HarnessQuestion,
+  HarnessQuestionCallback,
+  HarnessQuestionRequest,
+  HarnessQuestionResult,
+  HarnessQuestionToolSettings,
+} from "./question";
 export {
   isHarnessQuestionTool,
   markHarnessQuestionExecutor,
@@ -74,4 +69,18 @@ export {
   referenceSource,
   withReference,
 } from "./reference";
+export type {
+  AgentApprovalRequest,
+  SessionInput,
+  SessionPart,
+  ToolEffectLocation,
+  ToolProvenance,
+} from "./session-part";
 export type { Skill, SkillFile } from "./skill";
+export type {
+  HarnessCapabilities,
+  HarnessResponseFormat,
+  HarnessStreamPart,
+  HarnessTurnDriver,
+  StreamPart,
+} from "./turn-driver";

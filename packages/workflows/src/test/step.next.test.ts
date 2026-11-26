@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isSuspendSignal } from "../executable";
+import { isSuspendSignal } from "../slices/executable";
 import { Step, StepBailError } from "../step";
 import { bail } from "../types";
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
-import { gatewayProvider } from "@foundry/models/gateway";
+import { gatewayProvider } from "@foundry/models/providers/gateway";
 import { createContainers } from "@foundry/sandbox/node";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";

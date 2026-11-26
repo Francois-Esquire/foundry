@@ -1,4 +1,4 @@
-import type { SessionMessage } from "../session/types";
+import type { SessionMessage } from "../schema";
 
 export interface WindowModel {
   contextWindow?: number;
@@ -46,8 +46,4 @@ export interface SessionWindowOptions {
   safetyMarginRatio?: number;
 }
 
-export type {
-  SessionMessage,
-  SessionPart,
-  SessionUsage,
-} from "../session/types";
+export type { SessionMessage, SessionPart, SessionUsage } from "../schema";

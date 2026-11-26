@@ -1,7 +1,6 @@
 import type { LanguageModelUsage, UIMessageChunk } from "ai";
-
+import type { SessionUsage } from "../schema";
 import type { SessionStream } from "../session/events";
-import type { SessionUsage } from "../session/types";
 
 export interface ProjectOptions {
   model?: string;

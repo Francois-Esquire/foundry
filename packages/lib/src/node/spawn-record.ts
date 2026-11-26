@@ -16,7 +16,19 @@ import {
   rmSync,
   writeSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { homedir } from "node:os";
+import {
+  basename,
+  dirname,
+  join,
+  resolve as resolvePath,
+  sep,
+} from "node:path";
+import {
+  FOUNDRY_ROOT_DIR,
+  FOUNDRY_ROOT_ENV,
+  resolveFoundryPaths,
+} from "@foundry/core/paths";
 import {
   compareStarts,
   groupIdTaken,
@@ -38,9 +50,37 @@ export interface SpawnRecord {
   readonly started: string;
 }
 
-export const SPAWN_RECORD_ENV = "MARBLES_SPAWN_RECORD";
-export const SPAWN_RECOVERY_ENV = "MARBLES_SPAWN_RECOVERY";
-export const SPAWN_OWNER_ENV = "MARBLES_SPAWN_OWNER";
+export const SPAWN_RECORD_ENV = "FOUNDRY_TEST_SPAWN_RECORD";
+export const SPAWN_OWNER_ENV = "FOUNDRY_TEST_SPAWN_OWNER";
+
+export interface SpawnRecordOptions {
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly lookup?: ProcessLookup;
+  readonly recovery?: boolean;
+}
+
+let recoveryEnabled = true;
+
+export function setSpawnRecovery(enabled: boolean): void {
+  recoveryEnabled = enabled;
+}
+
+function recoveryOf({
+  env = process.env,
+  recovery = true,
+}: Pick<SpawnRecordOptions, "env" | "recovery">): string | undefined {
+  if (!(recovery && recoveryEnabled)) {
+    return;
+  }
+  let root = named(env[FOUNDRY_ROOT_ENV]);
+  if (root === undefined) {
+    if (named(env.VITEST) !== undefined) {
+      return;
+    }
+    root = join(homedir(), FOUNDRY_ROOT_DIR);
+  }
+  return resolveFoundryPaths(resolvePath(root), sep).processes;
+}
 
 const CREATE =
   // biome-ignore lint/suspicious/noBitwiseOperators: open(2) takes its flags as one bit set.
@@ -55,7 +95,7 @@ export function spawnRecordEnvironment(
   env: Readonly<Record<string, string | undefined>> = process.env
 ): Record<string, string> {
   const carried: Record<string, string> = {};
-  for (const name of [SPAWN_RECORD_ENV, SPAWN_RECOVERY_ENV, SPAWN_OWNER_ENV]) {
+  for (const name of [SPAWN_RECORD_ENV, SPAWN_OWNER_ENV, FOUNDRY_ROOT_ENV]) {
     const value = env[name];
     if (value !== undefined && value !== "") {
       carried[name] = value;
@@ -91,20 +131,19 @@ export function notPrivate(
 export function recordSpawned(
   pid: number | undefined,
   group: boolean,
-  env: Readonly<Record<string, string | undefined>> = process.env,
-  lookup?: ProcessLookup
+  options: SpawnRecordOptions = {}
 ): void {
-  recordInto(pid, group, env, lookup);
+  recordInto(pid, group, options);
 }
 
 function recordInto(
   pid: number | undefined,
   group: boolean,
-  env: Readonly<Record<string, string | undefined>>,
-  lookup: ProcessLookup = RECORD_LOOKUP
+  options: SpawnRecordOptions
 ): string | undefined {
+  const { env = process.env, lookup = RECORD_LOOKUP } = options;
   const all = named(env[SPAWN_RECORD_ENV]);
-  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const recovery = recoveryOf(options);
   if ((all === undefined && recovery === undefined) || pid === undefined) {
     return;
   }
@@ -123,10 +162,10 @@ function recordInto(
 export function recordChild(
   child: Pick<ChildProcess, "once" | "pid">,
   group = false,
-  env: Readonly<Record<string, string | undefined>> = process.env
+  options: SpawnRecordOptions = {}
 ): void {
-  const started = recordInto(child.pid, group, env);
-  const recovery = named(env[SPAWN_RECOVERY_ENV]);
+  const started = recordInto(child.pid, group, options);
+  const recovery = recoveryOf(options);
   const { pid } = child;
   if (recovery !== undefined && pid !== undefined && started !== undefined) {
     child.once("exit", () => {
@@ -142,7 +181,7 @@ export function recordChild(
   }
 }
 
-export interface GroupSystem {
+export interface ProcessGroupOps {
   kill(target: number, signal: NodeJS.Signals | 0): void;
   members(pgid: number): ReadonlyMap<number, SeenProcess> | undefined;
   report?(line: string): void;
@@ -159,8 +198,9 @@ export interface RecordGroupOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly graceMs?: number;
   readonly killMs?: number;
+  readonly recovery?: boolean;
   readonly signal?: AbortSignal;
-  readonly system?: GroupSystem;
+  readonly system?: ProcessGroupOps;
 }
 
 const GROUP_GRACE_MS = 2000;
@@ -172,7 +212,7 @@ const RECORD_LOOKUP: ProcessLookup = {
   look: (pids) => lookProcesses(pids),
 };
 
-const GROUP_SYSTEM: GroupSystem = {
+const PROCESS_GROUP_OPS: ProcessGroupOps = {
   kill: (target, signal) => process.kill(target, signal),
   members: groupMembers,
   sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
@@ -182,14 +222,13 @@ export function recordGroup(
   child: Pick<ChildProcess, "exitCode" | "once" | "pid" | "signalCode">,
   options: RecordGroupOptions = {}
 ): () => Promise<GroupStopResult> {
-  const env = options.env ?? process.env;
   const { pid } = child;
-  const started = recordInto(pid, true, env);
+  const started = recordInto(pid, true, options);
   if (pid === undefined) {
     return () => Promise.resolve({ emptied: true, saved: true });
   }
-  const recovery = named(env[SPAWN_RECOVERY_ENV]);
-  const system = options.system ?? GROUP_SYSTEM;
+  const recovery = recoveryOf(options);
+  const system = options.system ?? PROCESS_GROUP_OPS;
   const record = recovery === undefined ? undefined : recordPath(recovery, pid);
   let reaped = false;
   const held = (): boolean =>
@@ -257,7 +296,7 @@ interface GroupStop {
 
 async function stopGroup(
   pgid: number,
-  system: GroupSystem,
+  system: ProcessGroupOps,
   stop: GroupStop
 ): Promise<boolean> {
   if (!groupSignal(system, pgid, 0)) {
@@ -296,7 +335,7 @@ async function stopGroup(
 function reproved(
   known: ReadonlyMap<number, SeenProcess> | undefined,
   pgid: number,
-  system: GroupSystem,
+  system: ProcessGroupOps,
   stop: GroupStop
 ): boolean | ReadonlyMap<number, SeenProcess> | undefined {
   const listedNow = system.members(pgid);
@@ -316,7 +355,7 @@ function reproved(
 }
 
 async function emptiedWithin(
-  system: GroupSystem,
+  system: ProcessGroupOps,
   pgid: number,
   ms: number
 ): Promise<boolean> {
@@ -337,7 +376,7 @@ function listing(
   listed: ReadonlyMap<number, SeenProcess> | undefined,
   known: ReadonlyMap<number, SeenProcess> | undefined,
   pgid: number,
-  system: GroupSystem,
+  system: ProcessGroupOps,
   stop: GroupStop
 ): boolean | undefined {
   if (reused(known, pgid, stop)) {
@@ -357,7 +396,7 @@ function listing(
   }
 }
 
-function reportUntold(system: GroupSystem, pgid: number): void {
+function reportUntold(system: ProcessGroupOps, pgid: number): void {
   (system.report ?? reportLine)(
     `group ${String(pgid)} is not listed but a signal still reaches it; not signalled, its recovery record kept for the next start`
   );
@@ -396,7 +435,7 @@ function saveMembers(
   pgid: number,
   path: string,
   members: ReadonlyMap<number, SeenProcess>,
-  system: GroupSystem
+  system: ProcessGroupOps
 ): boolean {
   let failure: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -436,7 +475,7 @@ function reportLine(line: string): void {
 }
 
 function groupSignal(
-  system: GroupSystem,
+  system: ProcessGroupOps,
   pgid: number,
   signal: NodeJS.Signals | 0
 ): boolean {
@@ -587,7 +626,7 @@ export function execFileRecorded(
         ...options,
         encoding: "utf8",
         ...(options.env
-          ? { env: { ...options.env, ...spawnRecordEnvironment() } }
+          ? { env: { ...spawnRecordEnvironment(), ...options.env } }
           : {}),
       },
       (error, stdout, stderr) => {

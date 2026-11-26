@@ -8,10 +8,10 @@ import {
   InvalidWorkspaceInputError,
   WorkspaceSourceUnavailableError,
 } from "../errors";
+import type { WorkspaceFileSystem } from "../file-system";
 import { nodeFileSystem } from "../node";
 import { canonicalizeRoot, scanDirectory, verifyRoot } from "../scanner";
 import { walkEntries } from "../traverse";
-import type { WorkspaceFileSystem } from "../types";
 import { sha256Hex } from "./helpers/digest";
 
 const roots: string[] = [];

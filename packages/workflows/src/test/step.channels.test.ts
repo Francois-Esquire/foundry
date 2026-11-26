@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChunkPayload } from "../channels";
+import type { ChunkPayload } from "../slices/channels";
 
 import { Step } from "../step";
 import { collectChunks, collectEvents, takePayloads } from "./helpers/streams";

@@ -1,6 +1,10 @@
-import type { ModuleProjectIdentity } from "./compose";
-
 import { formatJson } from "./json";
+
+export interface ModuleProjectIdentity {
+  readonly displayName: string;
+  readonly id: string;
+  readonly packageName: string;
+}
 
 export const PACKAGE_MANAGER = "bun@1.1.42";
 

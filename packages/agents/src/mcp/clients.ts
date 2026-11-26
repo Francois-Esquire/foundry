@@ -2,13 +2,9 @@ import type { ToolSet } from "ai";
 import { composeTools } from "../tools/compose";
 import type { McpClientEvents } from "./client";
 import { McpClient } from "./client";
+import type { McpClientOptions, McpElicitationHandler } from "./client-options";
 import { McpEmitter } from "./emitter";
-import type {
-  McpClientOptions,
-  McpElicitationHandler,
-  McpServerDefinition,
-  McpServerState,
-} from "./types";
+import type { McpServerDefinition, McpServerState } from "./server-definition";
 
 export class McpClients extends McpEmitter<McpClientEvents> {
   readonly #options: McpClientOptions;

@@ -1,8 +1,11 @@
+import type {
+  HarnessActivity,
+  HarnessActivityEvent,
+} from "@foundry/core/agents";
+import type { SessionMessage } from "../schema";
 import { Sessions } from "../session/sessions";
-import type { SessionMessage } from "../session/types";
 import type { SessionStore } from "../store";
 import { redactHarnessSummary } from "./permission";
-import type { HarnessActivity, HarnessActivityEvent } from "./turn-driver";
 
 export function reduceHarnessActivities(
   messages: readonly SessionMessage[]

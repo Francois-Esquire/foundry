@@ -188,12 +188,14 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
           ),
         listOccurrences: (filter = {}) =>
           read((current) =>
-            [...current.occurrences.values()].filter(
-              (o) =>
-                (filter.scheduleId === undefined ||
-                  o.scheduleId === filter.scheduleId) &&
-                (filter.state === undefined || o.state.kind === filter.state)
-            )
+            [...current.occurrences.values()]
+              .filter(
+                (o) =>
+                  (filter.scheduleId === undefined ||
+                    o.scheduleId === filter.scheduleId) &&
+                  (filter.state === undefined || o.state.kind === filter.state)
+              )
+              .sort((one, other) => one.scheduledFor - other.scheduledFor)
           ),
         listSchedules: read((current) => [...current.schedules.values()]),
         releaseClaim: (id, owner) =>

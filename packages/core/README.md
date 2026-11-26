@@ -6,7 +6,7 @@ runtime dependencies. Private to the workspace.
 
 | Entry | What it holds |
 | --- | --- |
-| `@foundry/core/agents` | What an agent is made of: `AgentSpec`, `Skill`, the MCP server shapes (`McpServerDefinition`, its transports and status), and the reference protocol (`Reference`, `REFERENCE`, `referenceSource`, `withReference`). |
+| `@foundry/core/agents` | What an agent is made of and how a harness drives it: `AgentSpec`, `Skill`, the MCP server shapes (`McpServerDefinition`, its transports and status), the harness turn-driver, permission, question and stream-part contracts (`HarnessTurnDriver`, `HarnessPermissionProfile`, `HarnessQuestion`, `StreamPart`), the model contracts (`AgentModel`, `ModelRoute`), and the reference protocol (`Reference`, `REFERENCE`, `referenceSource`, `withReference`). |
 | `@foundry/core/pagination` | `Page` and `PageInput`, the cursor page that list operations return and take. |
 | `@foundry/core/storage` | The `Storage` contract (reader, writer, atomic writes, observers), its file and directory nodes, storage trees with their path rules, and the conflict errors. |
 | `@foundry/core/testing/storage` | `storageChecks`: conformance checks a `Storage` implementation runs in its own test runner against a `StorageFixture`. |

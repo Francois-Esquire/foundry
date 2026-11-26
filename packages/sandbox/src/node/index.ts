@@ -3,5 +3,5 @@ export { createContainers } from "../container/containers";
 export {
   type NodeSandboxPipedProcess,
   prepareSandboxProcess,
-} from "../process";
-export { ProcessController, processError } from "../process-controller";
+} from "./prepare-process";
+export { ProcessController, processError } from "./process-controller";

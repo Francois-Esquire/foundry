@@ -1,4 +1,4 @@
-import { type BillingAccountOptions, billingLimits } from "./billing";
+import { type BillingAccountOptions, billingLimits } from "./billing-account";
 import type { Consumption } from "./consumption";
 import {
   compact,

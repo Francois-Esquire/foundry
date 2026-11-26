@@ -40,6 +40,11 @@
       "types": "./dist/store/tables.d.ts",
       "import": "./src/store/tables.ts",
       "default": "./src/store/tables.ts"
+    },
+    "./testing/store": {
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts",
+      "default": "./src/testing/store.ts"
     }
   },
   "files": [
@@ -48,7 +53,7 @@
     "!**/*.test.*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

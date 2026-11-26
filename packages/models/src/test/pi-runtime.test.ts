@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { generateText, streamText, tool } from "ai";
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { createPiDriver } from "../harness/pi";
-import { piProvider } from "../pi";
-import { collect, runOptions } from "./helpers/cli";
+import { piProvider } from "../providers/pi";
+import { createPiDriver } from "../providers/pi/driver";
+import { collect, runOptions } from "./helpers/fake-app-server";
 
 it("runs Pi's real tool loop, persists native history, and serves the model API", async () => {
   const binPath = process.env.PI_BIN;

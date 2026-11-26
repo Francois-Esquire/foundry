@@ -1,7 +1,6 @@
 import { createServer } from "node:net";
-
 import { SandboxError } from "../errors";
-import type { ContainerPortMapping } from "./types";
+import type { ContainerPortMapping } from "./runtime";
 
 const MAX_TCP_PORT = 65_535;
 

@@ -29,6 +29,7 @@ import {
 } from "~/process/daemon-binary";
 import { ProcessHeldError, readProcess } from "~/process/instance";
 import { RemoteError } from "~/process/protocol";
+import { SPAWN_RECORD_ENV } from "~/process/spawned";
 import { testHome } from "./helpers/home";
 import { readWorkspace } from "./helpers/registry";
 
@@ -490,8 +491,8 @@ export const hold = step("hold").do(async () => {
   it("auto-starts the detached Rust daemon via connect() and stops cleanly via stopProcess()", async () => {
     const setup = fixture();
     writeFileSync(setup.source, greeter("greet"));
-    vi.stubEnv("FOUNDRY_HOME", setup.home);
-    vi.stubEnv("MARBLES_SPAWN_RECORD", setup.env.MARBLES_SPAWN_RECORD);
+    vi.stubEnv("FOUNDRY_ROOT", setup.home);
+    vi.stubEnv(SPAWN_RECORD_ENV, setup.env[SPAWN_RECORD_ENV]);
     try {
       const client = await connect({
         layout: setup.machine,

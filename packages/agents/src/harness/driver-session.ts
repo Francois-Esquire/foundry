@@ -1,5 +1,10 @@
+import type {
+  HarnessActivity,
+  HarnessToolEvent,
+  HarnessTurnDriver,
+} from "@foundry/core/agents";
+import { validateHarnessProfile } from "@foundry/core/agents";
 import type { Output } from "ai";
-
 import type { SessionInput, SessionStream } from "../session/events";
 import { Sessions } from "../session/sessions";
 import {
@@ -9,19 +14,12 @@ import {
 } from "./activity";
 import type { EventQueue } from "./event-queue";
 import { createEventQueue } from "./event-queue";
+import type { DriverSessionSettings, HarnessSession } from "./harness-session";
 import { createHarnessPermission, redactHarnessSummary } from "./permission";
 import { createHarnessQuestionCallback } from "./question";
 import type { TurnOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
 import { transformStream } from "./stream-transform";
-import type {
-  DriverSessionSettings,
-  HarnessActivity,
-  HarnessSession,
-  HarnessToolEvent,
-  HarnessTurnDriver,
-} from "./turn-driver";
-import { validateHarnessProfile } from "./turn-driver";
 import type { GatedTurn } from "./turn-gate";
 import { createTurnGate } from "./turn-gate";
 

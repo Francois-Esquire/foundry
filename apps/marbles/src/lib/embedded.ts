@@ -4,14 +4,17 @@ export { Sessions } from "@foundry/agents/session";
 export type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 export { MemorySessionStore } from "@foundry/agents/store/memory";
 export type { ArtifactSubstrate } from "@foundry/artifacts";
-export { Artifacts as ArtifactManager } from "@foundry/artifacts";
+export { Artifacts } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 export { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-export type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
+export type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
 export type { Provider } from "@foundry/models";
 export { Models } from "@foundry/models";
-export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
-export { vercelProvider } from "@foundry/models/vercel";
+export {
+  gatewayModels,
+  gatewayProvider,
+} from "@foundry/models/providers/gateway";
+export { vercelProvider } from "@foundry/models/providers/vercel";
 export type { Containers } from "@foundry/sandbox";
 export type { AutomationRecord } from "./automation/service";
 export type {

@@ -12,7 +12,7 @@ session transcripts use [Agents](https://github.com/Francois-Esquire/foundry/blo
 and reports and versioned outputs use [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md).
 Marbles chooses their local stores and connects their identities.
 
-The default state root is `~/.foundry/marbles`; `FOUNDRY_HOME` moves the
+The default state root is `~/.foundry/marbles`; `FOUNDRY_ROOT` moves the
 whole home, and nothing moves on its own. The root holds the files of
 the Marbles process, the one daemon for this machine, and one directory per
 workspace: the project root above `.foundry/marbles`, named by the first
@@ -47,11 +47,13 @@ workspace this machine has run, and says which of them the process hosts.
                           `marbles daemon` prints to its own terminal instead
   settings.json           global dashboard preferences (the theme), shared by
                           every workspace; the one file meant to be edited by hand
-  spawned/<pid>.json      what its workspaces started and is still running, with
-                          the process that started it, so a start after a crash
-                          stops what an engine that is gone left behind
   <workspace-id>/         one directory per workspace, below
 ```
+
+Recovery records sit beside the state root, in
+`~/.foundry/processes/<pid>.json`: what Foundry processes started and is
+still running, with the process that started it, so a start after a crash
+stops what an engine that is gone left behind.
 
 ```text
 ~/.foundry/marbles/<workspace-id>/

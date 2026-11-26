@@ -110,13 +110,16 @@ const gone = (pid: number) =>
 
 const FAST = { graceMs: 300, killMs: 2000 };
 
-it("records a process Marbles starts only where MARBLES_SPAWN_RECORD points", async () => {
+it("records a process Marbles starts only where FOUNDRY_TEST_SPAWN_RECORD points", async () => {
   const records = temporaryDirectory("rec-");
   const pid = await sleeper({});
   try {
-    recordSpawned(pid, true, {});
+    recordSpawned(pid, true, { env: {}, recovery: false });
     expect(readdirSync(records)).toEqual([]);
-    recordSpawned(pid, true, { [SPAWN_RECORD_ENV]: records });
+    recordSpawned(pid, true, {
+      env: { [SPAWN_RECORD_ENV]: records },
+      recovery: false,
+    });
     expect(
       JSON.parse(readFileSync(join(records, `${String(pid)}.json`), "utf8"))
     ).toEqual({ group: true, pid, started: startedAt(pid) });
@@ -706,7 +709,7 @@ it("starts the Marbles process all the same when it cannot be recorded", async (
   );
   const env = {
     ...process.env,
-    FOUNDRY_HOME: home,
+    FOUNDRY_ROOT: home,
     [SPAWN_RECORD_ENV]: shared,
   };
   const attached = spawnSync(
@@ -1020,7 +1023,7 @@ function guard(env: NodeJS.ProcessEnv) {
 it("refuses a test process that would use the developer's home", () => {
   const {
     [RUN_ENV]: _run,
-    FOUNDRY_HOME: _home,
+    FOUNDRY_ROOT: _home,
     HOME: _user,
     ...env
   } = process.env;
@@ -1037,7 +1040,7 @@ it("judges the guard's paths with their links resolved", () => {
   symlinkSync(outside, join(root, "link"));
   const escaped = guard({
     ...process.env,
-    FOUNDRY_HOME: join(root, "link", "home"),
+    FOUNDRY_ROOT: join(root, "link", "home"),
     HOME: user,
     [RUN_ENV]: root,
   });
@@ -1047,15 +1050,15 @@ it("judges the guard's paths with their links resolved", () => {
   symlinkSync(root, other);
   const spelled = guard({
     ...process.env,
-    FOUNDRY_HOME: join(root, "home"),
+    FOUNDRY_ROOT: join(root, "home"),
     HOME: user,
     [RUN_ENV]: other,
   });
   expect(spelled.status, spelled.stderr).toBe(0);
 }, 30_000);
 
-it("makes a process that lost FOUNDRY_HOME but kept HOME fail instead of using the default home", () => {
-  const { FOUNDRY_HOME: _home, ...env } = process.env;
+it("makes a process that lost FOUNDRY_ROOT but kept HOME fail instead of using the default home", () => {
+  const { FOUNDRY_ROOT: _home, ...env } = process.env;
   const status = spawnSync("bun", cliArgs("tasks", "create", "Stray"), {
     encoding: "utf8",
     env,

@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
-import type { ChannelEvent } from "../channels";
-import { Channels } from "../channels";
-import type { SnapshotState } from "../snapshot";
-import { Snapshot } from "../snapshot";
+import type { ChannelEvent } from "../slices/channels";
+import { Channels } from "../slices/channels";
+import type { SnapshotState } from "../slices/snapshot";
+import { Snapshot } from "../slices/snapshot";
 
 const at = (msOffset = 0): string =>
   new Date(1_700_000_000_000 + msOffset).toISOString();

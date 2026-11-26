@@ -61,7 +61,10 @@ const COMMAND_LINE = /^\s*(\d+) (.*)$/;
 const PID = /^\d+$/;
 
 export function recordProcess(dir: string, pid: number, group: boolean): void {
-  recordSpawned(pid, group, { [SPAWN_RECORD_ENV]: dir });
+  recordSpawned(pid, group, {
+    env: { [SPAWN_RECORD_ENV]: dir },
+    recovery: false,
+  });
 }
 
 export async function stopRecorded(

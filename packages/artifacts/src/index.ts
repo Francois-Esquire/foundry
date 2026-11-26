@@ -1,28 +1,12 @@
 // biome-ignore lint/performance/noBarrelFile: Preserve the public package entry point shared with Agents.
 export { Artifacts, type ArtifactsOptions } from "./artifacts";
-export type {
-  Blob,
-  BlobFiles,
-  BlobSource,
-  BlobStagingArea,
-  ContentTree,
-  StoredFile,
-} from "./blob";
-export { validateBlob } from "./blob";
 export {
-  ARTIFACT_SOURCE,
-  ARTIFACT_STATUSES,
+  type BlobFiles,
+  type BlobStagingArea,
   CHUNK_BYTES,
-  CONTENT_STATES,
   MAX_FILE_BYTES,
   MAX_TREE_BYTES,
-} from "./constants";
-export type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./content";
+} from "./blob-staging";
 export {
   digestTree,
   filePointers,
@@ -45,14 +29,27 @@ export {
   StaleContentError,
   TransactionRolledBackError,
 } from "./errors";
+export type { ArtifactId, BlobId, ContentId } from "./ids";
+export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ids";
 export type { ArtifactCursor } from "./listing";
 export { artifactCursor, normalizeArtifactQuery } from "./listing";
-export type { ArtifactId, BlobId, ContentId } from "./ref";
-export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
 export type {
   ArtifactEvent,
   ArtifactEventType,
+  ArtifactLifecycleStatus,
+  ArtifactMetadata,
   ArtifactRecords,
+  Blob,
+  BlobSource,
+  ContentMetadata,
+  ContentState,
+  ContentTree,
+  StoredFile,
+} from "./schema";
+export {
+  ARTIFACT_STATUSES,
+  CONTENT_STATES,
+  validateBlob,
 } from "./schema";
 export type {
   Artifact,

@@ -1,22 +1,24 @@
 // biome-ignore lint/performance/noBarrelFile: Public platform role entry point for @foundry/modules/platform.
 export {
-  type ModuleActivationInput,
   ModuleActivationRefusedError,
   validateModuleActivation,
 } from "./activation";
-export { withConfirmedModuleContainerCleanup } from "./container-cleanup";
+export {
+  ModuleRuntimeCleanupError,
+  rethrowAfterCleanup,
+  withConfirmedModuleContainerCleanup,
+} from "./container-cleanup";
 export {
   type CreateContainerModuleProgramRuntimeOptions,
   createContainerModuleProgramRuntime,
 } from "./container-runtime";
-export {
-  type ModuleProgramLaunch,
-  type ModuleProgramResources,
-  type ModuleProgramRuntimeAdapter,
-  type ModuleProgramRuntimeHandle,
-  type ModuleProgramSupervisor,
-  ModuleRuntimeCleanupError,
-  rethrowAfterCleanup,
+export type {
+  ModuleActivationInput,
+  ModuleProgramLaunch,
+  ModuleProgramResources,
+  ModuleProgramRuntimeAdapter,
+  ModuleProgramRuntimeHandle,
+  ModuleProgramSupervisor,
 } from "./contracts";
 export type {
   ModuleCheckouts,
@@ -57,4 +59,3 @@ export {
   type ModuleRecoveryResult,
   type ModuleRuntimeRecovery,
 } from "./runtime-recovery";
-export { KeyedTurns } from "./turns";

@@ -3,8 +3,8 @@ import type { UIMessageChunk } from "ai";
 import { z } from "zod";
 
 import type { SessionHarness } from "../harness/session-harness";
+import type { SessionMessage, SessionUsage } from "../schema";
 import type { SessionInput } from "../session/events";
-import type { SessionMessage, SessionUsage } from "../session/types";
 
 import { projectToUIMessageChunks } from "./ui-stream";
 

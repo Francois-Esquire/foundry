@@ -1,10 +1,10 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseModuleImports, sourceFiles } from "@foundry/lib/testing/seam";
 import { describe, expect, it } from "vitest";
 
-const TYPESCRIPT_SOURCE_FILE_PATTERN = /\.tsx?$/;
 const SANDBOX_PACKAGE_IMPORT_PATTERN = /^@foundry\/sandbox(?:\/|$)/;
 const WORKFLOWS_PACKAGE_IMPORT_PATTERN = /^@foundry\/workflows(?:\/|$)/;
 const AGENTS_PACKAGE_IMPORT_PATTERN = /^@foundry\/agents(?:\/|$)/;
@@ -16,51 +16,22 @@ const REPO_ROOT = resolve(AGENTS_SRC, "../../..");
 const WORKFLOWS_SRC = resolve(REPO_ROOT, "packages/workflows/src");
 const APPS_ROOT = resolve(REPO_ROOT, "apps");
 
-const SKIP_DIRS = new Set(["node_modules", "dist", "out", ".turbo", ".cache"]);
+const SKIP_DIRS = ["node_modules", "dist", "out", ".turbo", ".cache"];
 
 function sourceFilesUnder(
   root: string,
   opts: { includeTests: boolean } = { includeTests: true }
 ): string[] {
-  const files: string[] = [];
-  const pending = [root];
-  while (pending.length > 0) {
-    const dir = pending.pop();
-    if (dir === undefined) {
-      continue;
-    }
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (SKIP_DIRS.has(entry.name)) {
-          continue;
-        }
-        if (!opts.includeTests && entry.name === "test") {
-          continue;
-        }
-        pending.push(join(dir, entry.name));
-        continue;
-      }
-      if (TYPESCRIPT_SOURCE_FILE_PATTERN.test(entry.name)) {
-        files.push(join(dir, entry.name));
-      }
-    }
-  }
-  return files;
+  return sourceFiles(root, {
+    extensions: [".ts", ".tsx"],
+    skipDirs: opts.includeTests ? SKIP_DIRS : [...SKIP_DIRS, "test"],
+  });
 }
 
-const IMPORT_SPECIFIER =
-  /(?:\bfrom\s+|\bimport\s*\(|\bvi\.mock\s*\(|\brequire\s*\()\s*["'](?<spec>[^"']+)["']/g;
-
 function importsMatching(file: string, pattern: RegExp): string[] {
-  const source = readFileSync(file, "utf8");
-  const specs: string[] = [];
-  for (const match of source.matchAll(IMPORT_SPECIFIER)) {
-    const spec = match.groups?.spec;
-    if (spec && pattern.test(spec)) {
-      specs.push(spec);
-    }
-  }
-  return specs;
+  return parseModuleImports(file)
+    .map(({ specifier }) => specifier)
+    .filter((specifier) => pattern.test(specifier));
 }
 
 describe("architecture boundary — package independence", () => {

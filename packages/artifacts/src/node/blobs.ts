@@ -3,7 +3,7 @@ import { mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 
-import type { BlobFiles } from "../blob";
+import type { BlobFiles } from "../blob-staging";
 import { stagingArea } from "./staging";
 
 const BLOB_FILENAME = /^[a-f0-9-]+(?:\.(?:[a-f0-9-]+\.)?tmp)?$/;

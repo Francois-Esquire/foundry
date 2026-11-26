@@ -3,8 +3,8 @@ import { constants } from "node:os";
 import { Writable } from "node:stream";
 import type { ExecHandle, ExecSink } from "microsandbox";
 import { SandboxError } from "../errors";
-import { ProcessController, processError } from "../process-controller";
-import type { SandboxPipedProcess } from "../types";
+import { ProcessController, processError } from "../node/process-controller";
+import type { SandboxPipedProcess } from "../sandbox";
 
 export async function pipedProcess(
   handle: ExecHandle,

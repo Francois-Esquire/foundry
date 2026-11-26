@@ -1,17 +1,21 @@
 import { globToRegExp } from "@foundry/lib/glob";
 import type { z } from "zod";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "../constants";
 import { SandboxError } from "../errors";
 import {
+  DEFAULT_SANDBOX_WORKING_DIRECTORY,
   normalizeSandboxPath,
   normalizeSandboxWorkingDirectory,
 } from "../path";
-import type { Sandbox, SandboxExecResult, SandboxSearchMatch } from "../types";
-import { DEFAULT_READ_LIMIT, MAX_EDIT_RESULT_CHARS } from "./constants";
+import type {
+  Sandbox,
+  SandboxExecResult,
+  SandboxSearchMatch,
+} from "../sandbox";
 import type { SandboxToolName } from "./definitions";
 import {
   bashDefinition,
   cdDefinition,
+  DEFAULT_READ_LIMIT,
   editDefinition,
   globDefinition,
   grepDefinition,
@@ -22,6 +26,8 @@ import {
 } from "./definitions";
 import type { SandboxToolGuards } from "./guards";
 import { guardExecute, guardState } from "./guards";
+
+export const MAX_EDIT_RESULT_CHARS = 16 * 1024 * 1024;
 
 export interface SandboxToolCallOptions {
   readonly abortSignal?: AbortSignal;

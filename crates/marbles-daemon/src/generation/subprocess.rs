@@ -24,8 +24,7 @@ use crate::identity::{ProcessIdentity, pid_exists, read_start};
 use crate::protocol::MAX_LINE_BYTES;
 
 pub const STDERR_TAIL: usize = 20;
-pub const SPAWN_RECORD_ENV: &str = "MARBLES_SPAWN_RECORD";
-pub const SPAWN_RECOVERY_ENV: &str = "MARBLES_SPAWN_RECOVERY";
+pub const SPAWN_RECORD_ENV: &str = "FOUNDRY_TEST_SPAWN_RECORD";
 
 const LINE_CAPACITY: usize = 256;
 const READ_CHUNK_BYTES: usize = 64 * 1024;
@@ -124,8 +123,7 @@ impl SubprocessLauncher {
             .arg("--token")
             .arg(spec.token.as_str())
             .current_dir(&spec.layout.state)
-            .env("FOUNDRY_HOME", &spec.layout.home)
-            .env(SPAWN_RECOVERY_ENV, &spec.layout.spawned)
+            .env("FOUNDRY_ROOT", &spec.layout.home)
             .stdin(Stdio::null())
             .stdout(stdout)
             .stderr(stderr);

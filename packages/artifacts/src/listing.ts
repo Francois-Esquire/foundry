@@ -1,6 +1,6 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
 
-import type { ArtifactId } from "./ref";
+import type { ArtifactId } from "./ids";
 import type { Artifact } from "./schema";
 
 export interface ArtifactCursor {

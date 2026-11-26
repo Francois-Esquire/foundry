@@ -109,7 +109,7 @@ _Avoid_: hot-reload, auto-update, respawn
 
 **Spawn record**:
 A small private JSON file, named for a generation's pid, written into the
-directory `MARBLES_SPAWN_RECORD` names so a crashed owner's children can be
+directory `FOUNDRY_TEST_SPAWN_RECORD` names so a crashed owner's children can be
 found and stopped. It holds the pid, its proved start, and that the child leads
 its own process group.
 _Avoid_: pidfile, lockfile

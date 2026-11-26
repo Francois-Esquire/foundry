@@ -13,7 +13,7 @@ mod typescript {
     const TALK_TO_THE_RUST_DAEMON: &str = r#"
 import { layout } from "./src/layout.ts";
 import { connect, stopProcess } from "./src/process/client.ts";
-const home = layout({ home: process.env.FOUNDRY_HOME });
+const home = layout({ home: process.env.FOUNDRY_ROOT });
 const client = await connect({ layout: home, start: false });
 const workspaces = await client.workspaces();
 const { hello } = client;
@@ -104,7 +104,7 @@ console.log(JSON.stringify({ hello, stopped, workspaces }));
         let output = Command::new("bun")
             .args(["-e", TALK_TO_THE_RUST_DAEMON])
             .current_dir(marbles_app())
-            .env("FOUNDRY_HOME", home.path())
+            .env("FOUNDRY_ROOT", home.path())
             .output()
             .expect("bun should run");
         assert!(

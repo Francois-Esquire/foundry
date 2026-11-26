@@ -7,9 +7,9 @@ import { tool } from "ai";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createClaudeCodeDriver } from "../harness/claude-code";
-import { createCodexDriver } from "../harness/codex";
-import { collect, FakeAppServer, runOptions } from "./helpers/cli";
+import { createClaudeCodeDriver } from "../providers/claude-code/driver";
+import { createCodexDriver } from "../providers/codex/driver";
+import { collect, FakeAppServer, runOptions } from "./helpers/fake-app-server";
 
 describe("Claude Code native driver", () => {
   it("sets per-session permission settings, records hooks and refusals, and resumes without replaying history", async () => {

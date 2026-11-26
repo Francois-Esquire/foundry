@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Artifacts } from "../artifacts";
+import { artifactIdSchema } from "../ids";
 import { blobFiles, JsonArtifactStore } from "../node";
-import { artifactIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
 import { MemoryArtifactStore } from "../store/memory";
 import { SqliteArtifactStore } from "../store/sqlite";

@@ -1,6 +1,4 @@
-import { resolve } from "node:path";
 import { isGone, thisProcess } from "@foundry/lib/node/process-identity";
-import { assertWebStandardExports } from "@foundry/lib/testing/seam";
 import { Effect, Layer, Ref, TestClock } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -13,21 +11,7 @@ import { ScheduleStore } from "../store/index";
 import { MemoryScheduleStore } from "../store/memory";
 import { fakeDispatch, target, testScheduler } from "./helpers/scheduler";
 
-const PACKAGE_DIR = resolve(import.meta.dirname, "../..");
-
 describe("@foundry/scheduling runtime seams", () => {
-  it("loads no node:* imports, ./node adapters, or unguarded Node/Bun globals from portable subpaths", () => {
-    expect(() =>
-      assertWebStandardExports(PACKAGE_DIR, [
-        ".",
-        "./client",
-        "./queue",
-        "./store",
-        "./store/memory",
-      ])
-    ).not.toThrow();
-  });
-
   it("defaults portable Scheduler.layer to conservative liveness for foreign owners", async () => {
     const foreign = { pid: 999_999, started: "foreign" } as const;
     const submitted = await testScheduler((scheduler, dispatch) =>
