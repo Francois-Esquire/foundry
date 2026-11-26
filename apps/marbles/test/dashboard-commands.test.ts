@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { LiveWork } from "~/lib/step-work";
 import {
   type CommandContext,
   capturesKeys,
@@ -7,19 +8,18 @@ import {
   type Dashboard,
   helpSections,
   type KeyPress,
-} from "~/cli/state/dashboard-commands";
+} from "~/tui/state/dashboard-commands";
 import {
   type DashboardSnapshot,
   resolveSelection,
-} from "~/cli/state/dashboard-model";
+} from "~/tui/state/dashboard-model";
 import {
   type DashboardEvent,
   type DashboardState,
   initialState,
   reduce,
-} from "~/cli/state/dashboard-state";
-import type { RunActions } from "~/cli/state/run-actions";
-import type { LiveWork } from "~/lib/step-work";
+} from "~/tui/state/dashboard-state";
+import type { RunActions } from "~/tui/state/run-actions";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 function footer(commandContext: CommandContext) {

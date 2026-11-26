@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { RunSnapshot } from "../src/cli/state/dashboard-model";
-import { runListRows } from "../src/cli/state/dashboard-rows";
-import { expandedRun, runRows } from "../src/cli/state/dashboard-tree";
 import { RunsBlock } from "../src/components/blocks/runs";
 import { StatusLabel } from "../src/components/blocks/status-label";
 import { Text } from "../src/components/ui/text";
 import { type RunStatus, statusDisplay } from "../src/model/run-status";
+import type { RunSnapshot } from "../src/tui/state/dashboard-model";
+import { runListRows } from "../src/tui/state/dashboard-rows";
+import { expandedRun, runRows } from "../src/tui/state/dashboard-tree";
 import { fixtureRun, scenarioSnapshot } from "../stories/blocks/fixtures-b";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { mount, unmount } from "./helpers/render";

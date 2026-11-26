@@ -1,15 +1,15 @@
 import { useKeyboard } from "@opentui/react";
 import { useCallback, useMemo, useState } from "react";
 import { defineStories, story } from "textbook-sh";
+import { RunsBlock } from "~/components/blocks/runs";
+import { Text } from "~/components/ui/text";
 import {
   type DashboardSelection,
   type RunSnapshot,
   selectionKey,
-} from "~/cli/state/dashboard-model";
-import { runListRows } from "~/cli/state/dashboard-rows";
-import { expandedRun, runRows } from "~/cli/state/dashboard-tree";
-import { RunsBlock } from "~/components/blocks/runs";
-import { Text } from "~/components/ui/text";
+} from "~/tui/state/dashboard-model";
+import { runListRows } from "~/tui/state/dashboard-rows";
+import { expandedRun, runRows } from "~/tui/state/dashboard-tree";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { ignore, renderFrame } from "../frame";
 import { fixtureRun, scenarioSnapshot } from "./fixtures-b";

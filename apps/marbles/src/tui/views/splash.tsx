@@ -1,10 +1,10 @@
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useState } from "react";
-import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { SplashCard } from "~/components/blocks/splash-card";
 import { SplashLayout, type Viewport } from "~/components/layouts/splash";
 import type { SplashState } from "~/model/splash";
+import { useQuitGuard } from "~/tui/hooks/use-quit-guard";
 
 export function SplashView({
   workspace,

@@ -6,21 +6,21 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
-import type { Launcher, RunActions } from "~/cli/state/run-actions";
-import { summarizeConfig } from "~/cli/state/splash-model";
-import type { HostedWorkspace } from "~/cli/state/use-dashboard";
-import type { AnswerHandler } from "~/cli/state/use-feed";
-import { ConfigErrorView } from "~/cli/views/config-error";
-import { DashboardView } from "~/cli/views/dashboard";
-import { OnboardingView } from "~/cli/views/onboarding";
+import { theme } from "~/components/ui/theme";
+import type { SettingsChange } from "~/model/settings";
+import type { DashboardSnapshot } from "~/tui/state/dashboard-model";
+import type { Launcher, RunActions } from "~/tui/state/run-actions";
+import { summarizeConfig } from "~/tui/state/splash-model";
+import type { HostedWorkspace } from "~/tui/state/use-dashboard";
+import type { AnswerHandler } from "~/tui/state/use-feed";
+import { ConfigErrorView } from "~/tui/views/config-error";
+import { DashboardView } from "~/tui/views/dashboard";
+import { OnboardingView } from "~/tui/views/onboarding";
 import {
   ProviderOnboarding,
   WorkspaceWelcome,
-} from "~/cli/views/onboarding-intro";
-import { SplashView } from "~/cli/views/splash";
-import { theme } from "~/components/ui/theme";
-import type { SettingsChange } from "~/model/settings";
+} from "~/tui/views/onboarding-intro";
+import { SplashView } from "~/tui/views/splash";
 import type { discoverProviderSetup } from "~/workspace/provider-setup";
 import type { SetupDraft } from "~/workspace/templates";
 

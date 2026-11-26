@@ -1,5 +1,5 @@
 import { defineStories, story } from "textbook-sh";
-import { OnboardingView } from "~/cli/views/onboarding";
+import { OnboardingView } from "~/tui/views/onboarding";
 import { ignore } from "../frame";
 import { renderReactStory } from "../render-react-story";
 import { type Replay, ReplayKeys, type StoryKey } from "./replay-keys";

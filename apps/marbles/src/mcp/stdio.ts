@@ -3,11 +3,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   joinProcess,
   NotHostedError,
-  type TaskRunner,
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
-import type { Flags } from "~/cli/args";
+import type { GlobalFlags } from "~/cli/context";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { ToolRefusal } from "~/mcp/errors";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
@@ -16,7 +15,6 @@ import { createMcpServer } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, recordedWorkspace } from "~/workspace/open";
-import { resolveSource } from "~/workspace/source";
 
 const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
@@ -26,42 +24,23 @@ interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }
 
-function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
-  let runner: Promise<TaskRunner> | undefined;
-  let session: Promise<void> = Promise.resolve();
-  let letGo = (): void => undefined;
-  return {
-    open(): Promise<TaskRunner> {
-      runner ??= new Promise<TaskRunner>((ready, fail) => {
-        const done = new Promise<void>((end) => {
-          letGo = end;
-        });
-        let held = false;
-        session = withTasks(flags, opened, (run) => {
-          held = true;
-          ready(run);
-          return done;
-        }).catch((error: unknown) => {
-          if (held) {
-            throw error;
-          }
-          runner = undefined;
-          fail(error);
-        });
-      });
-      return runner;
-    },
-    release(): Promise<void> {
-      letGo();
-      return session;
-    },
-  };
+async function defaultWorkspace(
+  flags: GlobalFlags
+): Promise<OpenedWorkspace | undefined> {
+  const opened = findWorkspace(flags);
+  if (flags.sourceExplicit || opened.config !== null) {
+    return opened;
+  }
+  try {
+    return await recordedWorkspace(flags, opened.workspace.id);
+  } catch {
+    return undefined;
+  }
 }
 
-function serveWorkspace(flags: Flags): Served {
-  const opened = findWorkspace(flags);
-  const own = opened.workspace;
-  const memory = flags.dry ? sessionTasks(flags, opened) : undefined;
+async function serveGlobal(flags: GlobalFlags): Promise<Served> {
+  const opened = await defaultWorkspace(flags);
+  const own = opened?.workspace;
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
     const next = turn.then(work, work);
@@ -69,14 +48,8 @@ function serveWorkspace(flags: Flags): Served {
     return next;
   };
   const recorded = async (id: string): Promise<OpenedWorkspace> => {
-    if (id === own.id) {
+    if (opened !== undefined && id === opened.workspace.id) {
       return opened;
-    }
-    if (flags.dry) {
-      throw new ToolRefusal(
-        "not_found",
-        `only workspace "${own.id}" is available under --dry-run`
-      );
     }
     const found = await recordedWorkspace(flags, id);
     if (found === undefined) {
@@ -87,12 +60,15 @@ function serveWorkspace(flags: Flags): Served {
     }
     return found;
   };
-  const ownSummary: WorkspaceSummary = {
-    config: opened.config,
-    id: own.id,
-    root: own.root,
-    state: "stopped",
-  };
+  const ownSummary: WorkspaceSummary | undefined =
+    opened === undefined
+      ? undefined
+      : {
+          config: opened.config,
+          id: opened.workspace.id,
+          root: opened.workspace.root,
+          state: "stopped",
+        };
   return {
     async hosted(id, work) {
       try {
@@ -100,7 +76,8 @@ function serveWorkspace(flags: Flags): Served {
       } catch (error) {
         if (
           error instanceof NotHostedError &&
-          id === own.id &&
+          opened !== undefined &&
+          id === opened.workspace.id &&
           opened.config === null
         ) {
           throw new NotHostedError(
@@ -111,19 +88,21 @@ function serveWorkspace(flags: Flags): Served {
         throw error;
       }
     },
-    id: own.id,
-    release: () => turn.then(() => memory?.release()),
-    tasks: (command, id = own.id) =>
+    ...(own === undefined ? {} : { id: own.id }),
+    release: () => turn.then(() => undefined),
+    tasks: (command, id) =>
       inTurn(async () => {
-        const target = await recorded(id);
-        return memory === undefined
-          ? withTasks(flags, target, (run) => run(command))
-          : (await memory.open())(command);
+        const targetId = id ?? own?.id;
+        if (targetId === undefined) {
+          throw new ToolRefusal(
+            "invalid_argument",
+            "workspace is required when no default workspace is active; list (resource: workspaces) names them"
+          );
+        }
+        const target = await recorded(targetId);
+        return withTasks(flags, target, (run) => run(command));
       }),
     async workspaces() {
-      if (flags.dry) {
-        return [ownSummary];
-      }
       const client = await joinProcess();
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
@@ -137,26 +116,19 @@ function serveWorkspace(flags: Flags): Served {
           client.close();
         }
       }
-      return listed.some((entry) => entry.id === own.id)
+      if (ownSummary === undefined) {
+        return listed;
+      }
+      return listed.some((entry) => entry.id === ownSummary.id)
         ? listed
         : [ownSummary, ...listed];
     },
   };
 }
 
-async function serve(flags: Flags): Promise<void> {
+async function serve(flags: GlobalFlags): Promise<void> {
   const output = protocolOutput();
-  const configPath = resolveSource(flags.config, flags.directory);
-  let served: Served;
-  try {
-    served = serveWorkspace(flags);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `could not open the workspace for "${configPath}": ${reason}`,
-      { cause: error }
-    );
-  }
+  const served = await serveGlobal(flags);
   const server = createMcpServer(served);
   const close = async (): Promise<void> => {
     try {
@@ -216,6 +188,6 @@ function report(error: unknown): void {
   process.exitCode = 1;
 }
 
-export async function serveStdio(flags: Flags): Promise<void> {
+export async function serveStdio(flags: GlobalFlags): Promise<void> {
   await serve(flags).catch(report);
 }

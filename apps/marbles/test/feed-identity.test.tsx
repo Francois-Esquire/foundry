@@ -1,8 +1,8 @@
 import { act, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { feedKey } from "../src/cli/state/feed-model";
-import { useFeed } from "../src/cli/state/use-feed";
 import type { FeedEntrySnapshot } from "../src/lib/feed/read";
+import { feedKey } from "../src/tui/state/feed-model";
+import { useFeed } from "../src/tui/state/use-feed";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { mount, unmount } from "./helpers/render";
 

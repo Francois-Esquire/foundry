@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
-import { summarizeConfig } from "~/cli/state/splash-model";
 import { StartupSummary } from "~/components/blocks/startup-summary";
 import type { StartupCounts } from "~/model/splash";
+import { summarizeConfig } from "~/tui/state/splash-model";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { renderFrame } from "../frame";
 

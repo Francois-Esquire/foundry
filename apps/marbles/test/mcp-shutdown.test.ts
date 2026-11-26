@@ -90,7 +90,7 @@ async function start(
     "--no-env-file",
     resolve("src/cli.ts"),
     "mcp",
-    ...(options.args ?? ["--dry-run"]),
+    ...(options.args ?? []),
   ];
   const session = options.piped
     ? await rawMcpSession("sh", ["-c", 'cat | "$@"', "sh", "bun", ...marbles], {
@@ -195,15 +195,11 @@ it("shuts down in order when the protocol output fails", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-epipe-"));
   const home = testHome();
   const { VITEST: _vitest, ...env } = home.env;
-  const server = spawn(
-    "bun",
-    ["--no-env-file", resolve("src/cli.ts"), "mcp", "--dry-run"],
-    {
-      cwd: root,
-      env: { ...env, MARBLES_MCP_SERVER: "1" },
-      stdio: ["pipe", "ignore", "pipe", "pipe", "pipe"],
-    }
-  );
+  const server = spawn("bun", ["--no-env-file", resolve("src/cli.ts"), "mcp"], {
+    cwd: root,
+    env: { ...env, MARBLES_MCP_SERVER: "1" },
+    stdio: ["pipe", "ignore", "pipe", "pipe", "pipe"],
+  });
   let stderr = "";
   server.stderr?.setEncoding("utf8").on("data", (chunk: string) => {
     stderr += chunk;
@@ -270,7 +266,7 @@ workflow("spin").do(() => spin({}));`
     );
     const attached = spawnSync(
       "bun",
-      [...cliArgs("daemon", "attach"), "--source", source],
+      [...cliArgs("start"), "--source", source],
       { cwd: root, encoding: "utf8", env: home.env, timeout: 60_000 }
     );
     expect(attached.status, attached.stderr).toBe(0);

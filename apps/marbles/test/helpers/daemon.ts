@@ -5,7 +5,7 @@ import { cliArgs } from "./cli";
 import type { TestHome } from "./home";
 
 export async function stopDaemon(home: TestHome): Promise<void> {
-  execFileSync("bun", cliArgs("daemon", "stop"), {
+  execFileSync("bun", cliArgs("stop"), {
     env: home.env,
     stdio: "pipe",
   });

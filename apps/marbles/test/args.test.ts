@@ -3,21 +3,20 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseArgs, UsageError } from "~/cli/args";
+import { UsageError } from "~/cli/errors";
+import { parseArgs } from "~/cli/index";
 
-function foundryHome(): string {
-  return process.env.FOUNDRY_ROOT ?? join(homedir(), ".foundry");
+function foundryRoot(): string {
+  return process.env.FOUNDRY_ROOT || join(homedir(), ".foundry");
 }
 
 describe("parseArgs", () => {
   it("opens the dashboard with no command, and takes no command word for it", () => {
     expect(parseArgs([])).toMatchObject({ command: "dashboard" });
-    expect(
-      parseArgs(["--dry-run", "--source", "/tmp/config.ts"])
-    ).toMatchObject({
+    expect(parseArgs(["--source", "/tmp/config.ts"])).toMatchObject({
       command: "dashboard",
       config: "/tmp/config.ts",
-      dry: true,
+      sourceExplicit: true,
     });
     expect(() => parseArgs(["dashboard"])).toThrow(
       'unknown command "dashboard"'
@@ -27,34 +26,53 @@ describe("parseArgs", () => {
     }
   });
 
-  it("takes --recheck-providers for the live dashboard alone", () => {
-    expect(parseArgs(["--recheck-providers"])).toMatchObject({
-      command: "dashboard",
-      recheckProviders: true,
+  it("supports top-level --json on data commands and refuses it on streaming/interactive commands", () => {
+    expect(parseArgs(["workspaces", "--json"])).toMatchObject({
+      action: "list",
+      command: "workspaces",
+      json: true,
+    });
+    expect(parseArgs(["--json", "workspaces", "get", "ws-1"])).toMatchObject({
+      action: "get",
+      command: "workspaces",
+      id: "ws-1",
+      json: true,
+    });
+    expect(parseArgs(["--json", "tasks", "list"])).toMatchObject({
+      command: "tasks",
+      json: true,
+    });
+    expect(parseArgs(["runs", "--all", "--json"])).toMatchObject({
+      action: "list",
+      all: true,
+      command: "runs",
+      json: true,
     });
     for (const argv of [
-      ["--recheck-providers", "--dry-run"],
-      ["run", "hello", "--recheck-providers"],
-      ["enqueue", "hello", "--recheck-providers"],
+      ["--json"],
+      ["mcp", "--json"],
+      ["watch", "rn-1", "--json"],
+      ["help", "--json"],
     ]) {
       expect(() => parseArgs(argv), argv.join(" ")).toThrow(
-        "--recheck-providers requires a live dashboard"
+        "does not support --json"
       );
     }
   });
+
   it("defaults to the authoring folder and the home state dir", () => {
     expect(parseArgs([])).toEqual({
-      artifacts: join(foundryHome(), "artifacts"),
+      artifacts: join(foundryRoot(), "artifacts"),
       command: "dashboard",
       config: "./.foundry/marbles",
       directory: process.cwd(),
       dry: false,
-      inputJson: undefined,
-      state: join(foundryHome(), "marbles"),
+      json: false,
+      state: join(foundryRoot(), "marbles"),
     });
   });
 
-  it("reads each resource listing for this workspace, or every workspace's with --all, with or without list", () => {
+  it("reads each resource list/get with --workspace or --all, and rejects removed share/unshare/relink", () => {
     for (const command of ["runs", "sessions", "artifacts", "sandboxes"]) {
       for (const words of [[command], [command, "list"]]) {
         expect(parseArgs(words)).toMatchObject({
@@ -67,161 +85,215 @@ describe("parseArgs", () => {
           all: true,
           command,
         });
+        expect(parseArgs([...words, "--workspace", "ws-1"])).toMatchObject({
+          action: "list",
+          all: false,
+          command,
+          workspace: "ws-1",
+        });
       }
-      expect(() => parseArgs([command, "extra"])).toThrow(UsageError);
-      expect(() => parseArgs([command, "list", "extra"])).toThrow(
-        `${command} list takes no arguments but --all`
-      );
-    }
-  });
-
-  it("relinks artifacts, for this workspace or every workspace's with --all, and nothing else", () => {
-    expect(parseArgs(["artifacts", "relink"])).toMatchObject({
-      action: "relink",
-      all: false,
-      command: "artifacts",
-    });
-    expect(parseArgs(["artifacts", "relink", "--all"])).toMatchObject({
-      action: "relink",
-      all: true,
-    });
-    for (const command of ["runs", "sessions", "sandboxes"]) {
-      expect(() => parseArgs([command, "relink"])).toThrow(
-        `${command} takes list [--all]`
-      );
-    }
-  });
-
-  it("shares and unshares under the resource's own noun, by id and directory", () => {
-    expect(
-      parseArgs(["artifacts", "share", "artifact#a", "../two"])
-    ).toMatchObject({
-      action: "share",
-      command: "artifacts",
-      id: "artifact#a",
-      kind: "artifact",
-      with: "../two",
-    });
-    expect(parseArgs(["runs", "unshare", "rn-1", "."])).toMatchObject({
-      action: "unshare",
-      command: "runs",
-      kind: "run",
-    });
-    expect(parseArgs(["sessions", "share", "ses-1", "."])).toMatchObject({
-      action: "share",
-      kind: "session",
-    });
-    expect(() => parseArgs(["runs", "share", "rn-1"])).toThrow(
-      "runs share takes an id and another workspace's directory"
-    );
-    expect(() => parseArgs(["runs", "share", "rn-1", ".", "--all"])).toThrow(
-      "runs share takes an id and another workspace's directory"
-    );
-    for (const action of ["share", "unshare"]) {
-      expect(() => parseArgs(["sandboxes", action, "sb-1", "."])).toThrow(
-        "sandboxes takes list [--all]; sandboxes are not shared with other workspaces"
-      );
-    }
-  });
-
-  it("reads daemon actions, start when none is given", () => {
-    expect(parseArgs(["daemon"])).toMatchObject({
-      action: "start",
-      command: "daemon",
-    });
-    for (const action of ["start", "stop", "attach", "detach"]) {
-      expect(parseArgs(["daemon", action])).toMatchObject({
-        action,
-        command: "daemon",
+      expect(parseArgs([command, "get", "id-1"])).toMatchObject({
+        action: "get",
+        all: false,
+        command,
+        id: "id-1",
       });
-      expect(() => parseArgs(["daemon", action, "extra"])).toThrow(
-        `daemon ${action} takes no arguments`
+      expect(
+        parseArgs([command, "get", "id-1", "--workspace", "ws-1"])
+      ).toMatchObject({
+        action: "get",
+        all: false,
+        command,
+        id: "id-1",
+        workspace: "ws-1",
+      });
+      expect(() =>
+        parseArgs([command, "list", "--all", "--workspace", "ws-1"])
+      ).toThrow(`${command} takes --workspace or --all, not both`);
+      expect(() => parseArgs([command, "get"])).toThrow(
+        `${command} get takes one id`
+      );
+      expect(() => parseArgs([command, "extra"])).toThrow(
+        `${command} takes list or get <id>`
+      );
+      expect(() => parseArgs([command, "share", "id-1", "."])).toThrow(
+        `${command} takes list or get <id>`
+      );
+      expect(() => parseArgs([command, "relink"])).toThrow(
+        `${command} takes list or get <id>`
+      );
+      expect(() => parseArgs([command, "list", "extra"])).toThrow(
+        `${command} list takes no arguments besides --workspace or --all`
       );
     }
-    expect(() => parseArgs(["daemon", "restart"])).toThrow(
-      "daemon takes start, stop, attach, or detach"
-    );
   });
 
-  it("reads theme as print, list, or save by name", () => {
-    expect(parseArgs(["theme"])).toMatchObject({
+  it("reads workspaces list and get", () => {
+    expect(parseArgs(["workspaces"])).toMatchObject({
+      action: "list",
+      command: "workspaces",
+    });
+    expect(parseArgs(["workspaces", "list"])).toMatchObject({
+      action: "list",
+      command: "workspaces",
+    });
+    expect(parseArgs(["workspaces", "get", "ws-1"])).toMatchObject({
       action: "get",
-      command: "theme",
+      command: "workspaces",
+      id: "ws-1",
     });
-    expect(parseArgs(["theme", "list"])).toMatchObject({ action: "list" });
-    expect(parseArgs(["theme", "light"])).toMatchObject({
-      action: "set",
-      theme: "light",
-    });
-    expect(() => parseArgs(["theme", "no-such-theme"])).toThrow(
-      'unknown theme "no-such-theme"; marbles theme list shows them'
+    expect(() => parseArgs(["workspaces", "get"])).toThrow(
+      "workspaces get takes one workspace id or directory"
     );
-    expect(() => parseArgs(["theme", "light", "dark"])).toThrow(
-      "theme takes list, or one theme name to save it"
+    expect(() => parseArgs(["workspaces", "bogus"])).toThrow(
+      "workspaces takes list or get <id|dir>"
     );
   });
 
-  it("reads enqueue by name, with --key on either side of it", () => {
-    expect(parseArgs(["enqueue", "build"])).toMatchObject({
-      command: "enqueue",
+  it("reads start and stop, with optional --workspace on stop", () => {
+    expect(parseArgs(["start"])).toMatchObject({ command: "start" });
+    expect(() => parseArgs(["start", "extra"])).toThrow(
+      "start takes no arguments"
+    );
+    expect(parseArgs(["stop"])).toMatchObject({
+      command: "stop",
+      workspace: false,
+    });
+    expect(parseArgs(["stop", "--workspace"])).toMatchObject({
+      command: "stop",
+      workspace: true,
+    });
+    expect(() => parseArgs(["stop", "extra"])).toThrow(
+      "stop takes no arguments but --workspace"
+    );
+    expect(() => parseArgs(["stop", "--workspace", "extra"])).toThrow(
+      "stop takes no arguments but --workspace"
+    );
+    expect(() => parseArgs(["stop", "--all"])).toThrow(
+      "stop: unknown option --all"
+    );
+  });
+
+  it("reads settings as show, get, set, or themes", () => {
+    expect(parseArgs(["settings"])).toMatchObject({
+      action: "show",
+      command: "settings",
+    });
+    expect(parseArgs(["settings", "themes"])).toMatchObject({
+      action: "themes",
+      command: "settings",
+    });
+    expect(parseArgs(["settings", "get", "theme"])).toMatchObject({
+      action: "get",
+      command: "settings",
+      key: "theme",
+    });
+    expect(parseArgs(["settings", "set", "theme", "light"])).toMatchObject({
+      action: "set",
+      command: "settings",
+      key: "theme",
+      value: "light",
+    });
+    expect(() => parseArgs(["settings", "set", "theme", "no-such"])).toThrow(
+      'unknown theme "no-such"; marbles settings themes lists them'
+    );
+    expect(() => parseArgs(["settings", "get", "bogus"])).toThrow(
+      'unknown setting "bogus"; valid keys: theme'
+    );
+    expect(() => parseArgs(["settings", "unknown"])).toThrow(
+      "settings takes get <key>, set <key> <value>, or themes"
+    );
+  });
+
+  it("reads trigger for blocking and --async execution, with --input and --key", () => {
+    expect(parseArgs(["trigger", "build"])).toMatchObject({
+      async: false,
+      command: "trigger",
       name: "build",
     });
-    expect(parseArgs(["enqueue", "build"])).not.toHaveProperty("key");
+    expect(parseArgs(["trigger", "build"])).not.toHaveProperty("key");
     for (const argv of [
-      ["enqueue", "build", "--key", "pr-1"],
-      ["enqueue", "--key", "pr-1", "build"],
+      ["trigger", "build", "--async", "--key", "pr-1"],
+      ["trigger", "--key", "pr-1", "--async", "build"],
     ]) {
       expect(parseArgs(argv)).toMatchObject({
-        command: "enqueue",
+        async: true,
+        command: "trigger",
         key: "pr-1",
         name: "build",
       });
     }
     expect(
-      parseArgs(["enqueue", "build", "--input", '{"a":1}']).inputJson
-    ).toBe('{"a":1}');
-    expect(() => parseArgs(["enqueue", "build", "--key", " "])).toThrow(
-      "enqueue: --key takes a key that is not blank"
-    );
-    for (const flag of ["--dry-run", "-h", "--help", "--input"]) {
-      expect(() => parseArgs(["enqueue", "build", "--key", flag])).toThrow(
-        `enqueue: --key takes a value, not the flag ${flag}`
-      );
-    }
-    expect(() => parseArgs(["enqueue", "build", "--key"])).toThrow(
-      "enqueue: --key takes a value"
+      parseArgs(["trigger", "build", "--async", "--input", '{"a":1}'])
+    ).toMatchObject({
+      async: true,
+      command: "trigger",
+      inputJson: '{"a":1}',
+      name: "build",
+    });
+    expect(parseArgs(["trigger", "ask", "--input", "-1"])).toMatchObject({
+      async: false,
+      command: "trigger",
+      inputJson: "-1",
+      name: "ask",
+    });
+    expect(() => parseArgs(["trigger", "build", "--key", "pr-1"])).toThrow(
+      "trigger: --key requires --async"
     );
     expect(() =>
-      parseArgs(["enqueue", "build", "--key", "a", "--key", "b"])
-    ).toThrow("enqueue takes one step or workflow name");
-    expect(() => parseArgs(["enqueue"])).toThrow(
-      "enqueue takes one step or workflow name"
+      parseArgs(["trigger", "build", "--async", "--key", " "])
+    ).toThrow("trigger: --key takes a key that is not blank");
+    for (const flag of ["--json", "-h", "--help", "--input"]) {
+      expect(() =>
+        parseArgs(["trigger", "build", "--async", "--key", flag])
+      ).toThrow(`trigger: --key takes a value, not the flag ${flag}`);
+    }
+    expect(() => parseArgs(["trigger", "build", "--async", "--key"])).toThrow(
+      "trigger: --key takes a value"
     );
-    expect(() => parseArgs(["run", "build", "--key", "a"])).toThrow(
-      "run: unknown option --key"
+    expect(() =>
+      parseArgs(["trigger", "build", "--async", "--key", "a", "--key", "b"])
+    ).toThrow("trigger: --key may only be given once");
+    expect(() => parseArgs(["trigger"])).toThrow(
+      'trigger takes one step, workflow, schedule, or monitor name; run "marbles" with no command to open the dashboard'
+    );
+    expect(() => parseArgs(["trigger", "a", "b"])).toThrow(
+      "trigger takes one step, workflow, schedule, or monitor name"
     );
   });
 
-  it("reads positionals around flags", () => {
-    const args = parseArgs(["run", "--dry-run", "guides", "--source", "/c.ts"]);
+  it("scopes --input to trigger only", () => {
+    const args = parseArgs([
+      "trigger",
+      "--json",
+      "guides",
+      "--source",
+      "/c.ts",
+    ]);
     expect(args).toMatchObject({
-      command: "run",
+      async: false,
+      command: "trigger",
+      config: "/c.ts",
+      json: true,
       name: "guides",
     });
-    expect(args.dry).toBe(true);
-    expect(args.config).toBe("/c.ts");
+    for (const argv of [
+      ["workspaces", "--input", "{}"],
+      ["list", "--input", "{}"],
+      ["settings", "--input", "{}"],
+      ["tasks", "list", "--input", "{}"],
+    ]) {
+      expect(() => parseArgs(argv), argv.join(" ")).toThrow(
+        "unknown option --input"
+      );
+    }
   });
 
-  it("keeps --input raw, including a negative number", () => {
-    expect(parseArgs(["run", "ask", "--input", '{"q":1}']).inputJson).toBe(
-      '{"q":1}'
-    );
-    expect(parseArgs(["run", "ask", "--input", "-1"]).inputJson).toBe("-1");
-  });
-
-  it("refuses an unknown flag by name, the removed ones included, even beside --help", () => {
+  it("refuses unknown and removed flags by name, even beside --help", () => {
     for (const flag of [
       "--dry",
+      "--dry-run",
+      "--recheck-providers",
       "--config",
       "--harness",
       "--state",
@@ -246,8 +318,8 @@ describe("parseArgs", () => {
     for (const argv of [
       ["--source"],
       ["list", "--source"],
-      ["run", "ask", "--input"],
-      ["tasks", "change", "--input"],
+      ["trigger", "ask", "--input"],
+      ["runs", "list", "--workspace"],
     ]) {
       expect(() => parseArgs(argv), argv.join(" ")).toThrow(
         `${argv.at(-1)} takes a value`
@@ -255,17 +327,17 @@ describe("parseArgs", () => {
     }
   });
 
-  it("refuses a flag where --source or --input takes its value, so a dry run never runs live", () => {
-    for (const command of [[], ["run", "ask"], ["daemon", "attach"]]) {
-      expect(() => parseArgs([...command, "--source", "--dry-run"])).toThrow(
-        "--source takes a value, not the flag --dry-run"
+  it("refuses a flag where --source or --input takes its value", () => {
+    for (const command of [[], ["trigger", "ask"], ["start"]]) {
+      expect(() => parseArgs([...command, "--source", "--json"])).toThrow(
+        "--source takes a value, not the flag --json"
       );
     }
     expect(() => parseArgs(["--source", "--help"])).toThrow(
       "--source takes a value, not the flag --help"
     );
-    expect(() => parseArgs(["run", "ask", "--input", "-h"])).toThrow(
-      "--input takes a value, not the flag -h"
+    expect(() => parseArgs(["trigger", "ask", "--input", "-h"])).toThrow(
+      "trigger: --input takes a value, not the flag -h"
     );
   });
 });
@@ -276,50 +348,41 @@ it("takes the last of repeated --source values", () => {
   );
 });
 
-it("refuses a command line that cannot run, before anything else happens", () => {
+it("refuses removed and unknown commands with moved-command hints", () => {
   const refusals: [readonly string[], string][] = [
     [["bogus"], 'unknown command "bogus"'],
     [
-      ["run"],
-      'run takes a step, workflow, schedule, or monitor name; run "marbles" with no command to open the dashboard',
+      ["run", "ping"],
+      'unknown command "run"; run is now marbles trigger <name>',
     ],
     [
-      ["run", "a", "b"],
-      "run takes one step, workflow, schedule, or monitor name",
+      ["enqueue", "ping"],
+      'unknown command "enqueue"; enqueue is now marbles trigger <name> --async',
     ],
     [
       ["roll", "ping"],
-      'unknown command "roll"; roll is now marbles run <name>',
+      'unknown command "roll"; roll is now marbles trigger <name>',
     ],
-    [["stop"], 'unknown command "stop"; stop is now marbles daemon stop'],
+    [["status"], 'unknown command "status"; status is now marbles workspaces'],
+    [["theme"], 'unknown command "theme"; theme is now marbles settings'],
     [
-      ["attach"],
-      'unknown command "attach"; attach is now marbles daemon attach',
+      ["daemon"],
+      'unknown command "daemon"; daemon is now marbles start or marbles stop',
     ],
+    [
+      ["daemon", "stop"],
+      'unknown command "daemon"; daemon is now marbles start or marbles stop',
+    ],
+    [["attach"], 'unknown command "attach"; attach is now marbles start'],
     [
       ["detach"],
-      'unknown command "detach"; detach is now marbles daemon detach',
+      'unknown command "detach"; detach is now marbles stop --workspace',
     ],
-    [
-      ["relink"],
-      'unknown command "relink"; relink is now marbles artifacts relink',
-    ],
-    [
-      ["relink", "--all"],
-      'unknown command "relink"; relink is now marbles artifacts relink',
-    ],
-    [
-      ["settings", "themes"],
-      'unknown command "settings"; settings is now marbles theme',
-    ],
+    [["init"], 'unknown command "init"'],
+    [["relink"], 'unknown command "relink"'],
     [["share", "run", "rn-1", "."], 'unknown command "share"'],
     [["unshare", "run", "rn-1", "."], 'unknown command "unshare"'],
-    [
-      ["init", "unknown"],
-      "init takes one starter: developer, design, or product",
-    ],
     [["launchd", "install", "ping"], 'unknown command "launchd"'],
-    [["launchd", "uninstall", "ping"], 'unknown command "launchd"'],
     [["list", "extra"], "list takes no arguments"],
     [["--harness", "foo"], "unknown option --harness"],
   ];
@@ -328,7 +391,6 @@ it("refuses a command line that cannot run, before anything else happens", () =>
     expect(() => parseArgs(argv)).toThrow(message);
   }
   expect(parseArgs(["bogus", "--help"]).command).toBe("help");
-  expect(parseArgs(["init"])).toMatchObject({ starter: "product" });
 });
 
 it("parses watch by run ID and refuses missing or extra arguments", () => {
@@ -343,9 +405,11 @@ it("parses watch by run ID and refuses missing or extra arguments", () => {
 });
 
 it("parses the mcp command, which takes flags only", () => {
-  expect(
-    parseArgs(["mcp", "--source", "/tmp/source.ts", "--dry-run"])
-  ).toMatchObject({ command: "mcp", config: "/tmp/source.ts", dry: true });
+  expect(parseArgs(["mcp", "--source", "/tmp/source.ts"])).toMatchObject({
+    command: "mcp",
+    config: "/tmp/source.ts",
+    sourceExplicit: true,
+  });
   expect(() => parseArgs(["mcp", "list"])).toThrow("mcp takes no arguments");
   expect(() => parseArgs(["mcp", "--harness", "codex"])).toThrow(
     "mcp: unknown option --harness"

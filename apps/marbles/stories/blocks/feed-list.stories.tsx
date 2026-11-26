@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { feedKey, feedRows } from "~/cli/state/feed-model";
 import { FeedList, type FeedRow } from "~/components/blocks/feed-list";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { feedKey, feedRows } from "~/tui/state/feed-model";
 import { ignore, renderFrame } from "../frame";
 import {
   feedEntries,
