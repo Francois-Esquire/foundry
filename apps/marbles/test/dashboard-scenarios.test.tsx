@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { DashboardView } from "../src/cli/views/dashboard";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { previewScenarios } from "../stories/fixtures/scenarios";
 import { mount, unmount } from "./helpers/render";
 

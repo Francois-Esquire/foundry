@@ -23,7 +23,7 @@ export const STARTERS = [
 ] as const;
 export type StarterId = (typeof STARTERS)[number]["id"];
 type Starter = (typeof STARTERS)[number];
-export const DEFAULT_STARTER: StarterId = "product";
+const DEFAULT_STARTER: StarterId = "product";
 
 export function starterFor(id: StarterId): Starter {
   const starter = STARTERS.find((item) => item.id === id);

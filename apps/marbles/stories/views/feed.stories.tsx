@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 import { defineStories, story } from "textbook-sh";
-import { feedModel } from "~/cli/state/feed-model";
-import { type AnswerHandler, useFeed } from "~/cli/state/use-feed";
-import { FeedView } from "~/cli/views/feed";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { feedModel } from "~/tui/state/feed-model";
+import { type AnswerHandler, useFeed } from "~/tui/state/use-feed";
+import { FeedView } from "~/tui/views/feed";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { renderFrame } from "../frame";
 

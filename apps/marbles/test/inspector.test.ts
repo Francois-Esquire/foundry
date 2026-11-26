@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
+import type { HarnessActivitySnapshot } from "~/model/dashboard";
 import {
   type DashboardSelection,
   resolveSelection,
   runSelection,
   selectionKey,
-} from "~/cli/state/dashboard-model";
+} from "~/tui/state/dashboard-model";
 import {
   catalogConfiguration,
   inspectorSubject,
   runTab,
-} from "~/cli/state/inspector";
-import type { HarnessActivitySnapshot } from "~/model/dashboard";
+} from "~/tui/state/inspector";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const OTHER = { id: "ws-other", name: "other" };

@@ -10,8 +10,7 @@ import type {
 } from "~/model/tasks";
 import type { MarblesClient } from "~/process/client";
 import { connect, NoProcessError } from "~/process/client";
-import type { HostWorkspaceOptions, WorkspaceHost } from "~/workspace/host";
-import { hostWorkspace } from "~/workspace/host";
+import type { WorkspaceHost } from "~/workspace/host";
 import type { HostOptions, OpenedWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";
 import { runTaskCommand } from "~/workspace/tasks";
@@ -32,7 +31,7 @@ export class RecordsHeldError extends Error {
   override readonly name = "RecordsHeldError";
 }
 
-const ATTACH_HINT = "`marbles daemon attach` in its root hosts it";
+const ATTACH_HINT = "`marbles start` in its root hosts it";
 
 function withStoredTasks<T>(
   args: HostOptions,
@@ -123,7 +122,7 @@ export async function withRunningWorkspace<T>(
 ): Promise<T> {
   if (args.dry) {
     throw new NotHostedError(
-      `--dry-run joins no Marbles process, so no engine generation is reached for workspace ${id}; without --dry-run, ${ATTACH_HINT}. A dry run of a workflow goes through \`marbles run <name> --dry-run\`.`
+      `dry mode joins no Marbles process, so no engine generation is reached for workspace ${id}; ${ATTACH_HINT}`
     );
   }
   const client = await joinProcess();
@@ -167,20 +166,6 @@ export type Hosted =
       readonly id: string;
       readonly workspace: WorkspaceConnection;
     };
-
-export function hostHere(
-  args: HostOptions,
-  options: Pick<HostWorkspaceOptions, "print">
-): Promise<WorkspaceHost> {
-  return hostWorkspace({
-    ...options,
-    artifacts: args.artifacts,
-    directory: args.directory,
-    dry: args.dry,
-    source: args.config,
-    state: args.state,
-  });
-}
 
 export async function attachToProcess(
   args: HostOptions & { readonly directory: string },

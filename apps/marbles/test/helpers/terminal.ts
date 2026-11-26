@@ -4,11 +4,13 @@ import { recordSpawned } from "~/process/spawned";
 export async function inspectDashboard(
   cli: string,
   cwd: string,
-  command: readonly string[]
+  command: readonly string[],
+  env?: Record<string, string>
 ) {
   let output = "";
-  const child = spawn([cli, ...command, "--dry-run"], {
+  const child = spawn([cli, ...command], {
     cwd,
+    ...(env === undefined ? {} : { env }),
     terminal: {
       cols: 120,
       data(_terminal, bytes) {
@@ -18,8 +20,8 @@ export async function inspectDashboard(
     },
   });
   recordSpawned(child.pid, true);
-  async function waitFor(text: string) {
-    const deadline = Date.now() + 8000;
+  async function waitFor(text: string, timeoutMs = 15_000) {
+    const deadline = Date.now() + timeoutMs;
     while (!output.includes(text)) {
       if (Date.now() > deadline || child.exitCode !== null) {
         throw new Error(
@@ -30,16 +32,33 @@ export async function inspectDashboard(
     }
   }
   try {
-    await waitFor("Press Enter to enter");
+    const deadline = Date.now() + 20_000;
+    while (
+      !(
+        output.includes("Open this workspace") ||
+        output.includes("Press Enter to enter")
+      )
+    ) {
+      if (Date.now() > deadline || child.exitCode !== null) {
+        throw new Error(
+          `Missing startup screen in terminal output: ${output.slice(-3000)}`
+        );
+      }
+      await sleep(25);
+    }
+    if (output.includes("Open this workspace")) {
+      child.terminal?.write("\r");
+      await waitFor("Press Enter to enter");
+    }
     child.terminal?.write("\r");
     await waitFor("Tab focus");
     await sleep(50);
     child.terminal?.write("q");
     await waitFor("Quit Marbles?");
     child.terminal?.write("\x03");
-    const deadline = Date.now() + 8000;
+    const closeDeadline = Date.now() + 8000;
     while (child.exitCode === null) {
-      if (Date.now() > deadline) {
+      if (Date.now() > closeDeadline) {
         throw new Error("Packaged dashboard did not close");
       }
       await sleep(25);

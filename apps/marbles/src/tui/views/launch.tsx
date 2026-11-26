@@ -1,7 +1,5 @@
 import { useKeyboard } from "@opentui/react";
 import { useCallback } from "react";
-import { useAsyncAction } from "~/cli/hooks/use-async-action";
-import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { SetupFlow } from "~/components/layouts/setup-flow";
@@ -14,6 +12,8 @@ import {
   inputProblem,
   parseInputs,
 } from "~/lib/inputs";
+import { useAsyncAction } from "~/tui/hooks/use-async-action";
+import { useQuitGuard } from "~/tui/hooks/use-quit-guard";
 import type { DefinitionSnapshot } from "../state/dashboard-model";
 import type { Launcher } from "../state/run-actions";
 
@@ -61,7 +61,7 @@ export function LaunchView({
   const fields = definition.input?.fields;
   const problem = fields
     ? inputProblem(fields)
-    : "Arguments are not declared for this definition. Add input metadata in your marble module, or use marbles run with --input.";
+    : "Arguments are not declared for this definition. Add input metadata in your marble module, or use marbles trigger with --input.";
   const submit = useCallback(
     (input: InputValues) => {
       if (!quit.quitting) {

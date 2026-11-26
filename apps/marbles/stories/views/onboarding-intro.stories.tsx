@@ -2,7 +2,7 @@ import { defineStories, story } from "textbook-sh";
 import {
   ProviderOnboarding,
   WorkspaceWelcome,
-} from "~/cli/views/onboarding-intro";
+} from "~/tui/views/onboarding-intro";
 import { ignore } from "../frame";
 import { renderReactStory } from "../render-react-story";
 import { type Replay, ReplayKeys } from "./replay-keys";

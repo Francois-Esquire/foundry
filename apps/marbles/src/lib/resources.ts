@@ -162,7 +162,7 @@ export class ResourceAssociations {
   }
 }
 
-export function refuseUnshareable(kind: ResourceKind): void {
+function refuseUnshareable(kind: ResourceKind): void {
   if (!SHAREABLE.has(kind)) {
     throw new ResourceAssociationError(
       `a ${kind} belongs to the workspace that started it and cannot be shared`

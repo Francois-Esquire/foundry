@@ -1,6 +1,6 @@
-import { definitionRows, triggerRows } from "~/cli/state/dashboard-rows";
-import { feedRows } from "~/cli/state/feed-model";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { definitionRows, triggerRows } from "~/tui/state/dashboard-rows";
+import { feedRows } from "~/tui/state/feed-model";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 
 function feedEntry(id: string): FeedEntrySnapshot {

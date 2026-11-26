@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type InputField,
@@ -25,21 +24,58 @@ afterEach(() => {
   home = undefined;
 });
 
-function cli(config: string, ...args: string[]) {
+function currentHome(): TestHome {
   home ??= testHome();
-  const bin = join(dirname(config), "test-bin");
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
-  chmodSync(join(bin, "codex"), 0o755);
+  return home;
+}
+
+function cli(config: string, ...args: string[]) {
   return execFileSync(
     "bun",
-    [resolve("src/cli.ts"), ...args, "--dry-run", "--source", config],
+    [resolve("src/cli.ts"), ...args, "--source", config],
     {
       encoding: "utf8",
-      env: { ...home.env, PATH: `${bin}:${home.env.PATH}` },
-      timeout: 10_000,
+      env: currentHome().env,
+      timeout: 15_000,
     }
   );
+}
+
+function runDryStarter(
+  dir: string,
+  config: string,
+  name: string,
+  input: unknown
+): string {
+  const { artifacts, state } = currentHome().layout;
+  const hostModule = resolve("src/workspace/host.ts");
+  return execFileSync(
+    "bun",
+    [
+      "--no-env-file",
+      "-e",
+      `import { hostWorkspace } from ${JSON.stringify(hostModule)};
+const host = await hostWorkspace({
+  artifacts: ${JSON.stringify(artifacts)},
+  directory: ${JSON.stringify(dir)},
+  dry: true,
+  print: () => undefined,
+  source: ${JSON.stringify(config)},
+  state: ${JSON.stringify(state)},
+});
+try {
+  const result = await host.roll(${JSON.stringify(name)}, ${JSON.stringify(input)});
+  console.log(result.lines.join("\\n"));
+} finally {
+  await host.close();
+}`,
+    ],
+    {
+      encoding: "utf8",
+      env: currentHome().env,
+      timeout: 20_000,
+    }
+  ).trim();
 }
 
 it("missing, empty, and import-only configs register no implicit definitions", async () => {
@@ -76,10 +112,10 @@ for (const starter of STARTERS) {
       expect(output).not.toContain("[monitor]");
       expect(output).not.toContain("[run]");
       const input =
-        starter.id === "design"
-          ? ["--input", JSON.stringify({ brief: "A search screen" })]
-          : [];
-      expect(cli(config, "run", starter.name, ...input)).toContain("complete");
+        starter.id === "design" ? { brief: "A search screen" } : undefined;
+      expect(runDryStarter(dir, config, starter.name, input)).toContain(
+        "complete"
+      );
     } finally {
       await rm(dir, { force: true, recursive: true });
     }

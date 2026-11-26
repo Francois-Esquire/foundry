@@ -10,6 +10,7 @@ import {
   getInput,
   listInput,
   type McpServerOptions,
+  requireWorkspaceId,
   resources,
   runItem,
   WORKSPACE_INPUT,
@@ -19,7 +20,7 @@ import { dispatchSchema } from "~/workspace/dispatch";
 import { version } from "../../package.json";
 
 const NEEDS_HOST =
-  "Needs a running Marbles process that hosts the workspace (marbles daemon attach); this server starts none.";
+  "Needs a running Marbles process that hosts the workspace (marbles start); this server starts none.";
 
 const OFFLINE =
   "workspaces and tasks are read from stored state without a running Marbles process; definitions and runs need one.";
@@ -42,7 +43,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
   const on = <T>(
     id: string | undefined,
     work: (workspace: WorkspaceConnection) => Promise<T>
-  ): Promise<T> => options.hosted(id ?? options.id, work);
+  ): Promise<T> => options.hosted(requireWorkspaceId(id, options.id), work);
   const read = resources(options);
 
   const server = new McpServer({ name: "marbles", version });
@@ -135,7 +136,7 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       answered(async () => ({
         ...(await options.tasks(
           { change, kind: "change" },
-          workspace ?? options.id
+          requireWorkspaceId(workspace, options.id)
         )),
       }))
   );
