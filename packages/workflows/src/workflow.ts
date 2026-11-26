@@ -217,10 +217,6 @@ export abstract class Workflow<
     return this.#requireRuntime().telemetry;
   }
 
-  get #scope(): Scope.CloseableScope {
-    return this.#requireRuntime().scope;
-  }
-
   protected abstract define(
     graph: DefinitionGraphBuilder<I, O, Record<never, never>, X>
   ): void;
@@ -232,10 +228,17 @@ export abstract class Workflow<
   create(context?: DefinitionContext<X>) {
     const source = this;
     return Object.freeze({
-      run(input: I, invocationContext?: DefinitionContext<X>): Promise<O> {
+      async run(
+        input: I,
+        invocationContext?: DefinitionContext<X>
+      ): Promise<O> {
         const binding = definitionBindingFor(context, invocationContext);
         const runtime = source.#materialize(input, binding);
-        return runtime.run(input, definitionRuntimeSeed(binding));
+        try {
+          return await runtime.run(input, definitionRuntimeSeed(binding));
+        } finally {
+          await runtime.dispose();
+        }
       },
     });
   }
@@ -365,26 +368,32 @@ export abstract class Workflow<
 
     Effect.runSync(root.snapshot.setWorkflow(tree));
 
-    Effect.runFork(
-      FxStream.runForEach(root.snapshot.changes, (snapshotState) =>
-        SubscriptionRef.update(state, (row) => ({
-          ...row,
-          steps: snapshotState.steps,
-          tree: snapshotState.workflow,
-        }))
-      ).pipe(Effect.ensuring(ScopeMod.close(scope, Exit.void)))
+    Effect.runSync(
+      Effect.forkIn(
+        FxStream.runForEach(root.snapshot.changes, (snapshotState) =>
+          SubscriptionRef.update(state, (row) => ({
+            ...row,
+            steps: snapshotState.steps,
+            tree: snapshotState.workflow,
+          }))
+        ),
+        scope
+      )
     );
 
-    Effect.runFork(
-      FxStream.runForEach(status.changes, (next) =>
-        SubscriptionRef.update(state, (row) => ({
-          ...row,
-          status: next,
-          ...(next === "running" && row.startedAt === undefined
-            ? { startedAt: new Date().toISOString() }
-            : {}),
-        }))
-      ).pipe(Effect.ensuring(ScopeMod.close(scope, Exit.void)))
+    Effect.runSync(
+      Effect.forkIn(
+        FxStream.runForEach(status.changes, (next) =>
+          SubscriptionRef.update(state, (row) => ({
+            ...row,
+            status: next,
+            ...(next === "running" && row.startedAt === undefined
+              ? { startedAt: new Date().toISOString() }
+              : {}),
+          }))
+        ),
+        scope
+      )
     );
 
     return new RuntimeWorkflow({
@@ -410,8 +419,12 @@ export abstract class Workflow<
     return this;
   }
 
-  dispose(): Promise<void> {
-    return Effect.runPromise(ScopeMod.close(this.#scope, Exit.void));
+  async dispose(options: { readonly abort?: boolean } = {}): Promise<void> {
+    if (this.#runtime === undefined) {
+      return;
+    }
+    await Effect.runPromise(ScopeMod.close(this.#runtime.scope, Exit.void));
+    await this.#runtime.root.dispose(options);
   }
 
   get status(): RunStatus {

@@ -58,6 +58,7 @@ export interface QueueOptions {
   readonly identity?: ProcessIdentity;
   readonly instanceId?: string;
   readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
+  readonly leaseTtlMs?: number;
   readonly pools?: readonly ConcurrencyPool[];
   readonly syncIntervalMs?: number;
 }
@@ -88,6 +89,9 @@ export interface QueueService {
     pool: ConcurrencyPool
   ) => Effect.Effect<void, InvalidPoolLimitError | QueueError>;
   readonly drain: (graceMs?: number) => Effect.Effect<void, QueueError>;
+  readonly drainUntilIdle: (
+    graceMs?: number
+  ) => Effect.Effect<void, QueueError>;
   readonly getJob: (id: JobId) => Effect.Effect<Job | undefined, StoreError>;
   readonly getRun: (id: RunId) => Effect.Effect<Run | undefined, StoreError>;
   readonly getSuspension: (

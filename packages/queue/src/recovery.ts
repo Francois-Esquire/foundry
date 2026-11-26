@@ -27,22 +27,40 @@ export const makeRecovery = (
 ) => {
   const { commit, requireJob, store } = ledger;
 
+  const abandonmentReason = (
+    run: Run & { readonly state: { readonly kind: "running" } },
+    now: number,
+    gone: Gone
+  ) =>
+    Effect.gen(function* () {
+      const { expiresAt, owner } = run.state.lease;
+      if (expiresAt !== undefined && expiresAt <= now) {
+        return "lease expired";
+      }
+      const lost = sameInstance(owner, self)
+        ? !capacity.slots.has(run.id)
+        : yield* Effect.sync(() => gone(owner));
+      return lost ? "owner gone" : undefined;
+    });
+
   const interruptAbandoned = (gone: Gone) =>
     Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
       const interrupted: RunId[] = [];
       for (const run of yield* store.listRuns({ state: "running" })) {
         if (run.state.kind !== "running") {
           continue;
         }
-        const { owner } = run.state.lease;
-        const abandoned = sameInstance(owner, self)
-          ? !capacity.slots.has(run.id)
-          : yield* Effect.sync(() => gone(owner));
-        if (abandoned) {
+        const reason = yield* abandonmentReason(
+          { ...run, state: run.state },
+          now,
+          gone
+        );
+        if (reason !== undefined) {
           yield* settlement.interrupt(
             yield* requireJob(run.jobId),
             run,
-            "owner gone"
+            reason
           );
           interrupted.push(run.id);
         }

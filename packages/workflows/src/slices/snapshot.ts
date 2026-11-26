@@ -26,6 +26,7 @@ const emptyState = (): SnapshotState => ({
 });
 
 export class Snapshot {
+  readonly #seeded = new Map<string, unknown>();
   readonly #state: SubscriptionRef.SubscriptionRef<SnapshotState>;
 
   private constructor(args: {
@@ -195,12 +196,21 @@ export class Snapshot {
   }
 
   /** @internal */
-  seed(steps: Record<string, StepSnapshot>): Effect.Effect<void> {
+  seed(
+    steps: Record<string, StepSnapshot>,
+    options: { readonly memoize?: boolean } = {}
+  ): Effect.Effect<void> {
+    const memoize = options.memoize ?? true;
     return SubscriptionRef.update(this.#state, (prev) => {
       const mergedResults: Record<string, unknown> = { ...prev.results };
       for (const [key, step] of Object.entries(steps)) {
-        if (step.status === "complete" && step.output !== undefined) {
-          defineOwnEntry(mergedResults, key, step.output);
+        if (step.status === "complete") {
+          if (memoize) {
+            this.#seeded.set(key, step.output);
+          }
+          if (step.output !== undefined) {
+            defineOwnEntry(mergedResults, key, step.output);
+          }
         }
       }
       return {
@@ -210,6 +220,20 @@ export class Snapshot {
         updatedAt: new Date().toISOString(),
       };
     });
+  }
+
+  /** @internal */
+  consumeSeeded(
+    key: string
+  ):
+    | { readonly found: true; readonly output: unknown }
+    | { readonly found: false } {
+    if (!this.#seeded.has(key)) {
+      return { found: false };
+    }
+    const output = this.#seeded.get(key);
+    this.#seeded.delete(key);
+    return { found: true, output };
   }
 
   setWorkflow(workflow: WorkflowSnapshot): Effect.Effect<void> {

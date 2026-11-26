@@ -107,6 +107,7 @@ export const createSchedulerClient = (
       };
     },
     tick: () => use((scheduler) => scheduler.tick),
+    tickWithNext: () => use((scheduler) => scheduler.tickWithNext),
     triggerNow: (id) => use((scheduler) => scheduler.triggerNow(id)),
     unregister: (id) => use((scheduler) => scheduler.unregister(id)),
   };

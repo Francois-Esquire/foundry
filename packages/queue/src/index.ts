@@ -10,3 +10,18 @@ export type {
   RunHandler,
   SubmitJobInput,
 } from "./service";
+export type {
+  ClaimedRun,
+  ClaimRunOptions,
+  EnqueueJobOptions,
+  RecoverExpiredLeasesOptions,
+  SaveRunCheckpointOptions,
+} from "./stateless";
+export {
+  cancelJob,
+  claimRun,
+  enqueueJob,
+  recoverExpiredLeases,
+  saveRunCheckpoint,
+  settleRun,
+} from "./stateless";
