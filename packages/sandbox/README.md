@@ -141,10 +141,8 @@ sandboxFromAdapter(adapter); // a Sandbox over a backend's SandboxAdapter
 
 POSIX glob matching lives in `@foundry/lib/glob` (`globToRegExp`).
 
-The root exports the container labels, the constraints format,
-`ACTIVE_CONTAINER_RESOURCE_STATUSES`, `DEFAULT_SANDBOX_WORKING_DIRECTORY` and
-`removeByHand`. `@foundry/sandbox/tools` exports the toolkit, the tool
-definitions, `DEFAULT_LIMITS` and `MAX_EDIT_RESULT_CHARS`.
+Sandbox and container constants are exported from `@foundry/sandbox`; toolkit
+constants are exported from `@foundry/sandbox/tools`.
 
 ## Storage
 
@@ -453,7 +451,7 @@ mounts should stay read-only with execution disabled.
 
 ```typescript
 const containers = createContainers({ runtime, store, instanceLabel });
-await containers.sweep(); // boot: stop VMs with our labels and no row -> { swept, passedOver }
+await containers.sweep(); // boot: stop VMs with our labels and no row -> names, with .passedOver
 const c = await containers.start(spec); // new row, new VM, a handle
 const c = await containers.open(id); // join a row; restarts its VM if not live here
 await c.commands.exec(["bun", "test"]);
@@ -497,7 +495,8 @@ refused while another holder is removing the row. A live restart that fails drop
 would not go, it is kept to retry.
 
 Row status, persisted, is the one state: `starting`, `running`, `restarting`,
-`stopped`, `failed`, `removing`.
+`stopped`, `failed`, `removing`. The schema also accepts `missing`, which
+`Containers` never writes.
 
 Once a container's removal begins (its last handle closing, a restart or
 `shutdown`), every facet operation on the old VM is refused with

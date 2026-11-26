@@ -2,6 +2,7 @@
 export {
   type ContainerSandboxConstraints,
   type ContainerSandboxMount,
+  containerSandboxConfigFromConstraints,
   containerSandboxConstraintsSchema,
 } from "./container/constraints";
 export type {
@@ -19,9 +20,16 @@ export {
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
+  CONTAINER_PORTABLE_ID_PATTERN,
   CONTAINER_SANDBOX_BASE_LABEL,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
   CONTAINER_STORE_LABEL,
+  DEFAULT_CONTAINER_CPUS,
+  DEFAULT_CONTAINER_IMAGE,
+  DEFAULT_CONTAINER_MEMORY_MIB,
+  DEFAULT_CONTAINER_WORKDIR,
+  INVENTORY_PAGE_LIMIT,
+  MAX_INVENTORY_PAGES,
   removeByHand,
 } from "./container/defaults";
 export type {
@@ -81,6 +89,7 @@ export type {
   SandboxWritable,
 } from "./sandbox";
 export {
+  assertNotAborted,
   type SandboxAdapter,
   sandboxFromAdapter,
 } from "./sandbox-adapter";

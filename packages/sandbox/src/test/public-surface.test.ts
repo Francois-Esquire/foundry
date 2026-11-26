@@ -1,11 +1,20 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  assertNotAborted,
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
+  CONTAINER_PORTABLE_ID_PATTERN,
   CONTAINER_SANDBOX_BASE_LABEL,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
+  containerSandboxConfigFromConstraints,
+  DEFAULT_CONTAINER_CPUS,
+  DEFAULT_CONTAINER_IMAGE,
+  DEFAULT_CONTAINER_MEMORY_MIB,
+  DEFAULT_CONTAINER_WORKDIR,
+  INVENTORY_PAGE_LIMIT,
+  MAX_INVENTORY_PAGES,
   normalizeSandboxPath,
   SandboxError,
   sandboxFromAdapter,
@@ -17,7 +26,27 @@ import {
 } from "@foundry/sandbox/node";
 import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createSandboxToolkit } from "@foundry/sandbox/tools";
+import {
+  bashDefinition,
+  COUNT_WORDS,
+  cdDefinition,
+  createSandboxToolkit,
+  createSandboxToolSchemas,
+  DEFAULT_LIMITS,
+  DEFAULT_READ_LIMIT,
+  editDefinition,
+  globDefinition,
+  grepDefinition,
+  guardExecute,
+  guardState,
+  MAX_EDIT_RESULT_CHARS,
+  readDefinition,
+  SandboxRateLimitError,
+  sandboxInstructions,
+  sandboxToolDefinitions,
+  TOOL_LINES,
+  writeDefinition,
+} from "@foundry/sandbox/tools";
 import { createVirtualSandbox } from "@foundry/sandbox/virtual";
 import { expect, it } from "vitest";
 import packageJson from "../../package.json";
@@ -34,8 +63,42 @@ it("loads portable, tool, virtual, and node functions through canonical exports"
     prepareSandboxProcess,
     ProcessController,
     createMicrosandboxRuntime,
+    assertNotAborted,
+    containerSandboxConfigFromConstraints,
+    createSandboxToolSchemas,
+    sandboxInstructions,
+    guardExecute,
+    guardState,
+    SandboxRateLimitError,
   ]) {
     expect(entry).toBeTypeOf("function");
+  }
+});
+
+it("exposes container defaults and toolkit building blocks", () => {
+  for (const value of [
+    CONTAINER_PORTABLE_ID_PATTERN,
+    DEFAULT_CONTAINER_CPUS,
+    DEFAULT_CONTAINER_IMAGE,
+    DEFAULT_CONTAINER_MEMORY_MIB,
+    DEFAULT_CONTAINER_WORKDIR,
+    INVENTORY_PAGE_LIMIT,
+    MAX_INVENTORY_PAGES,
+    DEFAULT_LIMITS,
+    DEFAULT_READ_LIMIT,
+    MAX_EDIT_RESULT_CHARS,
+    COUNT_WORDS,
+    TOOL_LINES,
+    bashDefinition,
+    cdDefinition,
+    editDefinition,
+    globDefinition,
+    grepDefinition,
+    readDefinition,
+    writeDefinition,
+    sandboxToolDefinitions,
+  ]) {
+    expect(value).toBeDefined();
   }
 });
 

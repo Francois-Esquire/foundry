@@ -149,9 +149,9 @@ describe("the SQLite container store", () => {
           runtime,
           store,
         });
-        const result = await other.sweep();
-        expect(result.swept).toEqual([]);
-        expect(result.passedOver).toEqual([name]);
+        const swept = await other.sweep();
+        expect([...swept]).toEqual([]);
+        expect(swept.passedOver).toEqual([name]);
         expect(runtime.instances.find((i) => i.id === name)?.removed).toBe(
           false
         );

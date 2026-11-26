@@ -503,7 +503,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         kept: Object.freeze(kept),
         passedOver: swept.passedOver,
         removed: Object.freeze(removed),
-        swept: swept.swept,
+        swept: Object.freeze([...swept]),
       });
     },
 

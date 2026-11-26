@@ -72,7 +72,7 @@ describe("real MicroSandbox Containers", () => {
       runtime,
       store: durable,
     });
-    expect((await nextBoot.sweep()).swept).toEqual([`${orphan.id}-1`]);
+    expect(await nextBoot.sweep()).toEqual([`${orphan.id}-1`]);
     expect(
       (await inventory()).filter(
         (r) => r.labels[CONTAINER_ID_LABEL] === orphan.id

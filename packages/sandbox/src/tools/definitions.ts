@@ -149,7 +149,7 @@ export const sandboxToolDefinitions = {
 
 export type SandboxToolName = keyof typeof sandboxToolDefinitions;
 
-const TOOL_LINES: Record<SandboxToolName, string> = {
+export const TOOL_LINES: Record<SandboxToolName, string> = {
   bash: "- `bash` — run a shell command. Prefer the dedicated file tools above when they fit. `timeout` cancels the command and discards its output; processes it started may keep running.",
   cd: "- `cd` — move the working directory. Later relative paths resolve against it, and `bash` runs there. Use it to settle into a subtree instead of repeating a long prefix.",
   edit: "- `edit` — replace an exact string in a file. `old_string` must match uniquely, so include enough surrounding context; set `replace_all` to change every occurrence.",
@@ -160,7 +160,7 @@ const TOOL_LINES: Record<SandboxToolName, string> = {
     "- `write` — create or overwrite a file; parent directories are created for you.",
 };
 
-const COUNT_WORDS = [
+export const COUNT_WORDS = [
   "no",
   "one",
   "two",

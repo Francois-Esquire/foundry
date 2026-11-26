@@ -56,10 +56,9 @@ export interface Containers {
   sweep(signal?: AbortSignal): Promise<ContainerSweep>;
 }
 
-export interface ContainerSweep {
+export type ContainerSweep = readonly string[] & {
   readonly passedOver: readonly string[];
-  readonly swept: readonly string[];
-}
+};
 
 export interface ContainerRecovery {
   readonly conflicts: readonly string[];

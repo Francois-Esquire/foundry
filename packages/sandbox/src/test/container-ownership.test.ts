@@ -114,7 +114,7 @@ describe("a commit that fails after a boot", () => {
     const [row] = await store.list();
     expect(row).toMatchObject({ nativeId: `${row?.id}-1`, status: "failed" });
     allow();
-    expect((await containers.sweep()).swept).toEqual([]);
+    expect(await containers.sweep()).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -142,7 +142,7 @@ describe("a commit that fails after a boot", () => {
     const again = await containers.open(first.id);
     expect(remaining(runtime)).toEqual([`${first.id}-3`]);
     await again.close();
-    expect((await containers.sweep()).swept).toEqual([]);
+    expect(await containers.sweep()).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -167,7 +167,7 @@ describe("a commit that fails after a boot", () => {
     });
     allow();
     await handle.close();
-    expect((await containers.sweep()).swept).toEqual([]);
+    expect(await containers.sweep()).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -198,7 +198,7 @@ describe("a commit that fails after a boot", () => {
     await holder;
     const [row] = await store.list();
     expect(row).toMatchObject({ nativeId: `${row?.id}-1`, status: "starting" });
-    expect((await containers.sweep()).swept).toEqual([]);
+    expect(await containers.sweep()).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -217,9 +217,9 @@ describe("a VM the Containers could not remove", () => {
     expect(remaining(runtime)).toEqual([name]);
 
     allow();
-    expect((await containers.sweep()).swept).toEqual([name]);
+    expect(await containers.sweep()).toEqual([name]);
     expect(remaining(runtime)).toEqual([]);
-    expect((await containers.sweep()).swept).toEqual([]);
+    expect(await containers.sweep()).toEqual([]);
     await containers.shutdown();
   });
 
@@ -299,7 +299,7 @@ describe.each(STORES)(
       expect(name).toBeDefined();
       resume.resolve();
 
-      expect((await sweeping).swept).toEqual([]);
+      expect(await sweeping).toEqual([]);
       expect(remaining(runtime)).toEqual([name]);
       allow();
       await containers.shutdown();
@@ -327,7 +327,7 @@ describe("an old VM whose stop fails", () => {
     expect(remaining(runtime)).toEqual([`${id}-1`, `${id}-2`]);
 
     failStop.length = 0;
-    expect((await containers.sweep()).swept).toEqual([`${id}-1`]);
+    expect(await containers.sweep()).toEqual([`${id}-1`]);
     expect(remaining(runtime)).toEqual([`${id}-2`]);
     await expect(handle.commands.exec(["true"])).resolves.toBeDefined();
     await containers.shutdown();
@@ -380,7 +380,7 @@ describe("a boot whose guest setup fails", () => {
     expect(row?.status).toBe("failed");
     expect(remaining(runtime)).toEqual([`${row?.id}-1`]);
 
-    expect((await containers.sweep()).swept).toEqual([`${row?.id}-1`]);
+    expect(await containers.sweep()).toEqual([`${row?.id}-1`]);
     expect(remaining(runtime)).toEqual([]);
     await containers.shutdown();
   });

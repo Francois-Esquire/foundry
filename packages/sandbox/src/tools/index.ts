@@ -1,7 +1,24 @@
 // biome-ignore lint/performance/noBarrelFile: Public portable toolkit entry point for @foundry/sandbox/tools.
-export { type SandboxToolName, sandboxToolDefinitions } from "./definitions";
+export {
+  bashDefinition,
+  COUNT_WORDS,
+  cdDefinition,
+  DEFAULT_READ_LIMIT,
+  editDefinition,
+  globDefinition,
+  grepDefinition,
+  readDefinition,
+  type SandboxToolName,
+  sandboxInstructions,
+  sandboxToolDefinitions,
+  TOOL_LINES,
+  writeDefinition,
+} from "./definitions";
 export {
   DEFAULT_LIMITS,
+  type GuardState,
+  guardExecute,
+  guardState,
   SandboxRateLimitError,
   type SandboxToolAudit,
   type SandboxToolEvent,

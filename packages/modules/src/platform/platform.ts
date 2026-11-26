@@ -1,5 +1,5 @@
 import type { ArtifactSubstrate } from "@foundry/artifacts";
-import type { Containers } from "@foundry/sandbox";
+import type { ContainerRuntime, Containers } from "@foundry/sandbox";
 
 import type { InstallationId } from "../domain";
 import { createModuleGateway } from "../gateway/module-gateway";
@@ -20,6 +20,11 @@ import { createModuleRuntimeRecovery } from "./runtime-recovery";
 export interface CreateModulePlatformOptions {
   readonly artifacts: ArtifactSubstrate;
   readonly checkouts: ModuleCheckouts;
+  /** @deprecated */
+  readonly containerRuntime?: Pick<
+    ContainerRuntime,
+    "listResources" | "stopResource" | "removeResource"
+  >;
   readonly containers: Containers;
   readonly fetch?: CreateContainerModuleProgramRuntimeOptions["fetch"];
   readonly files: ModuleInstallationFiles;

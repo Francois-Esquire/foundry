@@ -442,6 +442,10 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
     }
   }
 
+  async stop(): Promise<void> {
+    await this.native.stop();
+  }
+
   async remove(): Promise<void> {
     await this.native
       .stopWithTimeout(REMOVE_STOP_TIMEOUT_MS)

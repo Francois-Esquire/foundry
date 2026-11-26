@@ -4,6 +4,7 @@ export const CONTAINER_ROW_STATUSES = Object.freeze([
   "starting",
   "running",
   "restarting",
+  "missing",
   "stopped",
   "failed",
   "removing",

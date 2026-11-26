@@ -319,10 +319,7 @@ export function createInventory(options: {
       await dispose(runtime, resource);
       swept.push(resource.name);
     }
-    return Object.freeze({
-      passedOver: Object.freeze(passedOver),
-      swept: Object.freeze(swept),
-    });
+    return sweepResult(swept, passedOver);
   };
 
   return {
@@ -345,6 +342,18 @@ export function ownsNativeName(rowId: string, name: string): boolean {
 }
 
 const GENERATION = /^\d+$/;
+
+function sweepResult(
+  swept: readonly string[],
+  passedOver: readonly string[]
+): ContainerSweep {
+  const result = [...swept];
+  Object.defineProperty(result, "passedOver", {
+    enumerable: false,
+    value: Object.freeze([...passedOver]),
+  });
+  return Object.freeze(result) as unknown as ContainerSweep;
+}
 
 function isRowsMachine(
   machine: Machine,

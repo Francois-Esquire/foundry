@@ -57,6 +57,7 @@ describe("container store contract", () => {
       "starting",
       "running",
       "restarting",
+      "missing",
       "stopped",
       "failed",
       "removing",

@@ -44,7 +44,7 @@ describe("a restart whose old VM will not go", () => {
 
     expect((await store.get(handle.id))?.status).toBe("failed");
     expect(runtime.instances).toHaveLength(1);
-    expect((await containers.sweep()).swept).toEqual([`${handle.id}-1`]);
+    expect(await containers.sweep()).toEqual([`${handle.id}-1`]);
     const reopened = await containers.open(handle.id);
     expect(reopened.row.nativeId).toBe(`${handle.id}-2`);
     await containers.shutdown();

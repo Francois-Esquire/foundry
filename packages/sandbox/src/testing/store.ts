@@ -325,7 +325,7 @@ export function describeContainerStore(
         createdAt: -Number.MAX_SAFE_INTEGER,
         nativeId: "",
         spec: "",
-        status: "removing",
+        status: "missing",
         updatedAt: Number.MAX_SAFE_INTEGER,
       });
       await target.commit({ putContainers: [before, after, edges] });
