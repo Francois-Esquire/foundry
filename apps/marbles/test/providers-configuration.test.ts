@@ -139,7 +139,6 @@ function plugin(
         id: setup.id,
         languageModel: () => ({}) as never,
         models: setup.models,
-        offline: false,
       };
       return { provider };
     },
@@ -1312,7 +1311,6 @@ it("refuses an entry with a host-supplied provider's id, and keeps its state whe
     id: "work",
     languageModel: () => ({}) as never,
     models: [{ id: "m", kind: "text", modelId: "m" }],
-    offline: false,
   } as unknown as Provider;
   const models = new Models();
   const config = new ProviderConfiguration({
@@ -1359,7 +1357,7 @@ it("builds stand-ins with the same id and catalog for a dry run", async () => {
   store.put(MACHINE_SCOPE, {
     providers: [{ enabled: true, id: "codex", plugin: "codex" }],
   });
-  const echo = vi.fn((provider: Provider) => ({ ...provider, offline: false }));
+  const echo = vi.fn((provider: Provider) => ({ ...provider }));
   const { config, models } = configuration(undefined, { echo });
   await loaded(config);
   expect(echo).toHaveBeenCalledTimes(1);
@@ -1404,7 +1402,6 @@ describe("instance ownership", () => {
             id: setup.settings.key === "MISNAMED" ? "other" : setup.id,
             languageModel: () => ({}) as never,
             models: setup.models,
-            offline: false,
           };
           built.push(provider);
           return { provider };
@@ -1518,7 +1515,6 @@ describe("instance ownership", () => {
         id: real.id,
         languageModel: () => ({}) as never,
         models: real.models,
-        offline: false,
       }),
       plugins: OWNED,
     });
@@ -1587,7 +1583,6 @@ describe("an instance that reads the process environment", () => {
                 supportedUrls: {},
               }) as never,
             models: setup.models,
-            offline: false,
           },
         }),
       })

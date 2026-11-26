@@ -48,7 +48,6 @@ const cli = pluginOf({
       id,
       languageModel: () => replying(),
       models,
-      offline: false,
     } satisfies Provider,
   }),
   id: "cli",

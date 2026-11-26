@@ -48,7 +48,7 @@ Domain packages follow a canonical subpath layout so callers gain consistent **l
 | `./store/tables` | Drizzle schema tables | Drizzle |
 | `./testing/store` | Shared store conformance suite | Portable test helper |
 | `./node` | OS, filesystem, git, watcher, and child-process **adapters** plus Node convenience factories | Node / Bun |
-| `./node/*` | Further OS, filesystem, git, watcher, child-process, and host runtime **adapters**, such as `@foundry/models/node/live` | Node / Bun |
+| `./node/*` | Further OS, filesystem, git, watcher, child-process, and host runtime **adapters**, such as `@foundry/lib/node/file-lock` | Node / Bun |
 | `./providers`, `./providers/*` | Opt-in provider-specific **adapters** and outputs (`models`, `usage`, `prompts`, and others) that hosts assemble selectively and `.` never imports | Any; may use Node / Bun |
 
 `./node` and `./node/*` are strictly for OS, filesystem, git, watcher, child-process, and host runtime **adapters** and Node convenience factories. They are not where providers go: a provider-specific **adapter**, whether or not it needs Node, lives at `./providers/*`.

@@ -271,15 +271,15 @@ describe("codexProvider", () => {
     await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   });
 
-  it("refuses to confirm going offline when the SDK hides its process", async () => {
+  it("fails dispose when the SDK hides its process", async () => {
     languageModel.mockImplementationOnce((modelId: string) => ({
       doGenerate,
       modelId,
     }));
     const provider = codexProvider({ env });
     await provider.languageModel("gpt-5.5").doGenerate(CALL);
-    await expect(provider.setOffline?.(true)).rejects.toThrow(
-      "could not confirm it went offline"
+    await expect(provider.dispose?.()).rejects.toThrow(
+      "could not stop its app-server"
     );
   });
 

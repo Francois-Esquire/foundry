@@ -40,7 +40,7 @@ async function scratch(): Promise<string> {
 const CUSTOM = `const echo = defineProvider({
   catalog: () => [{ id: "echo", kind: "text", modelId: "echo" }],
   create: ({ id, models }) => ({
-    provider: { available: true, id, languageModel: () => ({}), models: [...models], offline: false },
+    provider: { available: true, id, languageModel: () => ({}), models: [...models] },
   }),
   id: "acme",
   label: "Acme",

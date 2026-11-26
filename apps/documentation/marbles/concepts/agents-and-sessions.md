@@ -257,8 +257,7 @@ step("review").do(async () => {
 `models.available(selection)` returns a boolean synchronously. It accepts
 bare model IDs, provider-qualified IDs, and explicit `{ provider, model }`
 selections. It returns `true` when the selection resolves for any model kind
-using the configured catalog, current provider availability, and policy
-such as Airplane Mode. If a string is ambiguous for a kind, use the
+using the configured catalog and current provider availability. If a string is ambiguous for a kind, use the
 explicit object form to choose its meaning.
 
 Use the check during a step or inside a deferred `agent(() => …)`

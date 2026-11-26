@@ -1,23 +1,6 @@
-import type { CapabilityFact } from "./capability";
-
-export const MODEL_KINDS = [
-  "text",
-  "embedding",
-  "transcription",
-  "image",
-  "video",
-  "speech",
-  "music",
-  "sound",
-  "segmentation",
-] as const;
+export const MODEL_KINDS = ["text", "embedding", "image"] as const;
 
 export type ModelKind = (typeof MODEL_KINDS)[number];
-
-export interface MediaPrice {
-  readonly unit: "image" | "second" | "megapixel" | "character" | "request";
-  readonly usd: number;
-}
 
 export interface ModelCostTier {
   costPer1M: number;
@@ -60,8 +43,6 @@ export interface ProviderModelDefinition {
   label?: string;
   limits?: ModelLimits;
   modelId: string;
-  operations?: readonly CapabilityFact[];
   params?: string[];
-  price?: MediaPrice;
   vendor?: string;
 }

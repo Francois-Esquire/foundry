@@ -24,7 +24,6 @@ const detected = (id: string, found: boolean) =>
         id: name,
         languageModel: () => ({}) as never,
         models: [],
-        offline: false,
       } satisfies Provider,
     }),
     detect: () => (found ? {} : null),
