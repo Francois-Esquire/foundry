@@ -363,7 +363,7 @@ describe("the CLI on the Marbles database", () => {
       )
     );
     const before = snapshot(state);
-    const status = marbles(home, work, "status");
+    const status = marbles(home, work, "workspaces");
     expect(status.status).toBe(1);
     expect(status.stderr).toMatch(NEWER);
     expect(status.stderr).not.toMatch(STACK_FRAME);
@@ -378,7 +378,7 @@ describe("the CLI on the Marbles database", () => {
     await touchWorkspace(state, workspace, null, { hosted: true });
     const outside = scratch();
     symlinkSync(outside, workspace.dir);
-    const detached = marbles(home, root, "daemon", "detach");
+    const detached = marbles(home, root, "stop", "--workspace");
     expect(detached.status, detached.stderr).toBe(0);
     expect(readdirSync(outside)).toEqual([]);
     const stored = async () => {
@@ -404,7 +404,7 @@ describe("the CLI on the Marbles database", () => {
     const { state } = home.layout;
     const workspace = workspaceState(state, root);
     await touchWorkspace(state, workspace, null, { hosted: true });
-    const detached = marbles(home, root, "daemon", "detach");
+    const detached = marbles(home, root, "stop", "--workspace");
     expect(detached.status, detached.stderr).toBe(0);
     expect(detached.stdout).toContain("no Marbles process is running");
     expect((await readWorkspace(state, workspace.id))?.hosted).toBe(false);

@@ -575,7 +575,7 @@ export const hold = step("hold").do(async () => {
     await expect(refused).rejects.toThrow(
       `keeps artifacts in ${machine.artifacts}, not ${elsewhere.artifacts}`
     );
-    await expect(refused).rejects.toThrow("marbles daemon stop");
+    await expect(refused).rejects.toThrow("marbles stop");
   });
 
   it("refuses a second source under a hosted root, and dispatch params it cannot parse", async () => {

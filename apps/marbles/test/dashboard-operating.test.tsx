@@ -2,11 +2,11 @@ import { RGBA } from "@opentui/core";
 import { sleep } from "bun";
 import { act, useCallback, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { applyTheme } from "../src/cli/theme";
-import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
 import type { SettingsChange } from "../src/model/settings";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { applyTheme } from "../src/tui/theme";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import {
   click,

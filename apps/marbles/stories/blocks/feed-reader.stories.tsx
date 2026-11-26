@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { feedItem } from "~/cli/state/feed-model";
 import {
   type AnswerChoice,
   type AnswerView,
@@ -9,6 +8,7 @@ import {
 } from "~/components/blocks/feed-reader";
 import { Action } from "~/components/ui/action";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { feedItem } from "~/tui/state/feed-model";
 import { ignore, renderFrame } from "../frame";
 import {
   answeredEntry,

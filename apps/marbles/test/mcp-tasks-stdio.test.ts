@@ -159,16 +159,12 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }),
   ]);
   try {
-    const attached = spawnSync(
-      "bun",
-      cliArgs("daemon", "attach", "--source", source),
-      {
-        cwd: root,
-        encoding: "utf8",
-        env: home.env,
-        timeout: 60_000,
-      }
-    );
+    const attached = spawnSync("bun", cliArgs("start", "--source", source), {
+      cwd: root,
+      encoding: "utf8",
+      env: home.env,
+      timeout: 60_000,
+    });
     expect(attached.status, attached.stderr).toBe(0);
     await client.connect(transport);
     const created = await client.callTool({
@@ -299,9 +295,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     const [first] = JSON.parse(after.stdout).items;
     for (const argv of [
       ["list"],
-      ["ready", "--any-tag", "cli"],
+      ["list", "--ready", "--tag", "cli"],
       ["get", first.id, "--depth", "1"],
-      ["deps", first.id],
     ]) {
       const read = cli(...argv, "--json");
       expect(read.status, `${argv.join(" ")}: ${read.stderr}`).toBe(0);

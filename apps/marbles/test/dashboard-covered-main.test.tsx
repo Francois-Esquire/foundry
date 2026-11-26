@@ -1,13 +1,13 @@
 import { act } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { mainContent, overviewModel } from "~/cli/state/dashboard-views";
-import type { HostedWorkspace } from "~/cli/state/use-dashboard";
-import { DashboardView } from "~/cli/views/dashboard";
+import { mainContent, overviewModel } from "~/tui/state/dashboard-views";
+import type { HostedWorkspace } from "~/tui/state/use-dashboard";
+import { DashboardView } from "~/tui/views/dashboard";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { flush, mount, unmount } from "./helpers/render";
 
-vi.mock("~/cli/state/dashboard-views", async (original) => {
-  const actual = await original<typeof import("~/cli/state/dashboard-views")>();
+vi.mock("~/tui/state/dashboard-views", async (original) => {
+  const actual = await original<typeof import("~/tui/state/dashboard-views")>();
   return {
     ...actual,
     mainContent: vi.fn(actual.mainContent),

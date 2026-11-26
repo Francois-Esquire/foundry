@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { selectionKey } from "~/cli/state/dashboard-model";
+import { selectionKey } from "~/tui/state/dashboard-model";
 import {
   type DashboardEvent,
   type DashboardState,
   initialState,
   reduce,
   visibleLists,
-} from "~/cli/state/dashboard-state";
+} from "~/tui/state/dashboard-state";
 import {
   browseSearch,
   browsing,
@@ -15,8 +15,8 @@ import {
   logsDrawer,
   mainContent,
   overviewModel,
-} from "~/cli/state/dashboard-views";
-import { operatingLogs } from "~/cli/state/operating-model";
+} from "~/tui/state/dashboard-views";
+import { operatingLogs } from "~/tui/state/operating-model";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 function stateAfter(...events: DashboardEvent[]): DashboardState {

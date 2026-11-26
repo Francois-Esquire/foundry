@@ -69,6 +69,7 @@ export default defineConfig({
   },
   entry: {
     cli: "src/cli.ts",
+    daemon: "src/process/daemon-entry.ts",
     engine: "src/entries/embedded.ts",
     generation: "src/process/generation.ts",
     index: "src/authoring/index.ts",

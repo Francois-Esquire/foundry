@@ -1,6 +1,6 @@
 import { defineStories, story } from "textbook-sh";
-import { helpSections } from "~/cli/state/dashboard-commands";
 import { KeyboardHelp } from "~/components/blocks/keyboard-help";
+import { helpSections } from "~/tui/state/dashboard-commands";
 import { renderFrame } from "../frame";
 
 const size = { height: 24, padded: false, width: 80 };

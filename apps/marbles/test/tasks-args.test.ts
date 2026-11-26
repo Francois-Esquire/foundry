@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
-import { parseArgs, UsageError } from "~/cli/args";
+import { UsageError } from "~/cli/errors";
+import { parseArgs } from "~/cli/index";
 
 function task(argv: readonly string[]) {
   const args = parseArgs(["tasks", ...argv]);
@@ -9,7 +10,18 @@ function task(argv: readonly string[]) {
   return args;
 }
 
-it("reads queries, checked by the Tasks package's schemas", () => {
+it("defaults to list and reads list, --ready, and get queries with optional --workspace", () => {
+  expect(task([])).toMatchObject({
+    json: false,
+    task: { kind: "list", query: {} },
+  });
+  expect(
+    task(["--ready", "--limit", "3", "--workspace", "ws-1"])
+  ).toMatchObject({
+    json: false,
+    task: { kind: "ready", query: { limit: 3 } },
+    workspace: "ws-1",
+  });
   expect(
     task([
       "list",
@@ -21,8 +33,6 @@ it("reads queries, checked by the Tasks package's schemas", () => {
       "2",
       "--limit",
       "5",
-      "--cursor",
-      "10",
       "--json",
     ])
   ).toMatchObject({
@@ -30,7 +40,6 @@ it("reads queries, checked by the Tasks package's schemas", () => {
     task: {
       kind: "list",
       query: {
-        cursor: 10,
         depth: 2,
         limit: 5,
         parentId: "tk-1",
@@ -41,22 +50,23 @@ it("reads queries, checked by the Tasks package's schemas", () => {
   expect(task(["list", "--root"]).task).toMatchObject({
     query: { parentId: null },
   });
-  expect(task(["ready", "--limit", "3"])).toMatchObject({
+  expect(task(["list", "--ready", "--limit", "3"])).toMatchObject({
     json: false,
     task: { kind: "ready", query: { limit: 3 } },
   });
-  expect(task(["get", "tk-1", "--depth", "1"]).task).toEqual({
-    depth: 1,
-    id: "tk-1",
-    kind: "get",
-  });
-  expect(task(["deps", "tk-1"]).task).toEqual({
-    id: "tk-1",
-    kind: "dependencies",
+  expect(
+    task(["get", "tk-1", "--depth", "1", "--workspace", "ws-1"])
+  ).toMatchObject({
+    task: {
+      depth: 1,
+      id: "tk-1",
+      kind: "inspect",
+    },
+    workspace: "ws-1",
   });
 });
 
-it("compiles every write to one batch in the task command language", () => {
+it("compiles create and update (including status and parent moves) into atomic batches", () => {
   expect(
     task([
       "create",
@@ -65,100 +75,77 @@ it("compiles every write to one batch in the task command language", () => {
       "the guide",
       "--parent",
       "tk-epic",
-      "--depends-on",
-      "tk-a",
-      "--depends-on",
-      "tk-b",
+      "--workspace",
+      "ws-1",
+    ])
+  ).toMatchObject({
+    task: {
+      change: {
+        operations: [
+          {
+            input: { description: "the guide", title: "Write docs" },
+            key: "task",
+            kind: "task.create",
+            parent: { id: "tk-epic" },
+          },
+        ],
+      },
+      kind: "change",
+    },
+    workspace: "ws-1",
+  });
+  expect(
+    task([
+      "update",
+      "tk-1",
+      "--title",
+      "New",
+      "--status",
+      "completed",
+      "--parent",
+      "tk-2",
     ]).task
   ).toEqual({
     change: {
       operations: [
         {
-          input: { description: "the guide", title: "Write docs" },
-          key: "task",
-          kind: "task.create",
-          parent: { id: "tk-epic" },
-        },
-        {
-          dependsOn: { id: "tk-a" },
-          kind: "dependency.add",
-          task: { key: "task" },
-        },
-        {
-          dependsOn: { id: "tk-b" },
-          kind: "dependency.add",
-          task: { key: "task" },
-        },
-      ],
-    },
-    kind: "change",
-  });
-  const expect_ = "2026-10-29T00:00:00.000Z";
-  expect(
-    task(["update", "tk-1", "--title", "New", "--expect", expect_]).task
-  ).toEqual({
-    change: {
-      operations: [
-        {
-          expectedUpdatedAt: expect_,
           kind: "task.update",
           patch: { title: "New" },
+          task: { id: "tk-1" },
+        },
+        {
+          kind: "task.set_status",
+          status: "completed",
+          task: { id: "tk-1" },
+        },
+        {
+          kind: "task.move",
+          parent: { id: "tk-2" },
           task: { id: "tk-1" },
         },
       ],
     },
     kind: "change",
   });
-  const statuses = {
-    cancel: "cancelled",
-    complete: "completed",
-    reopen: "open",
-    start: "active",
-  } as const;
-  for (const [action, status] of Object.entries(statuses)) {
-    expect(task([action, "tk-1"]).task).toEqual({
+  for (const status of ["open", "active", "completed", "cancelled"] as const) {
+    expect(task(["update", "tk-1", "--status", status]).task).toEqual({
       change: {
         operations: [{ kind: "task.set_status", status, task: { id: "tk-1" } }],
       },
       kind: "change",
     });
   }
-  expect(task(["move", "tk-1", "--root"]).task).toMatchObject({
+  expect(task(["update", "tk-1", "--root"]).task).toMatchObject({
     change: { operations: [{ kind: "task.move", parent: null }] },
   });
-  expect(task(["move", "tk-1", "--parent", "tk-2"]).task).toMatchObject({
-    change: { operations: [{ kind: "task.move", parent: { id: "tk-2" } }] },
-  });
-  expect(task(["depend", "tk-1", "tk-2"]).task).toMatchObject({
-    change: {
-      operations: [
-        {
-          dependsOn: { id: "tk-2" },
-          kind: "dependency.add",
-          task: { id: "tk-1" },
-        },
-      ],
-    },
-  });
-  expect(task(["undepend", "tk-1", "tk-2"]).task).toMatchObject({
-    change: { operations: [{ kind: "dependency.remove" }] },
-  });
-  const batch = {
-    operations: [{ input: { title: "A" }, key: "a", kind: "task.create" }],
-  };
-  expect(
-    task(["change", "--input", JSON.stringify(batch), "--json"])
-  ).toMatchObject({ json: true, task: { change: batch, kind: "change" } });
 });
 
 it("reads tags as filters, on create, and as a replacement on update", () => {
-  expect(
-    task(["list", "--tag", "a", "--tag", "b", "--any-tag", "c"]).task
-  ).toMatchObject({
-    query: { tags: { all: ["a", "b"], any: ["c"] } },
+  expect(task(["list", "--tag", "a", "--tag", "b"]).task).toMatchObject({
+    query: { tags: { all: ["a", "b"] } },
   });
-  expect(task(["ready", "--any-tag", "c"]).task).toMatchObject({
-    query: { tags: { any: ["c"] } },
+  expect(task(["list", "--ready", "--tag", "c"]).task).toMatchObject({
+    query: { tags: { all: ["c"] } },
   });
   expect(task(["list"]).task).toMatchObject({ query: { tags: undefined } });
   expect(task(["create", "T", "--tag", "a", "--tag", ""]).task).toMatchObject({
@@ -172,43 +159,47 @@ it("reads tags as filters, on create, and as a replacement on update", () => {
   });
 });
 
-it("reads --metadata as JSON: stored on create, a patch on update", () => {
-  expect(
-    task(["create", "T", "--metadata", '{"size":"m"}']).task
-  ).toMatchObject({
-    change: {
-      operations: [{ input: { metadata: { size: "m" }, title: "T" } }],
-    },
-  });
-  expect(
-    task(["update", "tk-1", "--metadata", '{"size":null,"owner":"me"}']).task
-  ).toMatchObject({
-    change: {
-      operations: [{ patch: { metadata: { owner: "me", size: null } } }],
-    },
-  });
-});
-
-it("refuses a __proto__ key in --metadata at any depth", () => {
-  for (const metadata of ['{"__proto__":null}', '{"x":[{"__proto__":1}]}']) {
-    expect(() =>
-      parseArgs(["tasks", "update", "tk-1", "--metadata", metadata])
-    ).toThrow('"__proto__" is not allowed as a metadata key');
-  }
-});
-
-it("refuses a tasks line that cannot run, before anything loads", () => {
+it("refuses unknown actions, removed actions, and removed flags", () => {
   const refusals: [readonly string[], string | RegExp][] = [
-    [[], "tasks takes an action: cancel, change"],
-    [["remove", "tk-1"], "tasks takes an action"],
+    [
+      ["remove", "tk-1"],
+      'tasks takes list, get, create, or update (got "remove")',
+    ],
+    [["ready"], 'tasks takes list, get, create, or update (got "ready")'],
+    [["deps", "tk-1"], 'tasks takes list, get, create, or update (got "deps")'],
+    [
+      ["start", "tk-1"],
+      'tasks takes list, get, create, or update (got "start")',
+    ],
+    [
+      ["complete", "tk-1"],
+      'tasks takes list, get, create, or update (got "complete")',
+    ],
+    [
+      ["move", "tk-1", "--root"],
+      'tasks takes list, get, create, or update (got "move")',
+    ],
+    [["change"], 'tasks takes list, get, create, or update (got "change")'],
     [["list", "--tags", "x"], "tasks list: unknown option --tags"],
+    [["list", "--any-tag", "x"], "tasks list: unknown option --any-tag"],
+    [["list", "--cursor", "1"], "tasks list: unknown option --cursor"],
+    [
+      ["update", "tk-1", "--expect", "x"],
+      "tasks update: unknown option --expect",
+    ],
+    [
+      ["update", "tk-1", "--metadata", "{}"],
+      "tasks update: unknown option --metadata",
+    ],
     [["list", "--status", "done"], "tasks list:"],
     [["list", "--limit", "0"], "tasks list:"],
     [["list", "--limit", "many"], "--limit takes an integer"],
-    [["list", "--cursor", "-1"], "tasks list:"],
     [["list", "--root", "--parent", "tk-1"], "--root or --parent, not both"],
     [["list", "extra"], 'tasks list: unexpected "extra"'],
-    [["ready", "--status", "open"], "tasks ready does not take --status"],
+    [
+      ["list", "--ready", "--status", "open"],
+      "tasks list does not take --status",
+    ],
     [["get"], "tasks get takes a task id"],
     [["get", "tk-1", "--depth"], "--depth takes a value"],
     [["create"], "tasks create takes a title"],
@@ -216,7 +207,7 @@ it("refuses a tasks line that cannot run, before anything loads", () => {
     [["create", ""], "tasks create:"],
     [
       ["update", "tk-1"],
-      "tasks update takes --title, --description, --metadata, --tag, or --clear-tags",
+      "tasks update takes --status, --title, --description, --parent, --root, --tag, or --clear-tags",
     ],
     [
       ["update", "tk-1", "--tag", "a", "--clear-tags"],
@@ -228,23 +219,7 @@ it("refuses a tasks line that cannot run, before anything loads", () => {
     ],
     [["get", "tk-1", "--tag", "a"], "tasks get does not take --tag"],
     [["update", "tk-1", "--title", ""], "tasks update:"],
-    [["start", "tk-1", "--expect", "yesterday"], "tasks start:"],
-    [["move", "tk-1"], "tasks move takes --parent <id> or --root"],
-    [["depend", "tk-1"], "tasks depend takes a task id and the id"],
-    [["list", "--input", "{}"], "--input is for tasks change"],
-    [["change"], "tasks change takes --input"],
-    [["change", "--input", "{"], "--input is not JSON"],
-    [["update", "tk-1", "--metadata", "{"], "--metadata is not JSON"],
-    [["create", "A", "--metadata", "[1]"], "tasks create:"],
-    [["change", "--input", '{"operations":[]}'], "tasks change:"],
-    [
-      [
-        "change",
-        "--input",
-        '{"operations":[{"kind":"task.delete","task":{"id":"x"}}]}',
-      ],
-      "tasks change:",
-    ],
+    [["update", "tk-1", "--status", "done"], "tasks update:"],
   ];
   for (const [argv, message] of refusals) {
     expect(() => parseArgs(["tasks", ...argv]), argv.join(" ")).toThrow(
@@ -258,9 +233,9 @@ it("refuses a tasks line that cannot run, before anything loads", () => {
 });
 
 it("takes an option's value literally, even when it spells a global flag", () => {
-  for (const value of ["--help", "-h", "--dry-run", "--recheck-providers"]) {
+  for (const value of ["--help", "-h", "--json"]) {
     const args = task(["create", "Fix", "--description", value]);
-    expect(args).toMatchObject({ command: "tasks", dry: false });
+    expect(args).toMatchObject({ command: "tasks", json: false });
     expect(args.task).toMatchObject({
       change: {
         operations: [

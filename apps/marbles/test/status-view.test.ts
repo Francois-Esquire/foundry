@@ -1,8 +1,8 @@
 import { createTestRenderer } from "@opentui/core/testing";
 import { describe, expect, test } from "vitest";
 import { statusText } from "../src/cli/status/text";
-import { createStatusView } from "../src/cli/status/view";
 import type { StatusReport } from "../src/status/model";
+import { createStatusView } from "../src/tui/status/view";
 
 function report(orphaned = false): StatusReport {
   return {
