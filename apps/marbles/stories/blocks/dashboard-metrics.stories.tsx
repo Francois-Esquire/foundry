@@ -1,17 +1,17 @@
 import { defineStories, story } from "textbook-sh";
 import {
-  dashboardMetrics,
-  workflowRankingsView,
-} from "~/cli/state/dashboard-metrics";
-import type {
-  DashboardSnapshot,
-  RunSnapshot,
-} from "~/cli/state/dashboard-model";
-import {
   DashboardMetrics,
   showsWorkflowRankings,
 } from "~/components/blocks/dashboard-metrics";
 import type { UsageTotal } from "~/model/usage";
+import {
+  dashboardMetrics,
+  workflowRankingsView,
+} from "~/tui/state/dashboard-metrics";
+import type {
+  DashboardSnapshot,
+  RunSnapshot,
+} from "~/tui/state/dashboard-model";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { renderFrame } from "../frame";
 

@@ -553,7 +553,7 @@ it("tells the caller to restart a Marbles process that predates listRuns, withou
   const answer = refused(await connected.call("list", { resource: "runs" }));
   expect(answer.code).toBe("daemon_outdated");
   expect(answer.message).toContain("listRuns");
-  expect(answer.message).toContain("marbles daemon stop");
+  expect(answer.message).toContain("marbles stop");
   const unrelated = refused(
     await connected.call("get", { id: "rn-2", resource: "run" })
   );

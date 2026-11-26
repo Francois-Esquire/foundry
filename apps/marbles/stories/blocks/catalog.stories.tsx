@@ -1,15 +1,15 @@
 import { useCallback, useMemo, useState } from "react";
 import { defineStories, story } from "textbook-sh";
 import {
-  type DashboardSelection,
-  selectionKey,
-} from "~/cli/state/dashboard-model";
-import {
   type DefinitionRow,
   DefinitionsBlock,
   type TriggerRow,
   TriggersBlock,
 } from "~/components/blocks/catalog";
+import {
+  type DashboardSelection,
+  selectionKey,
+} from "~/tui/state/dashboard-model";
 import { ignore, renderFrame } from "../frame";
 import {
   definitionItems,

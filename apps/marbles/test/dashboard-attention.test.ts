@@ -1,8 +1,8 @@
 import { expect, it } from "vitest";
-import { runRows } from "~/cli/state/dashboard-tree";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { LiveWork } from "~/lib/step-work";
 import type { RunRecord } from "~/lib/workflow-runs";
+import { runRows } from "~/tui/state/dashboard-tree";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 
 const record: RunRecord = {

@@ -1,11 +1,11 @@
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useState } from "react";
 import { afterEach, describe, expect, test } from "vitest";
-import { feedItem } from "../src/cli/state/feed-model";
 import { FeedReader } from "../src/components/blocks/feed-reader";
 import { PromptBar } from "../src/components/blocks/prompt-bar";
 import { SearchBar } from "../src/components/blocks/search-bar";
 import { fitInputRow } from "../src/components/ui/input-row";
+import { feedItem } from "../src/tui/state/feed-model";
 import { pendingEntry } from "../stories/blocks/fixtures-a";
 import { mount, type Rendered, unmount } from "./helpers/render";
 

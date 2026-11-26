@@ -1,18 +1,18 @@
-import {
-  type DashboardSelection,
-  type DashboardSnapshot,
-  type RunSnapshot,
-  resolveSelection,
-  type StepSnapshot,
-} from "~/cli/state/dashboard-model";
-import type { InspectorTab } from "~/cli/state/dashboard-state";
-import { inspectorSubject, runTab } from "~/cli/state/inspector";
 import type { Breadcrumb, RunTabView } from "~/components/blocks/run-inspector";
 import type {
   RunOverviewView,
   StepOverviewView,
 } from "~/components/blocks/run-overview";
 import type { WorkspaceSummary } from "~/model/connection";
+import {
+  type DashboardSelection,
+  type DashboardSnapshot,
+  type RunSnapshot,
+  resolveSelection,
+  type StepSnapshot,
+} from "~/tui/state/dashboard-model";
+import type { InspectorTab } from "~/tui/state/dashboard-state";
+import { inspectorSubject, runTab } from "~/tui/state/inspector";
 import { previewScenarios } from "../fixtures/scenarios";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 

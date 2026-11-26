@@ -2,11 +2,11 @@ import type { ChannelMessage } from "@foundry/workflows/channels";
 import { RGBA } from "@opentui/core";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { selectionKey } from "../src/cli/state/dashboard-model";
-import type { RunActions } from "../src/cli/state/run-actions";
-import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { selectionKey } from "../src/tui/state/dashboard-model";
+import type { RunActions } from "../src/tui/state/run-actions";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import {
   click,

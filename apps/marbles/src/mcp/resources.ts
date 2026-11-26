@@ -24,7 +24,7 @@ export interface McpServerOptions {
     id: string,
     work: (workspace: WorkspaceConnection) => Promise<T>
   ): Promise<T>;
-  readonly id: string;
+  readonly id?: string;
   readonly tasks: TaskCommandRunner;
   workspaces(): Promise<readonly WorkspaceSummary[]>;
 }
@@ -178,7 +178,7 @@ const GETS: Readonly<Record<GetResource, GetSpec>> = {
 };
 
 const WORKSPACE_DESCRIPTION =
-  "A workspace id from list (resource: workspaces); this server's workspace when omitted.";
+  "A workspace id from list (resource: workspaces); defaults to the active workspace when started inside one.";
 
 export const WORKSPACE_INPUT = z
   .string()
@@ -507,7 +507,20 @@ function narrowList(input: ListInput): ListRequest {
   }
 }
 
-function narrowGet(input: GetInput, own: string): GetRequest {
+export function requireWorkspaceId(
+  id: string | undefined,
+  own: string | undefined
+): string {
+  const resolved = id ?? own;
+  if (resolved === undefined) {
+    refuseArgument(
+      "workspace is required when no default workspace is active; list (resource: workspaces) names them"
+    );
+  }
+  return resolved;
+}
+
+function narrowGet(input: GetInput, own: string | undefined): GetRequest {
   const { resource } = input;
   const spec = GETS[resource];
   const what = `get ${resource}`;
@@ -519,13 +532,19 @@ function narrowGet(input: GetInput, own: string): GetRequest {
     if (input.workspace !== undefined) {
       refuseArgument(`${what} takes the workspace's id as id, not workspace`);
     }
+    const id = input.id ?? own;
+    if (id === undefined) {
+      refuseArgument(
+        `${what} needs an id when no default workspace is active; list (resource: workspaces) names them`
+      );
+    }
     return {
       config: fields.some((field) =>
         (CONFIG_FIELDS as readonly string[]).includes(field)
       ),
       explicit: input.fields !== undefined,
       fields,
-      id: input.id ?? own,
+      id,
       resource,
     };
   }
@@ -601,7 +620,7 @@ export interface Resources {
 function outdatedDaemon(method: string, cause: Error): ToolRefusal {
   return new ToolRefusal(
     "daemon_outdated",
-    `the running Marbles process predates the "${method}" method this MCP server needs; restart it with \`marbles daemon stop\` and then \`marbles daemon start\``,
+    `the running Marbles process predates the "${method}" method this MCP server needs; restart it with \`marbles stop\` and then \`marbles start\``,
     { cause }
   );
 }
@@ -609,11 +628,11 @@ function outdatedDaemon(method: string, cause: Error): ToolRefusal {
 export function resources(options: McpServerOptions): Resources {
   const { workspaces } = options;
   const tasks: TaskCommandRunner = (command, workspace) =>
-    options.tasks(command, workspace ?? options.id);
+    options.tasks(command, requireWorkspaceId(workspace, options.id));
   const on = <T>(
     id: string | undefined,
     work: (workspace: WorkspaceConnection) => Promise<T>
-  ): Promise<T> => options.hosted(id ?? options.id, work);
+  ): Promise<T> => options.hosted(requireWorkspaceId(id, options.id), work);
 
   const listed = async (request: ListRequest) => {
     switch (request.resource) {

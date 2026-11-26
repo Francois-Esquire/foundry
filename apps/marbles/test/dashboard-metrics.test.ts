@@ -2,8 +2,8 @@ import { expect, it } from "vitest";
 import {
   dashboardMetrics,
   workflowRankingsView,
-} from "~/cli/state/dashboard-metrics";
-import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
+} from "~/tui/state/dashboard-metrics";
+import type { DashboardSnapshot } from "~/tui/state/dashboard-model";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const PERCENT = /^\d+%$/;

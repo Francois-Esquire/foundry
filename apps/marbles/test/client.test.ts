@@ -111,7 +111,7 @@ describe("connecting to the Marbles process", () => {
     const refused = connect({ layout: at, start: false });
     await expect(refused).rejects.toThrow(ProcessMismatchError);
     await expect(refused).rejects.toThrow("runs version 0.0.0-old");
-    await expect(refused).rejects.toThrow("marbles daemon stop");
+    await expect(refused).rejects.toThrow("marbles stop");
     expect(asked).toEqual(["hello"]);
 
     const agreed: string[][] = [];
@@ -228,7 +228,7 @@ describe("connecting to the Marbles process", () => {
     const at = machine();
     await expect(
       connect({
-        cliEntry: join(at.home, "no-such-entry.ts"),
+        daemonEntry: join(at.home, "no-such-entry.ts"),
         layout: at,
         timeoutMs: 500,
       })
@@ -239,7 +239,7 @@ describe("connecting to the Marbles process", () => {
   it("keeps no descriptor to the daemon log when spawning the daemon throws", async () => {
     const at = machine();
     await expect(
-      connect({ cliEntry: "bad\0entry", layout: at, timeoutMs: 500 })
+      connect({ daemonEntry: "bad\0entry", layout: at, timeoutMs: 500 })
     ).rejects.toThrow();
     expect(descriptorsOn(join(at.state, "daemon.log"))).toEqual([]);
   });

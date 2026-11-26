@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "vitest";
-import { feedItem } from "../src/cli/state/feed-model";
 import { DashboardMetrics } from "../src/components/blocks/dashboard-metrics";
 import { FeedReader } from "../src/components/blocks/feed-reader";
 import {
@@ -8,6 +7,7 @@ import {
 } from "../src/components/blocks/operating-overview";
 import { RunStream } from "../src/components/blocks/run-stream";
 import { FeedLayout } from "../src/components/layouts/feed";
+import { feedItem } from "../src/tui/state/feed-model";
 import { answeredEntry, cancelledEntry } from "../stories/blocks/fixtures-a";
 import { frameWith, mount, unmount } from "./helpers/render";
 

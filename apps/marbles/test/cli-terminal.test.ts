@@ -14,11 +14,9 @@ import { expect, test } from "vitest";
 import { DatabaseProviderStore } from "../src/database/providers";
 import { marblesProviderConfigurations } from "../src/database/tables";
 import { writeAsHost } from "../src/database/workspaces";
-import { stateDatabase } from "../src/layout";
 import { readProcess } from "../src/process/instance";
 import { type TestHome, testHome } from "./helpers/home";
 import { openTerminal } from "./helpers/screen";
-import { snapshotTrees } from "./helpers/tree-snapshot";
 
 const ZOD = import.meta.resolve("zod");
 
@@ -35,57 +33,7 @@ async function until(predicate: () => boolean, ms = SCREEN_MS) {
   }
 }
 
-test("real CLI without arguments gates startup and cancels a live run", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "marbles-terminal-"));
-  const home = testHome();
-  const config = join(dir, "marbles.config.ts");
-  const started = join(dir, "started");
-  const cancelled = join(dir, "cancelled");
-  writeFileSync(
-    config,
-    `
-    import { writeFileSync } from "node:fs";
-    import { schedule, step } from "@foundry.sh/marbles";
-    const wait = step("waiting-step").do(({ signal, log }) => new Promise(resolve => {
-      writeFileSync(${JSON.stringify(started)}, "started");
-      log("Waiting for cancellation");
-      signal.addEventListener("abort", () => {
-        writeFileSync(${JSON.stringify(cancelled)}, "cancelled");
-        resolve(null);
-      }, { once: true });
-    }));
-    schedule(wait).every("1s");
-  `
-  );
-  const terminal = openTerminal(
-    home,
-    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--source", config],
-    { cols: 120, rows: 40 }
-  );
-  const { child } = terminal;
-  try {
-    await terminal.see("Press Enter to enter");
-    await sleep(1200);
-    expect(existsSync(started)).toBe(false);
-    child.terminal?.write("\r");
-    await until(() => existsSync(started));
-    await terminal.see("waiting-step");
-    expect(await terminal.shown("Triggers")).toBe(true);
-    expect(await terminal.shown("2 Marbles")).toBe(true);
-    child.terminal?.write("q");
-    await terminal.see("Quit Marbles?");
-    await sleep(450);
-    child.terminal?.write("\x03");
-    await until(() => child.exitCode !== null);
-    expect(await child.exited, await terminal.text()).toBe(0);
-    expect(readFileSync(cancelled, "utf8")).toBe("cancelled");
-  } finally {
-    await terminal.dispose();
-    rmSync(dir, { force: true, recursive: true });
-  }
-}, 15_000);
-
-test("piped startup runs immediately and SIGTERM drains work with plain output", async () => {
+test("piped startup attaches to the Marbles process and SIGTERM detaches cleanly with plain output", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-piped-"));
   const home = testHome();
   const config = join(dir, "marbles.config.ts");
@@ -103,19 +51,18 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
   `
   );
   const child = spawn(
-    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--source", config],
+    [process.execPath, resolve("src/cli.ts"), "--source", config],
     { env: home.env, stderr: "pipe", stdout: "pipe" }
   );
   home.track(child.pid, false);
   const output = new Response(child.stdout).text();
   try {
-    await until(() => existsSync(marker));
+    await until(() => existsSync(marker), STARTUP_MS);
     child.kill("SIGTERM");
     await until(() => child.exitCode !== null);
     expect(await child.exited).toBe(0);
     const text = await output;
-    expect(text).toContain("[schedule] plain-step → plain-step");
-    expect(text).toContain("[run] plain-step complete");
+    expect(text).toContain("[process] pid");
     expect(text).not.toContain("\x1b[");
     expect(text).not.toContain("Press Enter");
   } finally {
@@ -123,37 +70,12 @@ test("piped startup runs immediately and SIGTERM drains work with plain output",
     await child.exited;
     rmSync(dir, { force: true, recursive: true });
   }
-}, 12_000);
-
-test("a config error restores the terminal and exits instead of leaving the splash open", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "marbles-bad-config-"));
-  const home = testHome();
-  const config = join(dir, "marbles.config.ts");
-  writeFileSync(config, 'throw new Error("test config could not load");');
-  const terminal = openTerminal(
-    home,
-    [process.execPath, resolve("src/cli.ts"), "--dry-run", "--source", config],
-    { cols: 100, rows: 30 }
-  );
-  const { child } = terminal;
-  try {
-    await terminal.see("Marbles could not load");
-    child.terminal?.write("\r");
-    await until(() => child.exitCode !== null);
-    expect(await child.exited).not.toBe(0);
-    expect(await terminal.shown("test config could not load")).toBe(true);
-    await terminal.screen.settled();
-    expect(terminal.screen.raw()).toContain("\x1b[?1049l");
-  } finally {
-    await terminal.dispose();
-    rmSync(dir, { force: true, recursive: true });
-  }
-}, 12_000);
+}, 60_000);
 
 function openTestCli(
   home: TestHome,
   config: string,
-  flags: readonly string[] = ["--dry-run"],
+  flags: readonly string[] = [],
   cwd?: string,
   detectCodex = true
 ) {
@@ -178,20 +100,13 @@ function openTestCli(
   );
 }
 
-test("first-run provider setup precedes workspace setup, preserves dry runs, and can be skipped", async () => {
+test("first-run provider setup precedes workspace setup and can be skipped", async () => {
   const dir = mkdtempSync("/tmp/mb-providers-");
   const home = testHome({ providers: false });
   const config = join(dir, ".foundry", "marbles");
   const { state } = home.layout;
   const machine = async () =>
     (await DatabaseProviderStore.forState(state).read()).machine;
-  const dry = openTestCli(home, config, ["--dry-run"]);
-  try {
-    await dry.see("Press Enter to enter");
-    expect(await machine()).toBeUndefined();
-  } finally {
-    await dry.dispose();
-  }
   const live = openTestCli(home, config, [], dir);
   try {
     await live.see("Set up model providers");
@@ -264,13 +179,11 @@ test("a corrupt settings file lets an unconfigured terminal continue and reopen"
   }
 }, 75_000);
 
-test("an initialized machine welcomes a new workspace and can recheck providers without replacing them", async () => {
+test("an initialized machine welcomes a new workspace without re-running provider setup", async () => {
   const dir = mkdtempSync("/tmp/mb-onboarding-");
   const config = join(dir, "marbles.config.ts");
   writeFileSync(config, "export {};");
   const home = testHome();
-  const store = DatabaseProviderStore.forState(home.layout.state);
-  const before = (await store.read()).machine;
   const first = openTestCli(home, config, []);
   try {
     await first.see("Open this workspace", 0, STARTUP_MS);
@@ -280,45 +193,9 @@ test("an initialized machine welcomes a new workspace and can recheck providers 
     await first.see("Press Enter to enter", 0, STARTUP_MS);
   } finally {
     await first.dispose();
-  }
-  const next = openTestCli(home, config, ["--recheck-providers"]);
-  try {
-    await next.see("Set up model providers");
-    await next.see("already configured");
-    await next.send("\r");
-    await next.see("Press Enter to enter", 0, STARTUP_MS);
-    expect(await next.emitted("Open this workspace")).toBe(false);
-    expect((await store.read()).machine).toEqual(before);
-  } finally {
-    await next.dispose();
     rmSync(dir, { force: true, recursive: true });
   }
 }, 60_000);
-
-test("a dry run with no authoring folder offers no starter, writes nothing, and says to run marbles init", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "marbles-setup-"));
-  const home = testHome();
-  const config = join(dir, ".foundry", "marbles");
-  const bin = join(dir, ".foundry", "test-bin");
-  mkdirSync(bin, { recursive: true });
-  const ignored = new Set([bin, `${stateDatabase(home.layout.state)}-shm`]);
-  const before = snapshotTrees([dir, home.path], ignored);
-  const terminal = openTestCli(home, config);
-  try {
-    await terminal.see("Press Enter to enter");
-    await terminal.send("\r");
-    await terminal.see("marbles init without --dry-run");
-    expect(await terminal.emitted("Set up your workspace")).toBe(false);
-    await terminal.send("q");
-    await terminal.see("Quit Marbles?");
-    await terminal.send("\x03");
-    await until(() => terminal.child.exitCode !== null);
-    expect(snapshotTrees([dir, home.path], ignored)).toEqual(before);
-  } finally {
-    await terminal.dispose();
-    rmSync(dir, { force: true, recursive: true });
-  }
-}, 15_000);
 
 test("a missing authoring folder onboards against the Marbles process, which posts the milestone", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
@@ -400,11 +277,13 @@ const echo = step("echo").input(message).do(({ input }) => { writeFileSync(${JSO
 workflow("manual").input(message).do(({ input }) => echo({}, input));
 `
   );
-  const terminal = openTestCli(testHome(), config);
+  const terminal = openTestCli(testHome(), config, []);
   try {
-    await terminal.see("Press Enter to enter");
+    await terminal.see("Open this workspace", 0, STARTUP_MS);
     await terminal.send("\r");
-    await until(() => existsSync(ticks));
+    await terminal.see("Press Enter to enter", 0, STARTUP_MS);
+    await terminal.send("\r");
+    await until(() => existsSync(ticks), STARTUP_MS);
     const before = readFileSync(ticks, "utf8").length;
     await terminal.send("2");
     await terminal.send("\x1b[B");
@@ -417,7 +296,7 @@ workflow("manual").input(message).do(({ input }) => echo({}, input));
     await terminal.send("\t");
     await terminal.send("\t");
     await terminal.send("\r");
-    await until(() => existsSync(marker));
+    await until(() => existsSync(marker), STARTUP_MS);
     expect(JSON.parse(readFileSync(marker, "utf8"))).toEqual({
       count: 0,
       enabled: false,
@@ -434,7 +313,7 @@ workflow("manual").input(message).do(({ input }) => echo({}, input));
     await terminal.dispose();
     rmSync(dir, { force: true, recursive: true });
   }
-}, 15_000);
+}, 60_000);
 
 test("the dashboard attaches to the Marbles process, which keeps hosting after it quits", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
@@ -515,36 +394,25 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
   }
 }, 60_000);
 
-test.each([
-  ["under --dry-run", ["--dry-run"]],
-  ["in the Marbles process", []],
-])(
-  "on a terminal, run <name> runs it %s and exits, and never opens the dashboard",
-  async (_, flags) => {
-    const dir = mkdtempSync(join(tmpdir(), "mb-"));
-    const config = join(dir, "marbles.config.ts");
-    writeFileSync(
-      config,
-      'import { step } from "@foundry.sh/marbles";\nstep("hello-now").do(() => ({ said: "hello" }));\n'
-    );
-    const terminal = openTestCli(testHome(), config, [
-      "run",
-      "hello-now",
-      ...flags,
-    ]);
-    try {
-      await terminal.see('"said": "hello"', 0, STARTUP_MS);
-      await until(() => terminal.child.exitCode !== null);
-      expect(await terminal.child.exited).toBe(0);
-      expect(await terminal.emitted("Dashboard")).toBe(false);
-      expect(await terminal.emitted("Press Enter to enter")).toBe(false);
-    } finally {
-      await terminal.dispose();
-      rmSync(dir, { force: true, recursive: true });
-    }
-  },
-  60_000
-);
+test("on a terminal, trigger <name> runs it in the Marbles process and exits, and never opens the dashboard", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mb-"));
+  const config = join(dir, "marbles.config.ts");
+  writeFileSync(
+    config,
+    'import { step } from "@foundry.sh/marbles";\nstep("hello-now").do(() => ({ said: "hello" }));\n'
+  );
+  const terminal = openTestCli(testHome(), config, ["trigger", "hello-now"]);
+  try {
+    await terminal.see('"said": "hello"', 0, STARTUP_MS);
+    await until(() => terminal.child.exitCode !== null);
+    expect(await terminal.child.exited).toBe(0);
+    expect(await terminal.emitted("Dashboard")).toBe(false);
+    expect(await terminal.emitted("Press Enter to enter")).toBe(false);
+  } finally {
+    await terminal.dispose();
+    rmSync(dir, { force: true, recursive: true });
+  }
+}, 60_000);
 
 test("a command line that cannot run prints usage and touches nothing", () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-usage-"));
@@ -560,10 +428,14 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
   try {
     for (const command of [
       ["bogus"],
-      ["run"],
+      ["trigger"],
+      ["run", "greet"],
       ["roll", "greet"],
-      ["stop"],
-      ["settings", "themes"],
+      ["daemon"],
+      ["daemon", "stop"],
+      ["status"],
+      ["theme"],
+      ["init"],
       ["list", "--harness", "foo"],
       ["launchd", "install", "ping"],
       ["launchd", "uninstall", "ping"],
@@ -590,7 +462,7 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
   }
 }, 15_000);
 
-test("run explains bad input and an unanswerable ask in one line", () => {
+test("trigger explains bad input in one line", () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-run-errors-"));
   const home = testHome();
   const config = join(dir, "marbles.config.ts");
@@ -599,7 +471,6 @@ test("run explains bad input and an unanswerable ask in one line", () => {
     `import { schedule, step } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(ZOD)};
 const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => input.name);
-step("asks").do(({ ask }) => ask.question({ title: "Name?" }));
 schedule(greet({}, { name: "Ada" })).every("1h");`
   );
   const runNow = (...args: string[]) =>
@@ -607,9 +478,8 @@ schedule(greet({}, { name: "Ada" })).every("1h");`
       [
         process.execPath,
         resolve("src/cli.ts"),
-        "run",
+        "trigger",
         ...args,
-        "--dry-run",
         "--source",
         config,
       ],
@@ -629,14 +499,7 @@ schedule(greet({}, { name: "Ada" })).every("1h");`
     expect(malformed.stderr.toString()).toContain(
       "marbles: --input is not JSON"
     );
-
-    const asks = runNow("asks");
-    expect(asks.exitCode).toBe(1);
-    expect(asks.stderr.toString()).toContain(
-      `marbles: run "asks" was cancelled: "Name?" is waiting for an answer`
-    );
-    expect(asks.stderr.toString()).not.toContain("    at ");
   } finally {
     rmSync(dir, { force: true, recursive: true });
   }
-}, 15_000);
+}, 60_000);

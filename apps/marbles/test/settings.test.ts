@@ -3,16 +3,16 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { parseArgs } from "~/cli/args";
+import { parseArgs } from "~/cli/index";
 import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
   settingsPath,
 } from "~/cli/settings";
-import { applyTheme, settingsView, terminalTheme } from "~/cli/theme";
 import { theme } from "~/components/ui/theme";
 import { THEME_NAMES } from "~/model/settings";
+import { applyTheme, settingsView, terminalTheme } from "~/tui/theme";
 
 let state: string;
 
@@ -86,27 +86,30 @@ it("falls back to the default theme for a value it does not know, and says why",
   expect(loaded.problem).toContain('theme "nonexistent"');
 });
 
-it("lists all bundled themes and prints and saves the active theme from the CLI", () => {
+it("lists all bundled themes and prints and saves settings from the CLI", () => {
   const cli = (...args: string[]) =>
-    spawnSync([process.execPath, "src/cli.ts", "theme", ...args], {
+    spawnSync([process.execPath, "src/cli.ts", "settings", ...args], {
       env: { ...process.env, FOUNDRY_ROOT: state },
     });
-  const listed = cli("list");
+  const listed = cli("themes");
   expect(listed.exitCode).toBe(0);
   expect(listed.stdout.toString().trim().split("\n")).toEqual(THEME_NAMES);
   expect(THEME_NAMES).toHaveLength(42);
-  expect(cli().stdout.toString().trim()).toBe("dark");
-  expect(cli("opencode").exitCode).toBe(0);
-  expect(cli().stdout.toString().trim()).toBe("opencode");
-  const dry = cli("dark", "--dry-run");
-  expect(dry.exitCode).toBe(1);
-  expect(dry.stderr.toString()).toContain(
-    "theme <name> saves the theme; it takes no --dry-run"
-  );
-  const unknown = cli("no-such-theme");
+  expect(cli("get", "theme").stdout.toString().trim()).toBe("dark");
+  expect(cli().stdout.toString().trim()).toBe("theme: dark");
+  expect(cli("set", "theme", "opencode").exitCode).toBe(0);
+  expect(cli("get", "theme").stdout.toString().trim()).toBe("opencode");
+  expect(JSON.parse(cli("--json").stdout.toString())).toEqual({
+    theme: "opencode",
+  });
+  expect(JSON.parse(cli("get", "theme", "--json").stdout.toString())).toEqual({
+    key: "theme",
+    value: "opencode",
+  });
+  const unknown = cli("set", "theme", "no-such-theme");
   expect(unknown.exitCode).toBe(1);
   expect(unknown.stderr.toString()).toContain(
-    'unknown theme "no-such-theme"; marbles theme list shows them'
+    'unknown theme "no-such-theme"; marbles settings themes lists them'
   );
   expect(
     loadSettings(settingsPath(join(state, "marbles"))).settings.theme

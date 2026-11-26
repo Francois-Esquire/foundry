@@ -5,7 +5,7 @@ import {
   STREAM_TAIL_LINES,
   streamDelta,
   streamTail,
-} from "~/cli/state/run-stream";
+} from "~/tui/state/run-stream";
 
 function text(path: readonly string[], value: string): ChannelMessage {
   return {
