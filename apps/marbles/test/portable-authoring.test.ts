@@ -347,11 +347,13 @@ export const check = step("check").do(async () => \`\${await privateHelper.run()
 
       const distCli = resolve(MARBLES_DIR, "dist/cli.js");
       for (const runtime of ["node", "bun"] as const) {
-        const output = execFileSync(
-          runtime,
-          [distCli, "trigger", "check", "--dry-run"],
-          { cwd: appDir, encoding: "utf8", env: home.env, timeout: 30_000 }
-        );
+        const runHome = testHome();
+        const output = execFileSync(runtime, [distCli, "trigger", "check"], {
+          cwd: appDir,
+          encoding: "utf8",
+          env: runHome.env,
+          timeout: 30_000,
+        });
         expect(output).toContain("ok:from-sibling");
       }
     } finally {

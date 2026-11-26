@@ -28,13 +28,25 @@ export interface BlobStagingArea {
   stage(bytes: Uint8Array): Promise<string>;
 }
 
+export type ExternalBlobInput = Extract<
+  FileInput,
+  { readonly path: string; readonly digest: string; readonly bytes: number }
+>;
 export type ReferenceInput =
   | Extract<FileInput, { readonly blobId: unknown }>
-  | Extract<FileInput, { readonly digest: string }>;
-export type ByteInput = Exclude<FileInput, ReferenceInput>;
+  | Exclude<Extract<FileInput, { readonly digest: string }>, ExternalBlobInput>;
+export type ByteInput = Exclude<FileInput, ReferenceInput | ExternalBlobInput>;
+
+export function isExternalBlobInput(
+  input: FileInput
+): input is ExternalBlobInput {
+  return "path" in input && input.path !== undefined;
+}
 
 export function isReferenceInput(input: FileInput): input is ReferenceInput {
-  return "blobId" in input || "digest" in input;
+  return (
+    "blobId" in input || ("digest" in input && !isExternalBlobInput(input))
+  );
 }
 
 export type StagedChunk = {
@@ -336,7 +348,8 @@ function byteInputs(entries: EntryInputs | undefined): [string, ByteInput][] {
 function isByteInput(entry: EntryInput): entry is ByteInput {
   return (
     (entry.type === undefined || entry.type === "file") &&
-    !isReferenceInput(entry as FileInput)
+    !isReferenceInput(entry as FileInput) &&
+    !isExternalBlobInput(entry as FileInput)
   );
 }
 

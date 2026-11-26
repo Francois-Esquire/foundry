@@ -26,6 +26,8 @@ import {
   taskMetadataSchema,
 } from "./schema";
 
+const UUID_HEX = /^[0-9a-f]{32}$/i;
+
 export interface AppliedChange {
   readonly changed: readonly ChangedTask[];
   readonly tasks: readonly Task[];
@@ -45,12 +47,13 @@ export function applyChange(
   snapshot: TaskSnapshot,
   change: TaskChange,
   now: () => string,
-  availability: AvailabilityOptions = {}
+  availability: AvailabilityOptions = {},
+  id: () => string = () => crypto.randomUUID()
 ): AppliedChange {
   if (change.operations.length === 0) {
     throw new TaskError("invalid_operation", "empty operation batch");
   }
-  const batch = new Batch(snapshot, now, availability);
+  const batch = new Batch(snapshot, now, availability, id);
   for (const operation of change.operations) {
     batch.apply(operation);
   }
@@ -67,16 +70,19 @@ class Batch {
   private readonly putEdges = new Map<string, TaskDependency>();
   private readonly deletedEdges = new Map<string, TaskDependency>();
   private readonly now: () => string;
+  private readonly id: () => string;
   private stamped: string | undefined;
   private readonly availability: AvailabilityOptions;
 
   constructor(
     snapshot: TaskSnapshot,
     now: () => string,
-    availability: AvailabilityOptions
+    availability: AvailabilityOptions,
+    id: () => string
   ) {
     this.original = snapshot;
     this.availability = availability;
+    this.id = id;
     this.tasks = new Map(snapshot.tasks.map((task) => [task.id, task]));
     this.edges = new Map(
       snapshot.dependencies.map((edge) => [edgeKey(edge), edge])
@@ -146,7 +152,13 @@ class Batch {
     const removed = [...this.deletedEdges.values()].filter((edge) =>
       existed.has(edgeKey(edge))
     );
-    return changeEvent(tasks, added, removed, this.stamped ?? this.now());
+    return changeEvent(
+      tasks,
+      added,
+      removed,
+      this.stamped ?? this.now(),
+      this.id
+    );
   }
 
   private create(operation: Operation<"task.create">): void {
@@ -363,13 +375,34 @@ class Batch {
   }
 
   private freshId(): TaskId {
-    for (;;) {
-      const hex = crypto.randomUUID().replace(UUID_DASHES, "");
-      const id = taskId(`${ID_PREFIX}${hex.slice(0, ID_HEX_LENGTH)}`);
+    const maxAttempts = 64;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const raw = this.id().trim();
+      if (raw.length === 0) {
+        throw new TaskError(
+          "invalid_operation",
+          "ID generator returned an empty task ID"
+        );
+      }
+      const hex = raw.replace(UUID_DASHES, "");
+      const isUuidV4 = UUID_HEX.test(hex) && hex[12] === "4";
+      let candidate: string;
+      if (raw.startsWith(ID_PREFIX)) {
+        candidate = raw;
+      } else if (isUuidV4) {
+        candidate = `${ID_PREFIX}${hex.slice(0, ID_HEX_LENGTH)}`;
+      } else {
+        candidate = `${ID_PREFIX}${raw}`;
+      }
+      const id = taskId(candidate);
       if (!this.tasks.has(id)) {
         return id;
       }
     }
+    throw new TaskError(
+      "invalid_operation",
+      "ID generator could not produce a unique task ID"
+    );
   }
 
   private isSelfOrDescendant(id: TaskId, candidate: TaskId): boolean {
@@ -417,7 +450,8 @@ export function changeEvent(
   tasks: readonly TaskDelta[],
   added: readonly TaskDependency[],
   removed: readonly TaskDependency[],
-  at: string
+  at: string,
+  id: () => string = () => crypto.randomUUID()
 ): TaskEvent | undefined {
   if (tasks.length === 0 && added.length === 0 && removed.length === 0) {
     return;
@@ -425,7 +459,7 @@ export function changeEvent(
   return {
     at,
     dependencies: { added, removed },
-    id: crypto.randomUUID(),
+    id: id(),
     tasks,
     type: "tasks.changed",
   };

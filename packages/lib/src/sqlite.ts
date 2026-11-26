@@ -20,6 +20,7 @@ export type SqliteTransaction = SQLiteTransaction<
 >;
 
 export const SQLITE_MAX_PARAMETERS = 32_766;
+export const SQLITE_D1_MAX_PARAMETERS = 100;
 
 export const UNSTORABLE_TEXT =
   "text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite";
@@ -73,7 +74,10 @@ export function assertScope(scope: string): void {
   }
 }
 
-export function batches<T>(items: readonly T[], size: number): T[][] {
+export function batches<T>(
+  items: readonly T[],
+  size = SQLITE_MAX_PARAMETERS
+): T[][] {
   if (Number.isNaN(size)) {
     throw new RangeError("batch size must not be NaN");
   }

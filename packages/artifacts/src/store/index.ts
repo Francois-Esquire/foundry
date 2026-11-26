@@ -18,7 +18,7 @@ export interface ArtifactListQuery extends ArtifactFilter {
 
 export interface ArtifactListing {
   readonly artifacts: readonly Artifact[];
-  readonly total: number;
+  readonly total?: number;
 }
 
 export type ArtifactStoreDurability = "commit" | "host";
@@ -39,6 +39,7 @@ export interface ArtifactStoreWrite {
 export interface ArtifactStore {
   commit(write: ArtifactStoreWrite): Promise<void>;
   readonly durability?: ArtifactStoreDurability;
+  findBlobByPath?(path: string): Promise<Blob | null>;
   findBlobs(digest: string): Promise<readonly Blob[]>;
   findReferences(id: BlobId): Promise<BlobReferences>;
   getArtifact(id: ArtifactId): Promise<Artifact | null>;

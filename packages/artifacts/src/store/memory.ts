@@ -59,6 +59,8 @@ export class MemoryArtifactStore implements ArtifactStore {
             })
           ),
         durability: "host",
+        findBlobByPath: (path) =>
+          read((records) => records.findBlobByPath(path)),
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
@@ -82,6 +84,10 @@ export class MemoryArtifactStore implements ArtifactStore {
         open = false;
       }
     });
+  }
+
+  findBlobByPath(path: string): Promise<Blob | null> {
+    return this.#records.findBlobByPath(path);
   }
 
   findBlobs(digest: string): Promise<readonly Blob[]> {
@@ -124,22 +130,32 @@ export class MemoryArtifactStore implements ArtifactStore {
 class Records {
   readonly #artifacts: Map<ArtifactId, Artifact>;
   readonly #blobs: Map<BlobId, Blob>;
+  readonly #blobsByPath: Map<string, BlobId>;
   readonly #contents: Map<ContentId, Content>;
 
   private constructor(
     artifacts: Map<ArtifactId, Artifact>,
     blobs: Map<BlobId, Blob>,
+    blobsByPath: Map<string, BlobId>,
     contents: Map<ContentId, Content>
   ) {
     this.#artifacts = artifacts;
     this.#blobs = blobs;
+    this.#blobsByPath = blobsByPath;
     this.#contents = contents;
   }
 
   static from(records: ArtifactRecords): Records {
+    const blobsByPath = new Map<string, BlobId>();
+    for (const row of records.blobs) {
+      if (row.path !== undefined) {
+        blobsByPath.set(row.path, row.id);
+      }
+    }
     return new Records(
       new Map(records.artifacts.map((row) => [row.id, row])),
       new Map(records.blobs.map((row) => [row.id, row])),
+      blobsByPath,
       new Map(records.contents.map((row) => [row.id, row]))
     );
   }
@@ -148,6 +164,7 @@ class Records {
     return new Records(
       new Map(this.#artifacts),
       new Map(this.#blobs),
+      new Map(this.#blobsByPath),
       new Map(this.#contents)
     );
   }
@@ -160,6 +177,13 @@ class Records {
       this.#contents.delete(id);
     }
     for (const id of write.deleteBlobs ?? []) {
+      const previous = this.#blobs.get(id);
+      if (
+        previous?.path !== undefined &&
+        this.#blobsByPath.get(previous.path) === id
+      ) {
+        this.#blobsByPath.delete(previous.path);
+      }
       this.#blobs.delete(id);
     }
     for (const artifact of write.putArtifacts ?? []) {
@@ -169,7 +193,17 @@ class Records {
       this.#contents.set(content.id, content);
     }
     for (const blob of write.putBlobs ?? []) {
+      const previous = this.#blobs.get(blob.id);
+      if (
+        previous?.path !== undefined &&
+        this.#blobsByPath.get(previous.path) === blob.id
+      ) {
+        this.#blobsByPath.delete(previous.path);
+      }
       this.#blobs.set(blob.id, blob);
+      if (blob.path !== undefined) {
+        this.#blobsByPath.set(blob.path, blob.id);
+      }
     }
     return Promise.resolve();
   }
@@ -184,6 +218,11 @@ class Records {
 
   getContent(id: ContentId): Promise<Content | null> {
     return detached(this.#contents.get(id) ?? null);
+  }
+
+  findBlobByPath(path: string): Promise<Blob | null> {
+    const id = this.#blobsByPath.get(path);
+    return detached(id === undefined ? null : (this.#blobs.get(id) ?? null));
   }
 
   findBlobs(digest: string): Promise<readonly Blob[]> {

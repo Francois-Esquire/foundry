@@ -1,11 +1,14 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
@@ -15,6 +18,7 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/node/git";
+import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { Catalog } from "~/authoring/catalog";
 import {
   dispose,
@@ -54,12 +58,15 @@ import { layout } from "~/layout";
 import { showArgv } from "~/lib/argv";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import type { AutomationStore } from "~/lib/automation/store";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
+import type { WorkspaceRecords } from "~/lib/events/records";
 import { sourceKey } from "~/lib/events/source";
 import type { PoolConfig } from "~/lib/execution-record";
+import type { ExecutionStore } from "~/lib/execution-store";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
@@ -68,11 +75,35 @@ import { echoInstance } from "~/lib/models/echo";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
+import type { ProviderStore } from "~/lib/providers/store";
+import { MemoryProviderStore } from "~/lib/providers/store";
 import { Registry } from "~/lib/registry";
+import type { RunStore } from "~/lib/run-store";
+import type { ActivityStore } from "~/lib/sandbox/activities";
+import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import { containerHolder } from "~/lib/sandbox/holders";
+import type { TriggerStore } from "~/lib/trigger-store";
+import type { UsageStore } from "~/lib/usage-store";
 import { initializeUsage } from "~/workspace/node-usage";
 
 export const DEFAULT_HOSTED_POOL_LIMIT = 4;
+
+export interface WorkspaceStoreBundle {
+  readonly activities?: ActivityStore;
+  readonly approvals?: DeferredApprovalStore;
+  readonly artifacts?: ArtifactStore;
+  readonly automations?: AutomationStore;
+  readonly containers?: ContainerStore;
+  readonly executions?: ExecutionStore;
+  readonly grants?: GrantDocumentStorage;
+  readonly providers?: ProviderStore;
+  readonly records?: WorkspaceRecords;
+  readonly runs?: RunStore;
+  readonly sessions?: SessionStore;
+  readonly triggers?: TriggerStore;
+  readonly usage?: UsageStore;
+  readonly workspaces?: WorkspaceStore;
+}
 
 export interface CreateEngineOptions {
   readonly artifacts?: string;
@@ -93,6 +124,7 @@ export interface CreateEngineOptions {
   readonly spawned?: string;
   readonly stateDir?: string;
   readonly stateRoot?: string;
+  readonly stores?: WorkspaceStoreBundle;
   readonly workspaceId: string;
 }
 
@@ -171,6 +203,7 @@ function artifactsInMemory(): ArtifactSubstrate {
 
 function artifactsFor(
   stores: WorkspaceStores | undefined,
+  injected: ArtifactStore | undefined,
   options: CreateEngineOptions
 ): Pick<EngineOptions, "artifactReads" | "artifacts"> & {
   readonly links?: LinksKept;
@@ -188,6 +221,16 @@ function artifactsFor(
               workspaceId
             ),
           }),
+    };
+  }
+  if (injected !== undefined) {
+    return {
+      artifacts: new Artifacts({
+        ...(dir === undefined
+          ? {}
+          : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
+        store: injected,
+      }),
     };
   }
   if (stores === undefined) {
@@ -232,6 +275,25 @@ function pluginsFor({
   return [...chosen.values()];
 }
 
+function providerStoreFor(options: CreateEngineOptions): ProviderStore {
+  if (!options.dry && options.stores?.providers !== undefined) {
+    return options.stores.providers;
+  }
+  if (
+    !options.dry &&
+    options.stores !== undefined &&
+    options.database === undefined &&
+    options.stateRoot === undefined &&
+    options.stateDir === undefined
+  ) {
+    return new MemoryProviderStore();
+  }
+  if (options.database === undefined || options.dry) {
+    return DatabaseProviderStore.forState(options.stateRoot ?? layout().state);
+  }
+  return new DatabaseProviderStore({ database: options.database });
+}
+
 function modelsFor(options: CreateEngineOptions): {
   readonly models: Models;
   readonly providers: ProviderConfiguration;
@@ -249,10 +311,7 @@ function modelsFor(options: CreateEngineOptions): {
     models,
     ...(options.dry ? { readOnly: true } : {}),
     plugins: pluginsFor(options),
-    store:
-      options.database === undefined || options.dry
-        ? DatabaseProviderStore.forState(options.stateRoot ?? layout().state)
-        : new DatabaseProviderStore({ database: options.database }),
+    store: providerStoreFor(options),
     ...(options.stateDir
       ? {
           workspace: {
@@ -269,9 +328,33 @@ function modelsFor(options: CreateEngineOptions): {
   return { models, providers };
 }
 
+function injectedRecords(injected: WorkspaceStoreBundle) {
+  return {
+    ...(injected.activities === undefined
+      ? {}
+      : { activityStore: injected.activities }),
+    ...(injected.approvals === undefined
+      ? {}
+      : { approvals: injected.approvals }),
+    ...(injected.automations === undefined
+      ? {}
+      : { automationStore: injected.automations }),
+    ...(injected.executions === undefined
+      ? {}
+      : { executionStore: injected.executions }),
+    ...(injected.grants === undefined ? {} : { grants: injected.grants }),
+    ...(injected.records === undefined ? {} : { records: injected.records }),
+    ...(injected.runs === undefined ? {} : { runs: injected.runs }),
+    ...(injected.sessions === undefined ? {} : { sessions: injected.sessions }),
+    ...(injected.triggers === undefined ? {} : { triggers: injected.triggers }),
+    ...(injected.usage === undefined ? {} : { usageStore: injected.usage }),
+  };
+}
+
 function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
+  injected: WorkspaceStoreBundle | undefined,
   { root, workspaceId }: CreateEngineOptions
 ): Pick<
   EngineOptions,
@@ -290,6 +373,7 @@ function recordsFor(
   readonly changes?: ChangeRecorder;
   readonly own?: WorkspaceDatabase;
 } {
+  const overrides = injected === undefined ? {} : injectedRecords(injected);
   if (database !== undefined) {
     const scope = workspaceId;
     const records = new DatabaseWorkspaceRecords({ database, scope });
@@ -307,7 +391,11 @@ function recordsFor(
       sessions: new DatabaseSessionStore({ changes, database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),
       usageStore: new DatabaseUsageStore({ database, scope }),
+      ...overrides,
     };
+  }
+  if (injected !== undefined && state === undefined) {
+    return { sessions: new MemorySessionStore(), ...overrides };
   }
   if (state === undefined) {
     return { sessions: new MemorySessionStore() };
@@ -326,6 +414,7 @@ function recordsFor(
     sessions: own.sessions,
     triggers: own.triggers,
     usageStore: own.usage,
+    ...overrides,
   };
 }
 
@@ -334,14 +423,16 @@ const LINK_DRAIN_MS = 5000;
 function engineOver(
   options: EngineOptions,
   own: WorkspaceDatabase | undefined,
-  links: LinksKept | undefined
-): PublishedEngine {
+  links: LinksKept | undefined,
+  useDirectEngine: boolean
+): Engine {
   if (own !== undefined) {
     return new OwnDatabaseEngine(options, own);
   }
-  return links === undefined
-    ? new PublishedEngine(options)
-    : new LinkKeepingEngine(options, links);
+  if (links !== undefined) {
+    return new LinkKeepingEngine(options, links);
+  }
+  return useDirectEngine ? new Engine(options) : new PublishedEngine(options);
 }
 
 class LinkKeepingEngine extends PublishedEngine {
@@ -428,16 +519,28 @@ export function createEngine(options: CreateEngineOptions): Engine {
   });
   const worktrees = Engine.worktreesFor(state);
   const database = dry ? undefined : options.database;
-  const { changes, own, ...kept } = recordsFor(state, database, options);
-  const stores =
+  const injected = dry ? undefined : options.stores;
+  const { changes, own, ...kept } = recordsFor(
+    state,
+    database,
+    injected,
+    options
+  );
+  const dbStores =
     database === undefined
       ? undefined
       : workspaceStores(database, workspaceId, {
           changes,
           location: realPath(options.databaseFile),
         });
+  const containerStore = injected?.containers ?? dbStores?.containers;
+  const workspaceStore = injected?.workspaces ?? dbStores?.workspaces;
   const git = dry ? { run: echoGit(print) } : {};
-  const { links, ...artifacts } = artifactsFor(stores, options);
+  const { links, ...artifacts } = artifactsFor(
+    dbStores,
+    injected?.artifacts,
+    options
+  );
   const engineOptions: EngineOptions = {
     pools: {
       [DEFAULT_POOL]: DEFAULT_HOSTED_POOL_LIMIT,
@@ -447,8 +550,8 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...artifacts,
     askable: options.askable,
     catalog,
-    ...(stores === undefined ? {} : { containerRows: stores.containers }),
-    containers: containersFor(options, worktrees, stores?.containers),
+    ...(containerStore === undefined ? {} : { containerRows: containerStore }),
+    containers: containersFor(options, worktrees, containerStore),
     dry,
     git,
     home,
@@ -464,22 +567,32 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(spawned === undefined ? {} : { spawned }),
     state,
     workspaceId,
-    ...(stores === undefined
+    ...(workspaceStore === undefined
       ? {}
-      : { workspaces: localWorkspaces(git, stores.workspaces) }),
+      : { workspaces: localWorkspaces(git, workspaceStore) }),
     worktrees,
   };
-  const engine = engineOver(engineOptions, own, links);
+  const engine = engineOver(
+    engineOptions,
+    own,
+    links,
+    injected !== undefined && database === undefined && state === undefined
+  );
   declareCatalog(engine, catalog);
-  unrecordedObservers(catalog, recordedSources(database, state), print);
+  unrecordedObservers(
+    catalog,
+    recordedSources(database, state, injected),
+    print
+  );
   return engine;
 }
 
 function recordedSources(
   database: StoreDatabase | undefined,
-  state: string | undefined
+  state: string | undefined,
+  injected: WorkspaceStoreBundle | undefined
 ): ReadonlySet<string> | "all" {
-  if (database !== undefined) {
+  if (database !== undefined || injected !== undefined) {
     return "all";
   }
   return new Set(

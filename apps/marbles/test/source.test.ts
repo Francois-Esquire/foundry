@@ -110,7 +110,7 @@ export const inspect = step("inspect").do(({ workspaces }) => ({ root: workspace
     const listed = cli(root, "list");
     expect(
       listed.split("\n").filter((line) => line.startsWith("[step]"))
-    ).toEqual(["[step] second", "[step] inspect"]);
+    ).toEqual(["[step] inspect", "[step] second"]);
     const result = cli(root, "trigger", "inspect");
     expect(result).toContain(root);
     expect(result).toContain("helper imported");
