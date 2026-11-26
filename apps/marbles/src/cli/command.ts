@@ -79,30 +79,6 @@ export function noPositionals(
   };
 }
 
-export function extractOption(
-  words: string[],
-  flag: string,
-  scope: string
-): string | undefined {
-  let value: string | undefined;
-  for (;;) {
-    const index = words.indexOf(flag);
-    if (index === -1) {
-      return value;
-    }
-    const [, raw] = words.splice(index, 2);
-    if (raw === undefined) {
-      throw new UsageError(`${scope}${flag} takes a value`);
-    }
-    if (isFlag(raw)) {
-      throw new UsageError(
-        `${scope}${flag} takes a value, not the flag ${raw}`
-      );
-    }
-    value = raw;
-  }
-}
-
 export function parseInputJson(json: string): unknown {
   try {
     return JSON.parse(json);

@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
-  readFile,
   realpath,
   rm,
   symlink,
@@ -118,29 +117,11 @@ step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }
     expect(
       listed.split("\n").filter((line) => line.startsWith("[step]"))
     ).toEqual(["[step] second", "[step] inspect"]);
-    const result = cli(root, "run", "inspect");
+    const result = cli(root, "trigger", "inspect");
     expect(result).toContain(root);
     expect(result).toContain("helper imported");
-    expect(cli(tmpdir(), "run", "inspect", "--source", source)).toContain(root);
-  } finally {
-    await rm(root, { force: true, recursive: true });
-  }
-}, 60_000);
-
-it("init creates a starter without running it and refuses to overwrite it", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-init-"));
-  try {
-    const file = join(root, ".foundry", "marbles", "summarize-codebase.ts");
-    const initialized = cli(root, "init");
-    expect(initialized).toContain(file);
-    expect(initialized).not.toContain("[run]");
-    const original = await readFile(file, "utf8");
-    expect(original).toContain("summarizeCodebase");
-    expect(cli(root, "list")).toContain("[step] summarize-codebase");
-    expect(() => cli(root, "init")).toThrow("not overwritten");
-    expect(await readFile(file, "utf8")).toBe(original);
-    expect(() => cli(root, "init", "unknown")).toThrow(
-      "init takes one starter"
+    expect(cli(tmpdir(), "trigger", "inspect", "--source", source)).toContain(
+      root
     );
   } finally {
     await rm(root, { force: true, recursive: true });

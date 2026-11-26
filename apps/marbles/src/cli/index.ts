@@ -9,8 +9,6 @@ import {
   type UsageEntry,
 } from "~/cli/command";
 import { dashboardCommand } from "~/cli/commands/dashboard";
-import { enqueueCommand } from "~/cli/commands/enqueue";
-import { initCommand } from "~/cli/commands/init";
 import { listCommand } from "~/cli/commands/list";
 import { mcpCommand } from "~/cli/commands/mcp";
 import {
@@ -19,13 +17,13 @@ import {
   sandboxesCommand,
   sessionsCommand,
 } from "~/cli/commands/resources";
-import { runCommand } from "~/cli/commands/run";
+import { settingsCommand } from "~/cli/commands/settings";
 import { startCommand } from "~/cli/commands/start";
-import { statusCommand } from "~/cli/commands/status";
 import { stopCommand } from "~/cli/commands/stop";
 import { tasksCommand } from "~/cli/commands/tasks";
-import { themeCommand } from "~/cli/commands/theme";
+import { triggerCommand } from "~/cli/commands/trigger";
 import { watchCommand } from "~/cli/commands/watch";
+import { workspacesCommand } from "~/cli/commands/workspaces";
 import {
   type CliContext,
   type CliIo,
@@ -56,14 +54,12 @@ const helpCommand = defineCommand({
 
 export const COMMAND_LIST = [
   dashboardCommand,
-  initCommand,
   listCommand,
-  runCommand,
-  enqueueCommand,
+  triggerCommand,
   watchCommand,
-  tasksCommand,
-  statusCommand,
   helpCommand,
+  workspacesCommand,
+  tasksCommand,
   runsCommand,
   sessionsCommand,
   artifactsCommand,
@@ -71,27 +67,25 @@ export const COMMAND_LIST = [
   startCommand,
   stopCommand,
   mcpCommand,
-  themeCommand,
+  settingsCommand,
 ] as const;
 
 export const COMMANDS = {
   artifacts: artifactsCommand,
   dashboard: dashboardCommand,
-  enqueue: enqueueCommand,
   help: helpCommand,
-  init: initCommand,
   list: listCommand,
   mcp: mcpCommand,
-  run: runCommand,
   runs: runsCommand,
   sandboxes: sandboxesCommand,
   sessions: sessionsCommand,
+  settings: settingsCommand,
   start: startCommand,
-  status: statusCommand,
   stop: stopCommand,
   tasks: tasksCommand,
-  theme: themeCommand,
+  trigger: triggerCommand,
   watch: watchCommand,
+  workspaces: workspacesCommand,
 } as const;
 
 export type CommandName = keyof typeof COMMANDS;
@@ -112,7 +106,7 @@ const GROUP_HEADERS: readonly {
   {
     group: "resources",
     heading:
-      "Resources (this workspace's own and shared; --all: every workspace's):",
+      "Resources (--workspace <id|dir> to filter; --all for every workspace):",
   },
   { group: "system", heading: "System:" },
 ];
@@ -131,13 +125,11 @@ const GLOBAL_FLAGS_HELP: readonly UsageEntry[] = [
 
 const RUNTIME_NOTES = `One Marbles process per machine hosts every attached workspace, all in one engine
 process it replaces on a source edit, and keeps their triggers running after the dashboard
-closes; marbles, start, run and enqueue start it when none runs. Everything lives under the
+closes; marbles, start, and trigger start it when none runs. Everything lives under the
 Foundry root ($FOUNDRY_ROOT, else ~/.foundry): every workspace's record, tasks, agent
 sessions, runs, providers and the rest in marbles/marbles.db; each workspace (the project
 above .foundry/marbles) gets marbles/<id>/ for its run output and worktrees; artifact files
-are under artifacts/. Each resource (run, session, artifact, sandbox) belongs to the
-workspace it was made in and can be shared with others but sandboxes. .marbles/ in a
-workspace holds links to its artifact files, rebuilt by artifacts relink from the database.`;
+are under artifacts/.`;
 
 function usageEntriesOf(command: AnyCommand): readonly UsageEntry[] {
   return typeof command.usage === "string"
@@ -194,11 +186,11 @@ const MOVED: Readonly<Record<string, string>> = {
   attach: "marbles start",
   daemon: "marbles start or marbles stop",
   detach: "marbles stop --workspace",
-  relink: "marbles artifacts relink",
-  roll: "marbles run <name>",
-  settings: "marbles theme",
-  share: "marbles runs|sessions|artifacts share <id> <dir>",
-  unshare: "marbles runs|sessions|artifacts unshare <id> <dir>",
+  enqueue: "marbles trigger <name> --async",
+  roll: "marbles trigger <name>",
+  run: "marbles trigger <name>",
+  status: "marbles workspaces",
+  theme: "marbles settings",
 };
 
 function isCommandName(name: string): name is CommandName {
@@ -226,7 +218,7 @@ function scopeOf(
     return "";
   }
   const [action] = positional;
-  return command === "tasks" && action !== undefined
+  return command === "tasks" && action !== undefined && !action.startsWith("--")
     ? `tasks ${action}: `
     : `${command}: `;
 }
@@ -312,6 +304,7 @@ function scanArgv(argv: readonly string[]): ScannedArgs {
     directory: process.cwd(),
     dry: false,
     json,
+    ...(config === undefined ? {} : { sourceExplicit: true }),
     state,
   };
   return { command, flags, help, positional };

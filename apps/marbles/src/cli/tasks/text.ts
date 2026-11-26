@@ -29,11 +29,9 @@ function pageLines(page: Page<TaskNode, number>): string[] {
   if (page.items.length === 0) {
     return [`no tasks (${page.total} matching)`];
   }
-  const more =
-    page.nextCursor === undefined ? "" : `; next: --cursor ${page.nextCursor}`;
   return [
     ...treeLines(page.items, 0),
-    `${page.items.length} shown of ${page.total}${more}`,
+    `${page.items.length} shown of ${page.total}`,
   ];
 }
 

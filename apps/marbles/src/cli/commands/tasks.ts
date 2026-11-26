@@ -1,4 +1,4 @@
-import type { TagQuery, TaskOperation, TaskStatus } from "@foundry/tasks";
+import type { TagQuery, TaskOperation } from "@foundry/tasks";
 import {
   depthOptionsSchema,
   readyQuerySchema,
@@ -12,46 +12,33 @@ import { UsageError } from "~/cli/errors";
 import { taskCommandText } from "~/cli/tasks/text";
 import type { TaskCommand, TaskCommandResult } from "~/model/tasks";
 
-const TASK_SWITCHES = new Set(["--clear-tags", "--root"]);
+const TASK_STATUS_SCHEMA = z.enum(["open", "active", "completed", "cancelled"]);
+
+const TASK_SWITCHES = new Set(["--clear-tags", "--ready", "--root"]);
 const TASK_OPTIONS = new Set([
-  "--depends-on",
   "--depth",
   "--description",
-  "--input",
   "--limit",
   "--parent",
   "--status",
   "--tag",
   "--title",
+  "--workspace",
 ]);
 const INTEGER = /^-?\d+$/;
 
 const TASKS_DETAILS = `Tasks, the workspace backlog (--tag needs every tag given; on update, --tag replaces the tags):
-  tasks list [--status <status>] [--parent <id> | --root] [--tag <tag>]... [--depth n] [--limit n]
-  tasks ready [--tag <tag>]... [--limit n]
-  tasks get <id> [--depth n]
-  tasks deps <id>
-  tasks create <title> [--description <text>] [--parent <id>] [--depends-on <id>]... [--tag <tag>]...
-  tasks update <id> [--title <text>] [--description <text>] [--tag <tag>... | --clear-tags]
-  tasks start | complete | cancel | reopen <id>
-  tasks move <id> (--parent <id> | --root)
-  tasks depend | undepend <id> <dependsOnId>
-  tasks change --input '{"operations":[...]}'   one atomic batch of task operations
-Tasks are kept with the workspace state. No source runs here: the Marbles process, when it
-already hosts this workspace, answers, else this command opens the tasks itself; tasks never
-starts the process or hosts the workspace.`;
+  tasks [list] [--status <status>] [--ready] [--parent <id> | --root] [--tag <tag>]... [--limit n] [--workspace <ws>]
+  tasks get <id> [--depth n] [--workspace <ws>]
+  tasks create <title> [--description <text>] [--parent <id>] [--tag <tag>]... [--workspace <ws>]
+  tasks update <id> [--status <open|active|completed|cancelled>] [--title <text>] [--description <text>] [--parent <id> | --root] [--tag <tag>... | --clear-tags] [--workspace <ws>]`;
 
 class TaskLine {
   readonly action: TaskActionName;
   readonly #words: string[] = [];
   readonly #options = new Map<string, string[]>();
 
-  constructor(action: string | undefined, argv: readonly string[]) {
-    if (action === undefined || !isTaskAction(action)) {
-      throw new UsageError(
-        `tasks takes an action: ${Object.keys(TASK_ACTIONS).join(", ")}`
-      );
-    }
+  constructor(action: TaskActionName, argv: readonly string[]) {
     this.action = action;
     const words = argv.values();
     for (const word of words) {
@@ -135,17 +122,6 @@ class TaskLine {
   }
 }
 
-function parsedJson(flag: string, text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw new UsageError(
-      `${flag} is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error }
-    );
-  }
-}
-
 function checked<T>(schema: z.ZodType<T>, value: unknown, line: TaskLine): T {
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
@@ -166,27 +142,6 @@ function change(
   };
 }
 
-function setStatus(status: TaskStatus) {
-  return (line: TaskLine): TaskCommand<"change"> =>
-    change(line, [
-      {
-        kind: "task.set_status",
-        status,
-        task: { id: line.word("a task id") },
-      },
-    ]);
-}
-
-function dependency(kind: "dependency.add" | "dependency.remove") {
-  return (line: TaskLine): TaskCommand<"change"> => {
-    const task = line.word("a task id and the id it depends on");
-    const dependsOn = line.word("a task id and the id it depends on");
-    return change(line, [
-      { dependsOn: { id: dependsOn }, kind, task: { id: task } },
-    ]);
-  };
-}
-
 function updatedTags(line: TaskLine): readonly string[] | undefined {
   const clear = line.flag("--clear-tags");
   const tags = line.values("--tag");
@@ -199,23 +154,82 @@ function updatedTags(line: TaskLine): readonly string[] | undefined {
   return tags.length === 0 ? undefined : tags;
 }
 
+function listAction(line: TaskLine): TaskCommand {
+  const ready = line.flag("--ready");
+  if (ready) {
+    return {
+      kind: "ready",
+      query: checked(
+        readyQuerySchema,
+        {
+          limit: line.integer("--limit"),
+          tags: line.tagQuery(),
+        },
+        line
+      ),
+    };
+  }
+  return {
+    kind: "list",
+    query: checked(
+      taskQuerySchema,
+      {
+        depth: line.integer("--depth"),
+        limit: line.integer("--limit"),
+        parentId: line.parent(),
+        status: line.value("--status"),
+        tags: line.tagQuery(),
+      },
+      line
+    ),
+  };
+}
+
+function updateAction(line: TaskLine): TaskCommand {
+  const id = line.word("a task id");
+  const title = line.value("--title");
+  const description = line.value("--description");
+  const tags = updatedTags(line);
+  const rawStatus = line.value("--status");
+  const parent = line.parent();
+  const operations: TaskOperation[] = [];
+  if (title !== undefined || description !== undefined || tags !== undefined) {
+    operations.push({
+      kind: "task.update",
+      patch: {
+        ...(title === undefined ? {} : { title }),
+        ...(description === undefined ? {} : { description }),
+        ...(tags === undefined ? {} : { tags }),
+      },
+      task: { id },
+    });
+  }
+  if (rawStatus !== undefined) {
+    const status = checked(TASK_STATUS_SCHEMA, rawStatus, line);
+    operations.push({
+      kind: "task.set_status",
+      status,
+      task: { id },
+    });
+  }
+  if (parent !== undefined) {
+    operations.push({
+      kind: "task.move",
+      parent: parent === null ? null : { id: parent },
+      task: { id },
+    });
+  }
+  if (operations.length === 0) {
+    throw new UsageError(
+      "tasks update takes --status, --title, --description, --parent, --root, --tag, or --clear-tags"
+    );
+  }
+  return change(line, operations);
+}
+
 const CREATED = "task";
 
 const TASK_ACTIONS = {
-  cancel: setStatus("cancelled"),
-  change: (line: TaskLine): TaskCommand => {
-    const inputJson = line.value("--input");
-    if (inputJson === undefined) {
-      throw new UsageError(
-        "tasks change takes --input '{\"operations\":[...]}'"
-      );
-    }
-    return {
-      change: checked(taskChangeSchema, parsedJson("--input", inputJson), line),
-      kind: "change",
-    };
-  },
-  complete: setStatus("completed"),
   create: (line: TaskLine): TaskCommand => {
     const title = line.word("a title");
     const description = line.value("--description");
@@ -232,93 +246,15 @@ const TASK_ACTIONS = {
         kind: "task.create",
         ...(parent === undefined ? {} : { parent: { id: parent } }),
       },
-      ...line.values("--depends-on").map(
-        (id): TaskOperation => ({
-          dependsOn: { id },
-          kind: "dependency.add",
-          task: { key: CREATED },
-        })
-      ),
     ]);
   },
-  depend: dependency("dependency.add"),
-  deps: (line: TaskLine): TaskCommand => ({
-    id: line.word("a task id"),
-    kind: "dependencies",
-  }),
   get: (line: TaskLine): TaskCommand => ({
     id: line.word("a task id"),
-    kind: "get",
+    kind: "inspect",
     ...checked(depthOptionsSchema, { depth: line.integer("--depth") }, line),
   }),
-  list: (line: TaskLine): TaskCommand => ({
-    kind: "list",
-    query: checked(
-      taskQuerySchema,
-      {
-        depth: line.integer("--depth"),
-        limit: line.integer("--limit"),
-        parentId: line.parent(),
-        status: line.value("--status"),
-        tags: line.tagQuery(),
-      },
-      line
-    ),
-  }),
-  move: (line: TaskLine): TaskCommand => {
-    const id = line.word("a task id");
-    const parent = line.parent();
-    if (parent === undefined) {
-      throw new UsageError("tasks move takes --parent <id> or --root");
-    }
-    return change(line, [
-      {
-        kind: "task.move",
-        parent: parent === null ? null : { id: parent },
-        task: { id },
-      },
-    ]);
-  },
-  ready: (line: TaskLine): TaskCommand => ({
-    kind: "ready",
-    query: checked(
-      readyQuerySchema,
-      {
-        limit: line.integer("--limit"),
-        tags: line.tagQuery(),
-      },
-      line
-    ),
-  }),
-  reopen: setStatus("open"),
-  start: setStatus("active"),
-  undepend: dependency("dependency.remove"),
-  update: (line: TaskLine): TaskCommand => {
-    const id = line.word("a task id");
-    const title = line.value("--title");
-    const description = line.value("--description");
-    const tags = updatedTags(line);
-    if (
-      title === undefined &&
-      description === undefined &&
-      tags === undefined
-    ) {
-      throw new UsageError(
-        "tasks update takes --title, --description, --tag, or --clear-tags"
-      );
-    }
-    return change(line, [
-      {
-        kind: "task.update",
-        patch: {
-          ...(title === undefined ? {} : { title }),
-          ...(description === undefined ? {} : { description }),
-          ...(tags === undefined ? {} : { tags }),
-        },
-        task: { id },
-      },
-    ]);
-  },
+  list: listAction,
+  update: updateAction,
 } satisfies Record<string, (line: TaskLine) => TaskCommand>;
 
 type TaskActionName = keyof typeof TASK_ACTIONS;
@@ -333,29 +269,52 @@ export const tasksCommand = defineCommand({
     options: TASK_OPTIONS,
     switches: TASK_SWITCHES,
   },
-  group: "core",
+  group: "resources",
   name: "tasks",
-  needs: "tasks",
-  parse([action, ...rest]: readonly string[]): { readonly task: TaskCommand } {
+  needs: "none",
+  parse(positionals: readonly string[]): {
+    readonly task: TaskCommand;
+    readonly workspace?: string;
+  } {
+    const [first] = positionals;
+    let action: TaskActionName;
+    let rest: readonly string[];
+    if (first === undefined || first.startsWith("--")) {
+      action = "list";
+      rest = positionals;
+    } else if (isTaskAction(first)) {
+      action = first;
+      rest = positionals.slice(1);
+    } else {
+      throw new UsageError(
+        `tasks takes list, get, create, or update (got "${first}")`
+      );
+    }
     const line = new TaskLine(action, rest);
-    const task = TASK_ACTIONS[line.action](line);
+    const workspace = line.value("--workspace");
+    const task = TASK_ACTIONS[action](line);
     line.done();
-    return { task };
+    return {
+      task,
+      ...(workspace === undefined ? {} : { workspace }),
+    };
   },
   async run(ctx, args) {
-    let result: TaskCommandResult;
-    try {
-      result = await ctx.tasks(args.task);
-    } catch (error) {
-      if (!(error instanceof TaskError)) {
-        throw error;
+    await ctx.openTasks(async (tasks) => {
+      let result: TaskCommandResult;
+      try {
+        result = await tasks(args.task);
+      } catch (error) {
+        if (!(error instanceof TaskError)) {
+          throw error;
+        }
+        ctx.io.diagnose(`marbles: ${error.message} (${error.code})`);
+        process.exitCode = 1;
+        return;
       }
-      ctx.io.diagnose(`marbles: ${error.message} (${error.code})`);
-      process.exitCode = 1;
-      return;
-    }
-    ctx.output(result, (value) => taskCommandText(args.task, value));
+      ctx.output(result, (value) => taskCommandText(args.task, value));
+    }, args.workspace);
   },
-  summary: "read or change this workspace's tasks (below)",
-  usage: "tasks <action>",
+  summary: "workspace tasks: list, get, create, or update",
+  usage: "tasks [list | get | create | update] [--workspace <ws>]",
 });

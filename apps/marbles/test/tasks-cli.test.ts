@@ -51,35 +51,32 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     };
   }
 
-  it("prints a change as text, or as JSON with --json", () => {
+  it("prints a change as text, or as JSON with --json, and updates status and parent together", () => {
     const text = marbles("tasks", "create", "Write docs");
     expect(text).toMatchObject({ status: 0, stderr: "" });
     expect(text.stdout).toMatch(TASK_LINE);
 
-    const json = marbles(
+    const created = marbles("tasks", "create", "Child", "--json");
+    expect(created.status, created.stderr).toBe(0);
+    const [child] = JSON.parse(created.stdout).tasks;
+
+    const updated = marbles(
       "tasks",
-      "change",
-      "--json",
-      "--input",
-      JSON.stringify({
-        operations: [
-          { input: { title: "A" }, key: "a", kind: "task.create" },
-          {
-            input: { title: "B" },
-            key: "b",
-            kind: "task.create",
-            parent: { key: "a" },
-          },
-        ],
-      })
+      "update",
+      child.id,
+      "--status",
+      "completed",
+      "--title",
+      "Child done",
+      "--json"
     );
-    expect(json.status, json.stderr).toBe(0);
-    const result = JSON.parse(json.stdout);
-    expect(result.changed.map((item: { key: string }) => item.key)).toEqual([
-      "a",
-      "b",
-    ]);
-    expect(result.tasks[1].parentId).toBe(result.tasks[0].id);
+    expect(updated.status, updated.stderr).toBe(0);
+    const result = JSON.parse(updated.stdout);
+    expect(result.tasks.at(-1)).toMatchObject({
+      id: child.id,
+      status: "completed",
+      title: "Child done",
+    });
   });
 
   async function files(dir: string): Promise<string[]> {
@@ -121,7 +118,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
       stderr: "",
       stdout: "no tasks (0 matching)\n",
     });
-    const ready = marbles("tasks", "ready", "--json");
+    const ready = marbles("tasks", "list", "--ready", "--json");
     expect(JSON.parse(ready.stdout)).toEqual({ items: [], total: 0 });
     expect(await readdir(root)).toEqual([".foundry"]);
     expect(existsSync(state)).toBe(false);
@@ -151,10 +148,10 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const directories = await entries();
 
     for (const argv of [
+      ["tasks", "--json"],
       ["tasks", "list", "--json"],
-      ["tasks", "ready", "--json"],
+      ["tasks", "list", "--ready", "--json"],
       ["tasks", "get", parent.id, "--json"],
-      ["tasks", "deps", parent.id, "--json"],
     ]) {
       const read = marbles(...argv);
       expect(read.status, `${argv.join(" ")}: ${read.stderr}`).toBe(0);
@@ -191,7 +188,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(titles("list", "--tag", "review", "--tag", "api")).toEqual([
       "Tagged",
     ]);
-    expect(titles("ready", "--tag", "missing")).toEqual([]);
+    expect(titles("list", "--ready", "--tag", "missing")).toEqual([]);
     expect(marbles("tasks", "list").stdout).toContain(
       `${task.id}  open  Tagged  [review, api]`
     );
@@ -231,7 +228,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(usage.status).toBe(1);
     expect(usage.stdout).toBe("");
     expect(usage.stderr).toMatch(USAGE_REFUSAL);
-    expect(usage.stderr).toContain("tasks change --input");
+    expect(usage.stderr).toContain("tasks update <id>");
   });
 
   it("refuses the tasks when the workspace's state links out of the state root", async () => {
@@ -264,6 +261,11 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
       ).items.map((task: { title: string }) => task.title);
     expect(titles(a)).toEqual(["Only in A"]);
     expect(titles(b)).toEqual(["Only in B"]);
+    expect(
+      JSON.parse(
+        inProject(a, "tasks", "list", "--workspace", b, "--json").stdout
+      ).items.map((task: { title: string }) => task.title)
+    ).toEqual(["Only in B"]);
   });
 
   it("lets several commands change the tasks at once with no Marbles process running", async () => {

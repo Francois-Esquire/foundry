@@ -15,7 +15,6 @@ import { createMcpServer } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, recordedWorkspace } from "~/workspace/open";
-import { resolveSource } from "~/workspace/source";
 
 const print = (line: string): void => {
   process.stderr.write(`${line}\n`);
@@ -25,9 +24,19 @@ interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }
 
-function serveWorkspace(flags: GlobalFlags): Served {
+async function defaultWorkspace(
+  flags: GlobalFlags
+): Promise<OpenedWorkspace | undefined> {
   const opened = findWorkspace(flags);
-  const own = opened.workspace;
+  if (flags.sourceExplicit || opened.config !== null) {
+    return opened;
+  }
+  return await recordedWorkspace(flags, opened.workspace.id);
+}
+
+async function serveGlobal(flags: GlobalFlags): Promise<Served> {
+  const opened = await defaultWorkspace(flags);
+  const own = opened?.workspace;
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
     const next = turn.then(work, work);
@@ -35,7 +44,7 @@ function serveWorkspace(flags: GlobalFlags): Served {
     return next;
   };
   const recorded = async (id: string): Promise<OpenedWorkspace> => {
-    if (id === own.id) {
+    if (opened !== undefined && id === opened.workspace.id) {
       return opened;
     }
     const found = await recordedWorkspace(flags, id);
@@ -47,12 +56,15 @@ function serveWorkspace(flags: GlobalFlags): Served {
     }
     return found;
   };
-  const ownSummary: WorkspaceSummary = {
-    config: opened.config,
-    id: own.id,
-    root: own.root,
-    state: "stopped",
-  };
+  const ownSummary: WorkspaceSummary | undefined =
+    opened === undefined
+      ? undefined
+      : {
+          config: opened.config,
+          id: opened.workspace.id,
+          root: opened.workspace.root,
+          state: "stopped",
+        };
   return {
     async hosted(id, work) {
       try {
@@ -60,7 +72,8 @@ function serveWorkspace(flags: GlobalFlags): Served {
       } catch (error) {
         if (
           error instanceof NotHostedError &&
-          id === own.id &&
+          opened !== undefined &&
+          id === opened.workspace.id &&
           opened.config === null
         ) {
           throw new NotHostedError(
@@ -71,11 +84,18 @@ function serveWorkspace(flags: GlobalFlags): Served {
         throw error;
       }
     },
-    id: own.id,
+    ...(own === undefined ? {} : { id: own.id }),
     release: () => turn.then(() => undefined),
-    tasks: (command, id = own.id) =>
+    tasks: (command, id) =>
       inTurn(async () => {
-        const target = await recorded(id);
+        const targetId = id ?? own?.id;
+        if (targetId === undefined) {
+          throw new ToolRefusal(
+            "invalid_argument",
+            "workspace is required when no default workspace is active; list (resource: workspaces) names them"
+          );
+        }
+        const target = await recorded(targetId);
         return withTasks(flags, target, (run) => run(command));
       }),
     async workspaces() {
@@ -92,7 +112,10 @@ function serveWorkspace(flags: GlobalFlags): Served {
           client.close();
         }
       }
-      return listed.some((entry) => entry.id === own.id)
+      if (ownSummary === undefined) {
+        return listed;
+      }
+      return listed.some((entry) => entry.id === ownSummary.id)
         ? listed
         : [ownSummary, ...listed];
     },
@@ -101,17 +124,7 @@ function serveWorkspace(flags: GlobalFlags): Served {
 
 async function serve(flags: GlobalFlags): Promise<void> {
   const output = protocolOutput();
-  const configPath = resolveSource(flags.config, flags.directory);
-  let served: Served;
-  try {
-    served = serveWorkspace(flags);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `could not open the workspace for "${configPath}": ${reason}`,
-      { cause: error }
-    );
-  }
+  const served = await serveGlobal(flags);
   const server = createMcpServer(served);
   const close = async (): Promise<void> => {
     try {

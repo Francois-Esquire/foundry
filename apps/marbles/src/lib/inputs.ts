@@ -44,7 +44,7 @@ export function inputProblem(
     if (
       !["text", "multiline", "number", "boolean", "select"].includes(field.type)
     ) {
-      return `Unsupported argument type for ${field.label}. Use marbles run with --input.`;
+      return `Unsupported argument type for ${field.label}. Use marbles trigger with --input.`;
     }
     if (field.type === "select" && !field.options?.length) {
       return `No choices configured for ${field.label}.`;

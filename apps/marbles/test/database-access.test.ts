@@ -363,7 +363,7 @@ describe("the CLI on the Marbles database", () => {
       )
     );
     const before = snapshot(state);
-    const status = marbles(home, work, "status");
+    const status = marbles(home, work, "workspaces");
     expect(status.status).toBe(1);
     expect(status.stderr).toMatch(NEWER);
     expect(status.stderr).not.toMatch(STACK_FRAME);

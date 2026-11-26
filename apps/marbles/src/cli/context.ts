@@ -1,14 +1,22 @@
+import { resolve } from "node:path";
 import type { Hosted, TaskRunner } from "~/access/workspace";
 import { attachToProcess, withTasks } from "~/access/workspace";
+import { resolveWorkspaceTarget } from "~/cli/resources/commands";
 import type { Triggers } from "~/create";
 import { type Layout, layout as resolveLayout } from "~/layout";
 import type { HostOptions, OpenedWorkspace } from "~/workspace/open";
-import { findWorkspace, hostTriggers, openWorkspace } from "~/workspace/open";
+import {
+  findWorkspace,
+  hostTriggers,
+  openWorkspace,
+  recordedWorkspace,
+} from "~/workspace/open";
 
 export interface GlobalFlags extends HostOptions {
   readonly directory: string;
   readonly dry: false;
   readonly json: boolean;
+  readonly sourceExplicit?: boolean;
 }
 
 export interface CliIo {
@@ -27,7 +35,10 @@ export interface CliContext {
   readonly interactive: boolean;
   readonly io: CliIo;
   readonly layout: Layout;
-  openTasks(run: (tasks: TaskRunner) => Promise<void>): Promise<void>;
+  openTasks(
+    run: (tasks: TaskRunner) => Promise<void>,
+    workspace?: string
+  ): Promise<void>;
   openTriggers(): Promise<{
     readonly opened: OpenedWorkspace;
     readonly triggers: Triggers;
@@ -70,6 +81,25 @@ async function printErrors(
   }
 }
 
+async function openedForTasks(
+  flags: GlobalFlags,
+  workspace?: string
+): Promise<OpenedWorkspace> {
+  if (workspace === undefined) {
+    return findWorkspace(flags);
+  }
+  const target = await resolveWorkspaceTarget(
+    resolve(flags.state),
+    flags.directory,
+    workspace
+  );
+  const recorded = await recordedWorkspace(flags, target.id);
+  if (recorded !== undefined) {
+    return recorded;
+  }
+  return findWorkspace({ ...flags, directory: target.root });
+}
+
 export function createCliContext(options: CliContextOptions): CliContext {
   const io = options.io ?? defaultCliIo();
   const { flags } = options;
@@ -85,7 +115,8 @@ export function createCliContext(options: CliContextOptions): CliContext {
     interactive,
     io,
     layout: resolvedLayout,
-    openTasks: (run) => withTasks(flags, findWorkspace(flags), run),
+    openTasks: async (run, workspace) =>
+      withTasks(flags, await openedForTasks(flags, workspace), run),
     async openTriggers() {
       const log = flags.json ? io.diagnose : io.print;
       const opened = await openWorkspace(flags, { print: log });

@@ -21,6 +21,6 @@ export const mcpCommand = defineCommand({
     await serveStdio(ctx.flags);
   },
   summary:
-    "serve this workspace to an MCP client over stdio; starts and hosts nothing",
+    "serve Marbles to an MCP client over stdio; starts and hosts nothing",
   usage: "mcp",
 });

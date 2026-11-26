@@ -650,11 +650,12 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       rmSync(join(consumer, ".env"));
       expect(marbles(["list"])).toContain("[workflow] packed-workflow");
       expect(
-        marbles(["run", "packed-workflow", "--input", '{"name":"daemon"}'])
+        marbles(["trigger", "packed-workflow", "--input", '{"name":"daemon"}'])
       ).toContain("Hello daemon");
       const queued = marbles([
-        "enqueue",
+        "trigger",
         "packed-workflow",
+        "--async",
         "--input",
         '{"name":"queue"}',
         "--key",
@@ -663,15 +664,21 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       expect(queued).toMatch(QUEUED_RUN_ID);
       expect(marbles(["watch", queued])).toContain("Hello queue");
       expect(
-        marbles(["enqueue", "packed-workflow", "--key", "packed"]).trim()
+        marbles([
+          "trigger",
+          "packed-workflow",
+          "--async",
+          "--key",
+          "packed",
+        ]).trim()
       ).toBe(queued);
-      const status = marbles(["status"]);
+      const status = marbles(["workspaces"]);
       expect(status).toContain("marbles process: pid");
       expect(status).toContain("(generation)");
       expect(status).toMatch(CURRENT_GENERATION);
       expect(readdirSync(state)).toContain("marbles.db");
       expect(status).toContain(consumer);
-      const statusJson = JSON.parse(marbles(["status", "--json"])) as {
+      const statusJson = JSON.parse(marbles(["workspaces", "--json"])) as {
         process: { alive: boolean } | null;
       };
       expect(statusJson.process?.alive).toBe(true);
@@ -681,7 +688,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     } finally {
       expect(marbles(["stop"])).toContain("stopped Marbles process");
     }
-    expect(marbles(["status"])).toContain(consumer);
+    expect(marbles(["workspaces"])).toContain(consumer);
     const listedTasks = (env: Record<string, string>) =>
       (
         JSON.parse(marbles(["tasks", "list", "--json"], env)).items as {
@@ -732,7 +739,7 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
       "inventory"
     );
     try {
-      const inventory = execFileSync(cli, ["run", "inventory"], {
+      const inventory = execFileSync(cli, ["trigger", "inventory"], {
         cwd: standalone,
         encoding: "utf8",
         env: { ...standaloneHome.env, PATH: dirname(process.execPath) },
@@ -772,7 +779,7 @@ step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.curre
     const daemonLog = join(providersHome.layout.state, "daemon.log");
     let logOffset = 0;
     const rolled = () => {
-      const result = spawnSync(cli, ["run", "inventory"], {
+      const result = spawnSync(cli, ["trigger", "inventory"], {
         cwd: standalone,
         encoding: "utf8",
         env: {

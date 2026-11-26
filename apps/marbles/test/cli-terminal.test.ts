@@ -394,14 +394,14 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
   }
 }, 60_000);
 
-test("on a terminal, run <name> runs it in the Marbles process and exits, and never opens the dashboard", async () => {
+test("on a terminal, trigger <name> runs it in the Marbles process and exits, and never opens the dashboard", async () => {
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
   const config = join(dir, "marbles.config.ts");
   writeFileSync(
     config,
     'import { step } from "@foundry.sh/marbles";\nstep("hello-now").do(() => ({ said: "hello" }));\n'
   );
-  const terminal = openTestCli(testHome(), config, ["run", "hello-now"]);
+  const terminal = openTestCli(testHome(), config, ["trigger", "hello-now"]);
   try {
     await terminal.see('"said": "hello"', 0, STARTUP_MS);
     await until(() => terminal.child.exitCode !== null);
@@ -428,11 +428,14 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
   try {
     for (const command of [
       ["bogus"],
-      ["run"],
+      ["trigger"],
+      ["run", "greet"],
       ["roll", "greet"],
       ["daemon"],
       ["daemon", "stop"],
-      ["settings", "themes"],
+      ["status"],
+      ["theme"],
+      ["init"],
       ["list", "--harness", "foo"],
       ["launchd", "install", "ping"],
       ["launchd", "uninstall", "ping"],
@@ -459,7 +462,7 @@ writeFileSync(${JSON.stringify(imported)}, "imported");`
   }
 }, 15_000);
 
-test("run explains bad input in one line", () => {
+test("trigger explains bad input in one line", () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-run-errors-"));
   const home = testHome();
   const config = join(dir, "marbles.config.ts");
@@ -475,7 +478,7 @@ schedule(greet({}, { name: "Ada" })).every("1h");`
       [
         process.execPath,
         resolve("src/cli.ts"),
-        "run",
+        "trigger",
         ...args,
         "--source",
         config,

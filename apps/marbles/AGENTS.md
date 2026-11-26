@@ -470,16 +470,17 @@ Five buckets, each importing only what sits below it:
   `commands/*.ts`, one self-contained module per command — no command is the
   dashboard, `start` ensures the background daemon is running and hosts this
   workspace, `stop [--workspace]` stops the daemon or unhosts this workspace,
-  `run <name>` runs one thing now and waits, `enqueue <name>` queues it on the
-  Marbles process and prints its run ID, and the resource nouns (`runs`,
-  `sessions`, `artifacts`, `sandboxes`) and `theme` each take their actions as
-  a second word; `settings.ts`, the settings file `marbles theme` reads and
-  writes; `watch.ts`, `marbles watch`, which waits out a run still in its queue
-  before it follows the run's output; the output of `marbles status` and
-  the task commands, `status/text.ts` and `tasks/text.ts`; and `resources/`, the
-  resource listings, sharing, and `marbles artifacts relink`, which
-  rebuilds each workspace's links under `<root>/.marbles/` from the
-  database; they are never read back), `src/tui/` (the OpenTUI dashboard and
+  `trigger <name>` runs one thing now and waits (or queues it with `--async`
+  and `--key`), `watch <runId>` follows a run's output, `mcp` serves a global
+  stdio MCP server across workspaces, `settings` reads/writes `settings.json`
+  (including `theme`), and the resource nouns (`workspaces`, `tasks`, `runs`,
+  `sessions`, `artifacts`, `sandboxes`) provide uniform `list`/`get` with
+  `--workspace <id|dir>` / `--all` scoping (plus `tasks create`/`update`);
+  `settings.ts`, the settings file `marbles settings` reads and writes;
+  `watch.ts`, `marbles watch`, which waits out a run still in its queue before
+  it follows the run's output; `status/text.ts` and `tasks/text.ts` for
+  formatting; and `resources/`, the workspace-scoped resource listing and get
+  helpers), `src/tui/` (the OpenTUI dashboard and
   interactive status UI, lazy-imported by `src/cli/` only on a TTY:
   `interactive.ts` and `app.tsx`, the dashboard and its renderer; `views/`,
   the screens; `state/`, their models, reducers and hooks; `hooks/`, the shared

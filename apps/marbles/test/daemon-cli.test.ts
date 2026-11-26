@@ -26,7 +26,7 @@ it("starts, unhosts with --workspace, and stops the Marbles process under marble
   expect(started.status, started.stderr).toBe(0);
   expect(started.stdout).toContain(`hosts ${root}`);
   expect(daemonAlive(home.layout)).toBe(true);
-  expect(marbles("status").stdout).toContain(root);
+  expect(marbles("workspaces").stdout).toContain(root);
 
   const detached = marbles("stop", "--workspace");
   expect(detached.status, detached.stderr).toBe(0);

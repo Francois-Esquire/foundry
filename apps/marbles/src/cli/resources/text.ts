@@ -25,6 +25,62 @@ export function resourceItems(
   return ITEMS[kind](view);
 }
 
+export async function resourceDetail(
+  kind: ResourceKind,
+  id: string,
+  view: ResourceView
+): Promise<
+  { readonly item: ResourceItem; readonly lines: readonly string[] } | undefined
+> {
+  const items = await ITEMS[kind](view);
+  const found = items.find((entry) => entry.id === id);
+  if (found === undefined) {
+    return undefined;
+  }
+  return { item: found, lines: detailLines(kind, found) };
+}
+
+function detailLines(kind: ResourceKind, item: ResourceItem): string[] {
+  const base = [`id: ${item.id}`, `workspace: ${item.owner}`];
+  switch (kind) {
+    case "artifact":
+      return [
+        ...base,
+        `name: ${String(item.name)}`,
+        `type: ${String(item.type)}`,
+        `status: ${String(item.status)}`,
+        `updated: ${String(item.updatedAt)}`,
+      ];
+    case "run": {
+      const steps = Array.isArray(item.steps)
+        ? (item.steps as readonly RunStep[])
+        : [];
+      return [
+        ...base,
+        `step: ${String(item.step)}`,
+        `status: ${String(item.status)}`,
+        `created: ${String(item.createdAt)}`,
+        ...(steps.length === 0 ? [] : ["steps:", ...stepLines(steps, "  ")]),
+      ];
+    }
+    case "sandbox":
+      return [
+        ...base,
+        `status: ${String(item.status)}`,
+        `created: ${String(item.createdAt)}`,
+      ];
+    case "session":
+      return [
+        ...base,
+        `messages: ${String(item.messages)}`,
+        `summary: ${item.summarized ? "yes" : "no"}`,
+        `updated: ${String(item.updatedAt)}`,
+      ];
+    default:
+      return kind satisfies never;
+  }
+}
+
 function ownership(shown: Shown<unknown>): {
   readonly owner: string;
   readonly sharedWith: readonly string[];

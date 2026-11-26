@@ -80,9 +80,30 @@ describe("CLI command registry and help generation", () => {
       expect(["core", "resources", "system"]).toContain(command.group);
       expect(command.summary.length).toBeGreaterThan(0);
     }
-    expect(Object.hasOwn(COMMANDS, "daemon")).toBe(false);
-    expect(Object.hasOwn(COMMANDS, "start")).toBe(true);
-    expect(Object.hasOwn(COMMANDS, "stop")).toBe(true);
+    expect(COMMANDS.tasks.group).toBe("resources");
+    expect(COMMANDS.workspaces.group).toBe("resources");
+    for (const removed of [
+      "daemon",
+      "init",
+      "run",
+      "enqueue",
+      "status",
+      "theme",
+    ]) {
+      expect(Object.hasOwn(COMMANDS, removed), removed).toBe(false);
+    }
+    for (const kept of [
+      "trigger",
+      "watch",
+      "workspaces",
+      "tasks",
+      "settings",
+      "start",
+      "stop",
+      "mcp",
+    ]) {
+      expect(Object.hasOwn(COMMANDS, kept), kept).toBe(true);
+    }
   });
 
   it("auto-generates help from registered command metadata with only global --source, --json, and --help", () => {
@@ -103,7 +124,10 @@ describe("CLI command registry and help generation", () => {
       expect(help, command.name).toContain(firstUsage);
     }
     expect(help).toContain("stop --workspace");
+    expect(help).toContain("trigger <name> --async");
     expect(help).not.toContain("daemon");
+    expect(help).not.toContain("relink");
+    expect(help).not.toContain("share <id>");
     expect(help).not.toContain("--dry-run");
     expect(help).not.toContain("--recheck-providers");
     expect(help).not.toContain("--expect");
@@ -163,19 +187,19 @@ describe("CLI command registry and help generation", () => {
     expect(help.stderr()).toBe("");
     expect(process.exitCode).toBe(previousExitCode);
 
-    const themeJson = captureIo();
-    await runCli(["--json", "theme"], undefined, {
+    const settingsJson = captureIo();
+    await runCli(["--json", "settings"], undefined, {
       interactive: false,
-      io: themeJson.io,
+      io: settingsJson.io,
     });
-    expect(JSON.parse(themeJson.stdout())).toEqual({ theme: "dark" });
+    expect(JSON.parse(settingsJson.stdout())).toEqual({ theme: "dark" });
 
-    const statusJson = captureIo();
-    await runCli(["status", "--json"], undefined, {
+    const workspacesJson = captureIo();
+    await runCli(["workspaces", "--json"], undefined, {
       interactive: true,
-      io: statusJson.io,
+      io: workspacesJson.io,
     });
-    expect(JSON.parse(statusJson.stdout())).toMatchObject({
+    expect(JSON.parse(workspacesJson.stdout())).toMatchObject({
       process: null,
       workspaces: [],
     });

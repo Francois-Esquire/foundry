@@ -597,7 +597,7 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       name: "change_tasks",
     });
     expect(intoB.isError, JSON.stringify(intoB)).not.toBe(true);
-    const created = await client.callTool({
+    const noWorkspace = await client.callTool({
       arguments: {
         operations: [
           { input: { title: "In A" }, key: "a", kind: "task.create" },
@@ -605,7 +605,15 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       },
       name: "change_tasks",
     });
-    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    expect(noWorkspace.isError).toBe(true);
+    expect(payload(noWorkspace)).toMatchObject({
+      error: {
+        code: "invalid_argument",
+        message: expect.stringContaining(
+          "workspace is required when no default workspace is active"
+        ),
+      },
+    });
     for (const id of ["missing", "..", `../${recorded.id}`, state]) {
       const unknown = await client.callTool({
         arguments: { resource: "tasks", workspace: id },
@@ -636,12 +644,17 @@ it("starts without a source and serves the stored tasks of every recorded worksp
     );
     expect(await readdir(outside)).toEqual([]);
     expect(listed.map((entry) => entry.id)).not.toContain("abc");
+    expect(listed.map((entry) => entry.id)).not.toContain(
+      workspaceState(state, here).id
+    );
     const config = await client.callTool({
       arguments: { resource: "definitions" },
       name: "list",
     });
     expect(config.isError).toBe(true);
-    expect(JSON.stringify(config.content)).toContain("no Marbles source at");
+    expect(JSON.stringify(config.content)).toContain(
+      "workspace is required when no default workspace is active"
+    );
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
   } finally {
@@ -662,7 +675,13 @@ it("refuses its own workspace's tasks when its state links out of the state root
   const own = workspaceState(state, here);
   await symlink(outside, own.dir);
   const transport = new RecordedStdioTransport({
-    args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
+    args: [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      join(here, "marbles.ts"),
+    ],
     command: "bun",
     cwd: here,
     env: home.env,

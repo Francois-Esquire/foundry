@@ -51,19 +51,19 @@ describe("the interactive status view", () => {
       join(state, "settings.json"),
       JSON.stringify({ theme: "light" })
     );
-    const parsed = parseArgs(["status"]);
-    if (parsed.command !== "status") {
-      throw new Error("expected the status command");
+    const parsed = parseArgs(["workspaces"]);
+    if (parsed.command !== "workspaces") {
+      throw new Error("expected the workspaces command");
     }
     const args = { ...parsed, state };
-    const handler = COMMANDS.status;
+    const handler = COMMANDS.workspaces;
     if (handler.needs !== "workspace") {
-      throw new Error("expected status to need a workspace");
+      throw new Error("expected workspaces to need a workspace");
     }
     const opened = { workspace: { id: "ws1" } } as unknown as OpenedWorkspace;
     asTerminal();
     const ctx = {
-      ...createCliContext({ argv: ["status"], flags: args }),
+      ...createCliContext({ argv: ["workspaces"], flags: args }),
       workspace: opened,
     };
     await handler.run(ctx, args);

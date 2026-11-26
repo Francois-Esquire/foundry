@@ -295,9 +295,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     const [first] = JSON.parse(after.stdout).items;
     for (const argv of [
       ["list"],
-      ["ready", "--tag", "cli"],
+      ["list", "--ready", "--tag", "cli"],
       ["get", first.id, "--depth", "1"],
-      ["deps", first.id],
     ]) {
       const read = cli(...argv, "--json");
       expect(read.status, `${argv.join(" ")}: ${read.stderr}`).toBe(0);
