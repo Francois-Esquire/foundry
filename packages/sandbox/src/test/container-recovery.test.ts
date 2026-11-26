@@ -6,7 +6,6 @@ import {
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
-  CONTAINER_RUNTIME_SCOPE_LABEL,
   CONTAINER_STORE_LABEL,
 } from "../container/defaults";
 import { MemoryContainerStore } from "../store/memory";
@@ -53,7 +52,7 @@ describe.each(CONTAINER_STORES)(
           image: "x",
           labels: {
             [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-            [CONTAINER_RUNTIME_SCOPE_LABEL]: "scope",
+            "com.foundry.environment.scope-id": "scope",
             [CONTAINER_ENVIRONMENT_ID_LABEL]: "harness-vm",
           },
           memoryMib: 1,

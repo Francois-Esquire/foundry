@@ -420,7 +420,7 @@ describe.each(CONTAINER_STORES)(
         expect(lines).toEqual([expect.stringContaining(`${left.id}-1`)]);
         const old = runtime.instances.find((i) => i.id === `${left.id}-1`);
         expect(old?.removed).toBe(false);
-        expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
+        expect(await next.sweep()).toEqual([`${left.id}-1`]);
         expect(old?.removed).toBe(true);
         await reopened.close();
         await next.shutdown();
@@ -457,7 +457,7 @@ describe.each(CONTAINER_STORES)(
           nativeId: `${left.id}-2`,
           status: "running",
         });
-        expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
+        expect(await next.sweep()).toEqual([`${left.id}-1`]);
         await reopened.close();
         await next.shutdown();
       });

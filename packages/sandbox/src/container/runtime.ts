@@ -1,13 +1,10 @@
 import type { Storage } from "@foundry/core/storage";
 import type {
-  SandboxCommand,
   SandboxDirectoryEntry,
-  SandboxExecOptions,
   SandboxExecResult,
   SandboxPipedProcess,
   SandboxResourceLimits,
   SandboxShell,
-  SandboxShellOptions,
 } from "../sandbox";
 
 export interface ContainerNetworkAllowlist {
@@ -25,8 +22,6 @@ export type ContainerNetwork =
 
 export type PullPolicy = "missing" | "always" | "never";
 
-export type ContainerStatus = "running" | "stopped" | "removed";
-
 export interface ContainerConfig {
   detached?: boolean;
   disableNetwork?: boolean;
@@ -39,49 +34,6 @@ export interface ContainerConfig {
   pull?: PullPolicy;
   resources?: SandboxResourceLimits;
   workdir?: string;
-}
-
-export interface ContainerSandbox<TNative = unknown> {
-  copyIn(files: Record<string, string | Uint8Array>): Promise<void>;
-  copyOut(path: string): Promise<Record<string, Uint8Array>>;
-
-  exec(
-    command: SandboxCommand,
-    options?: SandboxExecOptions
-  ): Promise<SandboxExecResult>;
-
-  hostPort(guestPort: number): Promise<number | undefined>;
-  readonly id: string;
-  isDirectory(path: string): Promise<boolean>;
-
-  listDirectory(
-    path: string,
-    recursive: boolean
-  ): Promise<readonly SandboxDirectoryEntry[]>;
-  readonly native: TNative;
-
-  openShell(options?: SandboxShellOptions): Promise<SandboxShell>;
-  readFile(path: string): Promise<Uint8Array>;
-  readTextFile(path: string): Promise<string>;
-  remove(): Promise<void>;
-  spawn(
-    command: SandboxCommand,
-    options?: SandboxExecOptions
-  ): Promise<SandboxPipedProcess>;
-
-  startProcess(
-    command: SandboxCommand,
-    options?: SandboxExecOptions
-  ): Promise<ContainerProcess>;
-  readonly status: ContainerStatus;
-
-  stop(): Promise<void>;
-  readonly storage: Storage;
-  readonly workdir: string;
-
-  writeFile(path: string, content: string | Uint8Array): Promise<void>;
-
-  [Symbol.asyncDispose](): Promise<void>;
 }
 
 export interface ContainerSpec {
@@ -193,8 +145,4 @@ export interface ContainerProcess {
   kill(): Promise<void>;
   signal(signal: number): Promise<void>;
   wait(): Promise<SandboxExecResult>;
-}
-
-export interface ContainerSandboxDeps<TNative = unknown> {
-  runtime?: ContainerRuntime<TNative>;
 }

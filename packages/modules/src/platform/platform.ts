@@ -11,7 +11,6 @@ import type {
 import { createModuleManagement } from "../management";
 import type { ModuleCommands } from "../modules";
 import { createModuleVersions } from "../version";
-import { withConfirmedModuleContainerCleanup } from "./container-cleanup";
 import type { CreateContainerModuleProgramRuntimeOptions } from "./container-runtime";
 import { createContainerModuleProgramRuntime } from "./container-runtime";
 import type { ModuleCheckouts, ModuleInstallationFiles } from "./files";
@@ -21,7 +20,8 @@ import { createModuleRuntimeRecovery } from "./runtime-recovery";
 export interface CreateModulePlatformOptions {
   readonly artifacts: ArtifactSubstrate;
   readonly checkouts: ModuleCheckouts;
-  readonly containerRuntime: Pick<
+  /** @deprecated */
+  readonly containerRuntime?: Pick<
     ContainerRuntime,
     "listResources" | "stopResource" | "removeResource"
   >;
@@ -36,11 +36,15 @@ export interface CreateModulePlatformOptions {
 }
 
 export function createModulePlatform(options: CreateModulePlatformOptions) {
-  const { artifacts, store, files } = options;
-  const containers = withConfirmedModuleContainerCleanup(
-    options.containers,
-    options.containerRuntime
-  );
+  const { artifacts, containers, store, files } = options;
+  const ifRecorded = async (
+    id: string,
+    act: () => Promise<void>
+  ): Promise<void> => {
+    if ((await containers.get(id)) !== undefined) {
+      await act();
+    }
+  };
   const versions = createModuleVersions({ artifacts, store });
   const invocations = createModuleGatewayRuntimeDispatcher({
     ...(options.observeInvocation === undefined
@@ -56,7 +60,7 @@ export function createModulePlatform(options: CreateModulePlatformOptions) {
   const programs = createModuleProgramSupervisor({
     files,
     gateway,
-    removeContainer: (id) => containers.remove(id),
+    removeContainer: (id) => ifRecorded(id, () => containers.remove(id)),
     runtime: createContainerModuleProgramRuntime({
       checkouts: options.checkouts,
       containers,
@@ -64,7 +68,7 @@ export function createModulePlatform(options: CreateModulePlatformOptions) {
       transport: options.transport,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     }),
-    stopRetainedContainer: (id) => containers.stopRetained(id),
+    stopRetainedContainer: (id) => ifRecorded(id, () => containers.stop(id)),
     store,
     versions,
     ...(options.onSettledTransition === undefined

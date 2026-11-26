@@ -10,31 +10,25 @@ import {
 } from "./constraints";
 import type {
   Container,
-  ContainerFacets,
-  ContainerSweep,
   Containers,
   CreateContainersOptions,
 } from "./contracts";
 import {
-  ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
   CONTAINER_STORE_LABEL,
-  INVENTORY_PAGE_LIMIT,
-  MAX_INVENTORY_PAGES,
   removeByHand,
 } from "./defaults";
-import { containerFacets, resolveContainerMountSpecs } from "./facets";
-import type {
-  ContainerConfig,
-  ContainerMountSpec,
-  ContainerResourceSummary,
-  ContainerRuntime,
-  ContainerSandbox,
-} from "./runtime";
-import { provisionContainerSandbox, startContainerSandbox } from "./sandbox";
+import {
+  type AttachedContainer,
+  attachContainer,
+  resolveContainerMountSpecs,
+} from "./facets";
+import { createInventory, ownsNativeName } from "./inventory";
+import type { ContainerConfig } from "./runtime";
+import { resolveContainerSpec } from "./spec";
 
 export type {
   Containers,
@@ -44,18 +38,17 @@ export type {
 type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 
 interface Live {
-  facets: ContainerFacets;
   handles: number;
   labels: Readonly<Record<string, string>>;
   nativeId: string;
   row: ContainerRow;
-  sandbox: ContainerSandbox;
   turn: Promise<void>;
+  vm: AttachedContainer;
 }
 
 export function createContainers(options: CreateContainersOptions): Containers {
   const { runtime } = options;
-  const store = ownNamesOnly(options.store ?? new MemoryContainerStore());
+  const store = options.store ?? new MemoryContainerStore();
   const holder = options.holder ?? globalThis.crypto.randomUUID();
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
@@ -68,133 +61,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
     [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
     [CONTAINER_INSTANCE_LABEL]: options.instanceLabel,
   });
-
-  const abandoned = new Map<string, string>();
-
-  const abandon = (machine: Machine, rowId: string, own: string): void => {
-    if (isRowsMachine(machine, rowId, own)) {
-      abandoned.set(machine.name, rowId);
-    } else {
-      report(
-        `container ${rowId}: the VM ${machine.name} would not go, and is not provably this instance's, so it is not kept to retry; remove it by hand with ${removeByHand(machine.name)}`
-      );
-    }
-  };
-
-  const report = (line: string): void => {
-    try {
-      (
-        options.report ??
-        ((text: string) => process.stderr.write(`foundry: ${text}\n`))
-      )(line);
-    } catch {
-      // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
-      return;
-    }
-  };
-
-  const discard = async (
-    machine: Machine,
-    rowId: string,
-    own: string,
-    sandbox: ContainerSandbox
-  ): Promise<void> => {
-    if (!isRowsMachine(machine, rowId, own)) {
-      report(
-        `container ${rowId}: the VM ${machine.name} it booted is not provably its own, so it is left; remove it by hand with ${removeByHand(machine.name)}`
-      );
-      return;
-    }
-    try {
-      await sandbox.remove();
-    } catch {
-      abandon(machine, rowId, own);
-    }
-  };
-
-  const removeNative = async (name: string, rowId: string): Promise<void> => {
-    let resource: ContainerResourceSummary | undefined;
-    let own: string;
-    try {
-      own = await store.identity();
-      resource = (await enumerate(runtime, selection, undefined)).find(
-        (each) => each.name === name
-      );
-    } catch (error: unknown) {
-      if (ownsNativeName(rowId, name)) {
-        abandoned.set(name, rowId);
-      }
-      report(
-        `container ${rowId}: its old VM ${name} could not be judged (${String(error)}); kept to retry once the inventory can be read`
-      );
-      return;
-    }
-    if (resource === undefined) {
-      return;
-    }
-    if (!isRowsMachine(resource, rowId, own)) {
-      report(
-        `container ${rowId}: its old VM ${name} is not provably this instance's, so it is left; remove it by hand with ${removeByHand(name)}`
-      );
-      return;
-    }
-    try {
-      await dispose(runtime, resource);
-    } catch {
-      abandon(resource, rowId, own);
-    }
-  };
-
-  const reclaim = async (
-    signal: AbortSignal | undefined,
-    own: string
-  ): Promise<{
-    readonly passedOver: string[];
-    readonly removed: string[];
-    readonly resources: readonly ContainerResourceSummary[];
-  }> => {
-    const candidates = [...abandoned];
-    const passedOver: string[] = [];
-    const resources = await enumerate(runtime, selection, signal);
-    const listed = new Map(
-      resources.map((resource) => [resource.name, resource])
-    );
-    const removed: string[] = [];
-    let failure: { readonly error: unknown } | undefined;
-    for (const [name, rowId] of candidates) {
-      if (abandoned.get(name) !== rowId) {
-        continue;
-      }
-      const resource = listed.get(name);
-      try {
-        if (resource !== undefined) {
-          if (
-            isRowsMachine(resource, rowId, own) &&
-            !(await recordedByAnother(name, rowId))
-          ) {
-            await dispose(runtime, resource);
-            removed.push(name);
-          } else {
-            passedOver.push(name);
-          }
-        }
-        abandoned.delete(name);
-      } catch (error: unknown) {
-        failure ??= { error };
-      }
-    }
-    if (failure !== undefined) {
-      throw new SandboxError(
-        "provider-failed",
-        `could not remove ${candidates
-          .filter(([name]) => abandoned.has(name))
-          .map(([name]) => name)
-          .join(", ")}`,
-        { cause: failure.error }
-      );
-    }
-    return { passedOver, removed, resources };
-  };
+  const inventory = createInventory({
+    report: options.report,
+    runtime,
+    selection,
+    store,
+  });
 
   const rowOrThrow = async (
     id: string,
@@ -237,7 +109,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         updatedAt: Date.now(),
       });
       const entered = enteredEvent(current, next);
-      await view.commit({
+      await commitOwnNames(view, {
         ...(entered === undefined
           ? {}
           : {
@@ -249,15 +121,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
-  const insert = (constraints: ContainerSandboxConstraints) => {
+  const alreadyExists = (id: string): SandboxError =>
+    new SandboxError("invalid-contract", `container ${id} already exists`);
+
+  const insert = (id: string, constraints: ContainerSandboxConstraints) => {
     const eventId = globalThis.crypto.randomUUID();
     return serialized(async (view): Promise<ContainerRow> => {
-      const id = globalThis.crypto.randomUUID();
       if ((await view.get(id)) !== undefined) {
-        throw new SandboxError(
-          "invalid-contract",
-          `container ${id} already exists`
-        );
+        throw alreadyExists(id);
       }
       const now = Date.now();
       const row: ContainerRow = Object.freeze({
@@ -269,7 +140,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         status: "starting",
         updatedAt: now,
       });
-      await view.commit({
+      await commitOwnNames(view, {
         events: [sandboxEvent("sandbox.created", eventId, id, now)],
         putContainers: [row],
       });
@@ -281,7 +152,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     entry: { row: ContainerRow },
     constraints: ContainerSandboxConstraints,
     signal: AbortSignal | undefined
-  ): Promise<Pick<Live, "facets" | "labels" | "nativeId" | "sandbox">> => {
+  ): Promise<Pick<Live, "labels" | "nativeId" | "vm">> => {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
     const { nativeId } = row;
@@ -296,67 +167,40 @@ export function createContainers(options: CreateContainersOptions): Containers {
       options.config
     );
     const own = await store.identity();
-    const config: ContainerConfig = {
-      ...resolved,
-      labels: {
-        ...resolved.labels,
-        ...selection,
-        [CONTAINER_ID_LABEL]: row.id,
-        [CONTAINER_STORE_LABEL]: own,
-      },
-      name: nativeId,
+    const labels = {
+      ...resolved.labels,
+      ...selection,
+      [CONTAINER_ID_LABEL]: row.id,
+      [CONTAINER_STORE_LABEL]: own,
     };
-    let sandbox: ContainerSandbox;
-    let mounts: readonly ContainerMountSpec[];
+    const config: ContainerConfig = { ...resolved, labels, name: nativeId };
+    let vm: AttachedContainer | undefined;
     try {
-      mounts = await resolveContainerMountSpecs(
+      const mounts = await resolveContainerMountSpecs(
         constraints.mounts ?? [],
         options.allowedMountRoots ?? [],
         options.mountTargetRoot
       );
-      sandbox = await startContainerSandbox(
-        await provisionContainerSandbox(config, { runtime }, mounts),
-        {
-          mayRemove: () =>
-            isRowsMachine(
-              { labels: config.labels ?? {}, name: nativeId },
-              row.id,
-              own
-            ),
-          onLeftBehind: () =>
-            abandon(
-              { labels: config.labels ?? {}, name: nativeId },
-              row.id,
-              own
-            ),
-        }
-      );
-    } catch (error: unknown) {
-      await update(entry, { status: "failed" }).catch(() => undefined);
-      throw error;
-    }
-    try {
+      const spec = await resolveContainerSpec(config, mounts);
+      const instance = await runtime.create(spec);
+      vm = attachContainer(instance, spec, {
+        mountCapability: (options.allowedMountRoots?.length ?? 0) > 0,
+      });
+      await instance.ensureDirectory(spec.workdir);
       await update(entry, { status: "running" });
+      return { labels, nativeId, vm };
     } catch (error: unknown) {
-      await discard(
-        { labels: config.labels ?? {}, name: nativeId },
-        row.id,
-        own,
-        sandbox
-      );
+      if (vm !== undefined) {
+        await inventory.discardBooted(
+          { labels, name: nativeId },
+          row.id,
+          own,
+          vm
+        );
+      }
       await update(entry, { status: "failed" }).catch(() => undefined);
       throw error;
     }
-    return {
-      facets: containerFacets(
-        sandbox,
-        mounts,
-        (options.allowedMountRoots?.length ?? 0) > 0
-      ),
-      labels: config.labels ?? {},
-      nativeId,
-      sandbox,
-    };
   };
 
   const bringUp = async (
@@ -375,74 +219,102 @@ export function createContainers(options: CreateContainersOptions): Containers {
     return created;
   };
 
-  const release = (entry: Live): Promise<void> => {
-    live.delete(entry.row.id);
-    const done = (async () => {
-      await entry.turn;
-      const machine = { labels: entry.labels, name: entry.nativeId };
-      const own = await store.identity();
-      if (isRowsMachine(machine, entry.row.id, own)) {
-        try {
-          await entry.sandbox.remove();
-        } catch (error: unknown) {
-          abandon(machine, entry.row.id, own);
-          throw error;
-        }
-      } else {
-        report(
-          `container ${entry.row.id}: its VM ${entry.nativeId} is not provably its own, so its close left it; remove it by hand with ${removeByHand(entry.nativeId)}`
-        );
-      }
-      await update(entry, { status: "stopped" });
-    })().finally(() => releasing.delete(entry.row.id));
-    releasing.set(entry.row.id, done);
-    return done;
+  const bringingUp = (id: string, work: () => Promise<Live>): Promise<Live> => {
+    const inflight = work().finally(() => pending.delete(id));
+    pending.set(id, inflight);
+    return inflight;
   };
 
   const released = (id: string): Promise<void> | undefined =>
     releasing.get(id)?.catch(() => undefined);
 
+  const inReleaseTurn = (
+    id: string,
+    work: () => Promise<void>
+  ): Promise<void> => {
+    const prior = released(id);
+    const done: Promise<void> = (async () => {
+      await prior;
+      await work();
+    })().finally(() => {
+      if (releasing.get(id) === done) {
+        releasing.delete(id);
+      }
+    });
+    releasing.set(id, done);
+    return done;
+  };
+
+  const release = (entry: Live): Promise<void> => {
+    live.delete(entry.row.id);
+    return inReleaseTurn(entry.row.id, async () => {
+      await entry.turn;
+      await inventory.removeAttached(entry.row.id, entry, "close");
+      await update(entry, { status: "stopped" });
+    });
+  };
+
+  const retryRelease = async (id: string): Promise<void> => {
+    if (live.has(id) || pending.has(id) || removing.has(id)) {
+      return;
+    }
+    await inReleaseTurn(id, async () => {
+      if ((await store.get(id)) !== undefined) {
+        await stopRow(id);
+      }
+    });
+  };
+
   const handleFor = (entry: Live): Container => {
     entry.handles += 1;
-    let closed = false;
+    let closing: Promise<void> | undefined;
+    let failed = false;
+    const letGo = async (): Promise<void> => {
+      if (failed) {
+        await retryRelease(entry.row.id);
+        return;
+      }
+      entry.handles -= 1;
+      if (entry.handles === 0 && live.get(entry.row.id) === entry) {
+        await release(entry);
+      }
+    };
     return Object.freeze({
-      async close() {
-        if (closed) {
-          return;
-        }
-        closed = true;
-        entry.handles -= 1;
-        if (entry.handles === 0 && live.get(entry.row.id) === entry) {
-          await release(entry);
-        }
+      close() {
+        closing ??= letGo().catch((error: unknown) => {
+          failed = true;
+          closing = undefined;
+          throw error;
+        });
+        return closing;
       },
       get commands() {
-        return entry.facets.commands;
+        return entry.vm.facets.commands;
       },
       get files() {
-        return entry.facets.files;
+        return entry.vm.facets.files;
       },
       id: entry.row.id,
       get ports() {
-        return entry.facets.ports;
+        return entry.vm.facets.ports;
       },
       get processes() {
-        return entry.facets.processes;
+        return entry.vm.facets.processes;
       },
       get row() {
         return entry.row;
       },
       get services() {
-        return entry.facets.services;
+        return entry.vm.facets.services;
       },
       get shell() {
-        return entry.facets.shell;
+        return entry.vm.facets.shell;
       },
       get volumes() {
-        return entry.facets.volumes;
+        return entry.vm.facets.volumes;
       },
       get workingDirectory() {
-        return entry.facets.workingDirectory;
+        return entry.vm.facets.workingDirectory;
       },
     });
   };
@@ -452,6 +324,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
       throw new SandboxError(
         "invalid-transition",
         `container ${id} is being removed`
+      );
+    }
+  };
+
+  const assertNotClaimedElsewhere = (row: ContainerRow): void => {
+    if (row.status === "removing" && row.holder !== holder) {
+      throw new SandboxError(
+        "invalid-transition",
+        `container ${row.id} is being removed`
       );
     }
   };
@@ -482,7 +363,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         status: "removing",
         updatedAt: Date.now(),
       });
-      await view.commit({ putContainers: [claimed] });
+      await commitOwnNames(view, { putContainers: [claimed] });
       return claimed;
     });
 
@@ -504,78 +385,53 @@ export function createContainers(options: CreateContainersOptions): Containers {
     readonly conflicts: readonly string[];
     readonly removed: boolean;
   }> => {
-    let resources: readonly ContainerResourceSummary[];
-    try {
-      resources = await enumerate(runtime, selection, undefined);
-    } catch {
-      return { conflicts: [], removed: false };
+    const { conflicts, stuck, unjudged } = await inventory.clearRow(row);
+    const removed = !unjudged && conflicts.length === 0 && stuck.length === 0;
+    if (removed) {
+      await deleteHeld(row.id);
     }
-    const conflicts: string[] = [];
-    let removed = true;
-    for (const resource of resources) {
-      if (
-        resource.labels[CONTAINER_ID_LABEL] !== row.id &&
-        resource.name !== row.nativeId &&
-        !ownsNativeName(row.id, resource.name)
-      ) {
-        continue;
-      }
-      const others = await anotherOwns(row, resource);
-      if (others === undefined) {
-        return { conflicts, removed: false };
-      }
-      if (others) {
-        conflicts.push(resource.name);
-      } else if (!(await disposeListed(resource))) {
-        removed = false;
-      }
-    }
-    if (conflicts.length > 0 || !removed) {
-      return { conflicts, removed: false };
-    }
-    await deleteHeld(row.id);
-    return { conflicts, removed: true };
+    return { conflicts, removed };
   };
 
-  const anotherOwns = async (
-    row: ContainerRow,
-    machine: Machine
-  ): Promise<boolean | undefined> => {
-    try {
-      return (
-        !isRowsMachine(machine, row.id, await store.identity()) ||
-        (await recordedByAnother(machine.name, row.id))
+  const stopRow = async (id: string): Promise<void> => {
+    const row = await rowOrThrow(id);
+    assertNotClaimedElsewhere(row);
+    const { conflicts, stuck, unjudged } = await inventory.clearRow(row);
+    if (unjudged) {
+      if (row.nativeId !== undefined) {
+        inventory.retryByName(row.nativeId, id);
+      }
+      throw new SandboxError(
+        "provider-failed",
+        `container ${id}: its VMs could not be judged; stop it again to retry`
       );
-    } catch {
-      return undefined;
     }
-  };
-
-  const recordedByAnother = async (
-    name: string,
-    except?: string
-  ): Promise<boolean> =>
-    (await store.list()).some(
-      (stored) => stored.id !== except && stored.nativeId === name
-    );
-
-  const disposeListed = async (
-    resource: ContainerResourceSummary
-  ): Promise<boolean> => {
-    try {
-      await dispose(runtime, resource);
-      return true;
-    } catch {
-      try {
-        const listed = await enumerate(runtime, selection, undefined);
-        return !listed.some((each) => each.name === resource.name);
-      } catch {
-        return false;
-      }
+    if (stuck.length > 0) {
+      await inventory.retryStuck(stuck, id);
     }
+    if (conflicts.length > 0) {
+      throw new SandboxError(
+        "invalid-contract",
+        `container ${id}: the VM(s) ${conflicts.join(", ")} carry its id or name but are not provably its own, so they are left; remove them by hand with ${conflicts.map(removeByHand).join(", ")}`
+      );
+    }
+    if (stuck.length > 0) {
+      throw new SandboxError(
+        "provider-failed",
+        `container ${id}: the VM(s) ${stuck.map((each) => each.name).join(", ")} could not be removed; stop it again to retry`
+      );
+    }
+    await update({ row }, (current) => {
+      assertNotClaimedElsewhere(current);
+      return current.nativeId === row.nativeId && BOOTED.has(current.status)
+        ? { status: "stopped" }
+        : {};
+    });
   };
 
   const containers: Containers = {
+    get: (id) => store.get(id),
+
     list: () => store.list(),
 
     async open(id, signal) {
@@ -587,17 +443,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
       let inflight = pending.get(id);
       if (inflight === undefined) {
         assertNotRemoving(id);
-        inflight = (async () => {
+        inflight = bringingUp(id, async () => {
           await released(id);
           let previous: string | undefined;
           const row = await serialized(async (view) => {
             const current = await rowOrThrow(id, view);
-            if (current.status === "removing" && current.holder !== holder) {
-              throw new SandboxError(
-                "invalid-transition",
-                `container ${id} is being removed`
-              );
-            }
+            assertNotClaimedElsewhere(current);
             previous = current.nativeId;
             const claimed: ContainerRow = Object.freeze({
               ...current,
@@ -606,15 +457,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
               status: "starting",
               updatedAt: Date.now(),
             });
-            await view.commit({ putContainers: [claimed] });
+            await commitOwnNames(view, { putContainers: [claimed] });
             return claimed;
           });
           if (previous !== undefined) {
-            await removeNative(previous, id);
+            await inventory.removeSuperseded(previous, id);
           }
           return bringUp({ row }, parseSpec(JSON.parse(row.spec)), signal);
-        })().finally(() => pending.delete(id));
-        pending.set(id, inflight);
+        });
       }
       return handleFor(await inflight);
     },
@@ -700,8 +550,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
       if (entry === undefined) {
         assertNotRemoving(id);
         const row = await rowOrThrow(id);
+        assertNotClaimedElsewhere(row);
         if (spec !== undefined) {
-          await update({ row }, { spec: JSON.stringify(parseSpec(spec)) });
+          const recorded = JSON.stringify(parseSpec(spec));
+          await update({ row }, (current) => {
+            assertNotClaimedElsewhere(current);
+            return { spec: recorded };
+          });
         }
         return;
       }
@@ -721,34 +576,24 @@ export function createContainers(options: CreateContainersOptions): Containers {
           status: "restarting",
           ...(given === undefined ? {} : { spec: JSON.stringify(given) }),
         });
-        if (
-          isRowsMachine(
-            { labels: entry.labels, name: entry.nativeId },
-            id,
-            await store.identity()
-          )
-        ) {
-          await entry.sandbox.remove();
-        } else {
-          report(
-            `container ${id}: its VM ${entry.nativeId} is not provably its own, so its restart left it; remove it by hand with ${removeByHand(entry.nativeId)}`
-          );
-        }
-        assertStillLive();
         try {
+          await inventory.removeAttached(entry.row.id, entry, "restart");
+          assertStillLive();
           await update(entry, (current) => ({
             nativeId: nextNativeId(current),
           }));
           assertStillLive();
           const booted = await boot(entry, constraints, signal);
-          entry.sandbox = booted.sandbox;
-          entry.facets = booted.facets;
+          entry.vm = booted.vm;
           entry.nativeId = booted.nativeId;
           entry.labels = booted.labels;
           assertStillLive();
         } catch (error: unknown) {
           if (live.get(id) === entry) {
             live.delete(id);
+            if (entry.row.status === "restarting") {
+              await update(entry, { status: "failed" }).catch(() => undefined);
+            }
           }
           throw error;
         }
@@ -765,14 +610,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         await Promise.allSettled([...pending.values(), ...releasing.values()]);
         releases = await Promise.allSettled([...live.values()].map(release));
       }
-      if (abandoned.size > 0) {
-        const { passedOver } = await reclaim(undefined, await store.identity());
-        for (const name of passedOver) {
-          report(
-            `the VM ${name} this instance kept to retry is not provably its own now, so its shutdown left it; remove it by hand with ${removeByHand(name)}`
-          );
-        }
-      }
+      await inventory.retryAtShutdown();
       const failed = releases.find((result) => result.status === "rejected");
       if (failed !== undefined) {
         throw failed.reason;
@@ -782,40 +620,31 @@ export function createContainers(options: CreateContainersOptions): Containers {
     async start(spec, signal) {
       assertOpen();
       const constraints = parseSpec(spec);
-      const row = await insert(constraints);
-      return handleFor(await bringUp({ row }, constraints, signal));
+      const id = globalThis.crypto.randomUUID();
+      if (live.has(id) || pending.has(id)) {
+        throw alreadyExists(id);
+      }
+      const booted = await bringingUp(id, async () => {
+        const row = await insert(id, constraints);
+        return await bringUp({ row }, constraints, signal);
+      });
+      return handleFor(booted);
     },
+    async stop(id) {
+      assertOpen();
+      if (live.has(id) || pending.has(id)) {
+        throw new SandboxError(
+          "invalid-transition",
+          `container ${id} is live; close every handle before stopping it`
+        );
+      }
+      assertNotRemoving(id);
+      await inReleaseTurn(id, () => stopRow(id));
+    },
+
     async sweep(signal) {
       assertOpen();
-      const own = await store.identity();
-      const {
-        passedOver,
-        removed: swept,
-        resources,
-      } = await reclaim(signal, own);
-      for (const resource of resources) {
-        assertNotAborted(signal, "container sweep was cancelled");
-        if (
-          swept.includes(resource.name) ||
-          passedOver.includes(resource.name)
-        ) {
-          continue;
-        }
-        const id = resource.labels[CONTAINER_ID_LABEL];
-        if (id === undefined || !isRowsMachine(resource, id, own)) {
-          passedOver.push(resource.name);
-          continue;
-        }
-        if (
-          (await store.get(id)) !== undefined ||
-          (await recordedByAnother(resource.name))
-        ) {
-          continue;
-        }
-        await dispose(runtime, resource);
-        swept.push(resource.name);
-      }
-      return sweepResult(swept, passedOver);
+      return await inventory.sweep(signal);
     },
   };
   return Object.freeze(containers);
@@ -859,78 +688,26 @@ function parseSpec(input: unknown): ContainerSandboxConstraints {
   return Object.freeze(result.data);
 }
 
-function sweepResult(
-  swept: readonly string[],
-  passedOver: readonly string[]
-): ContainerSweep {
-  const result = [...swept];
-  Object.defineProperty(result, "passedOver", {
-    enumerable: false,
-    value: Object.freeze([...passedOver]),
-  });
-  return Object.freeze(result) as unknown as ContainerSweep;
-}
+const BOOTED: ReadonlySet<ContainerRow["status"]> = new Set([
+  "restarting",
+  "running",
+  "starting",
+]);
 
-interface Machine {
-  readonly labels: Readonly<Record<string, string>>;
-  readonly name: string;
-}
-
-function isRowsMachine(
-  machine: Machine,
-  rowId: string,
-  store: string
-): boolean {
-  return (
-    machine.labels[CONTAINER_STORE_LABEL] === store &&
-    ownsNativeName(rowId, machine.name) &&
-    machine.labels[CONTAINER_ID_LABEL] === rowId
+async function commitOwnNames(
+  view: ContainerStore,
+  write: ContainerStoreWrite
+): Promise<void> {
+  const foreign = write.putContainers?.find(
+    (row) => row.nativeId !== undefined && !ownsNativeName(row.id, row.nativeId)
   );
-}
-
-function ownsNativeName(rowId: string, name: string): boolean {
-  return (
-    name.startsWith(`${rowId}-`) &&
-    GENERATION.test(name.slice(rowId.length + 1))
-  );
-}
-
-const GENERATION = /^\d+$/;
-
-function ownNamesOnly(store: ContainerStore): ContainerStore {
-  const checked = (write: ContainerStoreWrite): SandboxError | undefined => {
-    const row = (write.putContainers ?? []).find(
-      (each) =>
-        each.nativeId !== undefined && !ownsNativeName(each.id, each.nativeId)
+  if (foreign !== undefined) {
+    throw new SandboxError(
+      "invalid-contract",
+      `container ${foreign.id} records the native name ${String(foreign.nativeId)}, which is not one of its own`
     );
-    return row === undefined
-      ? undefined
-      : new SandboxError(
-          "invalid-contract",
-          `container ${row.id} records the native name ${String(row.nativeId)}, which is not one of its own`
-        );
-  };
-  const guard = (view: ContainerStore): ContainerStore =>
-    new Proxy(view, {
-      get(target, property, receiver) {
-        if (property === "commit") {
-          return (write: ContainerStoreWrite) => {
-            const refused = checked(write);
-            return refused === undefined
-              ? target.commit(write)
-              : Promise.reject(refused);
-          };
-        }
-        if (property === "transaction" && target.transaction !== undefined) {
-          const { transaction } = target;
-          return <T>(work: (inner: ContainerStore) => Promise<T>) =>
-            transaction.call(target, (inner) => work(guard(inner)));
-        }
-        const value: unknown = Reflect.get(target, property, receiver);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
-  return guard(store);
+  }
+  await view.commit(write);
 }
 
 function nextNativeId(row: Pick<ContainerRow, "id" | "nativeId">): string {
@@ -940,40 +717,4 @@ function nextNativeId(row: Pick<ContainerRow, "id" | "nativeId">): string {
   );
   const generation = (Number.isNaN(previous) ? 0 : previous) + 1;
   return `${row.id}-${String(generation)}`;
-}
-
-async function dispose(
-  runtime: ContainerRuntime,
-  resource: ContainerResourceSummary
-): Promise<void> {
-  if (ACTIVE_CONTAINER_RESOURCE_STATUSES.has(resource.status)) {
-    await runtime.stopResource(resource.name);
-  }
-  await runtime.removeResource(resource.name);
-}
-
-async function enumerate(
-  runtime: ContainerRuntime,
-  labels: Readonly<Record<string, string>>,
-  signal: AbortSignal | undefined
-): Promise<readonly ContainerResourceSummary[]> {
-  const resources: ContainerResourceSummary[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_INVENTORY_PAGES; page += 1) {
-    assertNotAborted(signal, "container sweep was cancelled");
-    const result = await runtime.listResources({
-      labels,
-      limit: INVENTORY_PAGE_LIMIT,
-      ...(cursor === undefined ? {} : { cursor }),
-    });
-    resources.push(...result.resources);
-    if (result.nextCursor === undefined) {
-      return resources;
-    }
-    cursor = result.nextCursor;
-  }
-  throw new SandboxError(
-    "provider-failed",
-    "container inventory did not terminate"
-  );
 }

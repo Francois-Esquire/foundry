@@ -1,16 +1,44 @@
 import { Buffer } from "node:buffer";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  createContainerSandbox,
-  resolveContainerSpec,
-} from "../container/sandbox";
+import type { ContainerSandboxConstraints } from "../container/constraints";
+import { createContainers } from "../container/containers";
+import type { ContainerConfig } from "../container/runtime";
+import { resolveContainerSpec } from "../container/spec";
+import { MemoryContainerStore } from "../store/memory";
+import type { FakeContainerRuntimeOptions } from "../testing/index";
 import { createFakeContainerRuntime } from "../testing/index";
 
 const PORT_RANGE_ERROR = /1 through 65535/i;
 const DUPLICATE_PORT_ERROR = /must be unique/i;
 const REMOVED_CONTAINER_ERROR = /has been removed/;
+
+const SPEC: ContainerSandboxConstraints = {
+  format: "foundry.sandbox.container/1",
+};
+
+async function started(
+  config: ContainerConfig = {},
+  options: FakeContainerRuntimeOptions = {}
+) {
+  const runtime = createFakeContainerRuntime(options);
+  const containers = createContainers({
+    config,
+    instanceLabel: "facet-contract",
+    runtime,
+    store: new MemoryContainerStore(),
+  });
+  const container = await containers.start(SPEC);
+  const [instance] = runtime.instances;
+  if (instance === undefined) {
+    throw new Error("expected a booted instance");
+  }
+  return { container, containers, instance, runtime };
+}
 
 describe("resolveContainerSpec", () => {
   it("converts container resource limits to microVM units", async () => {
@@ -72,97 +100,98 @@ describe("resolveContainerSpec", () => {
   });
 });
 
-describe("container sandbox", () => {
+describe("a container's facets", () => {
   it("reads back what it writes, and reports the mapped host port", async () => {
-    const runtime = createFakeContainerRuntime();
-    await using box = await createContainerSandbox(
-      { ports: [3000], workdir: "/workspace" },
-      { runtime }
-    );
+    const { container, containers, instance } = await started({
+      ports: [3000],
+      workdir: "/workspace",
+    });
 
-    await box.writeFile("/workspace/hello.txt", "from the host");
-    expect(await box.readTextFile("/workspace/hello.txt")).toBe(
-      "from the host"
-    );
+    await container.files.writeFile("hello.txt", "from the host");
+    expect(
+      Buffer.from(
+        await container.files.readFile("/workspace/hello.txt")
+      ).toString()
+    ).toBe("from the host");
 
-    const spec = runtime.instances[0]?.spec;
-    expect(await box.hostPort(3000)).toBe(spec?.ports[0]?.hostPort);
-    expect(await box.hostPort(9999)).toBeUndefined();
+    expect(await container.ports.hostPort(3000)).toEqual({
+      host: "127.0.0.1",
+      port: instance.spec.ports[0]?.hostPort,
+    });
+    expect(await container.ports.hostPort(9999)).toBeUndefined();
+    await containers.shutdown();
   });
 
-  it("creates the working directory in the guest before handing the sandbox over", async () => {
-    const runtime = createFakeContainerRuntime();
-    await using box = await createContainerSandbox(
-      { workdir: "/home/user" },
-      { runtime }
-    );
+  it("creates the working directory in the guest before handing the container over", async () => {
+    const { container, containers, instance } = await started({
+      workdir: "/home/user",
+    });
 
-    expect(runtime.instances[0]?.directories).toEqual(["/home/user"]);
-    expect(box.workdir).toBe("/home/user");
+    expect(instance.directories).toEqual(["/home/user"]);
+    expect(container.workingDirectory).toBe("/home/user");
+    await containers.shutdown();
   });
 
   it("runs a bare string through the guest shell and argv arrays directly", async () => {
-    const runtime = createFakeContainerRuntime({
-      exec: (command) => ({
-        exitCode: 0,
-        stderr: "",
-        stdout: command.join(" "),
-      }),
-    });
-    await using box = await createContainerSandbox({}, { runtime });
+    const { container, containers } = await started(
+      {},
+      {
+        exec: (command) => ({
+          exitCode: 0,
+          stderr: "",
+          stdout: command.join(" "),
+        }),
+      }
+    );
 
-    expect((await box.exec("echo hi")).stdout).toBe("sh -c echo hi");
-    expect((await box.exec(["echo", "hi"])).stdout).toBe("echo hi");
+    expect((await container.commands.exec("echo hi")).stdout).toBe(
+      "sh -c echo hi"
+    );
+    expect((await container.commands.exec(["echo", "hi"])).stdout).toBe(
+      "echo hi"
+    );
+    await containers.shutdown();
   });
 
   it("merges sandbox env under per-exec env, defaulting cwd to the workdir", async () => {
-    const runtime = createFakeContainerRuntime();
-    await using box = await createContainerSandbox(
-      { env: { A: "sandbox", B: "sandbox" }, workdir: "/srv" },
-      { runtime }
-    );
-
     let seen: { cwd: string; env: Record<string, string> } | undefined;
-    const withCapture = createFakeContainerRuntime({
-      exec: (_command, options) => {
-        seen = { cwd: options.cwd, env: options.env };
-        return { exitCode: 0, stderr: "", stdout: "" };
-      },
-    });
-    await using capturing = await createContainerSandbox(
+    const { container, containers } = await started(
       { env: { A: "sandbox", B: "sandbox" }, workdir: "/srv" },
-      { runtime: withCapture }
+      {
+        exec: (_command, options) => {
+          seen = { cwd: options.cwd, env: options.env };
+          return { exitCode: 0, stderr: "", stdout: "" };
+        },
+      }
     );
-    await capturing.exec(["true"], { environment: { B: "exec" } });
+    await container.commands.exec(["true"], { environment: { B: "exec" } });
 
     expect(seen).toEqual({ cwd: "/srv", env: { A: "sandbox", B: "exec" } });
-    expect(box.workdir).toBe("/srv");
+    await containers.shutdown();
   });
 
   it("resolves cwd the same way for exec, spawn, start, and shell", async () => {
-    await using box = await createContainerSandbox(
-      { workdir: "/srv" },
-      { runtime: createFakeContainerRuntime() }
-    );
-    const instance = box.native;
+    const { container, containers, instance } = await started({
+      workdir: "/srv",
+    });
     const seen: string[] = [];
     const record = (
       _command: string[],
       options: { readonly cwd: string }
     ): never => {
       seen.push(options.cwd);
-      return undefined as never;
+      return { wait: () => Promise.resolve() } as never;
     };
     vi.spyOn(instance, "exec").mockImplementation(record);
     vi.spyOn(instance, "spawn").mockImplementation(record);
     vi.spyOn(instance, "startProcess").mockImplementation(record);
     vi.spyOn(instance, "execStream").mockImplementation(record);
 
-    await box.exec(["true"], { cwd: "app" });
-    await box.spawn(["true"], { cwd: "app/src" });
-    await box.startProcess(["true"], { cwd: "/opt/./tool" });
-    await box.openShell({ cwd: "app" });
-    await box.exec(["true"]);
+    await container.commands.exec(["true"], { cwd: "app" });
+    await container.processes.spawn(["true"], { cwd: "app/src" });
+    await container.processes.start(["true"], { cwd: "/opt/./tool" });
+    await container.shell.open({ cwd: "app" });
+    await container.commands.exec(["true"]);
     expect(seen).toEqual([
       "/srv/app",
       "/srv/app/src",
@@ -172,25 +201,28 @@ describe("container sandbox", () => {
     ]);
 
     for (const run of [
-      () => box.exec(["true"], { cwd: "../etc" }),
-      () => box.spawn(["true"], { cwd: "../etc" }),
-      () => box.startProcess(["true"], { cwd: "../etc" }),
-      () => box.openShell({ cwd: "../etc" }),
+      () => container.commands.exec(["true"], { cwd: "../etc" }),
+      () => container.processes.spawn(["true"], { cwd: "../etc" }),
+      () => container.processes.start(["true"], { cwd: "../etc" }),
+      () => container.shell.open({ cwd: "../etc" }),
     ]) {
       await expect(run()).rejects.toMatchObject({ code: "invalid-contract" });
     }
+    await containers.shutdown();
   });
 
   it("copies a directory tree out as a flat path map", async () => {
-    const runtime = createFakeContainerRuntime({
-      files: {
-        "/workspace/a.txt": "a",
-        "/workspace/nested/b.txt": "b",
-      },
-    });
-    await using box = await createContainerSandbox({}, { runtime });
+    const { container, containers } = await started(
+      {},
+      {
+        files: {
+          "/workspace/a.txt": "a",
+          "/workspace/nested/b.txt": "b",
+        },
+      }
+    );
 
-    const out = await box.copyOut("/workspace");
+    const out = await container.files.copyOut("/workspace");
 
     expect(Object.keys(out).sort()).toEqual([
       "/workspace/a.txt",
@@ -199,41 +231,173 @@ describe("container sandbox", () => {
     expect(
       Buffer.from(out["/workspace/a.txt"] ?? new Uint8Array()).toString()
     ).toBe("a");
+    await containers.shutdown();
   });
 
   it("enumerates one level by default and the whole tree when recursive", async () => {
-    const runtime = createFakeContainerRuntime({
-      files: {
-        "/workspace/a.txt": "a",
-        "/workspace/nested/b.txt": "b",
-      },
-    });
-    await using box = await createContainerSandbox({}, { runtime });
+    const { container, containers } = await started(
+      {},
+      {
+        files: {
+          "/workspace/a.txt": "a",
+          "/workspace/nested/b.txt": "b",
+        },
+      }
+    );
 
     expect(
-      (await box.listDirectory("/workspace", false)).map((e) => e.path)
+      (await container.files.list("/workspace")).map((e) => e.path)
     ).toEqual(["/workspace/a.txt", "/workspace/nested"]);
     expect(
-      (await box.listDirectory("/workspace", true)).map((e) => e.path).sort()
+      (await container.files.list("/workspace", { recursive: true }))
+        .map((e) => e.path)
+        .sort()
     ).toEqual([
       "/workspace/a.txt",
       "/workspace/nested",
       "/workspace/nested/b.txt",
     ]);
+    await containers.shutdown();
   });
 
-  it("refuses further work once removed, and removes idempotently", async () => {
+  it("refuses every operation on every facet once closed", async () => {
+    const source = await mkdtemp(join(tmpdir(), "sandbox-facets-"));
     const runtime = createFakeContainerRuntime();
-    const box = await createContainerSandbox({}, { runtime });
+    const containers = createContainers({
+      allowedMountRoots: [source],
+      instanceLabel: "facet-contract",
+      runtime,
+      store: new MemoryContainerStore(),
+    });
+    const container = await containers.start({
+      ...SPEC,
+      mounts: [
+        { access: "read-only", id: "data", source, target: "/workspace/data" },
+      ],
+    });
+    const { commands, files, ports, processes, services, shell, volumes } =
+      container;
+    if (volumes === undefined) {
+      throw new Error("expected a volumes facet");
+    }
+    await services.start({
+      argv: ["serve"],
+      id: "program",
+      readiness: { kind: "started" },
+    });
 
-    await box.remove();
-    await box.remove();
+    await container.close();
 
     expect(runtime.instances[0]?.removed).toBe(true);
-    expect(box.status).toBe("removed");
-    await expect(box.exec(["true"])).rejects.toThrow(REMOVED_CONTAINER_ERROR);
-    await expect(box.exec(["true"])).rejects.toMatchObject({
-      code: "invalid-transition",
-    });
+    for (const run of [
+      () => commands.exec(["true"]),
+      () => files.copyIn({}),
+      () => files.copyOut("."),
+      () => files.isDirectory("."),
+      () => files.list("."),
+      () => files.list(".", { recursive: true }),
+      () => files.lstat("a"),
+      () => files.readDirectory("."),
+      () => files.readFile("a"),
+      () => files.readLink("a"),
+      () => files.realpath("a"),
+      () => files.replaceFile("a", new Uint8Array()),
+      () =>
+        files.watch(
+          ".",
+          () => undefined,
+          () => undefined
+        ),
+      () => files.writeFile("a", "a"),
+      () => ports.hostPort(3000),
+      () => processes.spawn(["true"]),
+      () => processes.start(["true"]),
+      () => services.list(),
+      () =>
+        services.start({
+          argv: ["serve"],
+          id: "late",
+          readiness: { kind: "started" },
+        }),
+      () => services.stop("program"),
+      () => services.stop("unknown"),
+      () => shell.open(),
+      () => volumes.list(),
+      () => volumes.unmount("data"),
+      () => volumes.unmount("unknown"),
+    ]) {
+      await expect(run()).rejects.toThrow(REMOVED_CONTAINER_ERROR);
+      await expect(run()).rejects.toMatchObject({
+        code: "invalid-transition",
+      });
+    }
+    await containers.shutdown();
+    await rm(source, { force: true, recursive: true });
+  });
+
+  it.each(["close", "restart", "shutdown"] as const)(
+    "stops an active watcher on %s",
+    async (ending) => {
+      const { container, containers } = await started();
+      vi.useFakeTimers();
+      try {
+        const changed = vi.fn();
+        const closed = vi.fn();
+        await container.files.watch(".", changed, vi.fn());
+        const watcher = await container.files.watch(".", closed, vi.fn());
+        await watcher.close();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(changed).toHaveBeenCalledTimes(2);
+
+        await {
+          close: () => container.close(),
+          restart: () => containers.restart(container.id),
+          shutdown: () => containers.shutdown(),
+        }[ending]();
+        await vi.advanceTimersByTimeAsync(5000);
+
+        expect(changed).toHaveBeenCalledTimes(2);
+        expect(closed).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+      await containers.shutdown();
+    }
+  );
+
+  it("refuses further operations once removal began, even if it failed, and retries the removal", async () => {
+    const { container, containers, instance } = await started();
+    const remove = vi
+      .spyOn(instance, "remove")
+      .mockRejectedValueOnce(new Error("still here"));
+
+    await expect(container.close()).rejects.toThrow("still here");
+    await expect(container.commands.exec(["true"])).rejects.toThrow(
+      REMOVED_CONTAINER_ERROR
+    );
+    await containers.shutdown();
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(instance.removed).toBe(true);
+  });
+
+  it("cancels a running piped process when the container closes", async () => {
+    let signal: AbortSignal | undefined;
+    const { container, containers } = await started(
+      {},
+      {
+        spawn: (_command, options) => {
+          ({ signal } = options);
+          return {} as never;
+        },
+      }
+    );
+    await container.processes.spawn(["serve"]);
+    expect(signal?.aborted).toBe(false);
+
+    await container.close();
+
+    expect(signal?.aborted).toBe(true);
+    await containers.shutdown();
   });
 });

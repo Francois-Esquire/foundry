@@ -5,22 +5,11 @@ import type {
 } from "@foundry/core/storage";
 
 export type SandboxCommand = string | readonly string[];
-export type SandboxNetworkMode = "disabled" | "controlled" | "unrestricted";
 
 export interface SandboxResourceLimits {
   readonly cpus?: number;
   readonly memoryBytes?: number;
   readonly pids?: number;
-}
-
-export interface SandboxSpec {
-  readonly environment?: Readonly<Record<string, string>>;
-  readonly files?: Readonly<Record<string, string | Uint8Array>>;
-  readonly labels?: Readonly<Record<string, string>>;
-  readonly network?: SandboxNetworkMode;
-  readonly ports?: readonly number[];
-  readonly resources?: SandboxResourceLimits;
-  readonly workingDirectory?: string;
 }
 
 export interface SandboxExecOptions {
@@ -44,18 +33,6 @@ export interface SandboxListOptions {
   readonly recursive?: boolean;
 }
 
-export interface SandboxSearchOptions {
-  readonly caseInsensitive?: boolean;
-  readonly glob?: string;
-  readonly path?: string;
-}
-
-export interface SandboxSearchMatch {
-  readonly line: number;
-  readonly path: string;
-  readonly text: string;
-}
-
 export interface SandboxFilesystemFacet
   extends Pick<StorageReader, "readFile">,
     StorageWriter {
@@ -66,10 +43,6 @@ export interface SandboxFilesystemFacet
     path: string,
     options?: SandboxListOptions
   ): Promise<readonly SandboxDirectoryEntry[]>;
-  search?(
-    pattern: string,
-    options?: SandboxSearchOptions
-  ): Promise<readonly SandboxSearchMatch[]>;
 }
 
 export interface SandboxCommandFacet {
@@ -204,11 +177,6 @@ export interface SandboxServicesFacet {
   stop(id: string): Promise<void>;
 }
 
-export interface SandboxImagesFacet {
-  has(reference: string): Promise<boolean>;
-  pull(reference: string, signal?: AbortSignal): Promise<void>;
-}
-
 export interface SandboxVolumeMount {
   readonly access: "read-only" | "read-write";
   readonly id: string;
@@ -220,39 +188,8 @@ export interface SandboxVolumesFacet {
   unmount(id: string): Promise<void>;
 }
 
-export interface SandboxResourceUsage {
-  readonly cpuPercent?: number;
-  readonly memoryBytes?: number;
-  readonly processes?: number;
-}
-
-export interface SandboxResourcesFacet {
-  readonly limits: SandboxResourceLimits;
-  usage(): Promise<SandboxResourceUsage>;
-}
-
-export interface SandboxHeadlessFacet {
-  readonly supported: true;
-}
-
-export interface SandboxNetworkPolicyFacet {
-  allows(url: string): boolean;
-  readonly mode: SandboxNetworkMode;
-}
-
 export interface Sandbox {
   readonly commands: SandboxCommandFacet;
   readonly files: SandboxFilesystemFacet;
   readonly workingDirectory: string;
 }
-
-export type SandboxCapability =
-  | "processes"
-  | "ports"
-  | "services"
-  | "images"
-  | "volumes"
-  | "resources"
-  | "headless"
-  | "network-policy"
-  | "shell";

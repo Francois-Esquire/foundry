@@ -1,10 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
-import {
-  provisionContainerSandbox,
-  startContainerSandbox,
-} from "../container/sandbox";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
 import { SqliteContainerStore } from "../store/sqlite";
@@ -415,23 +411,6 @@ describe("a boot whose guest setup fails", () => {
     await expect(containers.start(SPEC)).rejects.toThrow("guest setup failed");
     expect(remaining(runtime)).toEqual([]);
     await containers.shutdown();
-  });
-});
-
-describe("a start whose guest setup and removal both fail", () => {
-  it("rejects with the setup's error even when the left-behind callback throws", async () => {
-    const runtime = brokenSetupRuntime(true);
-    const provisioned = await provisionContainerSandbox({}, { runtime });
-    const onLeftBehind = vi.fn(() => {
-      throw new Error("callback failed");
-    });
-
-    await expect(
-      startContainerSandbox(provisioned, { onLeftBehind })
-    ).rejects.toThrow("guest setup failed");
-    expect(onLeftBehind).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "remove failed" })
-    );
   });
 });
 

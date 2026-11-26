@@ -595,3 +595,42 @@ describe("createSandboxToolSchemas", () => {
     ).toContain("starts at `/workspace` and `cd` moves");
   });
 });
+
+describe("tool bookkeeping", () => {
+  it("never fails a tool call because the audit threw", async () => {
+    const { sandbox } = await toolkitOver();
+    const toolkit = createSandboxToolkit(sandbox, {
+      audit: {
+        record: () => {
+          throw new Error("audit sink down");
+        },
+      },
+    });
+
+    await expect(
+      toolkit.tools.write.execute(
+        { content: "kept", file_path: "a.txt" },
+        NO_OPTIONS
+      )
+    ).resolves.toContain("Wrote 4 bytes");
+    await expect(
+      toolkit.tools.read.execute({ file_path: "missing.txt" }, NO_OPTIONS)
+    ).rejects.not.toThrow("audit sink down");
+  });
+
+  it("asks the host to resolve a cd target once", async () => {
+    const { sandbox } = await toolkitOver();
+    await sandbox.files.writeFile("src/a.ts", "");
+    const asked: string[] = [];
+    const toolkit = createSandboxToolkit(sandbox, {
+      resolvePath: (path) => {
+        asked.push(path);
+        return Promise.resolve(path);
+      },
+    });
+
+    await toolkit.tools.cd.execute({ path: "src" }, NO_OPTIONS);
+
+    expect(asked).toEqual([`${sandbox.workingDirectory}/src`]);
+  });
+});
