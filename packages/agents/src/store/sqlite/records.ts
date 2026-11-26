@@ -10,7 +10,7 @@ import {
   MESSAGE_STATUSES,
   SESSION_ROLES,
   SESSION_STATUSES,
-} from "../../schema";
+} from "../../session/constants";
 import { metadataFault, partsFault } from "../message-shape";
 
 const UNDEFINED =

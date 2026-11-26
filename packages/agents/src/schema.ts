@@ -9,6 +9,11 @@ import type {
 import { z } from "zod";
 
 import { capabilitySchema, toolSourceSchema } from "./authorization/schema";
+import {
+  MESSAGE_STATUSES,
+  SESSION_ROLES,
+  SESSION_STATUSES,
+} from "./session/constants";
 
 const recordId = z.string().min(1);
 
@@ -148,17 +153,9 @@ export const sessionPartSchema = z.discriminatedUnion("type", [
 ]);
 export type SessionPart = z.infer<typeof sessionPartSchema>;
 
-export const SESSION_ROLES = [
-  "user",
-  "assistant",
-  "system",
-  "tool",
-  "summary",
-] as const;
 const sessionRoleSchema = z.enum(SESSION_ROLES);
 export type SessionRole = z.infer<typeof sessionRoleSchema>;
 
-export const MESSAGE_STATUSES = ["streaming", "complete", "error"] as const;
 const messageStatusSchema = z.enum(MESSAGE_STATUSES);
 export type MessageStatus = z.infer<typeof messageStatusSchema>;
 
@@ -212,7 +209,6 @@ export const sessionMessageSchema = z.object({
 });
 export type SessionMessage = z.infer<typeof sessionMessageSchema>;
 
-export const SESSION_STATUSES = ["active", "archived", "error"] as const;
 const sessionStatusSchema = z.enum(SESSION_STATUSES);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
