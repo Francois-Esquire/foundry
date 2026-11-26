@@ -26,16 +26,7 @@ export class MemoryAuthorizationStore implements AuthorizationStore {
   readonly #turns = new Turns(REENTRY);
 
   commit(write: AuthorizationStoreWrite): Promise<void> {
-    let owned: OwnedWrite;
-    try {
-      owned = captureWrite(write);
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    return this.#turns.run(() => {
-      this.#tables = this.#tables.applied(owned);
-      return Promise.resolve();
-    });
+    return this.transaction((view) => view.commit(write));
   }
 
   transaction<T>(work: (view: AuthorizationStore) => Promise<T>): Promise<T> {
@@ -52,37 +43,23 @@ export class MemoryAuthorizationStore implements AuthorizationStore {
   }
 
   getGrant(id: GrantId): Promise<Grant | null> {
-    return this.#turns.run(() => Promise.resolve(this.#tables.getGrant(id)));
+    return this.transaction((view) => view.getGrant(id));
   }
 
   listGrants(query?: GrantQuery): Promise<readonly Grant[]> {
-    let owned: GrantQuery | undefined;
-    try {
-      owned = query === undefined ? undefined : structuredClone(query);
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    return this.#turns.run(() =>
-      Promise.resolve(this.#tables.listGrants(owned))
-    );
+    return this.transaction((view) => view.listGrants(query));
   }
 
   getRestriction(id: RestrictionId): Promise<Restriction | null> {
-    return this.#turns.run(() =>
-      Promise.resolve(this.#tables.getRestriction(id))
-    );
+    return this.transaction((view) => view.getRestriction(id));
   }
 
   listRestrictions(): Promise<readonly Restriction[]> {
-    return this.#turns.run(() =>
-      Promise.resolve(this.#tables.listRestrictions())
-    );
+    return this.transaction((view) => view.listRestrictions());
   }
 
   getClaim(invocationId: string): Promise<InvocationClaim | null> {
-    return this.#turns.run(() =>
-      Promise.resolve(this.#tables.getClaim(invocationId))
-    );
+    return this.transaction((view) => view.getClaim(invocationId));
   }
 }
 
@@ -101,14 +78,8 @@ class MemoryAuthorizationView implements AuthorizationStore {
   }
 
   commit(write: AuthorizationStoreWrite): Promise<void> {
-    let owned: OwnedWrite;
-    try {
-      owned = captureWrite(write);
-    } catch (error) {
-      return Promise.reject(error);
-    }
     return this.#run(() => {
-      this.tables = this.tables.applied(owned);
+      this.tables = this.tables.applied(captureWrite(write));
     });
   }
 
@@ -117,13 +88,11 @@ class MemoryAuthorizationView implements AuthorizationStore {
   }
 
   listGrants(query?: GrantQuery): Promise<readonly Grant[]> {
-    let owned: GrantQuery | undefined;
-    try {
-      owned = query === undefined ? undefined : structuredClone(query);
-    } catch (error) {
-      return Promise.reject(error);
-    }
-    return this.#run(() => this.tables.listGrants(owned));
+    return this.#run(() =>
+      this.tables.listGrants(
+        query === undefined ? undefined : structuredClone(query)
+      )
+    );
   }
 
   getRestriction(id: RestrictionId): Promise<Restriction | null> {
@@ -151,8 +120,6 @@ class MemoryAuthorizationView implements AuthorizationStore {
 }
 
 interface OwnedWrite {
-  readonly deleteClaims: readonly string[];
-  readonly deleteGrants: readonly GrantId[];
   readonly deleteRestrictions: readonly RestrictionId[];
   readonly putClaims: readonly InvocationClaim[];
   readonly putGrants: readonly Grant[];
@@ -162,8 +129,6 @@ interface OwnedWrite {
 function captureWrite(write: AuthorizationStoreWrite): OwnedWrite {
   const copy = structuredClone(write);
   return {
-    deleteClaims: copy.deleteClaims ?? [],
-    deleteGrants: copy.deleteGrants ?? [],
     deleteRestrictions: copy.deleteRestrictions ?? [],
     putClaims: copy.putClaims ?? [],
     putGrants: copy.putGrants ?? [],
@@ -211,14 +176,8 @@ class StoreTables {
 
   applied(write: OwnedWrite): StoreTables {
     const next = new StoreTables(this);
-    for (const id of write.deleteGrants) {
-      next.grants.delete(id);
-    }
     for (const id of write.deleteRestrictions) {
       next.restrictions.delete(id);
-    }
-    for (const invocationId of write.deleteClaims) {
-      next.claims.delete(invocationId);
     }
     for (const grant of write.putGrants) {
       next.grants.set(grant.id, grant);

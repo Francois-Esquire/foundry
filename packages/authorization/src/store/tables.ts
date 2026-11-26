@@ -75,7 +75,6 @@ export const authorizationClaims = sqliteTable(
     claimedAt: integer("claimed_at").notNull(),
     grantId: text("grant_id").$type<GrantId>().notNull(),
     invocationId: text("invocation_id").notNull(),
-    releasedAt: integer("released_at"),
     scope: text("scope").notNull(),
   },
   (table) => [

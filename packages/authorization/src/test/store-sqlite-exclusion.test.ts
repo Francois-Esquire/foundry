@@ -47,7 +47,7 @@ describe("SqliteAuthorizationStore cross-process exclusion and host transaction 
             boundCallbacks.push(callback);
           },
         };
-        const boundAuth = new Authorization({ store: view });
+        const boundAuth = auth.within(view, effects);
         racer = await startScript(CLAIM_RACER, [
           pathToFileURL(
             createRequire(import.meta.url).resolve("@libsql/client")
@@ -57,7 +57,6 @@ describe("SqliteAuthorizationStore cross-process exclusion and host transaction 
         ]);
         const probe = await racer.line();
         const outcome = await boundAuth.authorize(req, "inv-parent", {
-          effects,
           openPending: false,
         });
         return { boundCallbacks, outcome, probe };
@@ -124,13 +123,16 @@ describe("SqliteAuthorizationStore cross-process exclusion and host transaction 
       })
     ).rejects.toThrow(TypeError);
 
-    const pendingEffects: (() => Promise<void>)[] = [];
-    const effects: CommitEffects = {
+    const rollbackCallbacks: (() => Promise<void>)[] = [];
+    const rollbackEffects: CommitEffects = {
       afterCommit(operation) {
-        pendingEffects.push(operation);
+        rollbackCallbacks.push(operation);
       },
     };
     const seenEvents: string[] = [];
+    const unwatch = rootAuth.watch((event) => {
+      seenEvents.push(event.type);
+    });
 
     await expect(
       database.transaction(async (tx) => {
@@ -138,23 +140,45 @@ describe("SqliteAuthorizationStore cross-process exclusion and host transaction 
           database: tx,
           scope: "s",
         });
-        const txAuth = new Authorization({ store: txStore });
-        txAuth.watch((event) => {
-          seenEvents.push(event.type);
-        });
+        const txAuth = rootAuth.within(txStore, rollbackEffects);
         await txAuth.revoke(
           { grantId: grant.id, kind: "grant" },
-          { effects, reason: "rolled back" }
+          { reason: "rolled back" }
         );
         throw new Error("host rollback");
       })
     ).rejects.toThrow("host rollback");
 
     expect(seenEvents).toEqual([]);
-    expect(pendingEffects).toHaveLength(1);
+    expect(rollbackCallbacks).toHaveLength(1);
     expect(live.permit.signal.aborted).toBe(false);
     expect((await rootAuth.getGrant(grant.id))?.state).toBe("active");
+
+    const commitCallbacks: (() => Promise<void>)[] = [];
+    const commitEffects: CommitEffects = {
+      afterCommit(operation) {
+        commitCallbacks.push(operation);
+      },
+    };
+    await database.transaction(async (tx) => {
+      const txStore = new SqliteAuthorizationStore({
+        database: tx,
+        scope: "s",
+      });
+      const txAuth = rootAuth.within(txStore, commitEffects);
+      await txAuth.revoke(
+        { grantId: grant.id, kind: "grant" },
+        { reason: "committed revoke" }
+      );
+      expect(live.permit.signal.aborted).toBe(false);
+    });
+    await runAfterCommit(commitCallbacks);
+
+    expect(live.permit.signal.aborted).toBe(true);
+    expect(seenEvents).toEqual(["grant.revoked"]);
+    expect((await rootAuth.getGrant(grant.id))?.state).toBe("revoked");
     live.permit.release();
+    unwatch();
   });
 });
 
@@ -188,7 +212,7 @@ if (row.state === "active" && grant.usesRemaining > 0) {
     args: [grant.state, grant.revision, JSON.stringify(grant), grantId],
   });
   await tx.execute({
-    sql: "INSERT INTO authorization_claims (scope, invocation_id, grant_id, claimed_at, released_at) VALUES ('s', 'inv-child', ?, 1, NULL)",
+    sql: "INSERT INTO authorization_claims (scope, invocation_id, grant_id, claimed_at) VALUES ('s', 'inv-child', ?, 1)",
     args: [grantId],
   });
   await tx.commit();

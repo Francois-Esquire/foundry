@@ -94,7 +94,7 @@ export function describeAuthorizationStore(
       ).toEqual([child]);
     });
 
-    test("reads preserve insertion order; updates keep position; deletes apply before puts", async () => {
+    test("reads preserve insertion order; updates keep position; restriction deletes apply before puts", async () => {
       const target = await store();
       const a = sampleGrant("a");
       const b = sampleGrant("b");
@@ -106,40 +106,29 @@ export function describeAuthorizationStore(
       await target.commit({ putGrants: [updatedB] });
       expect(await target.listGrants()).toEqual([updatedB, a, c]);
 
-      const recreatedA = { ...a, reason: "recreated", revision: 3 };
-      await target.commit({
-        deleteGrants: [a.id],
-        putGrants: [recreatedA],
-      });
-      expect(await target.listGrants()).toEqual([updatedB, c, recreatedA]);
-    });
-
-    test("deletes remove only named records and ignore missing keys", async () => {
-      const target = await store();
-      const a = sampleGrant("a");
-      const b = sampleGrant("b");
       const r1 = sampleRestriction("r-1");
       const r2 = sampleRestriction("r-2");
-      const c1 = sampleClaim("inv-1", a.id);
-      const c2 = sampleClaim("inv-2", b.id);
+      await target.commit({ putRestrictions: [r1, r2] });
+      const recreatedR1 = { ...r1, reason: "recreated", revision: 2 };
       await target.commit({
-        putClaims: [c1, c2],
-        putGrants: [a, b],
-        putRestrictions: [r1, r2],
+        deleteRestrictions: [r1.id],
+        putRestrictions: [recreatedR1],
       });
+      expect(await target.listRestrictions()).toEqual([r2, recreatedR1]);
+    });
+
+    test("deleteRestrictions removes only named restrictions and ignores missing keys", async () => {
+      const target = await store();
+      const r1 = sampleRestriction("r-1");
+      const r2 = sampleRestriction("r-2");
+      await target.commit({ putRestrictions: [r1, r2] });
 
       await target.commit({
-        deleteClaims: [c1.invocationId, "missing"],
-        deleteGrants: [a.id, grantId("missing")],
         deleteRestrictions: [r1.id, restrictionId("missing")],
       });
 
-      expect(await target.getGrant(a.id)).toBeNull();
-      expect(await target.listGrants()).toEqual([b]);
       expect(await target.getRestriction(r1.id)).toBeNull();
       expect(await target.listRestrictions()).toEqual([r2]);
-      expect(await target.getClaim(c1.invocationId)).toBeNull();
-      expect(await target.getClaim(c2.invocationId)).toEqual(c2);
     });
 
     test("reads and writes are detached from caller mutations", async () => {
@@ -176,28 +165,34 @@ export function describeAuthorizationStore(
       expect(await second.getClaim("inv")).toBeNull();
 
       await second.commit({ putGrants: [b] });
-      await second.commit({ deleteGrants: [b.id] });
+      await second.commit({ deleteRestrictions: [restrictionId("r")] });
 
       expect(await first.getGrant(a.id)).toEqual(a);
+      expect(await first.getRestriction(restrictionId("r"))).not.toBeNull();
     });
 
     test("transactions read their own writes and roll back completely on throw", async () => {
       const target = await store();
       const kept = sampleGrant("kept");
       const lost = sampleGrant("lost");
-      await target.commit({ putGrants: [kept] });
+      const rKept = sampleRestriction("r-kept");
+      await target.commit({ putGrants: [kept], putRestrictions: [rKept] });
 
       await expect(
         transactionOf(target)(async (view) => {
-          await view.commit({ deleteGrants: [kept.id], putGrants: [lost] });
+          await view.commit({
+            deleteRestrictions: [rKept.id],
+            putGrants: [lost],
+          });
           expect(await view.getGrant(lost.id)).toEqual(lost);
-          expect(await view.getGrant(kept.id)).toBeNull();
+          expect(await view.getRestriction(rKept.id)).toBeNull();
           throw new Error("abort transaction");
         })
       ).rejects.toThrow("abort transaction");
 
       expect(await target.getGrant(kept.id)).toEqual(kept);
       expect(await target.getGrant(lost.id)).toBeNull();
+      expect(await target.getRestriction(rKept.id)).toEqual(rKept);
 
       const returned = await transactionOf(target)(async (view) => {
         await view.commit({ putGrants: [lost] });

@@ -6,7 +6,10 @@ import {
   AuthorizationPendingError,
   AuthorizationRevisionError,
   AuthorizationStateError,
+  AuthorizationValidationError,
+  grantId,
   type Principal,
+  restrictionId,
   withPermit,
 } from "../index";
 import { MemoryAuthorizationStore } from "../store/memory";
@@ -409,6 +412,10 @@ describe("Authorization end-to-end control plane", () => {
       parentGrant.id,
     ]);
 
+    const updatedParent = await auth.getGrant(parentGrant.id);
+    expect(updatedParent?.usesRemaining).toBe(4);
+    expect(updatedParent?.revision).toBe(2);
+
     await expect(
       auth.revoke({
         expectedRevision: 99,
@@ -419,7 +426,7 @@ describe("Authorization end-to-end control plane", () => {
 
     await auth.revoke(
       {
-        expectedRevision: parentGrant.revision,
+        expectedRevision: updatedParent?.revision,
         grantId: parentGrant.id,
         kind: "grant",
       },
@@ -518,5 +525,138 @@ describe("Authorization end-to-end control plane", () => {
     unwatch();
     expect(events.map((event) => event.type)).toContain("restriction.added");
     expect(events.map((event) => event.type)).toContain("restriction.lifted");
+  });
+
+  it("enforces Cycle 1 adversarial security invariants", async () => {
+    const auth = new Authorization({ store: new MemoryAuthorizationStore() });
+    const host: Principal = { id: "host", kind: "host" };
+    const manager: Principal = { id: "carol", kind: "employee" };
+    const agent: Principal = { id: "agent-1", kind: "agent" };
+
+    const finiteParent = await auth.grant({
+      canDelegate: true,
+      holder: { kind: "exact", principal: manager },
+      requestedBy: host,
+      scope: { action: "deploy.run", target: { kind: "any" } },
+      usesRemaining: 1,
+    });
+    const childOne = await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      issuer: manager,
+      parentIds: [finiteParent.id],
+      requestedBy: manager,
+      scope: { action: "deploy.run", target: { kind: "exact", value: "api" } },
+      usesRemaining: 1,
+    });
+    const childTwo = await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      issuer: manager,
+      parentIds: [finiteParent.id],
+      requestedBy: manager,
+      scope: { action: "deploy.run", target: { kind: "exact", value: "api" } },
+      usesRemaining: 1,
+    });
+    const deployReq = {
+      action: "deploy.run",
+      principal: agent,
+      target: "api",
+    };
+    const firstDeploy = await auth.authorize(deployReq, "inv-d1", {
+      openPending: false,
+    });
+    expect(firstDeploy.kind).toBe("permitted");
+    if (firstDeploy.kind === "permitted") {
+      firstDeploy.permit.release();
+    }
+    expect((await auth.getGrant(finiteParent.id))?.state).toBe("exhausted");
+    expect(
+      (await auth.authorize(deployReq, "inv-d2", { openPending: false })).kind
+    ).toBe("denied");
+    expect(childOne.id).not.toBe(childTwo.id);
+
+    const toolReq = { action: "tool.run", principal: agent, target: "bash" };
+    const pendingA = await auth.authorize(toolReq, "inv-A");
+    expect(pendingA.kind).toBe("pending");
+    if (pendingA.kind !== "pending") {
+      throw new Error("expected pending");
+    }
+    await auth.approve(pendingA.grant.id, {
+      approver: host,
+      rootAuthority: true,
+      usesRemaining: 1,
+    });
+    expect(
+      (await auth.authorize(toolReq, "inv-B", { openPending: false })).kind
+    ).toBe("denied");
+    const permittedA = await auth.authorize(toolReq, "inv-A");
+    expect(permittedA.kind).toBe("permitted");
+    if (permittedA.kind === "permitted") {
+      permittedA.permit.release();
+    }
+
+    const nestedDenied = await auth.authorize(
+      {
+        action: "tool.run",
+        attributes: { args: { path: "/tmp/a" } },
+        principal: agent,
+        target: "write",
+      },
+      "inv-nested"
+    );
+    expect(nestedDenied.kind).toBe("denied");
+
+    const fixedId = grantId("fixed-grant");
+    await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      id: fixedId,
+      requestedBy: host,
+      scope: { action: "file.read", target: { kind: "exact", value: "/a" } },
+    });
+    await auth.revoke({ grantId: fixedId, kind: "grant" });
+    await expect(
+      auth.grant({
+        holder: { kind: "exact", principal: agent },
+        id: fixedId,
+        requestedBy: host,
+        scope: { action: "file.read", target: { kind: "exact", value: "/a" } },
+      })
+    ).rejects.toThrow(AuthorizationValidationError);
+
+    const fixedRestriction = restrictionId("fixed-deny");
+    await auth.restrict({
+      id: fixedRestriction,
+      kind: "deny",
+      reason: "blocked",
+      scope: { action: "file.write", target: { kind: "any" } },
+    });
+    await expect(
+      auth.restrict({
+        id: fixedRestriction,
+        kind: "deny",
+        reason: "overwrite attempt",
+        scope: { action: "file.write", target: { kind: "exact", value: "/x" } },
+      })
+    ).rejects.toThrow(AuthorizationValidationError);
+
+    const unwatchThrowing = auth.watch(() => {
+      throw new Error("observer failure");
+    });
+    const revocable = await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      requestedBy: host,
+      scope: { action: "net.call", target: { kind: "any" } },
+    });
+    const live = await auth.authorize(
+      { action: "net.call", principal: agent, target: "https://a.test" },
+      "inv-throw-watch"
+    );
+    expect(live.kind).toBe("permitted");
+    if (live.kind !== "permitted") {
+      throw new Error("expected permitted");
+    }
+    await auth.revoke({ grantId: revocable.id, kind: "grant" });
+    expect(live.permit.signal.aborted).toBe(true);
+    live.permit.release();
+    unwatchThrowing();
   });
 });

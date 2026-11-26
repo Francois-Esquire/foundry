@@ -9,14 +9,14 @@ import {
   AuthorizationValidationError,
 } from "./errors";
 import {
-  collectDelegationAncestors,
   evaluateRequestAgainstGrants,
   findBlockingDenyForGrantScope,
-  grantCoversRequestForReplay,
   isExpired,
   restrictionMatchesGrantPath,
   samePrincipalIdentity,
   scopeFromRequest,
+  validateGrantForReplay,
+  walkDelegationAncestors,
 } from "./evaluation";
 import { createPermit, type Permit } from "./permit";
 import type {
@@ -31,6 +31,7 @@ import type {
   GrantApproval,
   GrantId,
   GrantQuery,
+  GrantState,
   InvocationClaim,
   IssueGrantInput,
   LiftRestrictionOptions,
@@ -75,6 +76,16 @@ export interface AuthorizationOptions {
 const REENTRY =
   "Authorization store does not provide transaction(); concurrent calls were serialized";
 
+interface EventHub {
+  readonly observers: Set<(event: AuthorizationEvent) => void>;
+  readonly permitHandlers: Set<(event: AuthorizationEvent) => void>;
+}
+
+interface InternalBinding {
+  readonly defaultEffects?: CommitEffects;
+  readonly hub: EventHub;
+}
+
 type AuthorizationTransactionResult =
   | {
       readonly events: readonly AuthorizationEvent[];
@@ -98,16 +109,38 @@ export class Authorization {
   readonly #store: AuthorizationStore;
   readonly #clock: () => number;
   readonly #narrowOptions?: NarrowOptions;
-  readonly #listeners = new Set<(event: AuthorizationEvent) => void>();
+  readonly #hub: EventHub;
+  readonly #defaultEffects?: CommitEffects;
   readonly #turns = new Turns(REENTRY);
 
-  constructor(options: AuthorizationOptions) {
+  constructor(options: AuthorizationOptions, binding?: InternalBinding) {
     this.#store = options.store;
     this.durability = options.store.durability ?? "commit";
     this.#clock = options.clock ?? (() => Date.now());
     if (options.isNarrowerDigest !== undefined) {
       this.#narrowOptions = { isNarrowerDigest: options.isNarrowerDigest };
     }
+    this.#hub = binding?.hub ?? {
+      observers: new Set(),
+      permitHandlers: new Set(),
+    };
+    this.#defaultEffects = binding?.defaultEffects;
+  }
+
+  within(store: AuthorizationStore, effects?: CommitEffects): Authorization {
+    return new Authorization(
+      {
+        clock: this.#clock,
+        ...(this.#narrowOptions === undefined
+          ? {}
+          : { isNarrowerDigest: this.#narrowOptions.isNarrowerDigest }),
+        store,
+      },
+      {
+        ...(effects === undefined ? {} : { defaultEffects: effects }),
+        hub: this.#hub,
+      }
+    );
   }
 
   async check(request: AccessRequest): Promise<Decision> {
@@ -159,7 +192,7 @@ export class Authorization {
     options: AuthorizeOptions = {}
   ): Promise<Outcome> {
     assertNonEmptyText(invocationId, "invocationId");
-    this.#assertEffects(options.effects);
+    const effects = this.#resolveEffects(options.effects);
     if (options.signal?.aborted) {
       return { kind: "denied", reason: "Authorization signal already aborted" };
     }
@@ -173,7 +206,7 @@ export class Authorization {
         liveHandler(event);
       }
     };
-    this.#listeners.add(collector);
+    this.#hub.permitHandlers.add(collector);
 
     let outcome: AuthorizationTransactionResult;
     try {
@@ -181,13 +214,13 @@ export class Authorization {
         this.#authorizeInTransaction(view, request, invocationId, options)
       );
     } catch (error) {
-      this.#listeners.delete(collector);
+      this.#hub.permitHandlers.delete(collector);
       throw error;
     }
 
     if (outcome.kind !== "permitted") {
-      this.#listeners.delete(collector);
-      this.#scheduleEvents(outcome.events, options.effects);
+      this.#hub.permitHandlers.delete(collector);
+      this.#scheduleEvents(outcome.events, effects);
       return outcome.kind === "pending"
         ? { grant: outcome.grant, kind: "pending" }
         : {
@@ -206,21 +239,16 @@ export class Authorization {
       collector
     );
     liveHandler = activate(buffered);
-    this.#scheduleEvents(outcome.events, options.effects);
+    this.#scheduleEvents(outcome.events, effects);
     return { kind: "permitted", permit };
   }
 
   async request(input: RequestGrantInput): Promise<Grant> {
-    this.#assertEffects(input.effects);
+    const effects = this.#resolveEffects(input.effects);
     validateScope(input.scope);
     const requiredApprovals = input.requiredApprovals ?? 1;
     assertPositiveInteger(requiredApprovals, "requiredApprovals");
-    if (input.usesRemaining !== undefined) {
-      assertPositiveInteger(input.usesRemaining, "usesRemaining");
-    }
-    if (input.expiresAt !== undefined) {
-      assertFiniteNumber(input.expiresAt, "expiresAt");
-    }
+    validateGrantBounds(input);
 
     const now = this.#clock();
     const { grant, created } = await this.#inTransaction(async (view) => {
@@ -247,7 +275,24 @@ export class Authorization {
           return { created: false, grant: existing };
         }
       }
-      const createdGrant = buildPendingGrant(input, requiredApprovals, now);
+      assertUnusedGrantId(input.id, grants);
+      const createdGrant = buildGrant({
+        canDelegate: input.canDelegate ?? false,
+        expiresAt: input.expiresAt,
+        holder: input.holder,
+        id: input.id,
+        invocationId: input.invocationId,
+        issuanceKey: input.issuanceKey,
+        now,
+        parentIds: [],
+        reason: input.reason,
+        requestedBy: input.requestedBy,
+        requiredApprovals,
+        scope: input.scope,
+        sessionId: input.sessionId,
+        state: "pending",
+        usesRemaining: input.usesRemaining,
+      });
       await view.commit({ putGrants: [createdGrant] });
       return { created: true, grant: createdGrant };
     });
@@ -255,21 +300,16 @@ export class Authorization {
     if (created) {
       this.#scheduleEvents(
         [{ at: now, grant, type: "grant.requested" }],
-        input.effects
+        effects
       );
     }
     return grant;
   }
 
   async grant(input: IssueGrantInput): Promise<Grant> {
-    this.#assertEffects(input.effects);
+    const effects = this.#resolveEffects(input.effects);
     validateScope(input.scope);
-    if (input.usesRemaining !== undefined) {
-      assertPositiveInteger(input.usesRemaining, "usesRemaining");
-    }
-    if (input.expiresAt !== undefined) {
-      assertFiniteNumber(input.expiresAt, "expiresAt");
-    }
+    validateGrantBounds(input);
 
     const now = this.#clock();
     const parentIds = uniqueIds(input.parentIds ?? []);
@@ -291,6 +331,7 @@ export class Authorization {
           return { created: false, grant: duplicate };
         }
       }
+      assertUnusedGrantId(input.id, grants);
       const grantMap = new Map(grants.map((item) => [item.id, item]));
       const ancestors = this.#validateParentDelegations(
         parentIds,
@@ -308,57 +349,38 @@ export class Authorization {
       if (blocking !== undefined) {
         throw new AuthorizationDeniedError(blocking.reason, blocking.id);
       }
-      const issued: Grant = {
-        approvals: [],
+      const issued = buildGrant({
         canDelegate: input.canDelegate ?? false,
-        createdAt: now,
-        ...(input.expiresAt === undefined
-          ? {}
-          : { expiresAt: input.expiresAt }),
+        expiresAt: input.expiresAt,
         holder: input.holder,
-        id: input.id ?? nextGrantId(),
-        ...(input.issuanceKey === undefined
-          ? {}
-          : { issuanceKey: input.issuanceKey }),
+        id: input.id,
+        issuanceKey: input.issuanceKey,
+        now,
         parentIds,
-        ...(input.reason === undefined ? {} : { reason: input.reason }),
+        reason: input.reason,
         requestedBy: input.requestedBy,
         requiredApprovals: 1,
-        revision: 1,
         scope: input.scope,
-        ...(input.sessionId === undefined
-          ? {}
-          : { sessionId: input.sessionId }),
+        sessionId: input.sessionId,
         state: "active",
-        updatedAt: now,
-        ...(input.usesRemaining === undefined
-          ? {}
-          : { usesRemaining: input.usesRemaining }),
-      };
+        usesRemaining: input.usesRemaining,
+      });
       await view.commit({ putGrants: [issued] });
       return { created: true, grant: issued };
     });
 
     if (created) {
-      this.#scheduleEvents(
-        [{ at: now, grant, type: "grant.issued" }],
-        input.effects
-      );
+      this.#scheduleEvents([{ at: now, grant, type: "grant.issued" }], effects);
     }
     return grant;
   }
 
   async approve(grantId: GrantId, input: ApproveGrantInput): Promise<Grant> {
-    this.#assertEffects(input.effects);
+    const effects = this.#resolveEffects(input.effects);
     if (input.scope !== undefined) {
       validateScope(input.scope);
     }
-    if (input.usesRemaining !== undefined) {
-      assertPositiveInteger(input.usesRemaining, "usesRemaining");
-    }
-    if (input.expiresAt !== undefined) {
-      assertFiniteNumber(input.expiresAt, "expiresAt");
-    }
+    validateGrantBounds(input);
 
     const now = this.#clock();
     const { updated, approval } = await this.#inTransaction(async (view) => {
@@ -384,18 +406,18 @@ export class Authorization {
 
     this.#scheduleEvents(
       [{ approval, at: now, grant: updated, type: "grant.approved" }],
-      input.effects
+      effects
     );
     return updated;
   }
 
   async deny(grantId: GrantId, input: DenyGrantInput): Promise<Grant> {
-    this.#assertEffects(input.effects);
+    const effects = this.#resolveEffects(input.effects);
     assertNonEmptyText(input.reason, "reason");
     const now = this.#clock();
     const updated = await this.#inTransaction(async (view) => {
       const existing = await view.getGrant(grantId);
-      if (existing === undefined || existing === null) {
+      if (existing === null) {
         throw new AuthorizationNotFoundError("grant", grantId);
       }
       if (existing.state !== "pending") {
@@ -420,7 +442,7 @@ export class Authorization {
 
     this.#scheduleEvents(
       [{ at: now, grant: updated, type: "grant.denied" }],
-      input.effects
+      effects
     );
     return updated;
   }
@@ -433,7 +455,7 @@ export class Authorization {
       typeof reasonOrOptions === "string"
         ? { reason: reasonOrOptions }
         : (reasonOrOptions ?? {});
-    this.#assertEffects(options.effects);
+    const effects = this.#resolveEffects(options.effects);
 
     const now = this.#clock();
     const revokedIds = await this.#inTransaction(async (view) => {
@@ -467,14 +489,14 @@ export class Authorization {
             type: "grant.revoked",
           },
         ],
-        options.effects
+        effects
       );
     }
     return revokedIds;
   }
 
   async restrict(input: AddRestrictionInput): Promise<Restriction> {
-    this.#assertEffects(input.effects);
+    const effects = this.#resolveEffects(input.effects);
     validateScope(input.scope);
     assertNonEmptyText(input.reason, "reason");
     const now = this.#clock();
@@ -493,12 +515,20 @@ export class Authorization {
     };
 
     await this.#inTransaction(async (view) => {
+      if (
+        input.id !== undefined &&
+        (await view.getRestriction(input.id)) !== null
+      ) {
+        throw new AuthorizationValidationError(
+          `Restriction id ${input.id} already exists`
+        );
+      }
       await view.commit({ putRestrictions: [restriction] });
     });
 
     this.#scheduleEvents(
       [{ at: now, restriction, type: "restriction.added" }],
-      input.effects
+      effects
     );
     return restriction;
   }
@@ -507,7 +537,7 @@ export class Authorization {
     id: RestrictionId,
     options: LiftRestrictionOptions = {}
   ): Promise<void> {
-    this.#assertEffects(options.effects);
+    const effects = this.#resolveEffects(options.effects);
     const now = this.#clock();
     const existed = await this.#inTransaction(async (view) => {
       const existing = await view.getRestriction(id);
@@ -521,7 +551,7 @@ export class Authorization {
     if (existed) {
       this.#scheduleEvents(
         [{ at: now, restrictionId: id, type: "restriction.lifted" }],
-        options.effects
+        effects
       );
     }
   }
@@ -539,14 +569,9 @@ export class Authorization {
   }
 
   watch(listener: (event: AuthorizationEvent) => void): () => void {
-    this.#listeners.add(listener);
-    let active = true;
+    this.#hub.observers.add(listener);
     return () => {
-      if (!active) {
-        return;
-      }
-      active = false;
-      this.#listeners.delete(listener);
+      this.#hub.observers.delete(listener);
     };
   }
 
@@ -584,6 +609,7 @@ export class Authorization {
     if (evaluation.selected !== undefined) {
       return await this.#claimSelectedGrant(
         view,
+        grants,
         evaluation.selected.grant,
         evaluation.selected.grantPath,
         invocationId,
@@ -643,12 +669,13 @@ export class Authorization {
         reason: `Claimed grant ${claim.grantId} no longer exists`,
       };
     }
-    const grantPath = grantCoversRequestForReplay(
+    const grantPath = validateGrantForReplay(
       grant,
       request,
       grants,
       restrictions,
-      now
+      now,
+      claim.invocationId
     );
     if (grantPath === null) {
       return {
@@ -671,6 +698,7 @@ export class Authorization {
 
   async #claimSelectedGrant(
     view: AuthorizationStore,
+    grants: readonly Grant[],
     selected: Grant,
     grantPath: readonly GrantId[],
     invocationId: string,
@@ -681,36 +709,46 @@ export class Authorization {
       grantId: selected.id,
       invocationId,
     };
+    const grantMap = new Map(grants.map((item) => [item.id, item]));
+    const updatedGrants: Grant[] = [];
     const events: AuthorizationEvent[] = [];
-    if (selected.usesRemaining === undefined) {
-      await view.commit({ putClaims: [claim] });
-      events.push({
-        at: now,
-        grantId: selected.id,
-        invocationId,
-        type: "grant.consumed",
-      });
-    } else {
-      const remaining = selected.usesRemaining - 1;
-      const updatedGrant: Grant = {
-        ...selected,
-        revision: selected.revision + 1,
+
+    for (const id of uniqueIds(grantPath)) {
+      const member = grantMap.get(id);
+      if (member === undefined || member.usesRemaining === undefined) {
+        continue;
+      }
+      const remaining = member.usesRemaining - 1;
+      updatedGrants.push({
+        ...member,
+        revision: member.revision + 1,
         state: remaining === 0 ? "exhausted" : "active",
         updatedAt: now,
         usesRemaining: remaining,
-      };
-      await view.commit({
-        putClaims: [claim],
-        putGrants: [updatedGrant],
       });
       events.push({
         at: now,
-        grantId: selected.id,
+        grantId: member.id,
         invocationId,
         type: "grant.consumed",
         usesRemaining: remaining,
       });
     }
+
+    if (selected.usesRemaining === undefined) {
+      events.unshift({
+        at: now,
+        grantId: selected.id,
+        invocationId,
+        type: "grant.consumed",
+      });
+    }
+
+    await view.commit({
+      putClaims: [claim],
+      ...(updatedGrants.length === 0 ? {} : { putGrants: updatedGrants }),
+    });
+
     return {
       events,
       kind: "permitted",
@@ -731,48 +769,51 @@ export class Authorization {
     now: number,
     options: AuthorizeOptions
   ): Promise<AuthorizationTransactionResult> {
-    const existing = grants.find((item) => item.invocationId === invocationId);
-    if (existing !== undefined) {
-      if (existing.state === "pending") {
-        return { events: [], grant: existing, kind: "pending" };
-      }
-      if (existing.state === "denied") {
-        return {
-          events: [],
-          kind: "denied",
-          reason: existing.deniedBy?.reason ?? "Grant request was denied",
-        };
-      }
-      if (existing.state === "revoked") {
-        return {
-          events: [],
-          kind: "denied",
-          reason: existing.revokedReason ?? "Grant was revoked",
-        };
-      }
+    const existingPending = grants.find(
+      (item) => item.invocationId === invocationId && item.state === "pending"
+    );
+    if (existingPending !== undefined) {
+      return { events: [], grant: existingPending, kind: "pending" };
     }
-    const pendingGrant: Grant = {
-      approvals: [],
+    const existingTerminal = grants.find(
+      (item) =>
+        item.invocationId === invocationId &&
+        (item.state === "denied" || item.state === "revoked")
+    );
+    if (existingTerminal !== undefined) {
+      return {
+        events: [],
+        kind: "denied",
+        reason:
+          existingTerminal.state === "denied"
+            ? (existingTerminal.deniedBy?.reason ?? "Grant request was denied")
+            : (existingTerminal.revokedReason ?? "Grant was revoked"),
+      };
+    }
+    const scope = scopeFromRequest(request);
+    if (scope === null) {
+      return {
+        events: [],
+        kind: "denied",
+        reason: "Non-primitive request attributes require a constraintsDigest",
+      };
+    }
+    const pendingGrant = buildGrant({
       canDelegate: false,
-      createdAt: now,
       holder: {
         kind: "exact",
         principal: exactPrincipalRef(request.principal),
       },
-      id: nextGrantId(),
       invocationId,
+      now,
       parentIds: [],
-      ...(options.reason === undefined ? {} : { reason: options.reason }),
+      reason: options.reason,
       requestedBy: request.principal,
       requiredApprovals: 1,
-      revision: 1,
-      scope: scopeFromRequest(request),
-      ...(request.sessionId === undefined
-        ? {}
-        : { sessionId: request.sessionId }),
+      scope,
+      sessionId: request.sessionId,
       state: "pending",
-      updatedAt: now,
-    };
+    });
     await view.commit({ putGrants: [pendingGrant] });
     return {
       events: [{ at: now, grant: pendingGrant, type: "grant.requested" }],
@@ -790,8 +831,10 @@ export class Authorization {
     if (parentIds.length === 0) {
       return new Set();
     }
-    const ancestors = collectDelegationAncestors(parentIds, grantMap, now);
-    if (ancestors === null) {
+    const ancestorOrder = walkDelegationAncestors(parentIds, grantMap, now, {
+      sessionId: input.sessionId,
+    });
+    if (ancestorOrder === null) {
       throw new AuthorizationStateError(
         "Parent grant chain is missing, inactive, expired, non-delegable, or cyclic"
       );
@@ -816,7 +859,7 @@ export class Authorization {
         usesRemaining: input.usesRemaining,
       });
     }
-    return ancestors;
+    return new Set(ancestorOrder);
   }
 
   #prepareApproval(
@@ -858,6 +901,7 @@ export class Authorization {
       input,
       tightened,
       parentIds,
+      existing.invocationId,
       grantMap,
       now
     );
@@ -959,6 +1003,7 @@ export class Authorization {
     input: ApproveGrantInput,
     tightened: TightenedGrantFields,
     allParentIds: readonly GrantId[],
+    invocationId: string | undefined,
     grantMap: ReadonlyMap<GrantId, Grant>,
     now: number
   ): ReadonlySet<GrantId> {
@@ -971,17 +1016,18 @@ export class Authorization {
       if (allParentIds.length === 0) {
         return new Set();
       }
-      const existingAncestors = collectDelegationAncestors(
+      const existingAncestors = walkDelegationAncestors(
         allParentIds,
         grantMap,
-        now
+        now,
+        { invocationId, sessionId: tightened.sessionId }
       );
       if (existingAncestors === null) {
         throw new AuthorizationStateError(
           "Existing parent grant chain is no longer active or delegable"
         );
       }
-      return existingAncestors;
+      return new Set(existingAncestors);
     }
     const parent = grantMap.get(input.parentGrantId);
     if (parent === undefined) {
@@ -992,14 +1038,17 @@ export class Authorization {
         `Approver does not hold parent grant ${input.parentGrantId}`
       );
     }
-    const ancestors = collectDelegationAncestors(allParentIds, grantMap, now);
+    const ancestors = walkDelegationAncestors(allParentIds, grantMap, now, {
+      invocationId,
+      sessionId: tightened.sessionId,
+    });
     if (ancestors === null) {
       throw new AuthorizationStateError(
         "Approver parent grant chain is inactive, expired, non-delegable, or cyclic"
       );
     }
     this.#assertNarrowsParent(parent, tightened);
-    return ancestors;
+    return new Set(ancestors);
   }
 
   #assertNarrowsParent(
@@ -1061,7 +1110,7 @@ export class Authorization {
       cleanup();
     };
     const cleanup = (): void => {
-      this.#listeners.delete(collector);
+      this.#hub.permitHandlers.delete(collector);
       callerSignal?.removeEventListener("abort", onCallerAbort);
     };
     if (callerSignal !== undefined) {
@@ -1120,12 +1169,16 @@ export class Authorization {
     return this.#turns.run(() => work(this.#store));
   }
 
-  #assertEffects(effects: CommitEffects | undefined): void {
-    if (this.durability === "host" && effects === undefined) {
+  #resolveEffects(
+    effects: CommitEffects | undefined
+  ): CommitEffects | undefined {
+    const resolved = effects ?? this.#defaultEffects;
+    if (this.durability === "host" && resolved === undefined) {
       throw new TypeError(
         "CommitEffects are required for mutating operations when store durability is 'host'"
       );
     }
+    return resolved;
   }
 
   #scheduleEvents(
@@ -1149,9 +1202,29 @@ export class Authorization {
   }
 
   #dispatch(event: AuthorizationEvent): void {
-    for (const listener of [...this.#listeners]) {
-      listener(event);
-    }
+    dispatchAll(this.#hub.permitHandlers, event);
+    dispatchAll(this.#hub.observers, event);
+  }
+}
+
+function dispatchAll(
+  listeners: ReadonlySet<(event: AuthorizationEvent) => void>,
+  event: AuthorizationEvent
+): void {
+  for (const listener of [...listeners]) {
+    invokeSafely(listener, event);
+  }
+}
+
+function invokeSafely(
+  listener: (event: AuthorizationEvent) => void,
+  event: AuthorizationEvent
+): boolean {
+  try {
+    listener(event);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -1161,6 +1234,74 @@ interface TightenedGrantFields {
   readonly scope: Scope;
   readonly sessionId?: string;
   readonly usesRemaining?: number;
+}
+
+interface BuildGrantFields {
+  readonly canDelegate: boolean;
+  readonly expiresAt?: number;
+  readonly holder: PrincipalMatcher;
+  readonly id?: GrantId;
+  readonly invocationId?: string;
+  readonly issuanceKey?: string;
+  readonly now: number;
+  readonly parentIds: readonly GrantId[];
+  readonly reason?: string;
+  readonly requestedBy: Principal;
+  readonly requiredApprovals: number;
+  readonly scope: Scope;
+  readonly sessionId?: string;
+  readonly state: GrantState;
+  readonly usesRemaining?: number;
+}
+
+function buildGrant(fields: BuildGrantFields): Grant {
+  return {
+    approvals: [],
+    canDelegate: fields.canDelegate,
+    createdAt: fields.now,
+    ...(fields.expiresAt === undefined ? {} : { expiresAt: fields.expiresAt }),
+    holder: fields.holder,
+    id: fields.id ?? nextGrantId(),
+    ...(fields.invocationId === undefined
+      ? {}
+      : { invocationId: fields.invocationId }),
+    ...(fields.issuanceKey === undefined
+      ? {}
+      : { issuanceKey: fields.issuanceKey }),
+    parentIds: fields.parentIds,
+    ...(fields.reason === undefined ? {} : { reason: fields.reason }),
+    requestedBy: fields.requestedBy,
+    requiredApprovals: fields.requiredApprovals,
+    revision: 1,
+    scope: fields.scope,
+    ...(fields.sessionId === undefined ? {} : { sessionId: fields.sessionId }),
+    state: fields.state,
+    updatedAt: fields.now,
+    ...(fields.usesRemaining === undefined
+      ? {}
+      : { usesRemaining: fields.usesRemaining }),
+  };
+}
+
+function assertUnusedGrantId(
+  id: GrantId | undefined,
+  grants: readonly Grant[]
+): void {
+  if (id !== undefined && grants.some((item) => item.id === id)) {
+    throw new AuthorizationValidationError(`Grant id ${id} already exists`);
+  }
+}
+
+function validateGrantBounds(input: {
+  readonly expiresAt?: number;
+  readonly usesRemaining?: number;
+}): void {
+  if (input.usesRemaining !== undefined) {
+    assertPositiveInteger(input.usesRemaining, "usesRemaining");
+  }
+  if (input.expiresAt !== undefined) {
+    assertFiniteNumber(input.expiresAt, "expiresAt");
+  }
 }
 
 async function selectRevocationTargets(
@@ -1276,39 +1417,6 @@ function assertFiniteNumber(value: number, field: string): void {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new AuthorizationValidationError(`${field} must be a finite number`);
   }
-}
-
-function buildPendingGrant(
-  input: RequestGrantInput,
-  requiredApprovals: number,
-  now: number
-): Grant {
-  return {
-    approvals: [],
-    canDelegate: input.canDelegate ?? false,
-    createdAt: now,
-    ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
-    holder: input.holder,
-    id: input.id ?? nextGrantId(),
-    ...(input.invocationId === undefined
-      ? {}
-      : { invocationId: input.invocationId }),
-    ...(input.issuanceKey === undefined
-      ? {}
-      : { issuanceKey: input.issuanceKey }),
-    parentIds: [],
-    ...(input.reason === undefined ? {} : { reason: input.reason }),
-    requestedBy: input.requestedBy,
-    requiredApprovals,
-    revision: 1,
-    scope: input.scope,
-    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
-    state: "pending",
-    updatedAt: now,
-    ...(input.usesRemaining === undefined
-      ? {}
-      : { usesRemaining: input.usesRemaining }),
-  };
 }
 
 function validateScope(scope: Scope): void {

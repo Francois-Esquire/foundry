@@ -1,6 +1,6 @@
 import type { Grant, GrantId, RestrictionId } from "./schema";
 
-export const AUTHORIZATION_ERROR_CODES = [
+const AUTHORIZATION_ERROR_CODES = [
   "denied",
   "pending",
   "not_found",

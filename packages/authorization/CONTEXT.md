@@ -23,7 +23,7 @@ A persisted authority node in the authority DAG linking parent grants, a holder 
 _Avoid_: policy, certificate, token
 
 **Restriction**:
-A persisted guardrail (`deny` or `require-direct-grant`) evaluated conservatively so missing request attributes never bypass it.
+A persisted guardrail (`deny` or `require-direct-grant`) evaluated conservatively so missing, malformed, or wrongly typed request attributes never bypass it. `commandPrefix` matching is a best-effort word-prefix check rather than a full shell parser.
 _Avoid_: deny rule, blocklist, veto
 
 ### Execution
@@ -41,7 +41,7 @@ A persisted consumption record keyed by invocation id that prevents one-shot and
 _Avoid_: receipt, lock, nonce
 
 **Permit**:
-An unforgeable execution handle returned by authorization, carrying a receipt and an abort signal wired to live grant revocations and newly added deny restrictions.
+An unforgeable execution handle returned by authorization, carrying a receipt and an in-process abort signal wired to live grant revocations and newly added deny restrictions (including committed host transactions bound via `within`). Expiry is enforced at evaluation time rather than by background timers.
 _Avoid_: lease, ticket, handle
 
 **Grant Path**:

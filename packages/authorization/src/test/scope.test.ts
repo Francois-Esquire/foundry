@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   type AccessRequest,
-  boundNarrows,
   covers,
-  isDirectPrincipalGrant,
   matchesPrincipal,
   narrows,
   type Principal,
   type Scope,
 } from "../index";
+import { boundNarrows, isDirectPrincipalGrant } from "../scope";
 
 const AGENT: Principal = {
   attributes: { department: "eng", level: 3 },
@@ -252,6 +251,48 @@ describe("covers allow vs restrictive semantics", () => {
         })
       )
     ).toBe(true);
+  });
+
+  it("fails closed on malformed or wrongly typed attributes in restrictive mode", () => {
+    const denyDomain: Scope = {
+      action: "http.fetch",
+      constraints: { host: { op: "domainSuffix", value: "internal.corp" } },
+      target: { kind: "any" },
+    };
+    for (const host of [
+      "db.internal.corp",
+      "db.internal.corp.",
+      "db.internal.corp:5432",
+      ["db.internal.corp"],
+    ]) {
+      expect(
+        covers(
+          denyDomain,
+          request({ action: "http.fetch", attributes: { host } }),
+          "restrictive"
+        )
+      ).toBe(true);
+    }
+
+    const denyLargeAmount: Scope = {
+      action: "expense.submit",
+      constraints: { amount: { min: 1000, op: "range" } },
+      target: { kind: "any" },
+    };
+    expect(
+      covers(
+        denyLargeAmount,
+        request({ action: "expense.submit", attributes: { amount: "5000" } }),
+        "restrictive"
+      )
+    ).toBe(true);
+    expect(
+      covers(
+        denyLargeAmount,
+        request({ action: "expense.submit", attributes: { amount: 500 } }),
+        "restrictive"
+      )
+    ).toBe(false);
   });
 });
 

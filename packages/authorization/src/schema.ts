@@ -11,7 +11,6 @@ export const GRANT_STATES = [
   "denied",
   "revoked",
   "exhausted",
-  "expired",
 ] as const;
 
 export type GrantState = (typeof GRANT_STATES)[number];
@@ -73,7 +72,6 @@ export interface InvocationClaim {
   readonly claimedAt: number;
   readonly grantId: GrantId;
   readonly invocationId: string;
-  readonly releasedAt?: number;
 }
 
 export interface AuthorizationReceipt {

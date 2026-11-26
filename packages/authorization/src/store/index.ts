@@ -19,8 +19,6 @@ export type {
 export type AuthorizationStoreDurability = "commit" | "host";
 
 export interface AuthorizationStoreWrite {
-  readonly deleteClaims?: readonly string[];
-  readonly deleteGrants?: readonly GrantId[];
   readonly deleteRestrictions?: readonly RestrictionId[];
   readonly putClaims?: readonly InvocationClaim[];
   readonly putGrants?: readonly Grant[];

@@ -27,6 +27,12 @@ export interface EvaluationResult {
   readonly selected?: SelectedGrant;
 }
 
+interface AncestorWalkOptions {
+  readonly allowExhausted?: boolean;
+  readonly invocationId?: string;
+  readonly sessionId?: string;
+}
+
 export function isExpired(grant: Grant, now: number): boolean {
   return grant.expiresAt !== undefined && grant.expiresAt <= now;
 }
@@ -69,96 +75,27 @@ export function findBlockingDenyForGrantScope(
   restrictions: readonly Restriction[],
   options?: NarrowOptions
 ): Restriction | undefined {
-  for (const restriction of restrictions) {
-    if (restriction.kind !== "deny") {
-      continue;
-    }
-    if (
-      restriction.appliesUnder !== undefined &&
-      !ancestorIds.has(restriction.appliesUnder)
-    ) {
-      continue;
-    }
-    if (
-      restriction.holder !== undefined &&
-      !principalMatcherNarrows(holder, restriction.holder)
-    ) {
-      continue;
-    }
-    if (narrows(scope, restriction.scope, options)) {
-      return restriction;
-    }
-  }
-  return undefined;
-}
-
-function findGlobalDeny(
-  restrictions: readonly Restriction[],
-  request: AccessRequest
-): Restriction | undefined {
   return restrictions.find(
     (restriction) =>
       restriction.kind === "deny" &&
-      restriction.appliesUnder === undefined &&
-      restrictionMatchesRequest(restriction, request)
+      (restriction.appliesUnder === undefined ||
+        ancestorIds.has(restriction.appliesUnder)) &&
+      (restriction.holder === undefined ||
+        principalMatcherNarrows(holder, restriction.holder)) &&
+      narrows(scope, restriction.scope, options)
   );
 }
 
-function findGlobalDirectGrantRequirement(
-  restrictions: readonly Restriction[],
-  request: AccessRequest
-): Restriction | undefined {
-  return restrictions.find(
-    (restriction) =>
-      restriction.kind === "require-direct-grant" &&
-      restriction.appliesUnder === undefined &&
-      restrictionMatchesRequest(restriction, request)
-  );
-}
-
-function resolveActiveAncestorPath(
-  rootGrant: Grant,
+export function walkDelegationAncestors(
+  startIds: readonly GrantId[],
   grantMap: ReadonlyMap<GrantId, Grant>,
   now: number,
-  sessionId: string | undefined
+  options: AncestorWalkOptions = {},
+  seedId?: GrantId
 ): readonly GrantId[] | null {
-  const ordered: GrantId[] = [rootGrant.id];
-  const visited = new Set<GrantId>([rootGrant.id]);
-  const visiting = new Set<GrantId>([rootGrant.id]);
-
-  const walk = (parentIds: readonly GrantId[]): boolean => {
-    for (const parentId of parentIds) {
-      if (visiting.has(parentId)) {
-        return false;
-      }
-      if (visited.has(parentId)) {
-        continue;
-      }
-      const parent = grantMap.get(parentId);
-      if (!isValidDelegationAncestor(parent, now, sessionId)) {
-        return false;
-      }
-      visiting.add(parentId);
-      visited.add(parentId);
-      ordered.push(parentId);
-      if (!walk(parent.parentIds)) {
-        return false;
-      }
-      visiting.delete(parentId);
-    }
-    return true;
-  };
-
-  return walk(rootGrant.parentIds) ? ordered : null;
-}
-
-export function collectDelegationAncestors(
-  parentIds: readonly GrantId[],
-  grantMap: ReadonlyMap<GrantId, Grant>,
-  now: number
-): ReadonlySet<GrantId> | null {
-  const visited = new Set<GrantId>();
-  const visiting = new Set<GrantId>();
+  const ordered: GrantId[] = seedId === undefined ? [] : [seedId];
+  const visited = new Set<GrantId>(ordered);
+  const visiting = new Set<GrantId>(ordered);
 
   const walk = (ids: readonly GrantId[]): boolean => {
     for (const id of ids) {
@@ -169,16 +106,12 @@ export function collectDelegationAncestors(
         continue;
       }
       const grant = grantMap.get(id);
-      if (
-        grant === undefined ||
-        grant.state !== "active" ||
-        !grant.canDelegate ||
-        isExpired(grant, now)
-      ) {
+      if (!isValidDelegationAncestor(grant, now, options)) {
         return false;
       }
       visiting.add(id);
       visited.add(id);
+      ordered.push(id);
       if (!walk(grant.parentIds)) {
         return false;
       }
@@ -187,7 +120,7 @@ export function collectDelegationAncestors(
     return true;
   };
 
-  return walk(parentIds) ? visited : null;
+  return walk(startIds) ? ordered : null;
 }
 
 export function evaluateRequestAgainstGrants(
@@ -197,57 +130,43 @@ export function evaluateRequestAgainstGrants(
   now: number,
   invocationId?: string
 ): EvaluationResult {
-  const globalDeny = findGlobalDeny(restrictions, request);
+  const globalDeny = restrictions.find(
+    (restriction) =>
+      restriction.kind === "deny" &&
+      restriction.appliesUnder === undefined &&
+      restrictionMatchesRequest(restriction, request)
+  );
   if (globalDeny !== undefined) {
     return { blockedByDeny: globalDeny };
   }
 
+  const effectiveInvocationId = invocationId ?? request.invocationId;
   const grantMap = new Map(grants.map((grant) => [grant.id, grant]));
   const candidates: SelectedGrant[] = [];
   let blockedByDeny: Restriction | undefined;
-  let blockedByDirectGrant = findGlobalDirectGrantRequirement(
-    restrictions,
-    request
+  let blockedByDirectGrant = restrictions.find(
+    (restriction) =>
+      restriction.kind === "require-direct-grant" &&
+      restriction.appliesUnder === undefined &&
+      restrictionMatchesRequest(restriction, request)
   );
 
   for (const grant of grants) {
-    if (!grantCoversRequest(grant, request, now)) {
-      continue;
-    }
-    const grantPath = resolveActiveAncestorPath(
+    const validated = validateCandidateGrant(
       grant,
+      request,
       grantMap,
+      restrictions,
       now,
-      request.sessionId
+      { invocationId: effectiveInvocationId }
     );
-    if (grantPath === null) {
-      continue;
+    if (validated.grantPath !== undefined) {
+      candidates.push({ grant, grantPath: validated.grantPath });
+    } else if (validated.blockedByDeny !== undefined) {
+      blockedByDeny ??= validated.blockedByDeny;
+    } else if (validated.blockedByDirectGrant !== undefined) {
+      blockedByDirectGrant ??= validated.blockedByDirectGrant;
     }
-    const pathSet = new Set(grantPath);
-    const pathDeny = findPathRestriction(
-      restrictions,
-      "deny",
-      request,
-      pathSet
-    );
-    if (pathDeny !== undefined) {
-      blockedByDeny ??= pathDeny;
-      continue;
-    }
-    const directRequirement = findPathRestriction(
-      restrictions,
-      "require-direct-grant",
-      request,
-      pathSet
-    );
-    if (
-      directRequirement !== undefined &&
-      !isDirectPrincipalGrant(grant.holder, request.principal)
-    ) {
-      blockedByDirectGrant ??= directRequirement;
-      continue;
-    }
-    candidates.push({ grant, grantPath });
   }
 
   if (candidates.length === 0) {
@@ -258,73 +177,49 @@ export function evaluateRequestAgainstGrants(
   }
 
   candidates.sort((left, right) =>
-    compareCandidates(left.grant, right.grant, request.principal, invocationId)
+    compareCandidates(
+      left.grant,
+      right.grant,
+      request.principal,
+      effectiveInvocationId
+    )
   );
   return { selected: candidates[0] };
 }
 
-export function grantCoversRequestForReplay(
+export function validateGrantForReplay(
   grant: Grant,
   request: AccessRequest,
   grants: readonly Grant[],
   restrictions: readonly Restriction[],
-  now: number
+  now: number,
+  invocationId: string
 ): readonly GrantId[] | null {
-  if (grant.state !== "active" && grant.state !== "exhausted") {
-    return null;
-  }
-  if (isExpired(grant, now)) {
-    return null;
-  }
-  if (grant.sessionId !== undefined && grant.sessionId !== request.sessionId) {
-    return null;
-  }
-  if (!matchesPrincipal(grant.holder, request.principal, "allow")) {
-    return null;
-  }
-  if (!covers(grant.scope, request, "allow")) {
-    return null;
-  }
   const grantMap = new Map(grants.map((item) => [item.id, item]));
-  const grantPath = resolveActiveAncestorPath(
+  const validated = validateCandidateGrant(
     grant,
-    grantMap,
-    now,
-    request.sessionId
-  );
-  if (grantPath === null) {
-    return null;
-  }
-  const pathSet = new Set(grantPath);
-  if (
-    findPathRestriction(restrictions, "deny", request, pathSet) !== undefined
-  ) {
-    return null;
-  }
-  const directRequirement = findPathRestriction(
-    restrictions,
-    "require-direct-grant",
     request,
-    pathSet
+    grantMap,
+    restrictions,
+    now,
+    { allowExhausted: true, invocationId }
   );
-  if (
-    directRequirement !== undefined &&
-    !isDirectPrincipalGrant(grant.holder, request.principal)
-  ) {
-    return null;
-  }
-  return grantPath;
+  return validated.grantPath ?? null;
 }
 
-export function scopeFromRequest(request: AccessRequest): Scope {
+export function scopeFromRequest(request: AccessRequest): Scope | null {
   const constraints: Record<string, ConstraintBound> = {};
   let hasConstraints = false;
   if (request.attributes !== undefined) {
     for (const [key, value] of Object.entries(request.attributes)) {
-      if (isJsonPrimitive(value)) {
-        constraints[key] = { op: "eq", value };
-        hasConstraints = true;
+      if (!isJsonPrimitive(value)) {
+        if (request.constraintsDigest === undefined) {
+          return null;
+        }
+        continue;
       }
+      constraints[key] = { op: "eq", value };
+      hasConstraints = true;
     }
   }
   return {
@@ -337,21 +232,88 @@ export function scopeFromRequest(request: AccessRequest): Scope {
   };
 }
 
+interface CandidateValidation {
+  readonly blockedByDeny?: Restriction;
+  readonly blockedByDirectGrant?: Restriction;
+  readonly grantPath?: readonly GrantId[];
+}
+
+function validateCandidateGrant(
+  grant: Grant,
+  request: AccessRequest,
+  grantMap: ReadonlyMap<GrantId, Grant>,
+  restrictions: readonly Restriction[],
+  now: number,
+  options: {
+    readonly allowExhausted?: boolean;
+    readonly invocationId?: string;
+  }
+): CandidateValidation {
+  if (!grantCoversRequest(grant, request, now, options)) {
+    return {};
+  }
+  const grantPath = walkDelegationAncestors(
+    grant.parentIds,
+    grantMap,
+    now,
+    {
+      allowExhausted: options.allowExhausted,
+      invocationId: options.invocationId,
+      sessionId: request.sessionId,
+    },
+    grant.id
+  );
+  if (grantPath === null) {
+    return {};
+  }
+  const pathSet = new Set(grantPath);
+  const pathDeny = findPathRestriction(restrictions, "deny", request, pathSet);
+  if (pathDeny !== undefined) {
+    return { blockedByDeny: pathDeny };
+  }
+  const directRequirement = findPathRestriction(
+    restrictions,
+    "require-direct-grant",
+    request,
+    pathSet
+  );
+  if (
+    directRequirement !== undefined &&
+    !isDirectPrincipalGrant(grant.holder, request.principal)
+  ) {
+    return { blockedByDirectGrant: directRequirement };
+  }
+  return { grantPath };
+}
+
 function isValidDelegationAncestor(
   grant: Grant | undefined,
   now: number,
-  sessionId: string | undefined
+  options: AncestorWalkOptions
 ): grant is Grant {
-  if (grant === undefined) {
+  if (grant === undefined || !grant.canDelegate || isExpired(grant, now)) {
     return false;
   }
-  if (grant.state !== "active" || !grant.canDelegate || isExpired(grant, now)) {
+  const validState =
+    grant.state === "active" ||
+    (options.allowExhausted === true && grant.state === "exhausted");
+  if (!validState) {
     return false;
   }
-  if (grant.sessionId !== undefined && grant.sessionId !== sessionId) {
+  if (
+    options.allowExhausted !== true &&
+    grant.usesRemaining !== undefined &&
+    grant.usesRemaining <= 0
+  ) {
     return false;
   }
-  if (grant.usesRemaining !== undefined && grant.usesRemaining <= 0) {
+  if (grant.sessionId !== undefined && grant.sessionId !== options.sessionId) {
+    return false;
+  }
+  if (
+    grant.invocationId !== undefined &&
+    grant.invocationId !== options.invocationId
+  ) {
     return false;
   }
   return true;
@@ -360,15 +322,32 @@ function isValidDelegationAncestor(
 function grantCoversRequest(
   grant: Grant,
   request: AccessRequest,
-  now: number
+  now: number,
+  options: {
+    readonly allowExhausted?: boolean;
+    readonly invocationId?: string;
+  }
 ): boolean {
-  if (grant.state !== "active" || isExpired(grant, now)) {
+  const validState =
+    grant.state === "active" ||
+    (options.allowExhausted === true && grant.state === "exhausted");
+  if (!validState || isExpired(grant, now)) {
+    return false;
+  }
+  if (
+    options.allowExhausted !== true &&
+    grant.usesRemaining !== undefined &&
+    grant.usesRemaining <= 0
+  ) {
     return false;
   }
   if (grant.sessionId !== undefined && grant.sessionId !== request.sessionId) {
     return false;
   }
-  if (grant.usesRemaining !== undefined && grant.usesRemaining <= 0) {
+  if (
+    grant.invocationId !== undefined &&
+    grant.invocationId !== options.invocationId
+  ) {
     return false;
   }
   if (!matchesPrincipal(grant.holder, request.principal, "allow")) {

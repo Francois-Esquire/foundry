@@ -42,15 +42,11 @@ export type AuthorizationTransaction = SqliteTransaction;
 export interface SqliteAuthorizationStoreOptions {
   readonly database: AuthorizationDatabase;
   readonly durability?: AuthorizationStoreDurability;
-  readonly onCommit?: (
-    transaction: AuthorizationTransaction,
-    write: AuthorizationStoreWrite
-  ) => Promise<void>;
   readonly scope: string;
 }
 
 const REENTRY =
-  "SqliteAuthorizationStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
+  "SqliteAuthorizationStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
 const {
   position: _grantPosition,
@@ -79,7 +75,6 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
   readonly durability: AuthorizationStoreDurability;
   readonly #database: AuthorizationDatabase;
   readonly #scope: string;
-  readonly #onCommit: SqliteAuthorizationStoreOptions["onCommit"];
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteAuthorizationStoreOptions) {
@@ -93,7 +88,6 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
     this.#scope = options.scope;
-    this.#onCommit = options.onCommit;
   }
 
   commit(write: AuthorizationStoreWrite): Promise<void> {
@@ -107,28 +101,23 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
-        await this.#deleteByKey(
+        await this.#deleteRestrictions(
           transaction,
-          authorizationGrants,
-          authorizationGrants.id,
-          owned.deleteGrants ?? []
-        );
-        await this.#deleteByKey(
-          transaction,
-          authorizationRestrictions,
-          authorizationRestrictions.id,
           owned.deleteRestrictions ?? []
         );
-        await this.#deleteByKey(
+        await this.#putPositioned(
           transaction,
-          authorizationClaims,
-          authorizationClaims.invocationId,
-          owned.deleteClaims ?? []
+          authorizationGrants,
+          rows.grants,
+          replaceGrant
         );
-        await this.#putGrants(transaction, rows.grants);
-        await this.#putRestrictions(transaction, rows.restrictions);
+        await this.#putPositioned(
+          transaction,
+          authorizationRestrictions,
+          rows.restrictions,
+          replaceRestriction
+        );
         await this.#putClaims(transaction, rows.claims);
-        await this.#onCommit?.(transaction, owned);
       })
     );
   }
@@ -140,9 +129,6 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
           new SqliteAuthorizationStore({
             database: transaction,
             scope: this.#scope,
-            ...(this.#onCommit === undefined
-              ? {}
-              : { onCommit: this.#onCommit }),
           })
         )
       )
@@ -230,7 +216,6 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
           claimedAt: authorizationClaims.claimedAt,
           grantId: authorizationClaims.grantId,
           invocationId: authorizationClaims.invocationId,
-          releasedAt: authorizationClaims.releasedAt,
         })
         .from(authorizationClaims)
         .where(
@@ -239,15 +224,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
             eq(authorizationClaims.invocationId, invocationId)
           )
         );
-      if (row === undefined) {
-        return null;
-      }
-      return {
-        claimedAt: row.claimedAt,
-        grantId: row.grantId,
-        invocationId: row.invocationId,
-        ...(row.releasedAt === null ? {} : { releasedAt: row.releasedAt }),
-      };
+      return row === undefined ? null : row;
     });
   }
 
@@ -295,79 +272,54 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     return conditions;
   }
 
-  async #deleteByKey(
+  async #deleteRestrictions(
     transaction: AuthorizationTransaction,
-    table:
-      | typeof authorizationClaims
-      | typeof authorizationGrants
-      | typeof authorizationRestrictions,
-    keyColumn: SQLiteColumn,
-    keys: readonly string[]
+    keys: readonly RestrictionId[]
   ): Promise<void> {
     for (const batch of batches(
       keys.filter(storableText),
       SQLITE_MAX_PARAMETERS - 1
     )) {
       await transaction
-        .delete(table)
-        .where(and(eq(table.scope, this.#scope), inArray(keyColumn, batch)));
+        .delete(authorizationRestrictions)
+        .where(
+          and(
+            eq(authorizationRestrictions.scope, this.#scope),
+            inArray(authorizationRestrictions.id, batch)
+          )
+        );
     }
   }
 
-  async #putGrants(
+  async #putPositioned<
+    Table extends typeof authorizationGrants | typeof authorizationRestrictions,
+  >(
     transaction: AuthorizationTransaction,
-    records: readonly Omit<GrantRow, "position" | "scope">[]
+    table: Table,
+    records: readonly Omit<Table["$inferInsert"], "position" | "scope">[],
+    set: Record<string, SQL>
   ): Promise<void> {
     if (records.length === 0) {
       return;
     }
-    const columns = Object.keys(getTableColumns(authorizationGrants)).length;
-    const first = await this.#nextPosition(transaction, authorizationGrants);
+    const columns = Object.keys(getTableColumns(table)).length;
+    const [last] = await transaction
+      .select({ position: max(table.position) })
+      .from(table)
+      .where(eq(table.scope, this.#scope));
+    const first = (last?.position ?? 0) + 1;
     const rows = records.map((record, index) => ({
       ...record,
       position: first + index,
       scope: this.#scope,
-    }));
+    })) as Table["$inferInsert"][];
     for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
       await transaction
-        .insert(authorizationGrants)
+        .insert(table)
         .values(batch)
         .onConflictDoUpdate({
-          set: replaceGrant,
-          target: [authorizationGrants.scope, authorizationGrants.id],
-        });
-    }
-  }
-
-  async #putRestrictions(
-    transaction: AuthorizationTransaction,
-    records: readonly Omit<RestrictionRow, "position" | "scope">[]
-  ): Promise<void> {
-    if (records.length === 0) {
-      return;
-    }
-    const columns = Object.keys(
-      getTableColumns(authorizationRestrictions)
-    ).length;
-    const first = await this.#nextPosition(
-      transaction,
-      authorizationRestrictions
-    );
-    const rows = records.map((record, index) => ({
-      ...record,
-      position: first + index,
-      scope: this.#scope,
-    }));
-    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
-      await transaction
-        .insert(authorizationRestrictions)
-        .values(batch)
-        .onConflictDoUpdate({
-          set: replaceRestriction,
-          target: [
-            authorizationRestrictions.scope,
-            authorizationRestrictions.id,
-          ],
+          set,
+          target: [table.scope, table.id],
         });
     }
   }
@@ -393,17 +345,6 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
           target: [authorizationClaims.scope, authorizationClaims.invocationId],
         });
     }
-  }
-
-  async #nextPosition(
-    transaction: AuthorizationTransaction,
-    table: typeof authorizationGrants | typeof authorizationRestrictions
-  ): Promise<number> {
-    const [last] = await transaction
-      .select({ position: max(table.position) })
-      .from(table)
-      .where(eq(table.scope, this.#scope));
-    return (last?.position ?? 0) + 1;
   }
 }
 
@@ -498,10 +439,6 @@ function prepareClaimRow(
     claimedAt: requireInteger(claim.claimedAt, `${at}.claimedAt`),
     grantId: requireText(claim.grantId, `${at}.grantId`),
     invocationId: requireText(claim.invocationId, `${at}.invocationId`),
-    releasedAt:
-      claim.releasedAt === undefined
-        ? null
-        : requireInteger(claim.releasedAt, `${at}.releasedAt`),
   };
 }
 

@@ -109,16 +109,16 @@ export function principalMatcherNarrows(
     return false;
   }
   if (parent.kind === "exact") {
-    if (child.kind !== "exact") {
-      return false;
-    }
-    return matchesExactPrincipal(parent.principal, child.principal, "allow");
+    return (
+      child.kind === "exact" &&
+      matchesExactPrincipal(parent.principal, child.principal, "allow")
+    );
   }
   if (child.kind === "exact") {
-    if (child.principal.kind !== parent.principalKind) {
-      return false;
-    }
-    return Object.keys(parent.attributes ?? {}).length === 0;
+    return (
+      child.principal.kind === parent.principalKind &&
+      Object.keys(parent.attributes ?? {}).length === 0
+    );
   }
   if (child.principalKind !== parent.principalKind) {
     return false;
@@ -170,40 +170,67 @@ export function boundNarrows(
   child: ConstraintBound,
   parent: ConstraintBound
 ): boolean {
+  if (child.op === "eq") {
+    return matchesBound(parent, child.value, "allow");
+  }
+  if (child.op === "in") {
+    return child.values.every((value) => matchesBound(parent, value, "allow"));
+  }
   switch (parent.op) {
     case "eq":
-      return narrowsEqBound(child, parent.value);
-    case "in":
-      return narrowsInBound(child, parent.values);
+      return (
+        child.op === "range" &&
+        typeof parent.value === "number" &&
+        Number.isFinite(parent.value) &&
+        child.min === parent.value &&
+        child.max === parent.value
+      );
     case "range":
-      return narrowsRangeBound(child, parent);
+      return child.op === "range" && narrowsRangeBounds(child, parent);
     case "prefix":
-      return narrowsPrefixBound(child, parent.value);
+      return child.op === "prefix" && child.value.startsWith(parent.value);
     case "domainSuffix":
-      return narrowsDomainSuffixBound(child, parent.value);
+      return (
+        child.op === "domainSuffix" &&
+        narrowsDomainSuffix(child.value, parent.value)
+      );
     case "commandPrefix":
-      return narrowsCommandPrefixBound(child, parent.value);
+      return (
+        child.op === "commandPrefix" &&
+        isValidCommandPrefix(parent.value) &&
+        isValidCommandPrefix(child.value) &&
+        matchesWordBoundedCommand(child.value, parent.value)
+      );
     default:
       return false;
   }
 }
 
-export function matchesBound(
+function matchesBound(
   bound: ConstraintBound,
   value: JsonValue,
   mode: MatchMode = "allow"
 ): boolean {
   switch (bound.op) {
     case "eq":
-      return isJsonPrimitive(value) && value === bound.value;
+      if (!isJsonPrimitive(value)) {
+        return mode === "restrictive";
+      }
+      return value === bound.value;
     case "in":
-      return isJsonPrimitive(value) && bound.values.includes(value);
+      if (!isJsonPrimitive(value)) {
+        return mode === "restrictive";
+      }
+      return bound.values.includes(value);
     case "range":
-      return matchesRange(bound, value);
+      return matchesRange(bound, value, mode);
     case "prefix":
-      return typeof value === "string" && value.startsWith(bound.value);
+      if (typeof value !== "string") {
+        return mode === "restrictive";
+      }
+      return value.startsWith(bound.value);
     case "domainSuffix":
-      return matchesDomainSuffix(bound.value, value);
+      return matchesDomainSuffix(bound.value, value, mode);
     case "commandPrefix":
       return matchesCommandPrefix(bound.value, value, mode);
     default:
@@ -211,7 +238,7 @@ export function matchesBound(
   }
 }
 
-export function isValidCommandPrefix(value: string): boolean {
+function isValidCommandPrefix(value: string): boolean {
   return (
     value.length > 0 &&
     !LEADING_WHITESPACE.test(value) &&
@@ -269,29 +296,13 @@ function targetNarrows(child: ScopeMatcher, parent: ScopeMatcher): boolean {
   if (child.kind === "any") {
     return false;
   }
-  switch (parent.kind) {
-    case "exact":
-      return (
-        (child.kind === "exact" && child.value === parent.value) ||
-        (child.kind === "in" &&
-          child.values.every((value) => value === parent.value))
-      );
-    case "prefix":
-      return (
-        (child.kind === "prefix" && child.value.startsWith(parent.value)) ||
-        (child.kind === "exact" && child.value.startsWith(parent.value)) ||
-        (child.kind === "in" &&
-          child.values.every((value) => value.startsWith(parent.value)))
-      );
-    case "in":
-      return (
-        (child.kind === "exact" && parent.values.includes(child.value)) ||
-        (child.kind === "in" &&
-          child.values.every((value) => parent.values.includes(value)))
-      );
-    default:
-      return false;
+  if (child.kind === "exact") {
+    return matchesTarget(parent, child.value);
   }
+  if (child.kind === "in") {
+    return child.values.every((value) => matchesTarget(parent, value));
+  }
+  return parent.kind === "prefix" && child.value.startsWith(parent.value);
 }
 
 function matchesDigest(
@@ -372,13 +383,14 @@ function constraintsNarrow(
 
 function matchesRange(
   bound: Extract<ConstraintBound, { readonly op: "range" }>,
-  value: JsonValue
+  value: JsonValue,
+  mode: MatchMode
 ): boolean {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return false;
-  }
   if (!isValidRangeBounds(bound.min, bound.max)) {
-    return false;
+    return mode === "restrictive";
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return mode === "restrictive";
   }
   if (bound.min !== undefined && value < bound.min) {
     return false;
@@ -399,7 +411,31 @@ function isValidRangeBounds(
   if (max !== undefined && !Number.isFinite(max)) {
     return false;
   }
-  if (min !== undefined && max !== undefined && min > max) {
+  return !(min !== undefined && max !== undefined && min > max);
+}
+
+function narrowsRangeBounds(
+  child: Extract<ConstraintBound, { readonly op: "range" }>,
+  parent: Extract<ConstraintBound, { readonly op: "range" }>
+): boolean {
+  if (
+    !(
+      isValidRangeBounds(parent.min, parent.max) &&
+      isValidRangeBounds(child.min, child.max)
+    )
+  ) {
+    return false;
+  }
+  if (
+    parent.min !== undefined &&
+    (child.min === undefined || child.min < parent.min)
+  ) {
+    return false;
+  }
+  if (
+    parent.max !== undefined &&
+    (child.max === undefined || child.max > parent.max)
+  ) {
     return false;
   }
   return true;
@@ -416,18 +452,21 @@ function normalizeDomain(value: string): string | null {
   return lowered;
 }
 
-function matchesDomainSuffix(suffix: string, value: JsonValue): boolean {
-  if (typeof value !== "string") {
-    return false;
-  }
+function matchesDomainSuffix(
+  suffix: string,
+  value: JsonValue,
+  mode: MatchMode
+): boolean {
   const normalizedSuffix = normalizeDomain(suffix);
+  if (normalizedSuffix === null) {
+    return mode === "restrictive";
+  }
+  if (typeof value !== "string") {
+    return mode === "restrictive";
+  }
   const normalizedHost = normalizeDomain(value);
-  if (
-    normalizedSuffix === null ||
-    normalizedHost === null ||
-    normalizedHost.startsWith(".")
-  ) {
-    return false;
+  if (normalizedHost === null || normalizedHost.startsWith(".")) {
+    return mode === "restrictive";
   }
   if (normalizedSuffix.startsWith(".")) {
     return normalizedHost.endsWith(normalizedSuffix);
@@ -435,6 +474,27 @@ function matchesDomainSuffix(suffix: string, value: JsonValue): boolean {
   return (
     normalizedHost === normalizedSuffix ||
     normalizedHost.endsWith(`.${normalizedSuffix}`)
+  );
+}
+
+function narrowsDomainSuffix(
+  childSuffix: string,
+  parentSuffix: string
+): boolean {
+  const normalizedParent = normalizeDomain(parentSuffix);
+  const normalizedChild = normalizeDomain(childSuffix);
+  if (normalizedParent === null || normalizedChild === null) {
+    return false;
+  }
+  if (normalizedParent.startsWith(".")) {
+    return (
+      normalizedChild === normalizedParent ||
+      normalizedChild.endsWith(normalizedParent)
+    );
+  }
+  return (
+    normalizedChild === normalizedParent ||
+    normalizedChild.endsWith(`.${normalizedParent}`)
   );
 }
 
@@ -448,17 +508,18 @@ function matchesCommandPrefix(
   mode: MatchMode
 ): boolean {
   if (typeof value !== "string") {
-    return false;
+    return mode === "restrictive";
   }
   if (mode === "allow") {
-    if (!(isValidCommandPrefix(prefix) && isValidCommandPrefix(value))) {
-      return false;
-    }
-    return matchesWordBoundedCommand(value, prefix);
+    return (
+      isValidCommandPrefix(prefix) &&
+      isValidCommandPrefix(value) &&
+      matchesWordBoundedCommand(value, prefix)
+    );
   }
   const normalizedPrefix = prefix.trim().replace(COLLAPSIBLE_WHITESPACE, " ");
   if (normalizedPrefix.length === 0) {
-    return false;
+    return true;
   }
   const segments = value.split(SHELL_SEGMENT_SEPARATOR);
   for (const segment of segments) {
@@ -471,154 +532,4 @@ function matchesCommandPrefix(
     }
   }
   return false;
-}
-
-function narrowsEqBound(
-  child: ConstraintBound,
-  expected: JsonPrimitive
-): boolean {
-  switch (child.op) {
-    case "eq":
-      return child.value === expected;
-    case "in":
-      return child.values.every((value) => value === expected);
-    case "range":
-      return (
-        typeof expected === "number" &&
-        Number.isFinite(expected) &&
-        child.min === expected &&
-        child.max === expected
-      );
-    default:
-      return false;
-  }
-}
-
-function narrowsInBound(
-  child: ConstraintBound,
-  allowed: readonly JsonPrimitive[]
-): boolean {
-  switch (child.op) {
-    case "eq":
-      return allowed.includes(child.value);
-    case "in":
-      return child.values.every((value) => allowed.includes(value));
-    default:
-      return false;
-  }
-}
-
-function narrowsRangeBound(
-  child: ConstraintBound,
-  parent: Extract<ConstraintBound, { readonly op: "range" }>
-): boolean {
-  if (!isValidRangeBounds(parent.min, parent.max)) {
-    return false;
-  }
-  switch (child.op) {
-    case "range": {
-      if (!isValidRangeBounds(child.min, child.max)) {
-        return false;
-      }
-      if (
-        parent.min !== undefined &&
-        (child.min === undefined || child.min < parent.min)
-      ) {
-        return false;
-      }
-      if (
-        parent.max !== undefined &&
-        (child.max === undefined || child.max > parent.max)
-      ) {
-        return false;
-      }
-      return true;
-    }
-    case "eq":
-      return matchesRange(parent, child.value);
-    case "in":
-      return child.values.every((value) => matchesRange(parent, value));
-    default:
-      return false;
-  }
-}
-
-function narrowsPrefixBound(
-  child: ConstraintBound,
-  parentPrefix: string
-): boolean {
-  switch (child.op) {
-    case "prefix":
-      return child.value.startsWith(parentPrefix);
-    case "eq":
-      return (
-        typeof child.value === "string" && child.value.startsWith(parentPrefix)
-      );
-    case "in":
-      return child.values.every(
-        (value) => typeof value === "string" && value.startsWith(parentPrefix)
-      );
-    default:
-      return false;
-  }
-}
-
-function narrowsDomainSuffixBound(
-  child: ConstraintBound,
-  parentSuffix: string
-): boolean {
-  const normalizedParent = normalizeDomain(parentSuffix);
-  if (normalizedParent === null) {
-    return false;
-  }
-  switch (child.op) {
-    case "domainSuffix": {
-      const normalizedChild = normalizeDomain(child.value);
-      if (normalizedChild === null) {
-        return false;
-      }
-      if (normalizedParent.startsWith(".")) {
-        return (
-          normalizedChild === normalizedParent ||
-          normalizedChild.endsWith(normalizedParent)
-        );
-      }
-      return (
-        normalizedChild === normalizedParent ||
-        normalizedChild.endsWith(`.${normalizedParent}`)
-      );
-    }
-    case "eq":
-      return matchesDomainSuffix(parentSuffix, child.value);
-    case "in":
-      return child.values.every((value) =>
-        matchesDomainSuffix(parentSuffix, value)
-      );
-    default:
-      return false;
-  }
-}
-
-function narrowsCommandPrefixBound(
-  child: ConstraintBound,
-  parentPrefix: string
-): boolean {
-  if (!isValidCommandPrefix(parentPrefix)) {
-    return false;
-  }
-  switch (child.op) {
-    case "commandPrefix":
-      return (
-        isValidCommandPrefix(child.value) &&
-        matchesWordBoundedCommand(child.value, parentPrefix)
-      );
-    case "eq":
-      return matchesCommandPrefix(parentPrefix, child.value, "allow");
-    case "in":
-      return child.values.every((value) =>
-        matchesCommandPrefix(parentPrefix, value, "allow")
-      );
-    default:
-      return false;
-  }
 }

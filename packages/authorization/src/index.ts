@@ -2,7 +2,6 @@ import { Authorization as AuthorizationControlPlane } from "./authorization";
 import {
   AuthorizationError as BaseAuthorizationError,
   AuthorizationDeniedError as DeniedError,
-  AUTHORIZATION_ERROR_CODES as ERROR_CODES,
   AuthorizationNotFoundError as NotFoundError,
   AuthorizationPendingError as PendingError,
   AuthorizationRevisionError as RevisionError,
@@ -14,20 +13,12 @@ import {
   type AuthorizeOptions,
   grantId as asGrantId,
   restrictionId as asRestrictionId,
-  RESTRICTION_KINDS as KINDS,
-  GRANT_STATES as STATES,
 } from "./schema";
 import {
   type AccessRequest,
-  boundNarrows as boundNarrowsImpl,
   covers as coversImpl,
-  isDirectPrincipalGrant as isDirectPrincipalGrantImpl,
-  isJsonPrimitive as isJsonPrimitiveImpl,
-  isValidCommandPrefix as isValidCommandPrefixImpl,
-  matchesBound as matchesBoundImpl,
   matchesPrincipal as matchesPrincipalImpl,
   narrows as narrowsImpl,
-  principalMatcherNarrows as principalMatcherNarrowsImpl,
 } from "./scope";
 
 export type { AuthorizationOptions, Outcome } from "./authorization";
@@ -70,7 +61,6 @@ export type {
 
 export type Authorization = AuthorizationControlPlane;
 export const Authorization = AuthorizationControlPlane;
-export const AUTHORIZATION_ERROR_CODES = ERROR_CODES;
 export type AuthorizationError = BaseAuthorizationError;
 export const AuthorizationError = BaseAuthorizationError;
 export type AuthorizationDeniedError = DeniedError;
@@ -87,19 +77,11 @@ export type AuthorizationValidationError = ValidationError;
 export const AuthorizationValidationError = ValidationError;
 export type Permit = PermitHandle;
 export const Permit = PermitHandle;
-export const GRANT_STATES = STATES;
-export const RESTRICTION_KINDS = KINDS;
 export const grantId = asGrantId;
 export const restrictionId = asRestrictionId;
-export const boundNarrows = boundNarrowsImpl;
 export const covers = coversImpl;
-export const isDirectPrincipalGrant = isDirectPrincipalGrantImpl;
-export const isJsonPrimitive = isJsonPrimitiveImpl;
-export const isValidCommandPrefix = isValidCommandPrefixImpl;
-export const matchesBound = matchesBoundImpl;
 export const matchesPrincipal = matchesPrincipalImpl;
 export const narrows = narrowsImpl;
-export const principalMatcherNarrows = principalMatcherNarrowsImpl;
 
 export async function withPermit<T>(
   authorization: Authorization,
