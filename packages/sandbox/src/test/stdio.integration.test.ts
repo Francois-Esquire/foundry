@@ -2,13 +2,12 @@ import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Sandbox as MicroSandbox } from "microsandbox";
 import { beforeAll, describe, expect, it } from "vitest";
-
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
+import type { ContainerSandbox } from "../container/runtime";
 import {
   provisionContainerSandbox,
   startContainerSandbox,
 } from "../container/sandbox";
-import type { ContainerSandbox } from "../container/types";
+import { createMicrosandboxRuntime } from "../node/microsandbox";
 
 const PACKAGE_URL = new URL("../../", import.meta.url);
 const GUEST_PACKAGE_PATH = "/mounts/sandbox";

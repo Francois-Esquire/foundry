@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
+import { createMicrosandboxRuntime } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 import { MODULE_GATEWAY_SERVER } from "./helpers/module-gateway-server";
 

@@ -1,8 +1,8 @@
 import { describe, expect, expectTypeOf, test } from "vitest";
 import manifest from "../../package.json" with { type: "json" };
-import type { BlobFiles, BlobStagingArea } from "../blob";
 import type { ByteInput, ReferenceInput } from "../blob-repository";
 import { BlobRepository, isReferenceInput } from "../blob-repository";
+import type { BlobFiles, BlobStagingArea } from "../blob-staging";
 import { ArtifactChange } from "../change";
 import type { ArtifactSubstrate, FileInput, FileRangeResolved } from "../index";
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export contract.

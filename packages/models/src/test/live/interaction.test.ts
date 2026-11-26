@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import type { InputForm } from "../../capability";
 import type { Sampler } from "../../live/sampler";
 import type { LiveResult } from "../../live/types";
-import type { InputForm } from "../../types";
 import type { Registry } from "../helpers/live-double";
 
 import { frame, newRegistry, target, token } from "../helpers/live-double";
@@ -25,7 +24,7 @@ const state = vi.hoisted(() => ({
   webrtc: { current: null as Registry | null },
 }));
 
-vi.mock("../../live/fal-socket", async () => {
+vi.mock("../../live/fal/socket", async () => {
   const { connector } = await import("../helpers/live-double");
   return {
     connectFalSocket: (...args: Parameters<ReturnType<typeof connector>>) => {
@@ -38,7 +37,7 @@ vi.mock("../../live/fal-socket", async () => {
   };
 });
 
-vi.mock("../../live/fal-webrtc", async () => {
+vi.mock("../../live/fal/webrtc", async () => {
   const { connector } = await import("../helpers/live-double");
   return {
     connectFalWebRtc: (...args: Parameters<ReturnType<typeof connector>>) => {
@@ -69,7 +68,7 @@ vi.mock("../../live/sampler", () => ({
   },
 }));
 
-const { open } = await import("../../live/index");
+const { open } = await import("../../live");
 
 let socket = newRegistry();
 let webrtc = newRegistry();

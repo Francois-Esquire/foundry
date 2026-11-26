@@ -2,13 +2,9 @@ import type { ModelMessage, ToolLoopAgent, ToolSet, UIMessage } from "ai";
 
 import { readUIMessageStream, tool } from "ai";
 import { z } from "zod";
-
-import type { ConversationStore } from "../tools/context";
-import {
-  defaultThread,
-  getConversationStore,
-  getSpace,
-} from "../tools/context";
+import { getConversationStore, getSpace } from "../tools/context";
+import type { ConversationStore } from "../tools/conversation-store";
+import { defaultThread } from "../tools/conversation-store";
 import { lastTextValue } from "./last-text";
 import type { AgentCompatibilityProjection, AgentEntry } from "./registry";
 import { resolveAgentEntry } from "./registry";

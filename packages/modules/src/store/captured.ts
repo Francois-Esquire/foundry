@@ -1,9 +1,11 @@
+import { isPlainObject } from "@foundry/lib/plain-json";
 import type {
   InstallationListQuery,
   ManifestListQuery,
   ModuleListQuery,
+  ModuleStorePageQuery,
   ModuleStoreWrite,
-} from "../store";
+} from "./index";
 
 const WRITE_PROPERTIES = {
   deleteInstallations: true,
@@ -231,14 +233,17 @@ export function plainCopy(
   }
 }
 
-function isPlainObject(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
+export function ownedQuery<Q extends ModuleStorePageQuery>(query: Q): Q {
+  const owned = structuredClone(query);
+  if (!(Number.isSafeInteger(owned.limit) && owned.limit > 0)) {
+    throw new RangeError(
+      `limit must be a positive safe integer; got ${String(owned.limit)}`
+    );
   }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  return (
-    (prototype === Object.prototype || prototype === null) &&
-    Object.getOwnPropertyNames(value).length === Object.keys(value).length &&
-    Object.getOwnPropertySymbols(value).length === 0
-  );
+  if (owned.after !== undefined && !Number.isSafeInteger(owned.after)) {
+    throw new RangeError(
+      `after must be a cursor a page returned; got ${String(owned.after)}`
+    );
+  }
+  return owned;
 }

@@ -4,7 +4,10 @@ import { generateText } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { beginTurnObservation, configureModelObservability } from "../logger";
+import {
+  beginTurnObservation,
+  configureModelObservability,
+} from "../observability";
 
 interface AiEvent {
   ai?: { model?: string; totalTokens?: number };

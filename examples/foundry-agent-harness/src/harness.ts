@@ -6,7 +6,7 @@ import {
   tasks,
 } from "@foundry.sh/marbles";
 import {
-  ArtifactManager,
+  Artifacts,
   claudeCodeProvider,
   Engine,
   MemoryArtifactStore,
@@ -89,7 +89,7 @@ const worker = agent({
 const notes = artifact({ name: "Agent harness notes", type: "text/markdown" });
 
 const engine = new Engine({
-  artifacts: new ArtifactManager({ store: new MemoryArtifactStore() }),
+  artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
   askable: false,
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
   models: new Models({

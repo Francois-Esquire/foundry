@@ -481,7 +481,7 @@ builds, and serves a composed workspace with real processes; run it on purpose w
 `FOUNDRY_RUN_GENERATED_MODULE_WORKSPACE=1 bun run --cwd=packages/modules test:integration`.
 
 `bun run --cwd=packages/modules emit-sdk` rewrites checked-in generated SDK output in
-`src/sdk/emitted.ts` and `src/sdk/generator-source.ts`, then formats both with Biome.
+`src/sdk/emitted.generated.ts` and `src/sdk/generator-entrypoint.generated.ts`.
 Run it only when the authored SDK source or generator changes. Tests verify emitted
 parity, store conformance, registry rules over every store, package integrity, Gateway admission, and the package
 import boundary.

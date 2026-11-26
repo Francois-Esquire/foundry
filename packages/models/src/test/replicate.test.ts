@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { Models } from "../models";
 import { operationsOf } from "../provider";
-import { REPLICATE_DEFAULT_MODELS, replicateProvider } from "../replicate";
+import {
+  REPLICATE_DEFAULT_MODELS,
+  replicateProvider,
+} from "../providers/replicate";
 
 function withToken(apiToken?: string) {
   return new Models({

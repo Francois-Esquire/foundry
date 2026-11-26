@@ -5,8 +5,7 @@ import {
   readyTaskIds,
 } from "../availability";
 import type { Task, TaskDependency, TaskSnapshot, TaskStatus } from "../schema";
-import { TASK_STATUSES } from "../schema";
-import { taskId } from "../types";
+import { TASK_STATUSES, taskId } from "../schema";
 
 const AT = "2026-10-29T00:00:00.000Z";
 

@@ -1,9 +1,8 @@
 import { REFERENCE, withReference } from "@foundry/core/agents";
 import { assemble, claudeCode, codex } from "@foundry/prompts";
 import { describe, expect, it } from "vitest";
-
+import type { AgentPreset } from "../agents/preset";
 import { createAgentRegistry } from "../agents/registry";
-import type { AgentPreset } from "../agents/resolve";
 import { createCatalog } from "../prompts";
 import { defineSkill } from "../skills/define";
 import { createSkillRegistry } from "../skills/registry";

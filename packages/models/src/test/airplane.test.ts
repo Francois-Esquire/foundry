@@ -3,9 +3,9 @@ import type {
   LanguageModelV4CallOptions,
 } from "@ai-sdk/provider";
 import { describe, expect, it, vi } from "vitest";
-import { airplaneMode } from "../airplane";
 import { Models } from "../models";
 import type { Provider } from "../provider";
+import { airplaneMode } from "../providers/airplane";
 
 const CALL = { prompt: [] } as unknown as LanguageModelV4CallOptions;
 const REFUSED = /refused by airplane/;

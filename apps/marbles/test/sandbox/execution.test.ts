@@ -1,4 +1,4 @@
-import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import { createMemoryAgentAuthorizer } from "@foundry/agents/authorization";
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox";
@@ -23,8 +23,8 @@ vi.mock("@foundry/agents/harness", async (importOriginal) => ({
     return { sessionId: "session" };
   },
 }));
-vi.mock("@foundry/models/codex", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@foundry/models/codex")>()),
+vi.mock("@foundry/models/providers/codex", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@foundry/models/providers/codex")>()),
   createCodexDriver: (options: unknown) => {
     seen.codex.push(options);
     return { first: "party" };
@@ -59,7 +59,7 @@ function open(execution?: Execution, wireModelId?: string) {
     instructions: "inspect",
     modelId: wireModelId === undefined ? "gpt-5.5" : "sol",
     options: {
-      authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+      authority: { policy: createMemoryAgentAuthorizer().authorizer },
       sandbox: {} as SandboxHandle,
     },
     provider: "work-codex",

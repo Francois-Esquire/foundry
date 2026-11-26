@@ -5,6 +5,14 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
 import type { z } from "zod";
 import { WorkspaceCatalog } from "../catalog";
+import type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceEvent,
+  WorkspaceFile,
+  WorkspaceId,
+  WorkspaceRegistration,
+} from "../schema";
 import { workspaceEntrySchema, workspaceRegistrationSchema } from "../schema";
 import type { WorkspaceStoreWrite } from "../store";
 import type { WorkspaceDatabase } from "../store/sqlite";
@@ -22,15 +30,7 @@ import type {
   ScopedWorkspaceStores,
 } from "../testing/store";
 import { describeWorkspaceStore } from "../testing/store";
-import type {
-  WorkspaceEntry,
-  WorkspaceEntryId,
-  WorkspaceEvent,
-  WorkspaceFile,
-  WorkspaceId,
-  WorkspaceRegistration,
-} from "../types";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { makeRoot } from "./helpers/temp-roots";
 
@@ -642,7 +642,7 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     });
     await symlink("README.md", join(root, "readme-link"));
     const store = await storeOnMemory();
-    const workspace = await directorySystem({ store }).load({ path: root });
+    const workspace = await directoryWorkspaces({ store }).load({ path: root });
     const registration = await workspace.registration();
     const entries = await workspace.entries();
 

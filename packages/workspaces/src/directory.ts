@@ -16,27 +16,27 @@ import {
   joinFilesystemPath,
   lastPathSegment,
 } from "@foundry/lib/paths";
-import { DIRECTORY_SOURCE } from "./constants";
 import {
   errorCode,
   InvalidWorkspaceInputError,
   WorkspaceSourceUnavailableError,
 } from "./errors";
+import type { WorkspaceExtension } from "./extension";
+import type { ResolvedSource, WorkspaceFileSystem } from "./file-system";
 import {
   canonicalizeRoot,
   resolveStoredPath,
   scanSource,
   verifyRoot,
 } from "./scanner";
+import type { WorkspaceFile } from "./schema";
 import type {
   FileContentResult,
-  ResolvedSource,
-  WorkspaceExtension,
-  WorkspaceFile,
-  WorkspaceFileSystem,
   WorkspaceSourceAdapter,
   WriteOutcome,
-} from "./types";
+} from "./source-adapter";
+
+export const DIRECTORY_SOURCE = "host";
 
 export interface DirectoryOptions<Ref extends object = DirectoryRef> {
   readonly filesystem: WorkspaceFileSystem<Ref>;

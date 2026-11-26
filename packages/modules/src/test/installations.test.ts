@@ -1,0 +1,494 @@
+import { describe, expect, it, vi } from "vitest";
+import { installationIdSchema } from "../domain";
+import { ModuleStoreConflictError } from "../errors";
+import { ensureInstallation } from "../management";
+import { ModuleActivationRefusedError } from "../platform/installations";
+import { createModuleRuntimeRecovery } from "../platform/runtime-recovery";
+import {
+  installationFixture,
+  installationId,
+  launch,
+  settings,
+} from "./helpers/installation-fixture";
+import {
+  WEATHER,
+  weatherProvider,
+  weatherRequest,
+} from "./helpers/published-module";
+
+describe("Module installation lifecycle", () => {
+  it("ensures one Installation per id, created disabled at the Version", async () => {
+    const { installation, store, v1 } = await installationFixture();
+    expect(installation).toMatchObject({
+      contentId: v1.contentId,
+      generation: 0,
+      status: "disabled",
+    });
+    expect(
+      await ensureInstallation({
+        installationId,
+        now: new Date(1),
+        store,
+        version: v1,
+      })
+    ).toEqual(installation);
+  });
+
+  it("selects a Version inside the selected checkout, carrying over unchanged Grants", async () => {
+    const {
+      access,
+      checkout,
+      installation,
+      installations,
+      publish,
+      store,
+      v1,
+    } = await installationFixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const v2 = await publish("2.0.0", [weatherRequest(["Oslo"])]);
+    const selected = await installations.selectVersion({
+      installation,
+      version: v2,
+    });
+    expect(selected).toMatchObject({
+      contentId: v2.contentId,
+      generation: installation.generation + 1,
+    });
+    expect(checkout).toEqual([`swap ${v2.contentId}`]);
+    expect(
+      (await store.loadGatewayContext(installationId))?.grants.map(
+        (grant) => grant.capability
+      )
+    ).toEqual([WEATHER]);
+  });
+
+  it("loses a changed Grant even when recording the selection fails, and restores the checkout", async () => {
+    const {
+      access,
+      checkout,
+      installation,
+      installations,
+      publish,
+      store,
+      v1,
+    } = await installationFixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const v2 = await publish("2.0.0", [weatherRequest(["Rome"])]);
+    vi.spyOn(store, "selectInstallationVersion").mockRejectedValueOnce(
+      new Error("store unavailable")
+    );
+    await expect(
+      installations.selectVersion({ installation, version: v2 })
+    ).rejects.toThrow("store unavailable");
+    const context = await store.loadGatewayContext(installationId);
+    expect(context?.installation.contentId).toBe(v1.contentId);
+    expect(context?.grants).toEqual([]);
+    expect(checkout).toEqual([`swap ${v2.contentId}`, "restore"]);
+  });
+
+  it("refuses a stale selection before the checkout records anything", async () => {
+    const { installation, installations, publish, store, v1 } =
+      await installationFixture();
+    const v2 = await publish("2.0.0");
+    await installations.selectVersion({ installation, version: v2 });
+    await expect(
+      installations.selectVersion({ installation, version: v1 })
+    ).rejects.toThrow("generation");
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.contentId
+    ).toBe(v2.contentId);
+  });
+
+  it("refuses to select a Version for a running Installation before revoking or swapping anything", async () => {
+    const {
+      access,
+      checkout,
+      installation,
+      installations,
+      invocations,
+      publish,
+      store,
+      v1,
+    } = await installationFixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    await installations.start({ installation, launch, settings, version: v1 });
+    const active = await store.loadGatewayContext(installationId);
+    const v2 = await publish("2.0.0", [weatherRequest(["Rome"])]);
+
+    await expect(
+      installations.selectVersion({
+        installation: active?.installation ?? installation,
+        version: v2,
+      })
+    ).rejects.toMatchObject({ code: "already-active" });
+    const after = await store.loadGatewayContext(installationId);
+    expect(after?.installation).toMatchObject({
+      contentId: v1.contentId,
+      status: "active",
+    });
+    expect(after?.grants.map((grant) => grant.capability)).toEqual([WEATHER]);
+    expect(checkout).toEqual([]);
+    expect(invocations.revoke).not.toHaveBeenCalled();
+  });
+
+  it("takes the Installation's turn before the checkout's, as a start does", async () => {
+    const {
+      access,
+      installation,
+      installations,
+      moduleTurns,
+      moduleId,
+      publish,
+      start,
+      store,
+      v1,
+    } = await installationFixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const v2 = await publish("2.0.0", [weatherRequest(["Oslo"])]);
+    const launched = start.getMockImplementation();
+    start.mockImplementation(() =>
+      moduleTurns.run(moduleId, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return launched?.() as never;
+      })
+    );
+    const started = installations.start({
+      installation,
+      launch,
+      settings,
+      version: v1,
+    });
+    const selected = installations.selectVersion({ installation, version: v2 });
+
+    await expect(started).resolves.toBeDefined();
+    await expect(selected).rejects.toMatchObject({ code: "stale-generation" });
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.status
+    ).toBe("active");
+  });
+
+  it("takes the Installation's turn first even against a start that bypasses these calls", async () => {
+    const {
+      access,
+      installation,
+      installations,
+      moduleTurns,
+      moduleId,
+      programs,
+      publish,
+      start,
+      store,
+      v1,
+    } = await installationFixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const v2 = await publish("2.0.0", [weatherRequest(["Oslo"])]);
+    const launched = start.getMockImplementation();
+    start.mockImplementation(() =>
+      moduleTurns.run(moduleId, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return launched?.() as never;
+      })
+    );
+    const started = programs.start({
+      expectedGeneration: installation.generation,
+      installationId,
+      launch,
+    });
+    const selected = installations.selectVersion({ installation, version: v2 });
+    const settled = Promise.allSettled([started, selected]);
+    const deadlocked = new Promise<"deadlocked">((resolve) =>
+      setTimeout(() => resolve("deadlocked"), 1000)
+    );
+
+    const outcome = await Promise.race([settled, deadlocked]);
+    expect(outcome).not.toBe("deadlocked");
+    await expect(started).resolves.toBeDefined();
+    await expect(selected).rejects.toMatchObject({ code: "stale-generation" });
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.status
+    ).toBe("active");
+  });
+
+  it("stops the Program a start called just before it brought up", async () => {
+    const { access, installation, installations, programs, store, v1 } =
+      await installationFixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const started = installations.start({
+      installation,
+      launch,
+      settings,
+      version: v1,
+    });
+    const stopped = installations.stop({ installationId, reason: "Closed" });
+
+    await started;
+    await expect(stopped).resolves.toBeUndefined();
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.status
+    ).toBe("disabled");
+    expect(await programs.active(installationId)).toBeNull();
+  });
+
+  it("refuses launch persistence mismatches and resources outside the Module's or host's limits", async () => {
+    const { installations, publish, start, store } =
+      await installationFixture();
+    const v2 = await publish("2.0.0", [], {
+      persistence: { files: "none" },
+      resources: { memoryBytes: 512 * 1024 * 1024 },
+    });
+    const selected = (await store.loadGatewayContext(installationId))
+      ?.installation;
+    if (!selected) {
+      throw new Error("expected the Installation");
+    }
+    const current = await installations.selectVersion({
+      installation: selected,
+      version: v2,
+    });
+    const below = installations.start({
+      installation: current,
+      launch,
+      settings,
+      version: v2,
+    });
+    await expect(below).rejects.toThrow(ModuleActivationRefusedError);
+    await expect(below).rejects.toMatchObject({
+      facts: expect.arrayContaining([
+        {
+          blocking: true,
+          detail: expect.any(String),
+          kind: "unsupported-requirement",
+        },
+      ]),
+    });
+    await expect(
+      installations.start({
+        installation: current,
+        launch: {
+          ...launch,
+          resources: { cpus: 64, memoryBytes: 512 * 1024 * 1024 },
+        },
+        settings,
+        version: v2,
+      })
+    ).rejects.toThrow("resources.cpus");
+    await expect(
+      installations.start({
+        installation: current,
+        launch: {
+          ...launch,
+          resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024 },
+        },
+        settings,
+        version: v2,
+      })
+    ).rejects.toThrow('the Module requires "none"');
+    expect(start).not.toHaveBeenCalled();
+    await installations.start({
+      installation: current,
+      launch: {
+        ...launch,
+        files: "none",
+        resources: { cpus: 1, memoryBytes: 512 * 1024 * 1024 },
+      },
+      settings,
+      version: v2,
+    });
+    expect(start).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])(
+    "releases a policy wait on caller cancellation or host shutdown: %s",
+    async (shutdown) => {
+      const { programs, installation, v1, store, start } =
+        await installationFixture();
+      const entered = Promise.withResolvers<void>();
+      const policy = Promise.withResolvers<{ constraintsDigest: string }>();
+      const provider = {
+        ...weatherProvider,
+        resolveConstraints: () => {
+          entered.resolve();
+          return policy.promise;
+        },
+      };
+      const caller = new AbortController();
+      const running = programs.activate({
+        installation,
+        launch,
+        providers: [provider],
+        settings,
+        signal: caller.signal,
+        version: v1,
+      });
+      const rejected = expect(running).rejects.toBeDefined();
+      await entered.promise;
+      if (shutdown) {
+        await programs.shutdown("host shutdown");
+      } else {
+        caller.abort(new Error("caller cancelled"));
+      }
+      await rejected;
+      await programs.stop({ installationId, reason: "after cancelled policy" });
+      expect(
+        (await store.loadGatewayContext(installationId))?.installation
+      ).toMatchObject({ generation: 0, status: "disabled" });
+      policy.resolve({ constraintsDigest: "late result" });
+      await policy.promise;
+      expect(start).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([false, true])(
+    "restores a staged checkout and releases selection on cancellation or shutdown: %s",
+    async (shutdown) => {
+      const entered = Promise.withResolvers<void>();
+      const policy = Promise.withResolvers<{ constraintsDigest: string }>();
+      const provider = {
+        ...weatherProvider,
+        resolveConstraints: () => {
+          entered.resolve();
+          return policy.promise;
+        },
+      };
+      const { installations, programs, installation, v1, store, checkout } =
+        await installationFixture([provider]);
+      const caller = new AbortController();
+      const selected = installations.selectVersion({
+        installation,
+        signal: caller.signal,
+        version: v1,
+      });
+      const rejected = expect(selected).rejects.toBeDefined();
+      await entered.promise;
+      if (shutdown) {
+        await programs.shutdown("host shutdown");
+      } else {
+        caller.abort(new Error("caller cancelled"));
+      }
+      await rejected;
+      expect(checkout).toEqual([`swap ${v1.contentId}`, "restore"]);
+      expect(
+        (await store.loadGatewayContext(installationId))?.installation
+      ).toMatchObject({
+        contentId: v1.contentId,
+        generation: 0,
+        status: "disabled",
+      });
+      policy.resolve({ constraintsDigest: "late result" });
+      await policy.promise;
+    }
+  );
+
+  it("keeps raw host start policy-free while activate refuses an unapproved request", async () => {
+    const { programs, installation, v1, store } = await installationFixture();
+    await expect(
+      programs.activate({
+        installation,
+        launch,
+        providers: [weatherProvider],
+        settings,
+        version: v1,
+      })
+    ).rejects.toThrow(ModuleActivationRefusedError);
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.generation
+    ).toBe(0);
+    await expect(
+      programs.start({
+        expectedGeneration: installation.generation,
+        installationId,
+        launch,
+      })
+    ).resolves.toBeDefined();
+    expect((await store.loadGatewayContext(installationId))?.grants).toEqual(
+      []
+    );
+  });
+
+  it("refuses to start an unapproved required Capability before acquiring anything", async () => {
+    const { installation, installations, start, v1 } =
+      await installationFixture();
+    const refused = installations.start({
+      installation,
+      launch,
+      settings,
+      version: v1,
+    });
+    await expect(refused).rejects.toThrow(ModuleActivationRefusedError);
+    await expect(refused).rejects.toMatchObject({
+      facts: [{ blocking: true, kind: "ungranted-capability" }],
+    });
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("starts at the selected generation once approved, and stops at the current one", async () => {
+    const { access, installation, installations, store, v1 } =
+      await installationFixture();
+    await access.approve({ capability: WEATHER, installation, version: v1 });
+    const { runtime } = await installations.start({
+      installation,
+      launch,
+      settings,
+      version: v1,
+    });
+    const started = await store.loadGatewayContext(installationId);
+    expect(started?.installation.status).toBe("active");
+    expect(runtime.generation).toBe(started?.installation.generation);
+
+    await installations.stop({ installationId, reason: "Closed" });
+    expect(
+      (await store.loadGatewayContext(installationId))?.installation.status
+    ).toBe("disabled");
+    await expect(
+      installations.stop({
+        installationId: installationIdSchema.parse("missing"),
+        reason: "Closed",
+      })
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses to start a Version the Installation no longer selects", async () => {
+    const { installation, installations, publish, start, v1 } =
+      await installationFixture();
+    const v2 = await publish("2.0.0");
+    const selected = await installations.selectVersion({
+      installation,
+      version: v2,
+    });
+    await expect(
+      installations.start({ installation, launch, settings, version: v1 })
+    ).rejects.toThrow(ModuleStoreConflictError);
+    await expect(
+      installations.start({
+        installation: selected,
+        launch,
+        settings,
+        version: v1,
+      })
+    ).rejects.toThrow(ModuleStoreConflictError);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("stops occurrences a previous process left starting instead of restarting them", async () => {
+    const { installation, programs, start, store } =
+      await installationFixture();
+    await store.beginInstallationTransition({
+      expectedGeneration: installation.generation,
+      installationId,
+      now: new Date(1),
+      status: "starting",
+    });
+    const before = await store.loadGatewayContext(installationId);
+    const recovery = createModuleRuntimeRecovery({
+      store,
+      supervisor: programs,
+    });
+    await recovery.stopInterrupted("Host restarted");
+    const after = await store.loadGatewayContext(installationId);
+    expect(after?.installation.status).toBe("disabled");
+    expect(after?.installation.generation).toBeGreaterThan(
+      before?.installation.generation ?? 0
+    );
+    expect(start).not.toHaveBeenCalled();
+  });
+});

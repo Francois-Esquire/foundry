@@ -1,0 +1,67 @@
+import type { CapabilityFact } from "./capability";
+
+export const MODEL_KINDS = [
+  "text",
+  "embedding",
+  "transcription",
+  "image",
+  "video",
+  "speech",
+  "music",
+  "sound",
+  "segmentation",
+] as const;
+
+export type ModelKind = (typeof MODEL_KINDS)[number];
+
+export interface MediaPrice {
+  readonly unit: "image" | "second" | "megapixel" | "character" | "request";
+  readonly usd: number;
+}
+
+export interface ModelCostTier {
+  costPer1M: number;
+  maxTokens?: number;
+  minTokens: number;
+}
+
+export interface ModelCosts {
+  cachedInput?: number;
+  cacheWrite?: number;
+  input: number;
+  inputTiers?: ModelCostTier[];
+  output: number;
+  outputTiers?: ModelCostTier[];
+}
+
+export interface ModelLimits {
+  maxDurationSeconds?: number;
+  maxInputBytes?: number;
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  maxResolution?: { width: number; height: number };
+}
+
+export interface ModelCapabilities {
+  fileInput?: boolean;
+  functionCalling?: boolean;
+  reasoning?: boolean;
+  vision?: boolean;
+  webSearch?: boolean;
+}
+
+export interface ProviderModelDefinition {
+  capabilities?: ModelCapabilities;
+  costs?: ModelCosts;
+  description?: string;
+  dimensions?: number;
+  id: string;
+  kind: ModelKind;
+  label?: string;
+  limits?: ModelLimits;
+  modelId: string;
+  operations?: readonly CapabilityFact[];
+  params?: string[];
+  price?: MediaPrice;
+  vendor?: string;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChannelMessage, ChunkPayload } from "../channels";
+import type { ChannelMessage, ChunkPayload } from "../slices/channels";
 import type { StepContext } from "../step";
 
 import { Step } from "../step";

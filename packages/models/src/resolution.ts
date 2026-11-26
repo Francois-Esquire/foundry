@@ -8,14 +8,14 @@ import type {
 } from "@ai-sdk/provider";
 import type { AgentModel, ModelLimits } from "@foundry/core/agents";
 import { modelErrors } from "./errors";
-import type { Provider, TurnLimit } from "./provider";
-import type { Route } from "./selection";
+import type { MediaModel } from "./media";
 import type {
   ModelLimits as CatalogLimits,
-  MediaModel,
   ModelKind,
   ProviderModelDefinition,
-} from "./types";
+} from "./model-definition";
+import type { Provider, TurnLimit } from "./provider";
+import type { Route } from "./selection";
 
 export interface KindModels {
   embedding: EmbeddingModelV4;

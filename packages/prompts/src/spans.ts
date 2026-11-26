@@ -1,5 +1,3 @@
-import type { Span } from "./language";
-
 export class SpanSet {
   private readonly starts: number[];
   private readonly reach: number[];
@@ -39,4 +37,9 @@ export class SpanSet {
     }
     return low;
   }
+}
+
+export interface Span {
+  readonly end: number;
+  readonly start: number;
 }

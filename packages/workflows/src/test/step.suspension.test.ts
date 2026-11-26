@@ -1,6 +1,6 @@
 import { describe, expect, it, test } from "vitest";
 
-import { isSuspendSignal, SuspendSignal } from "../executable";
+import { isSuspendSignal, SuspendSignal } from "../slices/executable";
 import { Step } from "../step";
 import { Workflow } from "../workflow";
 import { collectEvents } from "./helpers/streams";

@@ -1,5 +1,6 @@
 import type { Page } from "@foundry/core/pagination";
 import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
+import type { TaskAvailability } from "./availability";
 import { availabilityIn, readyTaskIds } from "./availability";
 import { applyChange, changeEvent } from "./change";
 import { TaskError } from "./errors";
@@ -13,24 +14,23 @@ import type {
   UpdateTaskInput,
 } from "./operations";
 import type {
+  DepthOptions,
+  ReadyQuery,
+  TagQuery,
+  TaskNode,
+  TaskQuery,
+  TaskRelations,
+} from "./queries";
+import type {
   Task,
   TaskId,
   TaskSnapshot,
   TaskStatus,
   TaskStoreWrite,
 } from "./schema";
+import { taskId } from "./schema";
 import type { TaskStore } from "./store/index";
 import { MemoryTaskStore } from "./store/memory";
-import type {
-  DepthOptions,
-  ReadyQuery,
-  TagQuery,
-  TaskAvailability,
-  TaskNode,
-  TaskQuery,
-  TaskRelations,
-} from "./types";
-import { taskId } from "./types";
 
 export interface TasksOptions {
   readonly clock?: () => Date;

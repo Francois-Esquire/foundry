@@ -35,7 +35,7 @@ import {
   workspaceSummarySchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { recordSpawned } from "~/process/spawned";
 import { version } from "../../package.json";
 
 export interface ConnectOptions {
@@ -210,7 +210,7 @@ function startDetachedDaemon(options: ConnectOptions): void {
       [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
       {
         detached: true,
-        env: { ...process.env, FOUNDRY_HOME: layout.home },
+        env: { ...process.env, FOUNDRY_ROOT: layout.home },
         stdio: ["ignore", log, log],
       }
     );
@@ -218,10 +218,7 @@ function startDetachedDaemon(options: ConnectOptions): void {
     closeSync(log);
   }
   child.unref();
-  recordSpawned(child.pid, true, {
-    ...process.env,
-    [SPAWN_RECOVERY_ENV]: undefined,
-  });
+  recordSpawned(child.pid, true, { recovery: false });
 }
 
 interface Opened {

@@ -3,14 +3,11 @@ import type { StorageNode } from "@foundry/core/storage";
 
 import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
 import { canonicalizeJson } from "@foundry/lib/json";
-
-import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
 import type { BlobEffects } from "./blob-repository";
 import { BlobRepository } from "./blob-repository";
-import type { ByteInput, Ownership } from "./blob-staging";
+import type { BlobFiles, ByteInput, Ownership } from "./blob-staging";
 import { BlobStaging, isReferenceInput } from "./blob-staging";
 import type { ArtifactChange, EventInput } from "./change";
-import type { ContentMetadata } from "./content";
 import {
   assertJsonMetadata,
   digestTree,
@@ -31,9 +28,10 @@ import {
   InvalidArtifactInputError,
   StaleContentError,
 } from "./errors";
+import type { ArtifactId, BlobId, ContentId } from "./ids";
+import { artifactIdSchema, contentIdSchema } from "./ids";
 import type { ArtifactCursor } from "./listing";
-import type { ArtifactId, BlobId, ContentId } from "./ref";
-import { artifactIdSchema, contentIdSchema } from "./ref";
+import type { Blob, ContentMetadata, ContentTree, StoredFile } from "./schema";
 import type {
   Artifact,
   ArtifactOperations,

@@ -47,8 +47,8 @@ async function hosted() {
     return commits.slice(from).map((events) => events.map((item) => item.type));
   };
   return {
+    artifacts: new Artifacts({ store }),
     commits,
-    manager: new Artifacts({ store }),
     rows,
     store,
     typesOf,
@@ -59,9 +59,9 @@ const TEXT = { name: "A", type: "text/plain" } as const;
 
 describe("Artifacts change events", () => {
   test("each event is plain JSON with its own id and an ISO time", async () => {
-    const { manager, rows } = await hosted();
-    const created = await manager.create(TEXT);
-    await manager.rename(created.id, "B");
+    const { artifacts, rows } = await hosted();
+    const created = await artifacts.create(TEXT);
+    await artifacts.rename(created.id, "B");
 
     const events = await rows();
     expect(events).toStrictEqual([
@@ -87,10 +87,10 @@ describe("Artifacts change events", () => {
   });
 
   test("an operation that performs others carries their events after its own, in one write", async () => {
-    const { manager, typesOf } = await hosted();
+    const { artifacts, typesOf } = await hosted();
     expect(
       await typesOf(() =>
-        manager.create({
+        artifacts.create({
           ...TEXT,
           entries: { "a.txt": { bytes: "a" } },
           freeze: { metadata: { title: "one" }, tag: "v1" },
@@ -109,8 +109,8 @@ describe("Artifacts change events", () => {
   });
 
   test("versions: written in place, revised from a source it froze, selected", async () => {
-    const { manager, rows, typesOf } = await hosted();
-    const created = await manager.create({
+    const { artifacts, rows, typesOf } = await hosted();
+    const created = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
     });
@@ -118,17 +118,17 @@ describe("Artifacts change events", () => {
 
     expect(
       await typesOf(() =>
-        manager.write({
+        artifacts.write({
           artifactId: created.id,
           changes: { put: { "a.txt": { bytes: "b" } } },
         })
       )
     ).toStrictEqual([["artifact.written"]]);
-    const written = required(await manager.getContent(first.id));
+    const written = required(await artifacts.getContent(first.id));
     let revised = written;
     expect(
       await typesOf(async () => {
-        revised = await manager.revise({
+        revised = await artifacts.revise({
           artifactId: created.id,
           contentId: first.id,
           expectedUpdatedAt: written.updatedAt,
@@ -145,19 +145,19 @@ describe("Artifacts change events", () => {
     ]);
     expect(
       await typesOf(() =>
-        manager.select({ artifactId: created.id, contentId: first.id })
+        artifacts.select({ artifactId: created.id, contentId: first.id })
       )
     ).toStrictEqual([["artifact.selected"]]);
     expect(
       await typesOf(() =>
-        manager.select({ artifactId: created.id, contentId: first.id })
+        artifacts.select({ artifactId: created.id, contentId: first.id })
       )
     ).toStrictEqual([]);
   });
 
   test("a write that leaves the Content as stored writes nothing", async () => {
-    const { manager, typesOf } = await hosted();
-    const created = await manager.create({
+    const { artifacts, typesOf } = await hosted();
+    const created = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
       metadata: { title: "t" },
@@ -165,11 +165,11 @@ describe("Artifacts change events", () => {
 
     expect(
       await typesOf(async () => {
-        await manager.write({
+        await artifacts.write({
           artifactId: created.id,
           changes: { put: { "a.txt": { bytes: "a" } } },
         });
-        await manager.write({
+        await artifacts.write({
           artifactId: created.id,
           changes: {},
           metadata: { title: "t" },
@@ -178,7 +178,7 @@ describe("Artifacts change events", () => {
     ).toStrictEqual([]);
     expect(
       await typesOf(() =>
-        manager.write({
+        artifacts.write({
           artifactId: created.id,
           changes: { remove: ["a.txt"] },
         })
@@ -187,14 +187,14 @@ describe("Artifacts change events", () => {
   });
 
   test("freezing publishes a draft once; a later freeze only freezes", async () => {
-    const { manager, rows, typesOf } = await hosted();
-    const created = await manager.create({
+    const { artifacts, rows, typesOf } = await hosted();
+    const created = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
     });
     const first = required(created.content);
 
-    expect(await typesOf(() => manager.freeze(first.id))).toStrictEqual([
+    expect(await typesOf(() => artifacts.freeze(first.id))).toStrictEqual([
       ["artifact.frozen", "artifact.published"],
     ]);
     expect((await rows()).at(-1)).toMatchObject({
@@ -202,32 +202,33 @@ describe("Artifacts change events", () => {
       contentId: first.id,
       type: "artifact.published",
     });
-    expect(await typesOf(() => manager.freeze(first.id))).toStrictEqual([]);
-    const next = await manager.revise({
+    expect(await typesOf(() => artifacts.freeze(first.id))).toStrictEqual([]);
+    const next = await artifacts.revise({
       artifactId: created.id,
       contentId: first.id,
-      expectedUpdatedAt: required(await manager.getContent(first.id)).updatedAt,
+      expectedUpdatedAt: required(await artifacts.getContent(first.id))
+        .updatedAt,
     });
-    expect(await typesOf(() => manager.freeze(next.id))).toStrictEqual([
+    expect(await typesOf(() => artifacts.freeze(next.id))).toStrictEqual([
       ["artifact.frozen"],
     ]);
   });
 
   test("an Artifact's own changes, and no write at all for one that changes nothing", async () => {
-    const { manager, rows, typesOf } = await hosted();
-    const { id } = await manager.create(TEXT);
+    const { artifacts, rows, typesOf } = await hosted();
+    const { id } = await artifacts.create(TEXT);
 
     expect(
       await typesOf(async () => {
-        await manager.rename(id, "B");
-        await manager.rename(id, "B");
-        await manager.patchArtifactMetadata(id, { pinned: true });
-        await manager.patchArtifactMetadata(id, { pinned: true });
-        await manager.patchArtifactMetadata(id, {});
-        await manager.archive(id);
-        await manager.archive(id);
-        await manager.unarchive(id);
-        await manager.unarchive(id);
+        await artifacts.rename(id, "B");
+        await artifacts.rename(id, "B");
+        await artifacts.patchArtifactMetadata(id, { pinned: true });
+        await artifacts.patchArtifactMetadata(id, { pinned: true });
+        await artifacts.patchArtifactMetadata(id, {});
+        await artifacts.archive(id);
+        await artifacts.archive(id);
+        await artifacts.unarchive(id);
+        await artifacts.unarchive(id);
       })
     ).toStrictEqual([
       ["artifact.renamed"],
@@ -241,8 +242,8 @@ describe("Artifacts change events", () => {
   });
 
   test("a Content's tag and metadata, and no write for what it holds already", async () => {
-    const { manager, rows, typesOf } = await hosted();
-    const created = await manager.create({
+    const { artifacts, rows, typesOf } = await hosted();
+    const created = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
     });
@@ -250,11 +251,11 @@ describe("Artifacts change events", () => {
 
     expect(
       await typesOf(async () => {
-        await manager.tag(contentId, "v1");
-        await manager.tag(contentId, "v1");
-        await manager.tag(contentId, null);
-        await manager.setMetadata(contentId, { title: "t" });
-        await manager.setMetadata(contentId, { title: "t" });
+        await artifacts.tag(contentId, "v1");
+        await artifacts.tag(contentId, "v1");
+        await artifacts.tag(contentId, null);
+        await artifacts.setMetadata(contentId, { title: "t" });
+        await artifacts.setMetadata(contentId, { title: "t" });
       })
     ).toStrictEqual([
       ["artifact.tagged"],
@@ -276,8 +277,8 @@ describe("Artifacts change events", () => {
   });
 
   test("a fork freezes a ready source on the source's Artifact, then names its source", async () => {
-    const { manager, rows, typesOf } = await hosted();
-    const source = await manager.create({
+    const { artifacts, rows, typesOf } = await hosted();
+    const source = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
     });
@@ -286,7 +287,7 @@ describe("Artifacts change events", () => {
 
     expect(
       await typesOf(async () => {
-        forked = await manager.fork({ contentId: sourceContentId });
+        forked = await artifacts.fork({ contentId: sourceContentId });
       })
     ).toStrictEqual([["artifact.frozen", "artifact.forked"]]);
     expect((await rows()).slice(-2)).toStrictEqual([
@@ -308,18 +309,18 @@ describe("Artifacts change events", () => {
       },
     ]);
     expect(
-      await typesOf(() => manager.fork({ contentId: sourceContentId }))
+      await typesOf(() => artifacts.fork({ contentId: sourceContentId }))
     ).toStrictEqual([["artifact.forked"]]);
   });
 
   test("Contents discarded and an Artifact removed, naming what it was; none when nothing is", async () => {
-    const { manager, rows, typesOf } = await hosted();
-    const created = await manager.create({
+    const { artifacts, rows, typesOf } = await hosted();
+    const created = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
     });
     const first = required(created.content);
-    const second = await manager.revise({
+    const second = await artifacts.revise({
       artifactId: created.id,
       contentId: first.id,
       expectedUpdatedAt: first.updatedAt,
@@ -327,13 +328,13 @@ describe("Artifacts change events", () => {
 
     expect(
       await typesOf(() =>
-        manager.deleteContent({
+        artifacts.deleteContent({
           contentId: second.id,
           replacementContentId: first.id,
         })
       )
     ).toStrictEqual([["artifact.selected", "artifact.discarded"]]);
-    expect(await typesOf(() => manager.delete(created.id))).toStrictEqual([
+    expect(await typesOf(() => artifacts.delete(created.id))).toStrictEqual([
       ["artifact.removed"],
     ]);
     expect((await rows()).at(-1)).toStrictEqual({
@@ -344,38 +345,39 @@ describe("Artifacts change events", () => {
       name: "A",
       type: "artifact.removed",
     });
-    expect(await typesOf(() => manager.delete(created.id))).toStrictEqual([]);
+    expect(await typesOf(() => artifacts.delete(created.id))).toStrictEqual([]);
   });
 
   test("a sweep discards each Content it deletes", async () => {
-    const { manager, rows, typesOf } = await hosted();
-    const created = await manager.create({
+    const { artifacts, rows, typesOf } = await hosted();
+    const created = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
     });
     const first = required(created.content);
-    await manager.write({
+    await artifacts.write({
       artifactId: created.id,
       changes: { put: { "b.txt": { bytes: "b" } } },
     });
-    const draft = await manager.revise({
+    const draft = await artifacts.revise({
       artifactId: created.id,
       contentId: first.id,
-      expectedUpdatedAt: required(await manager.getContent(first.id)).updatedAt,
+      expectedUpdatedAt: required(await artifacts.getContent(first.id))
+        .updatedAt,
     });
-    await manager.select({ artifactId: created.id, contentId: first.id });
+    await artifacts.select({ artifactId: created.id, contentId: first.id });
 
     expect(
       await typesOf(() =>
-        manager.sweep({ olderThan: new Date(Date.now() + 60_000) })
+        artifacts.sweep({ olderThan: new Date(Date.now() + 60_000) })
       )
     ).toStrictEqual([["artifact.discarded"]]);
     expect((await rows()).at(-1)).toMatchObject({ contentId: draft.id });
   });
 
   test("a failed Content cleared from its Artifact says so", async () => {
-    const { manager, rows, store, typesOf } = await hosted();
-    const created = await manager.create({
+    const { artifacts, rows, store, typesOf } = await hosted();
+    const created = await artifacts.create({
       ...TEXT,
       entries: { "a.txt": { bytes: "a" } },
     });
@@ -384,7 +386,7 @@ describe("Artifacts change events", () => {
 
     expect(
       await typesOf(() =>
-        manager.clearFailedContent({
+        artifacts.clearFailedContent({
           artifactId: created.id,
           expectedContentId: content.id,
         })
@@ -397,15 +399,15 @@ describe("Artifacts change events", () => {
   });
 
   test("a transaction carries every operation's events in one write, in call order", async () => {
-    const { manager, typesOf } = await hosted();
-    const { id } = await manager.create(TEXT);
+    const { artifacts, typesOf } = await hosted();
+    const { id } = await artifacts.create(TEXT);
 
     expect(
       await typesOf(() =>
-        manager.transaction(async (artifacts) => {
-          await artifacts.archive(id);
-          await artifacts.rename(id, "B");
-          await artifacts.patchArtifactMetadata(id, { updated: true });
+        artifacts.transaction(async (scoped) => {
+          await scoped.archive(id);
+          await scoped.rename(id, "B");
+          await scoped.patchArtifactMetadata(id, { updated: true });
         })
       )
     ).toStrictEqual([
@@ -414,15 +416,15 @@ describe("Artifacts change events", () => {
   });
 
   test("an operation refused after it wrote part of a transaction rolls it back whole, whatever the caller catches", async () => {
-    const { manager, rows } = await hosted();
-    const { id } = await manager.create(TEXT);
+    const { artifacts, rows } = await hosted();
+    const { id } = await artifacts.create(TEXT);
     let caught: unknown;
 
     await expect(
-      manager.transaction(async (artifacts) => {
-        await artifacts.rename(id, "B");
+      artifacts.transaction(async (scoped) => {
+        await scoped.rename(id, "B");
         try {
-          await artifacts.create({
+          await scoped.create({
             ...TEXT,
             entries: { "a.txt": { bytes: "a" } },
             id: "refused" as ArtifactEvent["artifactId"],
@@ -435,10 +437,10 @@ describe("Artifacts change events", () => {
     ).rejects.toThrow(TransactionRolledBackError);
 
     expect(String(caught)).toContain("missing.txt");
-    expect(await manager.get("refused" as ArtifactEvent["artifactId"])).toBe(
+    expect(await artifacts.get("refused" as ArtifactEvent["artifactId"])).toBe(
       null
     );
-    expect((await manager.get(id))?.name).toBe("A");
+    expect((await artifacts.get(id))?.name).toBe("A");
     expect((await rows()).map((item) => item.type)).toStrictEqual([
       "artifact.created",
     ]);
@@ -465,17 +467,17 @@ describe("Artifacts change events", () => {
   ])(
     "%s, refused before it wrote anything, rolls back nothing that ran beside it",
     async (_label, refused) => {
-      const { manager, rows } = await hosted();
-      const created = await manager.create({
+      const { artifacts, rows } = await hosted();
+      const created = await artifacts.create({
         ...TEXT,
         entries: { "a.txt": { bytes: "a" } },
         freeze: {},
       });
       let settled: PromiseSettledResult<unknown>[] = [];
 
-      await manager.transaction(async (artifacts) => {
+      await artifacts.transaction(async (scoped) => {
         settled = await Promise.allSettled([
-          artifacts.rename(created.id, "B"),
+          scoped.rename(created.id, "B"),
           refused(artifacts, created.id),
         ]);
       });
@@ -484,7 +486,7 @@ describe("Artifacts change events", () => {
         "fulfilled",
         "rejected",
       ]);
-      expect((await manager.get(created.id))?.name).toBe("B");
+      expect((await artifacts.get(created.id))?.name).toBe("B");
       expect((await rows()).at(-1)).toMatchObject({
         name: "B",
         type: "artifact.renamed",
@@ -493,15 +495,15 @@ describe("Artifacts change events", () => {
   );
 
   test("an operation refused after it wrote part of the change rolls back the transaction, though others beside it succeed", async () => {
-    const { manager, rows } = await hosted();
-    const { id } = await manager.create(TEXT);
+    const { artifacts, rows } = await hosted();
+    const { id } = await artifacts.create(TEXT);
     const before = (await rows()).length;
 
     await expect(
-      manager.transaction(async (artifacts) => {
+      artifacts.transaction(async (scoped) => {
         await Promise.allSettled([
-          artifacts.rename(id, "B"),
-          artifacts.create({
+          scoped.rename(id, "B"),
+          scoped.create({
             ...TEXT,
             entries: { "a.txt": { bytes: "a" } },
             id: "partial" as ArtifactEvent["artifactId"],
@@ -511,40 +513,40 @@ describe("Artifacts change events", () => {
       })
     ).rejects.toThrow(TransactionRolledBackError);
 
-    expect((await manager.get(id))?.name).toBe("A");
-    expect(await manager.get("partial" as ArtifactEvent["artifactId"])).toBe(
+    expect((await artifacts.get(id))?.name).toBe("A");
+    expect(await artifacts.get("partial" as ArtifactEvent["artifactId"])).toBe(
       null
     );
     expect(await rows()).toHaveLength(before);
   });
 
   test("an operation refused before it wrote anything leaves the transaction to commit", async () => {
-    const { manager, typesOf } = await hosted();
-    const { id } = await manager.create(TEXT);
+    const { artifacts, typesOf } = await hosted();
+    const { id } = await artifacts.create(TEXT);
 
     expect(
       await typesOf(() =>
-        manager.transaction(async (artifacts) => {
-          await expect(artifacts.create({ ...TEXT, id })).rejects.toThrow(
+        artifacts.transaction(async (scoped) => {
+          await expect(scoped.create({ ...TEXT, id })).rejects.toThrow(
             ArtifactExistsError
           );
-          await artifacts.rename(id, "B");
+          await scoped.rename(id, "B");
         })
       )
     ).toStrictEqual([["artifact.renamed"]]);
   });
 
   test("events of a change that does not commit never land", async () => {
-    const { commits, manager, rows } = await hosted();
-    const { id } = await manager.create(TEXT);
+    const { commits, artifacts, rows } = await hosted();
+    const { id } = await artifacts.create(TEXT);
 
     await expect(
-      manager.transaction(async (artifacts) => {
-        await artifacts.rename(id, "B");
+      artifacts.transaction(async (scoped) => {
+        await scoped.rename(id, "B");
         throw new Error("gave up");
       })
     ).rejects.toThrow("gave up");
-    await expect(manager.rename(id, "B\u0000")).rejects.toThrow();
+    await expect(artifacts.rename(id, "B\u0000")).rejects.toThrow();
 
     expect((await rows()).map((item) => item.type)).toStrictEqual([
       "artifact.created",
@@ -553,11 +555,11 @@ describe("Artifacts change events", () => {
   });
 
   test("a check that refuses records nothing", async () => {
-    const { manager, rows } = await hosted();
-    const { id } = await manager.create(TEXT);
+    const { artifacts, rows } = await hosted();
+    const { id } = await artifacts.create(TEXT);
 
     await expect(
-      manager.write({
+      artifacts.write({
         artifactId: id,
         changes: { put: { "../escape": { bytes: "x" } } },
       })

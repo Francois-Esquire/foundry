@@ -7,13 +7,13 @@ export {
   type ModuleAccess,
   ModuleAccessError,
 } from "./access";
+export { ModuleCrossStoreError } from "./artifact-commit";
 export {
   auditModuleBuildWorkspace,
   isDerivedBuildPath,
   isModuleBuildOutputPath,
   type ModuleBuildWorkspace,
-} from "./build";
-export { MODULE_MIME } from "./constants";
+} from "./build-audit";
 export {
   createDisabledInstallation,
   defineModule,
@@ -24,6 +24,7 @@ export {
   type InstallationStatus,
   installationIdSchema,
   MAX_START_ATTEMPTS,
+  MODULE_MIME,
   type Module,
   type ModuleId,
   type ModuleVersion,
@@ -32,11 +33,7 @@ export {
   type RuntimeInstanceId,
   runtimeInstanceIdSchema,
 } from "./domain";
-export {
-  ModuleCrossStoreError,
-  ModuleStoreConflictError,
-  ModuleStoreNotFoundError,
-} from "./errors";
+export { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./errors";
 export {
   approvedNetworkDestinations,
   carriedGrants,
@@ -153,7 +150,7 @@ export {
   type StoredManifest,
   storedInstallationSchema,
   storedManifestSchema,
-} from "./schema";
+} from "./records";
 export {
   type EffectiveModuleSettings,
   isResourceSettingKey,
@@ -179,13 +176,15 @@ export {
 } from "./settings";
 export {
   admitModuleSource,
-  captureModuleWorkspaceSource,
   MODULE_SOURCE_LIMITS,
   ModuleSourceAdmissionError,
-  type ModuleSourceFileSystem,
   type ModuleSourceLimits,
   moduleSourceAdmissionProblem,
-} from "./source";
+} from "./source-admission";
+export {
+  captureModuleWorkspaceSource,
+  type ModuleSourceFileSystem,
+} from "./source-capture";
 export {
   createModuleVersions,
   embeddedManifest,

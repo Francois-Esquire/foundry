@@ -1,8 +1,8 @@
 import type { AgentPresetIdentity } from "@foundry/core/agents";
 import type { ToolLoopAgent } from "ai";
 
-import type { LoopAgent } from "./loop-agent";
-import type { AgentPreset } from "./resolve";
+import type { LoopAgent } from "../harness/loop-agent";
+import type { AgentPreset } from "./preset";
 
 export type AgentEntry = ToolLoopAgent | LoopAgent;
 

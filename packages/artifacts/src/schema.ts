@@ -2,12 +2,20 @@ import type { FileNode, StorageNode } from "@foundry/core/storage";
 import { isStoragePath } from "@foundry/core/storage";
 import { z } from "zod";
 
-import { ARTIFACT_STATUSES, CONTENT_STATES } from "./constants";
 import { assertJsonMetadata } from "./content";
-import { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
+import { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ids";
 
-export const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
-export const byteCountSchema = z.int().nonnegative();
+export const ARTIFACT_STATUSES = ["draft", "published", "archived"] as const;
+
+export const CONTENT_STATES = [
+  "generating",
+  "ready",
+  "failed",
+  "frozen",
+] as const;
+
+const sha256DigestSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const byteCountSchema = z.int().nonnegative();
 const nonBlankSchema = z.string().regex(/\S/);
 const nulFreeSchema = z.string().regex(/^[^\0]+$/);
 
@@ -35,7 +43,7 @@ function passes(check: () => void): boolean {
   }
 }
 
-function isPlainObject(value: unknown): value is object {
+function hasPlainPrototype(value: unknown): value is object {
   if (typeof value !== "object" || value === null) {
     return false;
   }
@@ -50,7 +58,7 @@ function recordInPlace<V extends z.ZodType>(
 ): z.ZodType<Readonly<Record<string, z.output<V>>>> {
   return checkedInPlace(
     (input) =>
-      isPlainObject(input) &&
+      hasPlainPrototype(input) &&
       Object.entries(input).every(
         ([name, entry]) => key(name) && value.safeParse(entry).success
       ),
@@ -63,7 +71,7 @@ function jsonMetadataSchema<K extends z.ZodType>(
 ): z.ZodType<z.output<K>> {
   return checkedInPlace(
     (value) =>
-      isPlainObject(value) &&
+      hasPlainPrototype(value) &&
       passes(() => assertJsonMetadata(value)) &&
       keys.safeParse(value).success,
     "Metadata must be a plain JSON object with valid named keys"
@@ -131,13 +139,13 @@ const bytesSourceSchema = z.strictObject({
   chunks: z.never().optional(),
   path: z.never().optional(),
 });
-export const blobPathSchema = nulFreeSchema;
+const blobPathSchema = nulFreeSchema;
 const pathSourceSchema = z.strictObject({
   bytes: z.never().optional(),
   chunks: z.never().optional(),
   path: blobPathSchema,
 });
-export const blobChunksSchema = z.array(blobIdSchema).min(1).readonly();
+const blobChunksSchema = z.array(blobIdSchema).min(1).readonly();
 const chunksSourceSchema = z.strictObject({
   bytes: z.never().optional(),
   chunks: blobChunksSchema,
@@ -273,3 +281,33 @@ export const artifactEventSchema = z.discriminatedUnion("type", [
 ]);
 export type ArtifactEvent = z.infer<typeof artifactEventSchema>;
 export type ArtifactEventType = ArtifactEvent["type"];
+
+export function validateBlob(blob: Blob): void {
+  const sources = [blob.bytes, blob.path, blob.chunks].filter(
+    (value) => value !== undefined
+  );
+  if (
+    !matches(blobIdSchema, blob.id) ||
+    sources.length !== 1 ||
+    !matches(sha256DigestSchema, blob.digest) ||
+    !matches(byteCountSchema, blob.byteLength)
+  ) {
+    throw new Error(`Invalid blob: ${blob.id}`);
+  }
+  if (blob.bytes !== undefined && blob.bytes.byteLength !== blob.byteLength) {
+    throw new Error(`Blob size mismatch: ${blob.id}`);
+  }
+  if (blob.path !== undefined && !matches(blobPathSchema, blob.path)) {
+    throw new Error(`Invalid blob path: ${blob.id}`);
+  }
+  if (
+    blob.chunks !== undefined &&
+    (!matches(blobChunksSchema, blob.chunks) || blob.chunks.includes(blob.id))
+  ) {
+    throw new Error(`Invalid blob chunks: ${blob.id}`);
+  }
+}
+
+function matches(schema: z.ZodType, value: unknown): boolean {
+  return schema.safeParse(value).success;
+}

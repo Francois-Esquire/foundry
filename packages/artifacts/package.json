@@ -11,11 +11,6 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./constants": {
-      "types": "./dist/constants.d.ts",
-      "import": "./src/constants.ts",
-      "default": "./src/constants.ts"
-    },
     "./delivery": {
       "types": "./dist/delivery.d.ts",
       "import": "./src/delivery.ts",
@@ -83,7 +78,7 @@
     "!**/*.test.*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

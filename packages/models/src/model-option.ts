@@ -1,4 +1,4 @@
-import type { ModelCosts, ProviderModelDefinition } from "./types";
+import type { ModelCosts, ProviderModelDefinition } from "./model-definition";
 
 const MODEL_ID_WORD_SEPARATOR_PATTERN = /[-_\s]+/;
 

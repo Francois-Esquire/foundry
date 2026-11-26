@@ -1,5 +1,9 @@
-import { DEFAULT_LIMITS } from "./constants";
 import type { SandboxToolName } from "./definitions";
+
+export const DEFAULT_LIMITS = {
+  maxCallsPerMinute: 120,
+  maxOutputChars: 50_000,
+} as const;
 
 export interface SandboxToolLimits {
   readonly maxCallsPerMinute?: number;

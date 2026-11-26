@@ -2,9 +2,8 @@ import type { UIMessage, UIMessageChunk } from "ai";
 
 import { readUIMessageStream } from "ai";
 import { describe, expect, test } from "vitest";
-
+import type { SessionMessage, SessionUsage } from "../../schema";
 import type { SessionEvent, SessionStream } from "../../session/events";
-import type { SessionMessage, SessionUsage } from "../../session/types";
 
 import { projectToUIMessageChunks } from "../../transport/ui-stream";
 

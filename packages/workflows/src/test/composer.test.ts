@@ -1,12 +1,12 @@
 import { Effect, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 
-import type { ChannelEvent } from "../channels";
+import type { ChannelEvent } from "../slices/channels";
 
-import { Channels } from "../channels";
-import { Composer } from "../composer";
-import { Executable } from "../executable";
-import { Snapshot } from "../snapshot";
+import { Channels } from "../slices/channels";
+import { Composer } from "../slices/composer";
+import { Executable } from "../slices/executable";
+import { Snapshot } from "../slices/snapshot";
 
 import { Step } from "../step";
 

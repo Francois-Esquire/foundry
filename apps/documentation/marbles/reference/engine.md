@@ -19,7 +19,7 @@ sandbox runtime:
 ```ts
 import { step } from "@foundry.sh/marbles";
 import {
-  ArtifactManager,
+  Artifacts,
   Engine,
   MemoryArtifactStore,
   MemorySessionStore,
@@ -31,7 +31,7 @@ const engine = new Engine({
   sessions: new MemorySessionStore(),
   // Called at the first sandbox; `createContainers` over your runtime.
   containers: () => Promise.reject(new Error("no sandbox runtime here")),
-  artifacts: new ArtifactManager({ store: new MemoryArtifactStore() }),
+  artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
   root: process.cwd(),
   workspaceId: "my-app",
   // Add a state directory to persist run records and tasks. Configure
@@ -58,7 +58,7 @@ try {
 `models`, `sessions`, `containers`, and `artifacts` are required. `workspaces`
 is optional: without it the engine builds a workspace system over the local
 filesystem, watched, whose `git()` layer runs git as the `git` option says. A
-host that brings its own `WorkspaceSystem` builds its `git()` layer with the
+host that brings its own `Workspaces` builds its `git()` layer with the
 same options it passes as `git`. The engine hands the instances back
 (`engine.models`, `engine.sessions`, `engine.workspaces.system`,
 `engine.sandboxes.containers()`) and closes them in `dispose()`.
@@ -254,9 +254,9 @@ built from another copy of the same class is a different type. Besides
 | --- | --- | --- |
 | `models` | `Models`, `claudeCodeProvider`, `codexProvider`, `piProvider` | [Models](https://github.com/Francois-Esquire/foundry/blob/main/packages/models/README.md) |
 | `sessions` | `MemorySessionStore` | [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md); the published `Engine` given `state` keeps them in the [Marbles database](/marbles/reference/state#sessions). |
-| `workspaces` | `WorkspaceSystem`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
+| `workspaces` | `Workspaces`, `directory`, `git`, `nodeObserver` | [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md) |
 | `containers` | `createContainers`, `MemoryContainerStore` | [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md) |
-| `artifacts` | `ArtifactManager`, `MemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
+| `artifacts` | `Artifacts`, `MemoryArtifactStore`, `JsonArtifactStore`, `blobFiles` | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) |
 | `runs`, `executionStore`, `triggers`, `automationStore`, `usageStore` | `MemoryRunStore`, `MemoryExecutionStore`, `MemoryTriggerStore`, `MemoryAutomationStore`, `MemoryUsageStore` | Marbles' own stores; the published `Engine` keeps them in the Marbles database when `state` is set. |
 
 One thing a host cannot do through this entry yet: the MicroSandbox runtime
@@ -270,7 +270,7 @@ without the CLI: `hostWorkspace` finds the source, snapshots the process environ
 imports the modules, builds and starts the engine, and returns a
 `WorkspaceHost`: the `WorkspaceConnection` the dashboard, the CLI, and the
 MCP server are written against, plus the engine itself. `layout` decides
-where state and artifacts live (`FOUNDRY_HOME`, else `~/.foundry`).
+where state and artifacts live (`FOUNDRY_ROOT`, else `~/.foundry`).
 
 ```ts
 import type { ProcessInstance } from "@foundry.sh/marbles/process";

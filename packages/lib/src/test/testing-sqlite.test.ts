@@ -12,7 +12,11 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { afterEach, describe, expect, test } from "vitest";
-import { createTables, tableStatements } from "../testing/sqlite";
+import {
+  createTables,
+  libsqlDatabases,
+  tableStatements,
+} from "../testing/sqlite";
 
 const items = sqliteTable(
   "items",
@@ -93,5 +97,15 @@ describe("createTables", () => {
     for (const table of refusals) {
       expect(() => tableStatements(table)).toThrow("cannot create");
     }
+  });
+});
+
+describe("libsqlDatabases", () => {
+  const databases = libsqlDatabases("file", { name: "lib", tables: [items] });
+
+  test("gives concurrently opened file databases their own files", async () => {
+    const [one, two] = await Promise.all([databases.open(), databases.open()]);
+
+    expect(databases.path(one)).not.toBe(databases.path(two));
   });
 });

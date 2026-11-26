@@ -9,8 +9,8 @@ import { z } from "zod";
 import {
   CONTAINER_PORTABLE_ID_PATTERN,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
-} from "./constants";
-import type { ContainerConfig } from "./types";
+} from "./defaults";
+import type { ContainerConfig } from "./runtime";
 
 const publicEnvironmentName =
   /^(?:NODE_ENV|TZ|LANG|LC_ALL|NO_COLOR|FORCE_COLOR|PORT|FOUNDRY_PUBLIC_[A-Z0-9_]+)$/;

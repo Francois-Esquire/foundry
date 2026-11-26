@@ -7,7 +7,12 @@ import type { AgentTurns } from "./managers/agents";
 import type { Runs } from "./managers/runs";
 import type { LocalWorkspaces } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
-import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
+import type {
+  Agents,
+  Sandboxes,
+  ScopedArtifacts,
+  ScopedWorkspaces,
+} from "./types";
 
 export interface ManagerArgs {
   readonly frame: Frame;
@@ -22,7 +27,7 @@ export interface HostBindings {
 
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
-  readonly artifacts: (args: ManagerArgs) => Artifacts;
+  readonly artifacts: (args: ManagerArgs) => ScopedArtifacts;
   readonly context?: ExecutionContext;
   readonly exec?: (args: ManagerArgs) => Exec;
   readonly host?: HostBindings;
@@ -35,5 +40,5 @@ export interface Bindings {
     readonly workflow: string;
   }) => Log;
   readonly turns?: (args?: ManagerArgs) => AgentTurns;
-  readonly workspaces: (args: ManagerArgs) => Workspaces;
+  readonly workspaces: (args: ManagerArgs) => ScopedWorkspaces;
 }

@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-
+import type { AgentPreset } from "../../agents/preset";
 import type { AgentEntry } from "../../agents/registry";
 import { createAgentRegistry, resolveAgentEntry } from "../../agents/registry";
-import type { AgentPreset } from "../../agents/resolve";
 import type { AgentHarness } from "../../harness/agent-harness";
 import type { SessionHarness } from "../../harness/session-harness";
 

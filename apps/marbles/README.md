@@ -248,7 +248,7 @@ bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 terminal status, and exits. A run still waiting in its queue has no output
 yet; `watch` says so and waits for it to start. It reads saved output across workspaces under
 the Foundry home, so it needs neither the original working directory nor
-`--source`. Give it the same `FOUNDRY_HOME` as the MCP server if you moved it.
+`--source`. Give it the same `FOUNDRY_ROOT` as the MCP server if you moved it.
 It never imports configuration or starts an engine. Multiple watchers can
 follow the same run independently.
 
@@ -280,7 +280,7 @@ too. The server exits when stdin closes, when the
 or SIGTERM, or when writing a response to that process fails. Shutdown takes a few seconds at most. A task call that does not
 finish in time is cut off, and the server is killed if it still runs. A
 Marbles process that hosts the workspace keeps hosting it, and several MCP
-clients can use one process at once. Set `FOUNDRY_HOME` to use a separate
+clients can use one process at once. Set `FOUNDRY_ROOT` to use a separate
 Foundry home (each home has its own process). Under `--dry-run` the server
 joins no process, lists only its own workspace, keeps its tasks in memory
 for the session, and writes nothing. Whatever needs the Marbles process
@@ -327,7 +327,7 @@ generation that holds its run at that moment; one that reaches another is
 passed on. `marbles status`
 lists the live generations.
 
-Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
+Everything Marbles keeps is under one Foundry home, `$FOUNDRY_ROOT`, else
 `~/.foundry`; moving the home moves all of it, and nothing moves on its own:
 
 ```text
@@ -340,12 +340,12 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_HOME`, else
     process.json              who holds that claim, for `marbles status`
     daemon.log                what a Marbles process started in the background prints
     settings.json             preferences, the one file meant to be edited by hand
-    spawned/<pid>.json        what its workspaces started and is still running, with
-                              the process that started it, so a start after a crash
-                              stops what an engine that is gone left behind
     <workspace-id>/
       output/<runId>.jsonl    each run's output, for `marbles watch`
       worktrees/              git worktrees cut for its steps
+  processes/<pid>.json        what Foundry processes started and is still running, with
+                              the process that started it, so a start after a crash
+                              stops what an engine that is gone left behind
   artifacts/
     workspaces/<workspace-id>/blobs/   each artifact's bytes
 <workspace root>/
@@ -464,13 +464,14 @@ the caller's: a dry run does not wrap them.
 
 The `spawned` option (`Engine`, `hostWorkspace`, `HostedWorkspaces.open`)
 names the directory of those recovery records. The engine reads them from
-there when it starts, and records there each command a step runs on the
-host (`exec`). Processes the bundled models, agents and usage packages
-start (the Claude Code and Codex CLIs, MCP servers over stdio, usage
-probes) are recorded only
-where `MARBLES_SPAWN_RECOVERY` in the process environment says. A host
-that passes `spawned` should set that variable to the same directory too,
-or those processes are not stopped after a crash.
+there when it starts, and records each command a step runs on the host
+(`exec`) only when it has one. Records are written to
+`$FOUNDRY_ROOT/processes`, else `~/.foundry/processes`, by Marbles and by
+the bundled models, agents and usage packages (the Claude Code and Codex
+CLIs, MCP servers over stdio, usage probes), so a host that passes
+`spawned` should pass that directory, or what it records is not stopped
+after a crash. Under a test runner that sets `VITEST`, nothing is recorded
+unless `FOUNDRY_ROOT` is set.
 
 ## Loading workspace source
 

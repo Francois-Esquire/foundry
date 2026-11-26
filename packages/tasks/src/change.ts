@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { type AvailabilityOptions, availabilityIn } from "./availability";
-import { edgeKey } from "./edges";
+import {
+  type AvailabilityOptions,
+  availabilityIn,
+  isSettled,
+} from "./availability";
 import { TaskError } from "./errors";
 import type {
   ChangedTask,
@@ -10,6 +13,7 @@ import type {
   TaskToken,
 } from "./operations";
 import {
+  edgeKey,
   type JsonObject,
   type Task,
   type TaskDelta,
@@ -18,9 +22,9 @@ import {
   type TaskId,
   type TaskSnapshot,
   type TaskStoreWrite,
+  taskId,
   taskMetadataSchema,
 } from "./schema";
-import { isSettled, taskId } from "./types";
 
 export interface AppliedChange {
   readonly changed: readonly ChangedTask[];

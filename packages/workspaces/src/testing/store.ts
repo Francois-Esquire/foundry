@@ -1,20 +1,20 @@
 import { describe, expect, test } from "vitest";
-import type { WorkspaceStore, WorkspaceStoreWrite } from "../store";
 import type {
   WorkspaceEntry,
   WorkspaceEvent,
   WorkspaceFile,
   WorkspaceId,
   WorkspaceRegistration,
-} from "../types";
+} from "../schema";
+import type { WorkspaceStore, WorkspaceStoreWrite } from "../store";
 import {
-  artifactWorkspace,
   directoryRecord,
   fileRecord,
   hostWorkspace,
   newRoot,
   newWorkspaceEntryId,
   newWorkspaceId,
+  otherSourceWorkspace,
   seed,
 } from "./records";
 
@@ -544,9 +544,9 @@ function describeReads(open: Open): void {
     test("find the oldest registration by root or source reference", async () => {
       const store = (await open())(SCOPE);
       const artifactId = crypto.randomUUID();
-      const older = artifactWorkspace(artifactId, newRoot("older"));
+      const older = otherSourceWorkspace(artifactId, newRoot("older"));
       const newer = {
-        ...artifactWorkspace(artifactId, newRoot("newer")),
+        ...otherSourceWorkspace(artifactId, newRoot("newer")),
         createdAt: new Date(2000),
       };
       await seed(store, newer);

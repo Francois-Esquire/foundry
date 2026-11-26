@@ -2,6 +2,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, test } from "vitest";
 
 import type { TokenCounter } from "../../contexts/types";
+import type { SessionMessage, SessionPart, SessionRole } from "../../schema";
 import type { Summarizer } from "../../session/compactor";
 import {
   compact,
@@ -11,11 +12,6 @@ import {
   selectMarker,
 } from "../../session/compactor";
 import { Sessions } from "../../session/sessions";
-import type {
-  SessionMessage,
-  SessionPart,
-  SessionRole,
-} from "../../session/types";
 import type { SessionStore } from "../../store";
 import { MemorySessionStore } from "../../store/memory";
 import { textGenerateResult } from "../helpers/mock-language-model";

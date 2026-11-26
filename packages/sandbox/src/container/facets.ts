@@ -1,9 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { isAbsolute, relative, resolve } from "node:path";
-
 import { SandboxError } from "../errors";
-import { sandboxFromAdapter } from "../sandbox";
 import type {
   SandboxProcessesFacet,
   SandboxProcessStatus,
@@ -13,17 +11,15 @@ import type {
   SandboxShellOptions,
   SandboxStartServiceInput,
   SandboxVolumesFacet,
-} from "../types";
-import { CONTAINER_PORTABLE_ID_PATTERN } from "./constants";
+} from "../sandbox";
+import { sandboxFromAdapter } from "../sandbox-adapter";
 import type { ContainerSandboxMount } from "./constraints";
+import type { ContainerFacets } from "./contracts";
+import { CONTAINER_PORTABLE_ID_PATTERN } from "./defaults";
 import { isTcpPort } from "./ports";
-import type {
-  ContainerFacets,
-  ContainerMountSpec,
-  ContainerSandbox,
-} from "./types";
+import type { ContainerMountSpec, ContainerSandbox } from "./runtime";
 
-export type { ContainerFacets } from "./types";
+export type { ContainerFacets } from "./contracts";
 
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_TERMINATION_GRACE_MS = 5000;

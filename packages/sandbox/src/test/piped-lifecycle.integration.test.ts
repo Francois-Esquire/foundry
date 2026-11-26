@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import { prepareSandboxProcess } from "../process";
+import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { prepareSandboxProcess } from "../node/prepare-process";
 import { MemoryContainerStore } from "../store/memory";
 
 it("drives real public process pipes through the immediate hook and cancels them on close", async () => {

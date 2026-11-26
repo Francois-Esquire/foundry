@@ -6,7 +6,8 @@ import type {
 
 import { type ReportedLimit, spendCap, window } from "../../limit";
 import type { Reading } from "../../snapshot";
-import { dateFrom, finite, record, text, within } from "../values";
+import { within } from "../machine";
+import { dateFrom, finite, record, text } from "../payload";
 
 export interface AnthropicDetails {
   readonly extraUsage?: {

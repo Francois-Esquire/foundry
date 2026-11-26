@@ -17,7 +17,7 @@ import {
 import {
   GrantClaimError,
   GrantRevisionError,
-} from "@foundry/lib/config/authorization";
+} from "@foundry/lib/authorization";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { DatabaseGrantStorage } from "~/database/grants";

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { authorizationAddress, encodeAddress } from "../config/authorization";
-import { addressDigest } from "../node/authorization/digest";
-
-const AUTHORIZATION_ADDRESS_HEX_PATTERN = /^[0-9a-f]{32}$/;
+import { authorizationAddress, encodeAddress } from "../authorization";
 
 const CAPABILITY = {
   constraintsDigest: "abc",
@@ -145,31 +142,5 @@ describe("encodeAddress", () => {
         )
       )
     );
-  });
-});
-
-describe("addressDigest", () => {
-  it("derives from the encoding, so it inherits its distinctions", () => {
-    const chat = authorizationAddress(
-      { id: "chat", namespace: "agent-preset", version: 3 },
-      CAPABILITY
-    );
-    const canvas = authorizationAddress(
-      { id: "canvas", namespace: "agent-preset", version: 3 },
-      CAPABILITY
-    );
-
-    expect(addressDigest(chat)).toBe(addressDigest(chat));
-    expect(addressDigest(chat)).not.toBe(addressDigest(canvas));
-  });
-
-  it("stays a storage-friendly fixed width", () => {
-    const digest = addressDigest(
-      authorizationAddress(
-        { id: "chat", namespace: "agent-preset", version: 3 },
-        CAPABILITY
-      )
-    );
-    expect(digest).toMatch(AUTHORIZATION_ADDRESS_HEX_PATTERN);
   });
 });

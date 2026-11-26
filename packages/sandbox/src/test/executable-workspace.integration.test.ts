@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
+import { createMicrosandboxRuntime } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 it("executes workspace tools while preserving nosuid/nodev and config noexec", async () => {

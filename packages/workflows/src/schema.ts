@@ -2,17 +2,60 @@ import { z } from "zod";
 
 import type { JsonValue } from "./json-value";
 import { isJsonValue } from "./json-value";
-import {
-  anyNumber,
-  anyValue,
-  counter,
-  JSON_VALUE_MESSAGE,
-  type ReadonlyArraySchema,
-  readonlyArray,
-  recordOf,
-  stringList,
-  unknownRecord,
-} from "./record-fields";
+import { defineOwnEntry } from "./own-entry";
+
+const anyNumber = z.union([
+  z.number(),
+  z.nan(),
+  z.literal([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]),
+]);
+
+const anyValue = z.unknown().default(undefined);
+
+const counter = z.number().int().nonnegative();
+
+function readonlyArray<T extends z.ZodType>(item: T): ReadonlyArraySchema<T> {
+  return z.array(item) as unknown as ReadonlyArraySchema<T>;
+}
+
+export interface ReadonlyArraySchema<T extends z.ZodType>
+  extends z.ZodType<readonly z.output<T>[], readonly z.input<T>[]> {
+  readonly element: T;
+}
+
+const stringList = readonlyArray(z.string());
+
+function recordOf<T extends z.ZodType>(entry: T) {
+  return z
+    .custom<Readonly<Record<string, unknown>>>(isDictionary)
+    .transform((input, context) => {
+      const output: Record<string, z.output<T>> = {};
+      for (const key of Object.keys(input)) {
+        const decoded = entry.safeParse(input[key]);
+        if (decoded.success) {
+          defineOwnEntry(output, key, decoded.data);
+        } else {
+          for (const issue of decoded.error.issues) {
+            context.issues.push({
+              ...issue,
+              path: [key, ...issue.path],
+            } as z.core.$ZodRawIssue);
+          }
+        }
+      }
+      return output;
+    });
+}
+
+function isDictionary(
+  value: unknown
+): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const unknownRecord = recordOf(z.unknown());
+
+export const JSON_VALUE_MESSAGE = "Expected a finite, acyclic JSON value";
 
 export const JsonValueSchema = z.custom<JsonValue>(
   isJsonValue,

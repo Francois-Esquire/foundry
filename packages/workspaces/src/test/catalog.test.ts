@@ -1,23 +1,19 @@
 import { describe, expect, test } from "vitest";
+import type { WorkspaceCatalogChange, WorkspaceChange } from "../catalog";
 import { WorkspaceCatalog } from "../catalog";
+import type { WorkspaceEntry, WorkspaceFile } from "../schema";
 import { workspaceEventSchema } from "../schema";
 import type { WorkspaceStore, WorkspaceStoreWrite } from "../store";
 import { MemoryWorkspaceStore } from "../store/memory";
 import {
-  artifactWorkspace,
   directoryRecord,
   fileRecord,
   hostWorkspace,
   newRoot,
   newWorkspaceEntryId,
   newWorkspaceId,
+  otherSourceWorkspace,
 } from "../testing/records";
-import type {
-  WorkspaceCatalogChange,
-  WorkspaceChange,
-  WorkspaceEntry,
-  WorkspaceFile,
-} from "../types";
 import { interceptCommits } from "./helpers/commits";
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -101,13 +97,13 @@ describe("WorkspaceCatalog", () => {
   test("resolves a second Workspace over one source reference to the first", async () => {
     const { catalog } = fixture();
     const artifactId = crypto.randomUUID();
-    const first = artifactWorkspace(artifactId, newRoot("first"));
+    const first = otherSourceWorkspace(artifactId, newRoot("first"));
     await catalog.create({ entries: [], workspace: first });
 
     expect(
       await catalog.create({
         entries: [],
-        workspace: artifactWorkspace(artifactId, newRoot("second")),
+        workspace: otherSourceWorkspace(artifactId, newRoot("second")),
       })
     ).toEqual({ existingId: first.id, kind: "workspace-exists" });
   });
@@ -116,15 +112,15 @@ describe("WorkspaceCatalog", () => {
     const { catalog } = fixture();
     const sharedSourceId = crypto.randomUUID();
     const contestedRoot = newRoot("contested");
-    const byReference = artifactWorkspace(sharedSourceId, newRoot("first"));
-    const byRoot = artifactWorkspace(crypto.randomUUID(), contestedRoot);
+    const byReference = otherSourceWorkspace(sharedSourceId, newRoot("first"));
+    const byRoot = otherSourceWorkspace(crypto.randomUUID(), contestedRoot);
     await catalog.create({ entries: [], workspace: byReference });
     await catalog.create({ entries: [], workspace: byRoot });
 
     expect(
       await catalog.create({
         entries: [],
-        workspace: artifactWorkspace(sharedSourceId, contestedRoot),
+        workspace: otherSourceWorkspace(sharedSourceId, contestedRoot),
       })
     ).toEqual({ existingId: byRoot.id, kind: "workspace-exists" });
   });

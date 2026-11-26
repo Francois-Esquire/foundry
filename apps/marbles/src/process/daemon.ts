@@ -79,7 +79,7 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { recordSpawned } from "~/process/spawned";
 import {
   DEFAULT_SOURCE,
   resolveSource,
@@ -471,8 +471,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         detached: true,
         env: {
           ...process.env,
-          FOUNDRY_HOME: layout.home,
-          [SPAWN_RECOVERY_ENV]: layout.spawned,
+          FOUNDRY_ROOT: layout.home,
         },
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -534,10 +533,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       lines((line) => print(`${prefix} ${line}`))
     );
     generations.add(generation);
-    recordSpawned(child.pid, true, {
-      ...process.env,
-      [SPAWN_RECOVERY_ENV]: undefined,
-    });
+    recordSpawned(child.pid, true, { recovery: false });
     return generation;
   }
 

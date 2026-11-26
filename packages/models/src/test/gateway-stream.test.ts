@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { streamText } from "ai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { gatewayProvider } from "../gateway";
+import { gatewayProvider } from "../providers/gateway";
 
 const CHUNKS = [
   {

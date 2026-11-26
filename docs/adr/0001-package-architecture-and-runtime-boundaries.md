@@ -22,7 +22,8 @@ Dependency direction is strictly acyclic across tiers (`Primitives` ← `Tools /
 - **Domain entry points**: Primary concrete domain **modules** use plural domain nouns: `Workspaces`, `Artifacts`, `Tasks`, `Modules`, `Sessions`, and `Containers` (in `@foundry/sandbox/node`, alongside the portable `Sandbox` interface in `@foundry/sandbox`).
 - **Documented exemptions**: Collective, Effect, or DSL nouns keep their natural singular names: `Queue`, `Scheduler`, `Workflow`, `Step`.
 - **No `*Manager` or `*System` in `packages/*`**: Both suffixes obscure **depth** and encourage shallow pass-through wrappers. `*Manager` is reserved exclusively for host facades under `apps/*/src/lib/managers/`.
-- **In-memory store adapters**: Name in-memory **adapters** `Memory<Domain>Store` (never `InMemory*Store`).
+- **`*FileSystem` is allowed**: `*System` is rejected, but `*FileSystem` (`WorkspaceFileSystem`, `ArtifactFileSystem`, `nodeFileSystem`) names a platform concept and is the one permitted suffix.
+- **In-memory adapters**: Name in-memory **adapters** `Memory<Name>` (stores `Memory<Domain>Store`, Promise/plain factories `createMemory<Name>`, Effect-returning factories `makeMemory<Name>`); the `InMemory` prefix is not used for exports in `packages/*`. Similarly, SQLite store factories use `createSqlite<Name>` (or `Sqlite<Domain>Store` classes) for Promise/plain APIs and `makeSqlite<Name>` for Effect-returning factories (`queue`, `scheduling`).
 - **Artifacts port**: The storage/substrate port **interface** for `@foundry/artifacts` is `ArtifactSubstrate` so `Artifacts` unambiguously names the concrete domain **module**.
 
 ## 3. Web-standard `.` root and canonical Domain subpath anatomy
@@ -47,6 +48,18 @@ Domain packages follow a canonical subpath layout so callers gain consistent **l
 | `./store/tables` | Drizzle schema tables | Drizzle |
 | `./testing/store` | Shared store conformance suite | Portable test helper |
 | `./node` | OS, filesystem, git, watcher, and child-process **adapters** plus Node convenience factories | Node / Bun |
+| `./node/*` | Further OS, filesystem, git, watcher, child-process, and host runtime **adapters**, such as `@foundry/models/node/live` | Node / Bun |
+| `./providers`, `./providers/*` | Opt-in provider-specific **adapters** and outputs (`models`, `usage`, `prompts`, and others) that hosts assemble selectively and `.` never imports | Any; may use Node / Bun |
+
+`./node` and `./node/*` are strictly for OS, filesystem, git, watcher, child-process, and host runtime **adapters** and Node convenience factories. They are not where providers go: a provider-specific **adapter**, whether or not it needs Node, lives at `./providers/*`.
+
+The opt-in runtime subpaths exempt from mandatory Web-standard enforcement are `./node`, `./node/*`, `./providers`, `./providers/*`, and `./testing` helpers other than `./testing/store`. Every other subpath, plus `./testing/store`, must be Web-standard. Opt-in subpaths are recognised by their exact key or prefix, not by a `/node` or `/providers` segment elsewhere in the key.
+
+Source layout mirrors the declared `exports` map:
+
+- Root `.` is served by `src/index.ts`.
+- Export key `./a/b` is served by `src/a/b.ts` (or `src/a/b/index.ts` for multi-file directory entries such as `./store` or `./node`), with private implementation files in sibling `src/a/b/`.
+- Node-bound public **adapters** sit where their export key puts them (`src/node/`, `src/node.ts`, or `src/providers/`). Private files imported only by `./node*` or `./providers/*` may live beside their importer. What is enforced is that no portable export reaches Node-bound code and that every export mirrors its source path.
 
 Only subpaths that carry real **implementation** are added; packages do not declare empty stubs.
 
@@ -58,7 +71,16 @@ Runtime-conditional `"node"` / `"bun"` vs. `"default"` exports—specifically `@
 
 ## 5. Enforcement
 
-Runtime **seams** and tier rules are enforced through package-level Vitest suites (such as browser/runtime-safety tests and manifest checks) alongside `bun run validate` (Biome/Ultracite, Sherif, TypeScript, and Knip). Every package migration removes `node:*` imports and unguarded runtime globals from `.` and `./store/memory` without reintroducing them.
+Runtime **seams**, tier rules, and naming rules are enforced by `@foundry/lib/testing/seam` through Vitest, alongside `bun run validate` (Biome/Ultracite, Sherif, TypeScript, and Knip):
+
+`packages/lib/src/test/seam.test.ts` runs all four repo-wide audits across every package under `packages/*`, so a new package or a new subpath is audited without adding a test to that package:
+
+- `assertWebStandardExports(packageDir, portableSubpaths(packageDir))` runs once per package, so a new subpath that is not opt-in is audited by default. It also audits `@foundry/core/testing/storage`, a shared conformance suite. Portable code must not import an opt-in subpath, whether by a package specifier (workspace or third-party) with an opt-in subpath or by a relative path to a file that only an opt-in export targets. Node and Bun built-ins are rejected in `import`, `import()`, and `require()`, as are unguarded Node/Bun globals (bare or on `globalThis`) and `import.meta.dirname` / `import.meta.filename`.
+- `assertPackageTiers(packagesDir)` fails when a package under `packages/*` is missing from `PACKAGE_TIERS`, when a dependency points to a higher tier (which covers Tools depending on Domains), when a package depends on a workspace package outside `packages/*` (other than `@foundry/tsconfig`), or when the dependency graph has a cycle. Same-tier edges are allowed.
+- `assertExportNames(packagesDir)` fails on exported `*Manager`, `*System` (except `*FileSystem`), and `InMemory*` names outside `test/` and `testing/`.
+- `assertExportLayout(packagesDir)` fails on wildcard exports, on any runtime condition of an export key `./a/b` whose target does not mirror `./src/a/b.ts` or `./src/a/b/index.ts` (and `.` → `./src/index.ts`), and on a target file that does not exist. `types` conditions are not checked. The only permitted divergence is the `node` and `bun` conditions of `@foundry/lib/async-scope`, which target `./src/node/async-scope.ts` (see section 4).
+
+Every package migration removes `node:*` imports and unguarded runtime globals from `.` and `./store/memory` without reintroducing them.
 
 ## Considered Options
 

@@ -6,15 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import packageJson from "../../package.json";
 // biome-ignore lint/performance/noNamespaceImport: This test inspects the complete public export surface.
-import * as authorization from "../config/authorization";
-import { addressDigest } from "../node/authorization/digest";
-import { FileGrantRepository } from "../node/authorization/file";
+import * as authorization from "../authorization";
 
 const SUSPEND_CALL_PATTERN = /\bsuspend\s*[(:]/;
 
 const AUTHORIZATION_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../config/authorization"
+  "../authorization"
 );
 
 const PUBLIC_VALUES = [
@@ -26,8 +24,8 @@ const PUBLIC_VALUES = [
   "authorizationAddress",
   "certificateForProfile",
   "createAuthorizer",
-  "createInMemoryCertificateRepository",
-  "createInMemoryGrantRepository",
+  "createMemoryCertificateRepository",
+  "createMemoryGrantRepository",
   "encodeAddress",
   "resolvePolicy",
 ];
@@ -47,15 +45,15 @@ function sourceFiles(): string[] {
     .map((entry) => join(AUTHORIZATION_DIR, entry));
 }
 
-describe("@foundry/lib/config/authorization public surface", () => {
+describe("@foundry/lib/authorization public surface", () => {
   it("exports exactly the curated set", () => {
     expect(Object.keys(authorization).sort()).toEqual(PUBLIC_VALUES);
   });
 
   it("exports the authorizer and its reference adapters as callables", () => {
     expect(authorization.createAuthorizer).toBeTypeOf("function");
-    expect(authorization.createInMemoryGrantRepository).toBeTypeOf("function");
-    expect(authorization.createInMemoryCertificateRepository).toBeTypeOf(
+    expect(authorization.createMemoryGrantRepository).toBeTypeOf("function");
+    expect(authorization.createMemoryCertificateRepository).toBeTypeOf(
       "function"
     );
   });
@@ -68,14 +66,14 @@ describe("@foundry/lib/config/authorization public surface", () => {
   });
 
   it("is reachable as its own subpath", () => {
-    expect(packageJson.exports).toHaveProperty("./config/authorization");
-    expect(packageJson.exports["./config/authorization"].import).toBe(
-      "./src/config/authorization/index.ts"
+    expect(packageJson.exports).toHaveProperty("./authorization");
+    expect(packageJson.exports["./authorization"].import).toBe(
+      "./src/authorization/index.ts"
     );
   });
 });
 
-describe("@foundry/lib/config/authorization boundaries", () => {
+describe("@foundry/lib/authorization boundaries", () => {
   it("knows no host vocabulary, substrate, or predecessor", () => {
     const offenders: string[] = [];
 
@@ -110,15 +108,9 @@ describe("@foundry/lib/config/authorization boundaries", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("keeps the node-bound modules under ./node/authorization and off the barrel", () => {
-    expect(Object.keys(authorization)).not.toContain("addressDigest");
-    expect(Object.keys(authorization)).not.toContain("FileGrantRepository");
-    expect(addressDigest).toBeTypeOf("function");
-    expect(FileGrantRepository).toBeTypeOf("function");
-    expect(packageJson.exports).toHaveProperty("./node/authorization/digest");
-    expect(packageJson.exports).toHaveProperty("./node/authorization/file");
+  it("keeps node-bound modules off the barrel", () => {
     const barrel = readFileSync(join(AUTHORIZATION_DIR, "index.ts"), "utf8");
-    expect(barrel).not.toContain("node/authorization");
+    expect(barrel).not.toContain("../node/");
   });
 
   it("owns no suspend port — authorization decides, execution waits", () => {

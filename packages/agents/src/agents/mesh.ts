@@ -2,7 +2,7 @@ import type { ModelMessage, ToolSet, UIMessage } from "ai";
 
 import { tool } from "ai";
 import { z } from "zod";
-import { tagTools } from "../harness/types";
+import { tagTools } from "../harness/tool-registration";
 import { Sessions } from "../session/sessions";
 import type { SessionStore } from "../store";
 import { lastTextValue } from "./last-text";

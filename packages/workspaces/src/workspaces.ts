@@ -2,6 +2,7 @@ import type { Page, PageInput } from "@foundry/core/pagination";
 import { asyncScope } from "@foundry/lib/async-scope";
 import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import { ReentrantCallError } from "@foundry/lib/turns";
+import type { WorkspaceChange } from "./catalog";
 import { WorkspaceCatalog } from "./catalog";
 import {
   InvalidWorkspaceInputError,
@@ -9,24 +10,22 @@ import {
   WorkspaceSourceUnavailableError,
   WorkspaceSourceUnsupportedError,
 } from "./errors";
-import { RECONCILE, Workspace } from "./instance";
-import { observe } from "./observation";
-import { initialEntries } from "./reconcile";
-import type { WorkspaceStore } from "./store";
-import { MemoryWorkspaceStore } from "./store/memory";
 import type {
   AnyWorkspaceExtension,
   CapabilitiesOf,
   RefOf,
   SourceCapabilitiesFor,
-  WorkspaceChange,
-  WorkspaceContext,
-  WorkspaceId,
   WorkspaceIdentity,
   WorkspaceLifecycle,
-  WorkspaceRegistration,
-  WorkspaceSourceAdapter,
-} from "./types";
+} from "./extension";
+import { observe } from "./observation";
+import { initialEntries } from "./reconcile";
+import type { WorkspaceId, WorkspaceRegistration } from "./schema";
+import type { WorkspaceSourceAdapter } from "./source-adapter";
+import type { WorkspaceStore } from "./store";
+import { MemoryWorkspaceStore } from "./store/memory";
+import type { WorkspaceContext } from "./workspace";
+import { RECONCILE, Workspace } from "./workspace";
 
 export interface WorkspacesOptions {
   readonly onError?: (error: unknown) => void;

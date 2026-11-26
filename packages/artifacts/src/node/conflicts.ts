@@ -6,12 +6,12 @@ import type { StorageNode, StorageTree } from "@foundry/core/storage";
 import { validateStorageTree } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { readJsonFile, writeFileAtomic } from "@foundry/lib/node/atomic-file";
-import type { ContentTree } from "../blob";
-import type { ArtifactId } from "../ref";
+import type { ArtifactId } from "../ids";
+import type { ContentTree } from "../schema";
 import type { ArtifactOperations, ArtifactResolved } from "../substrate";
+import { diffDirectory } from "./directory-diff";
 import { artifactIdFromDirectory, directoryName } from "./directory-name";
 import { lstatOrNull } from "./fs";
-import { diffDirectory } from "./scan";
 
 const TIMESTAMP_SEPARATORS = /[:.]/g;
 const STAMP_SUFFIX_LENGTH = 8;

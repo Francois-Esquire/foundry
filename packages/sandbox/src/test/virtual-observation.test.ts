@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createVirtualSandbox } from "../virtual/sandbox";
+import { createVirtualSandbox } from "../virtual/index";
 
 describe("virtual storage observation", () => {
   it("sees direct writes, shell mutations, and link changes through the same filesystem", async () => {

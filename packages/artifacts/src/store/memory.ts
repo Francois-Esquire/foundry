@@ -1,12 +1,11 @@
 import { Turns } from "@foundry/lib/turns";
-
+import type { ArtifactId, BlobId, ContentId } from "../ids";
 import {
   compareCreated,
   isAfterCursor,
   matchesArtifactFilter,
   ownedListQuery,
 } from "../listing";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
   ArtifactListing,

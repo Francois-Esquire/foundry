@@ -4,8 +4,8 @@ import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { Turns } from "@foundry/lib/turns";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
 import { ownedListQuery } from "../listing";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
   ArtifactListing,
@@ -261,7 +261,7 @@ function decodeValue(value: unknown): unknown {
   const [first] = entries;
   if (entries.length === 1 && first) {
     const [tag, inner] = first;
-    if (tag === OBJECT_TAG && isPlainObject(inner)) {
+    if (tag === OBJECT_TAG && isRecord(inner)) {
       return decodeEntries(Object.entries(inner));
     }
     if (tag === DATE_TAG && typeof inner === "string") {
@@ -280,6 +280,6 @@ function decodeEntries(entries: [string, unknown][]): Record<string, unknown> {
   );
 }
 
-function isPlainObject(value: unknown): value is object {
+function isRecord(value: unknown): value is object {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

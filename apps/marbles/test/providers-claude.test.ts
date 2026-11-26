@@ -121,10 +121,9 @@ it("loads scoped Claude Code catalogs and uses the reported or configured defaul
 it("records the owned Claude Code listing process and stops it when aborted", async () => {
   const root = mkdtempSync(join(tmpdir(), "claude-abort-"));
   const home = join(root, "account");
-  const records = join(root, "records");
+  const records = join(root, "processes");
   mkdirSync(home);
-  mkdirSync(records, { mode: 0o700 });
-  vi.stubEnv("MARBLES_SPAWN_RECOVERY", records);
+  vi.stubEnv("FOUNDRY_ROOT", root);
   writeFileSync(join(home, "models.json"), JSON.stringify("hang"));
   const pidFile = join(home, "listing.pid");
   const controller = new AbortController();

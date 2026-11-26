@@ -293,7 +293,7 @@ export type WorkspaceHandle = Pick<
 export type LoadedWorkspace = WorkspaceHandle &
   Pick<PackageWorkspace, "id" | "source">;
 
-export interface Workspaces {
+export interface ScopedWorkspaces {
   readonly current: WorkspaceHandle;
   load(
     ref: WorkspaceDefinition | { readonly path: string }
@@ -341,7 +341,7 @@ export interface LatestArtifact {
   readonly version: ArtifactVersion;
 }
 
-export interface Artifacts {
+export interface ScopedArtifacts {
   create(
     input: Pick<
       CreateArtifactInput,
@@ -419,7 +419,7 @@ export interface Run {
 
 export interface Context<I = Record<string, never>> {
   readonly agents: Agents;
-  readonly artifacts: Artifacts;
+  readonly artifacts: ScopedArtifacts;
   readonly ask: Ask;
   readonly exec: Exec;
   readonly input: I;
@@ -429,7 +429,7 @@ export interface Context<I = Record<string, never>> {
   readonly sandboxes: Sandboxes;
   readonly signal: AbortSignal;
   readonly stream: Stream;
-  readonly workspaces: Workspaces;
+  readonly workspaces: ScopedWorkspaces;
 }
 
 export interface SetupContext<I> {

@@ -3,11 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthorizationSubject,
   GrantRepository,
-} from "../../config/authorization";
-import {
-  GrantClaimError,
-  GrantRevisionError,
-} from "../../config/authorization";
+} from "../../authorization";
+import { GrantClaimError, GrantRevisionError } from "../../authorization";
 import type { TestCapability } from "./authorization-support";
 import {
   fsRead,

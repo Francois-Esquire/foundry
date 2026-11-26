@@ -2,7 +2,11 @@ import type { Stream as StreamType } from "effect";
 
 import { Effect, Stream } from "effect";
 
-import type { ChannelChunk, ChannelEvent, ChunkPayload } from "../../channels";
+import type {
+  ChannelChunk,
+  ChannelEvent,
+  ChunkPayload,
+} from "../../slices/channels";
 import type { Step } from "../../step";
 
 type EventSource =

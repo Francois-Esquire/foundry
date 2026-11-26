@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Artifacts } from "../artifacts";
-import { CHUNK_BYTES } from "../constants";
+import { CHUNK_BYTES } from "../blob-staging";
 import { blobFiles } from "../node";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 

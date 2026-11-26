@@ -8,7 +8,7 @@ import {
   modelsDevCatalog,
 } from "../../catalog/models-dev";
 import { costFromUsage } from "../../cost";
-import type { ProviderModelDefinition } from "../../types";
+import type { ProviderModelDefinition } from "../../model-definition";
 
 const ASSERTION_PATTERN = /^[a-z0-9.-]+\/.+$/;
 

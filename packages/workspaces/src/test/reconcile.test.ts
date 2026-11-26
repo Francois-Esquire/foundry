@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { diffCatalog, isEmptyChange } from "../reconcile";
 import type {
-  ObservedFacts,
   WorkspaceEntry,
   WorkspaceEntryId,
   WorkspaceFile,
   WorkspaceId,
-} from "../types";
+} from "../schema";
+import type { ObservedFacts } from "../source-adapter";
 
 const WORKSPACE = "workspace-1" as WorkspaceId;
 const AT = new Date(5000);

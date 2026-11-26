@@ -1,8 +1,20 @@
 import { SandboxError } from "../errors";
-import { assertNotAborted } from "../sandbox";
-import type { ContainerRow, SandboxEvent } from "../schema";
+import { assertNotAborted } from "../sandbox-adapter";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
+import type { ContainerRow, SandboxEvent } from "../store/schema";
+import type { ContainerSandboxConstraints } from "./constraints";
+import {
+  containerSandboxConfigFromConstraints,
+  containerSandboxConstraintsSchema,
+} from "./constraints";
+import type {
+  Container,
+  ContainerFacets,
+  ContainerSweep,
+  Containers,
+  CreateContainersOptions,
+} from "./contracts";
 import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
@@ -13,28 +25,21 @@ import {
   INVENTORY_PAGE_LIMIT,
   MAX_INVENTORY_PAGES,
   removeByHand,
-} from "./constants";
-import type { ContainerSandboxConstraints } from "./constraints";
-import {
-  containerSandboxConfigFromConstraints,
-  containerSandboxConstraintsSchema,
-} from "./constraints";
+} from "./defaults";
 import { containerFacets, resolveContainerMountSpecs } from "./facets";
-import { provisionContainerSandbox, startContainerSandbox } from "./sandbox";
 import type {
-  Container,
   ContainerConfig,
-  ContainerFacets,
   ContainerMountSpec,
   ContainerResourceSummary,
   ContainerRuntime,
   ContainerSandbox,
-  ContainerSweep,
+} from "./runtime";
+import { provisionContainerSandbox, startContainerSandbox } from "./sandbox";
+
+export type {
   Containers,
   CreateContainersOptions,
-} from "./types";
-
-export type { Containers, CreateContainersOptions } from "./types";
+} from "./contracts";
 
 type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 
@@ -71,7 +76,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       abandoned.set(machine.name, rowId);
     } else {
       report(
-        `container ${rowId}: the VM ${machine.name} would not go, and is not provably this registry's, so it is not kept to retry; remove it by hand with ${removeByHand(machine.name)}`
+        `container ${rowId}: the VM ${machine.name} would not go, and is not provably this instance's, so it is not kept to retry; remove it by hand with ${removeByHand(machine.name)}`
       );
     }
   };
@@ -129,7 +134,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
     if (!isRowsMachine(resource, rowId, own)) {
       report(
-        `container ${rowId}: its old VM ${name} is not provably this registry's, so it is left; remove it by hand with ${removeByHand(name)}`
+        `container ${rowId}: its old VM ${name} is not provably this instance's, so it is left; remove it by hand with ${removeByHand(name)}`
       );
       return;
     }
@@ -453,10 +458,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
   const assertOpen = (): void => {
     if (stopped) {
-      throw new SandboxError(
-        "invalid-transition",
-        "containers registry has shut down"
-      );
+      throw new SandboxError("invalid-transition", "containers have shut down");
     }
   };
 
@@ -767,7 +769,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         const { passedOver } = await reclaim(undefined, await store.identity());
         for (const name of passedOver) {
           report(
-            `the VM ${name} this registry kept to retry is not provably its own now, so its shutdown left it; remove it by hand with ${removeByHand(name)}`
+            `the VM ${name} this instance kept to retry is not provably its own now, so its shutdown left it; remove it by hand with ${removeByHand(name)}`
           );
         }
       }

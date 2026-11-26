@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { metaOf } from "../../harness/types";
+import { metaOf } from "../../harness/tool-registration";
 import { McpClient } from "../../mcp/client";
 import { McpClients } from "../../mcp/clients";
 

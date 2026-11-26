@@ -1,9 +1,9 @@
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/mcp public API.
 export { McpClient } from "./client";
-export { McpClients } from "./clients";
 export type {
   McpClientOptions,
-  McpServerDefinition,
   SpawnStdio,
   StdioTransportHooks,
-} from "./types";
+} from "./client-options";
+export { McpClients } from "./clients";
+export type { McpServerDefinition } from "./server-definition";

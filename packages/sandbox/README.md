@@ -12,7 +12,7 @@ these peers as development dependencies to build and test its adapters.
 
 MicroSandbox is pinned to `0.6.18` in development and peer dependencies. Its
 native inventory includes `created`, `starting`, and `paused` states. The
-registry stops active orphaned VMs before removing them.
+`Containers` instance stops active orphaned VMs before removing them.
 
 ```typescript
 interface Sandbox {
@@ -147,14 +147,14 @@ constants are exported from `@foundry/sandbox/tools`.
 
 ## Storage
 
-`ContainerStore` on `@foundry/sandbox/store` is the seam the containers
-registry persists its rows through: `list()`, `get(id)`, and `commit(write)`,
+`ContainerStore` on `@foundry/sandbox/store` is the seam the
+`Containers` instance persists its rows through: `list()`, `get(id)`, and `commit(write)`,
 where a write deletes and puts rows all or nothing, deletes first. A store
-enforces nothing; the registry holds every rule. Values crossing the seam are
+enforces nothing; `Containers` holds every rule. Values crossing the seam are
 detached, reads hand out frozen rows, and `list()` returns rows in the order
 first put (a row put again keeps its place). A store may offer
-`transaction(work)`, which keeps every write from any registry over the store
-out from between `work`'s reads and its commit; the registry runs each
+`transaction(work)`, which keeps every write from any `Containers` over the store
+out from between `work`'s reads and its commit; `Containers` runs each
 read-modify-write through it when offered, and serializes its own writes
 either way. `@foundry/sandbox` defines `ContainerRow` as a Zod schema.
 
@@ -187,9 +187,9 @@ commit that fails.
 
 ### Change events
 
-Each registry write that changes a container's life carries the events that
+Each `Containers` write that changes a container's life carries the events that
 say so, in `events` on the write, so a host can record them in the same
-transaction as the change (the SQLite store's `onCommit`). The registry
+transaction as the change (the SQLite store's `onCommit`). `Containers`
 builds them, from the row as stored against the row it puts. A store keeps
 none, and one with a host hook hands them to it unchanged and in order.
 Every store takes the events when `commit` is
@@ -201,7 +201,7 @@ a transaction's view too. It is the rule the workflows and artifacts stores
 take their events by. The schema is
 `sandboxEventSchema` on `@foundry/sandbox`, which also exports the
 type, `SandboxEvent` (re-exported from `@foundry/sandbox/store`). Every event
-has `type`, `id` (unique to it, made once per registry call, before its
+has `type`, `id` (unique to it, made once per `Containers` call, before its
 transaction), `at` (an ISO time, the stamp of the row it changed)
 and `containerId`:
 
@@ -227,7 +227,7 @@ Both stores take their calls in turns: a call made while a transaction runs
 waits for it, and a call to the store from inside its own transaction's work
 (or the SQLite store's `onCommit` hook) is refused at once with a
 `ReentrantCallError` that says to use the view, instead of waiting on itself
-forever. The registry calls only the view inside a transaction.
+forever. `Containers` calls only the view inside a transaction.
 
 `SqliteContainerStore` takes the host's database and never opens one.
 The host composes the table from `./store/tables` into its own schema and
@@ -299,7 +299,7 @@ field, such as `putContainers[0].spec`:
   integers. libSQL refuses to bind NaN and the infinities, `-0` reads back as
   `0`, and an integer past the safe range is kept as a 64-bit integer that
   libSQL then refuses to read. Every other number, whole or fractional,
-  reads back exactly. The registry writes `Date.now()`, which always fits.
+  reads back exactly. `Containers` writes `Date.now()`, which always fits.
 
 `nativeId` is the one field that may be `undefined`; its column is NULL
 then, and a NULL reads back as `nativeId: undefined`, the key present.
@@ -392,7 +392,7 @@ The fastest way to exercise anything that takes a `Sandbox`.
 
 ## Container modules
 
-MicroSandbox microVMs, through the containers registry.
+MicroSandbox microVMs, through `Containers`.
 
 ### Piped processes
 
@@ -453,7 +453,7 @@ await c.commands.exec(["bun", "test"]);
 await c.ports.hostPort(3000); // { host, port } | undefined
 await c.services.start({ id, argv, readiness });
 await c.shell.open();
-await c.volumes?.list(); // only when the registry has allowedMountRoots
+await c.volumes?.list(); // only when `Containers` has allowedMountRoots
 await containers.restart(id, newSpec); // the one change mechanism; handles follow
 await c.close(); // last handle out stops the VM, row -> stopped
 await containers.list(); // rows for the UI
@@ -505,7 +505,7 @@ database, which carries the id, still has another identity. Without a
 `location` the identity is the kept id alone, and a copy shares it. A home
 that is moved or renamed gets a new identity: the VMs it booted before the
 move are then not provably its own, so they are passed over and named, never
-removed, and taken out by hand as below. The registry puts
+removed, and taken out by hand as below. `Containers` puts
 it on every VM it boots, as the `com.foundry.container.store` label. A VM is a
 row's only when all three say so: it carries this store's identity, its name
 is one of that row's own (`<rowId>-<generation>`), and its id label names that
@@ -524,7 +524,7 @@ names every VM under this instance's labels it could not prove its own in
 `passedOver`: another store's, one with no store or no id label, one whose
 name and label disagree. When `open` cannot read the runtime's inventory, the
 old VM's name, the row's own, is kept to retry, and judged once the inventory
-can be read; the registry says so through `report` (stderr by default).
+can be read; `Containers` says so through `report` (stderr by default).
 
 VMs booted before stores had an identity carry no store label, so no sweep or
 recovery removes them now. `msb` is the CLI of the `microsandbox` package
@@ -535,11 +535,11 @@ one's labels with `msb inspect <name>`, and remove one, running or not, with
 `msb rm -f <name>` (`-f` stops a running VM first). Every message that names a
 VM left this way gives the same command (`removeByHand`).
 
-A registry owns every VM it boots. If the commit that records a boot fails
+`Containers` owns every VM it boots. If the commit that records a boot fails
 (a SQLite store busy under another connection's lock, say), `start`, `open`
 or `restart` removes the VM it just booted, tries to mark the row `failed`,
-and rejects with the commit's error. A VM the registry cannot remove stays
-the registry's: after a failed post-boot commit, after a guest setup that
+and rejects with the commit's error. A VM `Containers` cannot remove stays
+its own: after a failed post-boot commit, after a guest setup that
 failed, when its last handle closes, or when `open` or `remove` fails to
 stop or remove an old native name (the runtime cannot say whether such a VM
 is gone or stuck). `sweep` and `shutdown` retry it against the runtime's
@@ -548,7 +548,7 @@ remains, and calling `shutdown` again retries it.
 
 Limits:
 
-- The list of VMs the registry could not remove is in memory. If the process
+- The list of VMs `Containers` could not remove is in memory. If the process
   is lost first, their cleanup is not guaranteed: the next process's `open`
   removes a VM whose name the row still records, but not one whose row has
   moved on to a later name. `remove` and `recover` delete a row only once
@@ -579,7 +579,7 @@ reattaches yet, so the next `open` replaces it).
 createFakeContainerRuntime(options?): FakeContainerRuntime;
 ```
 
-One file, `src/testing.ts`: an in-memory `ContainerRuntime` to put under
+One file, `src/testing/index.ts`: an in-memory `ContainerRuntime` to put under
 `createContainers` in a consumer's tests. It scripts `exec`, records every
 booted instance, and can fail installs, stops and removes.
 
@@ -642,7 +642,7 @@ It exercises the adapter's combined terminal stream, the SDK's separate
 stdout/stderr pipes, and public process pipes, including binary input, EOF,
 nonzero exit, named signals, missing executables, launch/running cancellation,
 backpressure, and guest process reaping. `piped-lifecycle.integration.test.ts`
-checks the public registry facet and immediate hook bridge, including closing
+checks the public container facet and immediate hook bridge, including closing
 a container with a live process. Network and executable workspace integrations
 verify native destination rules and mount flags separately.
 `commands.exec()` collects output until exit. The MicroSandbox backend keeps

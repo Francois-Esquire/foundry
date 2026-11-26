@@ -1,18 +1,17 @@
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/tools public API.
 export { composeTools } from "./compose";
-export type {
-  ConversationStore,
-  ToolContext,
-  ToolContextOptions,
-} from "./context";
+export type { ToolContext, ToolContextOptions } from "./context";
 export {
-  createMemoryConversationStore,
   createToolContext,
-  defaultThread,
   getConversationStore,
   getPolicy,
   getSpace,
 } from "./context";
+export type { ConversationStore } from "./conversation-store";
+export {
+  createMemoryConversationStore,
+  defaultThread,
+} from "./conversation-store";
 export type { Questionnaire } from "./questions";
 export { createQuestions, questionnaireSchema } from "./questions";
 export type { TodoEventMap, TodoItem } from "./todos";

@@ -1,4 +1,17 @@
-// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/session public API.
+// biome-ignore-all lint/performance/noBarrelFile: This is the exported @foundry/agents/session public API.
+
+export type {
+  MessageMetadata,
+  MessageStatus,
+  SessionChangeEvent,
+  SessionMessage,
+  SessionPart,
+  SessionRecord,
+  SessionRole,
+  SessionStatus,
+  SessionUsage,
+  ToolProvenance,
+} from "../schema";
 export {
   MESSAGE_STATUSES,
   SESSION_ROLES,
@@ -25,6 +38,7 @@ export type {
   SessionStream,
   SessionTurnOutcome,
   StreamHandlers,
+  ToolCallResult,
 } from "./events";
 export type { RawMessageMetadata, RawUsage } from "./metadata";
 export { normalizeMessageMetadata } from "./metadata";
@@ -40,16 +54,3 @@ export type {
 export { foldSet, messagesToSummarize, Sessions } from "./sessions";
 export type { SummarizeSessionDeps, Summary, SummaryStore } from "./summary";
 export { createSummaryStore, summarizeSession } from "./summary";
-export type {
-  MessageMetadata,
-  MessageStatus,
-  SessionChangeEvent,
-  SessionMessage,
-  SessionPart,
-  SessionRecord,
-  SessionRole,
-  SessionStatus,
-  SessionUsage,
-  ToolCallResult,
-  ToolProvenance,
-} from "./types";

@@ -1,12 +1,8 @@
-import type { CapabilityFact, InputForm, Media, OperationName } from "../types";
+import type { JsonValue } from "@foundry/lib/json";
+import type { CapabilityFact, InputForm, OperationName } from "../capability";
+import type { Media } from "../media";
 
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+export type { JsonValue } from "@foundry/lib/json";
 
 export interface LiveTarget {
   readonly fact: CapabilityFact;

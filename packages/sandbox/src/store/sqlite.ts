@@ -13,8 +13,8 @@ import {
 import { Turns } from "@foundry/lib/turns";
 import type { SQL } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, max } from "drizzle-orm";
-import type { ContainerRow } from "../schema";
 import type { ContainerStore, ContainerStoreWrite } from "./index";
+import type { ContainerRow } from "./schema";
 import { sandboxContainers } from "./tables";
 
 export type ContainerDatabase = SqliteDatabase;

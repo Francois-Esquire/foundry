@@ -1,5 +1,6 @@
+import type { InputForm } from "../capability";
 import { modelErrors } from "../errors";
-import type { InputForm, Media } from "../types";
+import type { Media } from "../media";
 import type {
   Connect,
   Transport,

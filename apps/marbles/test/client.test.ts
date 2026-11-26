@@ -47,7 +47,7 @@ function descriptorsOn(path: string): number[] {
 
 function machine(): Layout {
   const home = testHome({ providers: false });
-  vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv("FOUNDRY_ROOT", home.path);
   vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
   mkdirSync(home.layout.state, { recursive: true });
   return home.layout;

@@ -1,14 +1,13 @@
+import type { HarnessTurnDriver } from "@foundry/core/agents";
 import { NoObjectGeneratedError, Output, simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
 import { createDriverSession } from "../../harness/driver-session";
 import { SessionHarness } from "../../harness/session-harness";
 import type { StreamPart } from "../../harness/stream-transform";
 import { transformStream } from "../../harness/stream-transform";
-import type { HarnessTurnDriver } from "../../harness/turn-driver";
 import { MemorySessionStore } from "../../store/memory";
 import type { StreamResult } from "../helpers/mock-language-model";
 import { routed } from "../helpers/mock-language-model";
@@ -148,7 +147,7 @@ describe("structured output", () => {
       {
         agentId: "coder",
         model: { harness: "native", id: "model" },
-        policy: createInMemoryAgentAuthorizer().authorizer,
+        policy: createMemoryAgentAuthorizer().authorizer,
         profile: {
           allowedTools: [],
           disallowedTools: [],

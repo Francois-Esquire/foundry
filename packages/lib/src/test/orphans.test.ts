@@ -21,13 +21,12 @@ import {
   forgetRecord,
   recordChild,
   recordPath,
-  SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   writePrivate,
 } from "../node/spawn-record";
 import { anotherStart } from "../testing/process-identity";
-import { stopLeftover } from "./helpers/leftovers";
 import { pidWritten } from "./helpers/pid-file";
+import { stopLeftover } from "./helpers/process-cleanup";
 
 const started: ChildProcess[] = [];
 const made: string[] = [];
@@ -274,10 +273,11 @@ it("passes over a record that is not private or not a record", async () => {
 });
 
 it("records the owner of a child on its recovery record, and removes it once the child exits", async () => {
-  const dir = scratch();
+  const root = scratch();
+  const dir = join(root, "processes");
   const child = spawn("sleep", ["60"], { stdio: "ignore" });
   started.push(child);
-  recordChild(child, false, { [SPAWN_RECOVERY_ENV]: dir });
+  recordChild(child, false, { env: { FOUNDRY_ROOT: root } });
   const path = recordPath(dir, child.pid ?? 0);
   expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
     group: false,

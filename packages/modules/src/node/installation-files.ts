@@ -14,11 +14,9 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
-
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import type { InstallationId } from "../domain";
 import type { ModuleInstallationFiles } from "../platform/files";
-
-import { KeyedTurns } from "../platform/turns";
 
 export type {
   ModuleInstallationFiles,
@@ -71,7 +69,7 @@ export function createModuleInstallationFiles(
   }
   const backupsRoot = path.join(root, BACKUPS_DIRECTORY);
   const ephemeralRoot = path.join(root, EPHEMERAL_DIRECTORY);
-  const turns = new KeyedTurns<InstallationId>();
+  const turns = new KeyedQueue<InstallationId>();
 
   function directoryName(installationId: InstallationId): string {
     if (!FILES_DIRECTORY_NAME.test(installationId)) {

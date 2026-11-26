@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import {
   createAgentAuthorizer,
-  createInMemoryAgentAuthorizer,
+  createMemoryAgentAuthorizer,
 } from "@foundry/agents/authorization";
 import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
@@ -131,7 +131,7 @@ export function interactionsOf(
       ? createAgentAuthorizer({
           grants: new StoredAgentGrantRepository(options.grants),
         })
-      : createInMemoryAgentAuthorizer().authorizer,
+      : createMemoryAgentAuthorizer().authorizer,
     sessions: options.sessions,
     ...(options.approvals ? { approvals: options.approvals } : {}),
   });

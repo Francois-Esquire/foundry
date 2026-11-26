@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
 import {
@@ -9,8 +8,8 @@ import {
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
 import { SqliteContainerStore } from "../store/sqlite";
-import type { FakeContainerRuntime } from "../testing";
-import { createFakeContainerRuntime } from "../testing";
+import type { FakeContainerRuntime } from "../testing/index";
+import { createFakeContainerRuntime } from "../testing/index";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const SPEC: ContainerSandboxConstraints = {
@@ -209,7 +208,7 @@ describe("a commit that fails after a boot", () => {
   });
 });
 
-describe("a VM the registry could not remove", () => {
+describe("a VM the Containers could not remove", () => {
   it("is removed by a later sweep", async () => {
     const { allow, refuse, store } = refusingStore();
     const runtime = stubbornRuntime(1);

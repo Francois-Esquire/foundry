@@ -5,11 +5,9 @@ import {
   type TaskId,
   type TaskStatus,
   taskMetadataSchema,
+  taskSchema,
   taskStatusSchema,
 } from "./schema";
-
-// biome-ignore lint/performance/noBarrelFile: `./operations` is a declared entry point and has always exported the metadata schema.
-export { taskMetadataSchema } from "./schema";
 
 export type TaskRef = { readonly id: string } | { readonly key: string };
 
@@ -86,7 +84,7 @@ export const MAX_OPERATIONS_PER_CHANGE = 100;
 const nonEmpty = z.string().min(1);
 const tagsSchema = z.array(z.string()).readonly();
 
-export const taskRefSchema: z.ZodType<TaskRef, TaskRef> = z.union([
+const taskRefSchema: z.ZodType<TaskRef, TaskRef> = z.union([
   z.strictObject({ id: nonEmpty }),
   z.strictObject({ key: nonEmpty }),
 ]);
@@ -151,3 +149,10 @@ export const taskChangeSchema: z.ZodType<TaskChange, TaskChange> =
       .min(1)
       .max(MAX_OPERATIONS_PER_CHANGE),
   });
+
+export const taskChangeResultSchema = z.strictObject({
+  changed: z.array(
+    z.strictObject({ id: z.string().min(1), key: z.string().optional() })
+  ),
+  tasks: z.array(taskSchema),
+});

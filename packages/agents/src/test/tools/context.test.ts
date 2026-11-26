@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentAuthorizer } from "../../authorization/authorization";
 import {
-  createMemoryConversationStore,
   createToolContext,
   getConversationStore,
   getPolicy,
   getSpace,
 } from "../../tools/context";
+import { createMemoryConversationStore } from "../../tools/conversation-store";
 import { fakeAuthorizer } from "../helpers/authorizer";
 
 function fakePolicy(): AgentAuthorizer {

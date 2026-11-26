@@ -623,7 +623,7 @@ toModelMessages(messages)     // session records → AI SDK ModelMessages
 ## `@foundry/agents/authorization`
 
 The gate. This module owns what a capability _is_; the mechanism — the
-Authorizer, Grants, Policy tiers — lives in `@foundry/lib/config/authorization`
+Authorizer, Grants, Policy tiers — lives in `@foundry/lib/authorization`
 and knows no agent vocabulary.
 
 ```typescript
@@ -636,14 +636,14 @@ type Capability =
 ```
 
 ```typescript
-const { authorizer } = createInMemoryAgentAuthorizer({
+const { authorizer } = createMemoryAgentAuthorizer({
   policy: { global: "ask", byKind: { "fs.read": "allow", "tool.call": "ask" } },
 });
 
 const harness = new AgentHarness({ model, policy: authorizer });
 ```
 
-`createInMemoryAgentAuthorizer` is the reference composition, with
+`createMemoryAgentAuthorizer` is the reference composition, with
 `allow`/`revoke` helpers over its Grant repository. A host with real storage
 calls `createAgentAuthorizer({ grants, policy })`; with no `policy` it falls
 back to `AGENT_ASK_BY_DEFAULT`, which asks for everything.
@@ -701,14 +701,14 @@ The primitives everything above composes. Reach for these when the harness is
 more than you need, or when you are building multi-agent topology.
 
 ```typescript
-// ./agents/model
+// @foundry/core/agents
 interface AgentModel extends LanguageModelV4 {
   route?: { id: string; provider?: string; harness?: string };
   limits?: { contextWindow?: number; maxOutputTokens?: number };
 }
 type ObserveTurn = (turn: { sessionId; model: ModelRoute }) => TurnObservation | null;
 
-// ./agents/loop-agent
+// ./harness/loop-agent
 class LoopAgent extends ToolLoopAgent
 new LoopAgent(settings, { sessionId })
 ```
@@ -749,7 +749,7 @@ HUMAN              // the symbol for the human node
 // ./agents/spawn
 createSpawnTool(deps)   // undefined at the depth limit
 
-// ./agents/resolve
+// ./agents/preset
 createAgentPreset(spec, surface)   // → AgentPreset: createAgent(ctx) / createSession(ctx)
 resolveAgent(spec, surface, ctx?)  // → Promise<SessionHarness>, in one step
 ```

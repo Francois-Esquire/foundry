@@ -44,13 +44,16 @@ async function setup(databases: LibsqlDatabases) {
   });
   const published = () => publishedIn(root);
   const original = await published();
-  const read = async (manager: Artifacts = durable) => {
-    const artifact = required(await manager.get(created.id));
-    const file = await manager.readFile(required(artifact.contentId), "a.txt");
+  const read = async (artifacts: Artifacts = durable) => {
+    const artifact = required(await artifacts.get(created.id));
+    const file = await artifacts.readFile(
+      required(artifact.contentId),
+      "a.txt"
+    );
     return new TextDecoder().decode(required(file).blob);
   };
-  const rewrite = (manager: Artifacts) =>
-    manager.write({
+  const rewrite = (artifacts: Artifacts) =>
+    artifacts.write({
       artifactId: created.id,
       changes: { put: { "a.txt": { bytes: "after" } } },
     });
@@ -91,7 +94,7 @@ describe.each([
   ["memory", libsqlDatabases("memory")],
   ["file", libsqlDatabases("file")],
 ] as const)(
-  "a manager inside a host transaction (%s)",
+  "an Artifacts instance inside a host transaction (%s)",
   (_location, databases) => {
     test("leaves the file a change retired, so a host rollback still reads it", async () => {
       const { inHost, original, published, read, rewrite } =
@@ -320,7 +323,7 @@ describe("a store's durability", () => {
 });
 
 describe.each(STORE_KINDS)(
-  "a manager over a %s store's transaction view",
+  "an Artifacts instance over a %s store's transaction view",
   (kind) => {
     test("leaves the file a change retired when the transaction's work throws", async () => {
       const store = await openStore(kind);

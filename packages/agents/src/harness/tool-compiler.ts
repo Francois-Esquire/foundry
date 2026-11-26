@@ -1,3 +1,4 @@
+import type { HarnessPermissionCallback } from "@foundry/core/agents";
 import type {
   ModelMessage,
   TextStreamPart,
@@ -6,9 +7,7 @@ import type {
   ToolSet,
   TypedToolCall,
 } from "ai";
-
 import { z } from "zod";
-
 import type {
   AgentAuthorizationRequest,
   AgentAuthorizer,
@@ -18,7 +17,6 @@ import type { Capability, ToolSource } from "../authorization/capability";
 import { createEventQueue } from "./event-queue";
 import { isHarnessQuestionTool } from "./question";
 import type { StreamPart } from "./stream-transform";
-import type { HarnessPermissionCallback } from "./turn-driver";
 import type {
   AgentIdentity,
   AgentInvocationContext,
@@ -26,8 +24,8 @@ import type {
   RegisteredToolCall,
   ToolEffectLocation,
   ToolEffectPort,
-} from "./types";
-import { registrationsOf } from "./types";
+} from "./tool-registration";
+import { registrationsOf } from "./tool-registration";
 
 export interface ToolCompilerDeps extends AgentIdentity {
   effectPort: ToolEffectPort;

@@ -21,12 +21,12 @@ import {
 } from "@foundry/lib/encoding";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
-import { MODULE_MIME } from "./constants";
-import { assertOwnsArtifactCommit } from "./cross-store";
+import { assertOwnsArtifactCommit } from "./artifact-commit";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
 import {
   defineModule,
   defineModuleVersion,
+  MODULE_MIME,
   moduleIdSchema,
   parseModuleVersionContent,
 } from "./domain";

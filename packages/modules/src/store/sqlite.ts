@@ -27,6 +27,7 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import type { InstallationId, ModuleId } from "../domain";
+import { capturedQuery, capturedWrite, ownedQuery } from "./captured";
 import type {
   InstallationListQuery,
   ManifestListQuery,
@@ -38,9 +39,7 @@ import type {
   ModuleStoreWrite,
   StoredInstallation,
   StoredManifest,
-} from "../store";
-import { capturedQuery, capturedWrite } from "./captured";
-import { ownedQuery } from "./query";
+} from "./index";
 import {
   moduleInstallations,
   moduleManifests,

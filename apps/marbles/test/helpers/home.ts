@@ -33,7 +33,7 @@ export function testHome(options: TestHomeOptions = {}): TestHome {
   const home: TestHome = {
     env: {
       ...definedEnv(),
-      FOUNDRY_HOME: path,
+      FOUNDRY_ROOT: path,
       [SPAWN_RECORD_ENV]: records,
     },
     layout: layout({ home: path }),
@@ -66,11 +66,11 @@ async function tearDown(
     value: root,
   });
   const unrecorded = await outlast(() =>
-    unrecordedMarked(records, { name: "FOUNDRY_HOME", value: home.path })
+    unrecordedMarked(records, { name: "FOUNDRY_ROOT", value: home.path })
   );
   for (const pid of unrecorded) {
     problems.push(
-      `process ${String(pid)} was started with FOUNDRY_HOME=${home.path} but never recorded; not signalled`
+      `process ${String(pid)} was started with FOUNDRY_ROOT=${home.path} but never recorded; not signalled`
     );
   }
   if (problems.length > 0) {

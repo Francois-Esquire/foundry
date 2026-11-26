@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LoopAgent } from "../../agents/loop-agent";
+import { LoopAgent } from "../../harness/loop-agent";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
 import { MemorySessionStore } from "../../store/memory";

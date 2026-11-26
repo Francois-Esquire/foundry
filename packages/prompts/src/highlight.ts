@@ -1,4 +1,4 @@
-import type { TokenKind } from "./language";
+import type { TokenKind } from "./parser";
 
 export const HIGHLIGHT_SCOPES: Readonly<Record<TokenKind, string>> = {
   agent: "entity.name.tag.agent.prompt",

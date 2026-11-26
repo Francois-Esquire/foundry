@@ -1,12 +1,14 @@
-import { interpolate } from "./author";
 import { Dialect } from "./dialect";
 import { claudeCode } from "./dialects/claude-code";
 import { codex } from "./dialects/codex";
 import { pi } from "./dialects/pi";
-import type { Interpolation, PromptSource, Surface } from "./language";
+import type { Interpolation } from "./interpolate";
+import { interpolate } from "./interpolate";
+import type { Surface } from "./notation";
 import { Parser } from "./parser";
 import { Prompt, PromptError } from "./prompt";
 import { referenceOf } from "./reference";
+import type { PromptSource } from "./source";
 import { isSource, layered, namesSource, type PromptNames } from "./source";
 
 export interface Tag {

@@ -8,7 +8,7 @@ import type {
   SandboxPipedProcess,
   SandboxShell,
   SandboxShellOptions,
-} from "../types";
+} from "../sandbox";
 import {
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_SANDBOX_BASE_LABEL,
@@ -16,7 +16,7 @@ import {
   DEFAULT_CONTAINER_IMAGE,
   DEFAULT_CONTAINER_MEMORY_MIB,
   DEFAULT_CONTAINER_WORKDIR,
-} from "./constants";
+} from "./defaults";
 import { assertGuestPorts, reserveHostPorts } from "./ports";
 import type {
   ContainerConfig,
@@ -29,7 +29,7 @@ import type {
   ContainerSandboxDeps,
   ContainerSpec,
   ContainerStatus,
-} from "./types";
+} from "./runtime";
 
 export async function createContainerSandbox<TNative = unknown>(
   config: ContainerConfig = {},
@@ -137,7 +137,7 @@ export async function resolveContainerSpec(
 }
 
 async function defaultRuntime<TNative>(): Promise<ContainerRuntime<TNative>> {
-  const { createMicrosandboxRuntime } = await import("./microsandbox-runtime");
+  const { createMicrosandboxRuntime } = await import("../node/microsandbox");
   return createMicrosandboxRuntime() as unknown as ContainerRuntime<TNative>;
 }
 

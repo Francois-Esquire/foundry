@@ -117,7 +117,7 @@ export const modelErrors = defineErrorCatalog("models", {
       reason: string;
     }) => `Provider "${provider}" is refused by ${policy}: ${reason}.`,
     status: 403,
-    why: "A policy installed on this manager refuses the provider; nothing reaches it until the policy lifts.",
+    why: "A policy installed on this Models registry refuses the provider; nothing reaches it until the policy lifts.",
   },
   PROVIDER_UNAVAILABLE: {
     message: ({ kind, provider }: { kind: string; provider?: string }) =>
@@ -137,7 +137,7 @@ export const modelErrors = defineErrorCatalog("models", {
     status: 409,
   },
   WEBRTC_UNAVAILABLE: {
-    fix: "Run the session in a process where @foundry/models/live/node can install its runtime, or in a browser that provides WebRTC natively.",
+    fix: "Run the session in a process where @foundry/models/node/live can install its runtime, or in a browser that provides WebRTC natively.",
     message: ({ symbol }: { symbol: string }) =>
       `No WebRTC runtime could supply "${symbol}".`,
     status: 503,

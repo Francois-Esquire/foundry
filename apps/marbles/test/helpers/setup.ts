@@ -24,7 +24,7 @@ export default async function setup(): Promise<() => Promise<void>> {
   mkdirSync(user);
   writeFileSync(
     join(user, ".foundry"),
-    "Not a directory: Marbles tests name their Foundry home with FOUNDRY_HOME.\n"
+    "Not a directory: Marbles tests name their Foundry home with FOUNDRY_ROOT.\n"
   );
   process.env.BUN_INSTALL_CACHE_DIR ??= join(
     process.env.HOME ?? user,
@@ -36,7 +36,7 @@ export default async function setup(): Promise<() => Promise<void>> {
   process.env[SPAWN_RECORD_ENV] = join(run.records, "run");
   process.env.TMPDIR = run.root;
   process.env.HOME = user;
-  process.env.FOUNDRY_HOME = home;
+  process.env.FOUNDRY_ROOT = home;
   process.env.FOUNDRY_MODELS_DEV_URL = "";
   process.env[PROVIDERS_TEMPLATE_ENV] = await makeProvidersTemplate(run.root);
   configureProviders(join(home, "marbles"));

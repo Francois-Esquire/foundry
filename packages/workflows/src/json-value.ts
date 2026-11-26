@@ -1,10 +1,6 @@
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue };
+import type { JsonValue } from "@foundry/lib/json";
+
+export type { JsonValue } from "@foundry/lib/json";
 
 export function isJsonValue(value: unknown): value is JsonValue {
   try {

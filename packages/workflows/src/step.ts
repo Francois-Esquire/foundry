@@ -1,14 +1,5 @@
 import { Effect, Exit, Scope, Stream } from "effect";
-
-import type {
-  ChannelMessage,
-  Channels,
-  ChunkPayload,
-  SuspensionRequest,
-} from "./channels";
-import { Channels as ChannelsClass } from "./channels";
-import { Composer } from "./composer";
-import type { LeafDefinitionPlan } from "./definition-plan";
+import type { LeafDefinitionPlan } from "./definition/plan";
 import {
   createLeafDefinitionPlan,
   definitionBindingFor,
@@ -16,28 +7,40 @@ import {
   definitionRuntimeOptions,
   definitionRuntimeSeed,
   describeLeafDefinition,
-} from "./definition-plan";
+} from "./definition/plan";
 import type {
   DefinitionBinding,
   DefinitionContext,
   DefinitionDescriptor,
   Factory,
 } from "./definitions";
-import type { BaseContext, Executable, ExecutableConfig } from "./executable";
-import { Executable as ExecutableClass } from "./executable";
-import { runEffectPromise } from "./helpers";
+import { runEffectPromise } from "./effect-interop";
+import type {
+  ChannelMessage,
+  Channels,
+  ChunkPayload,
+  SuspensionRequest,
+} from "./slices/channels";
+import { Channels as ChannelsClass } from "./slices/channels";
+import { Composer } from "./slices/composer";
+import type {
+  BaseContext,
+  Executable,
+  ExecutableConfig,
+} from "./slices/executable";
+import { Executable as ExecutableClass } from "./slices/executable";
 import type {
   SnapshotState,
   StepSnapshot,
   StepStatus,
   WorkflowSnapshot,
-} from "./snapshot";
-import { Snapshot } from "./snapshot";
-import type { StepContext, StepSpec } from "./step-types";
+} from "./slices/snapshot";
+import { Snapshot } from "./slices/snapshot";
+import type { StepContext, StepSpec } from "./step-context";
 import type { Bail, Unsubscribe } from "./types";
 import { isBail, StepBailError } from "./types";
 
-export type { StepContext, StepSpec } from "./step-types";
+export type { StepContext, StepSpec } from "./step-context";
 // biome-ignore lint/performance/noBarrelFile: Preserve the declared @foundry/workflows/step compatibility API.
 export { isStepBailError, StepBailError } from "./types";
 

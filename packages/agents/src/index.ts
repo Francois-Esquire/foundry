@@ -1,34 +1,41 @@
+// biome-ignore-all lint/performance/noBarrelFile: Public Web-standard package root for @foundry/agents.
 export type {
   AgentModel,
   ModelLimits,
   ModelRoute,
   ObserveTurn,
   TurnObservation,
-} from "./agents/model";
-export type { AgentRegistry } from "./agents/registry";
-// biome-ignore lint/performance/noBarrelFile: Public Web-standard package root for @foundry/agents.
-export { createAgentRegistry } from "./agents/registry";
+} from "@foundry/core/agents";
 export type {
   AgentPreset,
   AgentPresetContext,
   AgentSessionContext,
+  AgentSource,
+  AgentSpec,
   AgentSurface,
   ResolveAgentContext,
-} from "./agents/resolve";
-export { createAgentPreset, resolveAgent } from "./agents/resolve";
-export type { AgentSource, AgentSpec } from "./agents/spec";
+} from "./agents/preset";
+export { createAgentPreset, resolveAgent } from "./agents/preset";
+export type { AgentRegistry } from "./agents/registry";
+export { createAgentRegistry } from "./agents/registry";
 export type {
   AgentHarnessSettings,
   AgentHarnessStream,
 } from "./harness/agent-harness";
 export { AgentHarness } from "./harness/agent-harness";
+export type { HarnessSession } from "./harness/harness-session";
 export type {
   CompactionSettings,
   SessionHarnessSettings,
   TurnOptions,
 } from "./harness/session-harness";
 export { SessionHarness } from "./harness/session-harness";
-export type { HarnessSession } from "./harness/turn-driver";
+export type {
+  SessionMessage,
+  SessionPart,
+  SessionRecord,
+  SessionUsage,
+} from "./schema";
 export type {
   SessionEvent,
   SessionInput,
@@ -37,10 +44,4 @@ export type {
 } from "./session/events";
 export type { SessionsOptions } from "./session/sessions";
 export { Sessions } from "./session/sessions";
-export type {
-  SessionMessage,
-  SessionPart,
-  SessionRecord,
-  SessionUsage,
-} from "./session/types";
 export type { SessionStore, SessionStoreWrite } from "./store";

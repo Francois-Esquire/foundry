@@ -1,3 +1,4 @@
+import type { CapabilityFact } from "../../capability";
 import type {
   Connect,
   TransportHandlers,
@@ -5,7 +6,7 @@ import type {
   TransportSend,
 } from "../../live/transport";
 import type { LiveTarget } from "../../live/types";
-import type { CapabilityFact, Media } from "../../types";
+import type { Media } from "../../media";
 
 interface Double {
   readonly closed: () => boolean;

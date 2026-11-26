@@ -5,7 +5,7 @@ import type {
   WorkspaceEvent,
   WorkspaceId,
   WorkspaceRegistration,
-} from "../types";
+} from "../schema";
 
 export interface WorkspaceStore {
   commit: (write: WorkspaceStoreWrite) => Promise<void>;

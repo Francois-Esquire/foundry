@@ -1,4 +1,4 @@
-import type { ProviderModelDefinition } from "../types";
+import type { ProviderModelDefinition } from "../model-definition";
 
 export const LOCAL_EMBEDDING_MODEL_ID = "Xenova/all-MiniLM-L6-v2";
 

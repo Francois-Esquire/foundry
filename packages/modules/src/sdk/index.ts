@@ -1,9 +1,9 @@
 import { sha256Hex } from "@foundry/lib/digest";
 import { canonicalizeJson } from "@foundry/lib/json";
 
-import { MODULE_SDK_EMITTED } from "./emitted";
-import { MODULE_SDK_GENERATOR_ENTRYPOINT } from "./generator-source";
-import { MODULE_SDK_ENTRYPOINT } from "./source";
+import { MODULE_SDK_EMITTED } from "./emitted.generated";
+import { MODULE_SDK_ENTRYPOINT } from "./entrypoint-source";
+import { MODULE_SDK_GENERATOR_ENTRYPOINT } from "./generator-entrypoint.generated";
 
 export const MODULE_SDK_PACKAGE_NAME = "@foundry/module-sdk";
 export const MODULE_SDK_VERSION = "0.1.0";
