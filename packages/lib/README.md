@@ -17,7 +17,7 @@ Import shared helpers directly from their owning module:
 - `@foundry/lib/process-identity` & `@foundry/lib/instance-identity`: pure process/instance identity types, parsers, comparators, `portableProcess`, and `neverGone`. OS/Node queries (`thisProcess`, `isGone`, `nodeStartedAt`, `processAlive`, `lookProcesses`, `groupMembers`) live under `@foundry/lib/node/process-identity`.
 - `@foundry/lib/node/*`: Node/Bun-only filesystem, locking, and process-tracking helpers (`atomic-file`, `file-lock`, `orphans`, `spawn-record`, `process-identity`).
 - `@foundry/lib/sqlite`: shared Drizzle SQLite database/transaction types, value-storability guards, batching, upsert helpers, and record fault errors.
-- `@foundry/lib/testing/seam`: `auditWebStandardExports` and `assertWebStandardExports` for verifying Web-standard package export graphs.
+- `@foundry/lib/testing/seam`: audits for Web-standard export graphs, package tiers, export names, and export layout, plus the `sourceFiles` and `parseModuleImports` helpers for boundary tests.
 - `@foundry/lib/testing/sqlite`: Vitest helpers `createTables` for materializing Drizzle SQLite tables and `libsqlDatabases` for opening, reopening, and cleaning up libSQL test databases. Requires the `@libsql/client` and `vitest` dev dependencies in the consuming package.
 
 These modules have no third-party dependencies or filesystem I/O, except the SQLite helpers which require the optional `drizzle-orm` peer. Storage contracts and structural validation live in `@foundry/core/storage`.

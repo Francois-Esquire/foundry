@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +25,9 @@ import {
 const LIB_DIR = resolve(import.meta.dirname, "../..");
 const CORE_DIR = resolve(LIB_DIR, "../core");
 const PACKAGES_DIR = resolve(LIB_DIR, "..");
+const PACKAGE_NAMES = readdirSync(PACKAGES_DIR).filter((name) =>
+  existsSync(join(PACKAGES_DIR, name, "package.json"))
+);
 
 const tempDirs: string[] = [];
 
@@ -28,28 +38,40 @@ afterEach(() => {
 });
 
 describe("@foundry/lib/testing/seam", () => {
-  it("passes on all @foundry/core subpaths", () => {
+  it("discovers every package under packages/*", () => {
+    expect(PACKAGE_NAMES).toEqual(
+      expect.arrayContaining(["core", "lib", "workspaces"])
+    );
+    expect(PACKAGE_NAMES.length).toBeGreaterThanOrEqual(14);
+  });
+
+  it.each(PACKAGE_NAMES)(
+    "keeps every portable subpath of packages/%s Web-standard",
+    (name) => {
+      const packageDir = join(PACKAGES_DIR, name);
+      const subpaths = portableSubpaths(packageDir);
+      expect(subpaths.length).toBeGreaterThan(0);
+      expect(() =>
+        assertWebStandardExports(packageDir, subpaths)
+      ).not.toThrow();
+    }
+  );
+
+  it("keeps the @foundry/core storage conformance suite Web-standard", () => {
     expect(() =>
-      assertWebStandardExports(CORE_DIR, [
-        "./agents",
-        "./pagination",
-        "./paths",
-        "./storage",
-        "./testing/storage",
-      ])
+      assertWebStandardExports(CORE_DIR, ["./testing/storage"])
     ).not.toThrow();
   });
 
-  it("passes on all portable @foundry/lib subpaths (including conditional async-scope and turns)", () => {
+  it("audits conditional async-scope and turns among portable @foundry/lib subpaths", () => {
     const subpaths = portableSubpaths(LIB_DIR);
     expect(subpaths).toContain("./async-scope");
     expect(subpaths).toContain("./emitter");
     expect(subpaths).toContain("./turns");
     expect(subpaths).not.toContain("./testing/seam");
-    expect(() => assertWebStandardExports(LIB_DIR, subpaths)).not.toThrow();
   });
 
-  it("flags wildcard exports, node:* imports, /node subpaths, and unguarded globals while ignoring typeof guards", () => {
+  it("flags node:* imports, opt-in subpaths, and unguarded globals while ignoring typeof guards", () => {
     const dir = mkdtempSync(join(tmpdir(), "seam-audit-"));
     tempDirs.push(dir);
     writeFileSync(
@@ -75,7 +97,6 @@ export { bareJoin, readFileSync, thisProcess };
       JSON.stringify({
         exports: {
           ".": { default: "./index.ts", import: "./index.ts" },
-          "./*": "./*.ts",
         },
         name: "@foundry/fake-pkg",
       })
@@ -84,11 +105,10 @@ export { bareJoin, readFileSync, thisProcess };
     const violations = auditWebStandardExports(dir, ["."]);
     expect(violations).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('wildcard export "./*"'),
         expect.stringContaining('forbidden Node built-in import "node:fs"'),
         expect.stringContaining('forbidden Node built-in import "path"'),
         expect.stringContaining(
-          'forbidden /node subpath import "@foundry/lib/node/process-identity"'
+          'forbidden opt-in subpath import "@foundry/lib/node/process-identity"'
         ),
         expect.stringContaining('unguarded Node/Bun global "process"'),
         expect.stringContaining('unguarded Node/Bun global "Buffer"'),
@@ -135,6 +155,155 @@ const FIXTURE_TIERS: Record<string, PackageTier> = {
   "@foundry/engine": "tools",
   "@foundry/feature": "domains",
 };
+
+function fixturePackage(
+  exportsMap: Record<string, unknown>,
+  sources: Record<string, string>
+): string {
+  const packagesDir = tempPackages();
+  writePackage(
+    packagesDir,
+    "fixture",
+    { exports: exportsMap, name: "@foundry/fixture" },
+    sources
+  );
+  return join(packagesDir, "fixture");
+}
+
+function auditSource(source: string): string[] {
+  const dir = fixturePackage({ ".": "./src/index.ts" }, { "index.ts": source });
+  return auditWebStandardExports(dir, ["."]);
+}
+
+describe("@foundry/lib/testing/seam runtime detection", () => {
+  it.each([
+    "process",
+    "Buffer",
+    "Bun",
+    "setImmediate",
+    "__dirname",
+    "__filename",
+  ])("flags globalThis.%s", (name) => {
+    for (const source of [
+      `export const x = globalThis.${name};`,
+      `export const x = globalThis["${name}"];`,
+    ]) {
+      expect(auditSource(source)).toEqual([
+        `src/index.ts: unguarded Node/Bun global "${name}"`,
+      ]);
+    }
+  });
+
+  it.each([
+    [
+      "export const x = globalThis.process.pid;",
+      'unguarded Node/Bun global "process"',
+    ],
+    [
+      'export const x = require("node:fs");',
+      'forbidden Node built-in import "node:fs"',
+    ],
+    [
+      'import fs = require("node:fs");\nexport const x = fs;',
+      'forbidden Node built-in import "node:fs"',
+    ],
+    [
+      'export const x = require("bun:sqlite");',
+      'forbidden Bun built-in import "bun:sqlite"',
+    ],
+    [
+      'export const x = () => import("bun:sqlite");',
+      'forbidden Bun built-in import "bun:sqlite"',
+    ],
+    [
+      "export const x = import.meta.dirname;",
+      'unguarded Node/Bun global "import.meta.dirname"',
+    ],
+    [
+      "export const x = import.meta.filename;",
+      'unguarded Node/Bun global "import.meta.filename"',
+    ],
+  ])("flags %s", (source, violation) => {
+    expect(auditSource(source)).toEqual([`src/index.ts: ${violation}`]);
+  });
+
+  it("allows typeof-guarded globalThis access and non-import require members", () => {
+    expect(
+      auditSource(`export const a = typeof globalThis.process;
+export const b = typeof globalThis.process !== "undefined" && globalThis.process.pid;
+export const c = typeof process === "undefined" ? 0 : globalThis.process.pid;
+export const d = typeof globalThis.Buffer === "undefined" ? "" : Buffer.from("x");
+export const e = (store: { require: (id: string) => void }) => store.require("node:fs");
+export type F = typeof import("node:fs");
+export const g = import.meta.url;
+`)
+    ).toEqual([]);
+  });
+
+  it.each([
+    "./node",
+    "./node/live",
+    "./providers",
+    "./providers/x",
+    "./testing",
+    "./testing/helper",
+  ])("flags a portable import of the %s opt-in subpath", (subpath) => {
+    const file = `${subpath.slice(2)}.ts`;
+    const dir = fixturePackage(
+      { ".": "./src/index.ts", [subpath]: `./src/${file}` },
+      {
+        [file]: "export const x = 1;",
+        "index.ts": `export * from "./${subpath.slice(2)}";`,
+      }
+    );
+    expect(auditWebStandardExports(dir, ["."])).toEqual([
+      `src/index.ts: forbidden opt-in subpath import "./${subpath.slice(2)}"`,
+    ]);
+    expect(
+      auditSource(`export * from "@foundry/other/${subpath.slice(2)}";`)
+    ).toEqual([
+      `src/index.ts: forbidden opt-in subpath import "@foundry/other/${subpath.slice(2)}"`,
+    ]);
+  });
+
+  it.each([
+    "some-pkg/node",
+    "some-pkg/node/live",
+    "@scope/pkg/providers/x",
+    "some-pkg/testing",
+  ])("flags a portable import of third-party %s", (specifier) => {
+    expect(auditSource(`export * from "${specifier}";`)).toEqual([
+      `src/index.ts: forbidden opt-in subpath import "${specifier}"`,
+    ]);
+  });
+
+  it("allows third-party specifiers outside the opt-in subpaths", () => {
+    expect(
+      auditSource(`export * from "some-pkg";
+export * from "some-pkg/tree/node";
+export * from "@scope/node";
+export * from "some-pkg/testing/store";
+`)
+    ).toEqual([]);
+  });
+
+  it("follows a relative file named node.ts that no opt-in export targets", () => {
+    const exportsMap = { ".": "./src/index.ts" };
+    const index = 'export * from "./tree/node";';
+    const clean = fixturePackage(exportsMap, {
+      "index.ts": index,
+      "tree/node.ts": "export const leaf = 1;",
+    });
+    expect(auditWebStandardExports(clean, ["."])).toEqual([]);
+    const dirty = fixturePackage(exportsMap, {
+      "index.ts": index,
+      "tree/node.ts": "export const leaf = process.pid;",
+    });
+    expect(auditWebStandardExports(dirty, ["."])).toEqual([
+      'src/tree/node.ts: unguarded Node/Bun global "process"',
+    ]);
+  });
+});
 
 describe("@foundry/lib/testing/seam package tiers", () => {
   it("classifies every package under packages/* and allows only downward, acyclic edges", () => {
@@ -280,20 +449,76 @@ describe("@foundry/lib/testing/seam export layout", () => {
 
   it("flags non-mirroring export targets and wildcards", () => {
     const packagesDir = tempPackages();
-    writePackage(packagesDir, "sample", {
-      exports: {
-        ".": { import: "./src/index.ts" },
-        "./*": "./src/*.ts",
-        "./foo": { import: "./src/foo/bar.ts" },
-        "./ok": { import: "./src/ok.ts" },
-        "./ok-dir": { import: "./src/ok-dir/index.ts" },
+    writePackage(
+      packagesDir,
+      "sample",
+      {
+        exports: {
+          ".": { import: "./src/index.ts" },
+          "./*": "./src/*.ts",
+          "./foo": { import: "./src/foo/bar.ts" },
+          "./ok": { import: "./src/ok.ts", types: "./dist/ok.d.ts" },
+          "./ok-dir": { import: "./src/ok-dir/index.ts" },
+        },
+        name: "@foundry/sample",
       },
-      name: "@foundry/sample",
-    });
-    const violations = auditExportLayout(packagesDir);
-    expect(violations).toEqual([
+      {
+        "foo/bar.ts": "",
+        "index.ts": "",
+        "ok-dir/index.ts": "",
+        "ok.ts": "",
+      }
+    );
+    expect(auditExportLayout(packagesDir)).toEqual([
       '@foundry/sample: wildcard export "./*"',
       '@foundry/sample: export "./foo" targets "./src/foo/bar.ts", expected ./src/foo.ts or ./src/foo/index.ts',
+    ]);
+  });
+
+  it("checks every runtime condition and that each target exists", () => {
+    const packagesDir = tempPackages();
+    writePackage(
+      packagesDir,
+      "sample",
+      {
+        exports: {
+          "./async-scope": {
+            default: "./src/async-scope.ts",
+            node: "./src/node/async-scope.ts",
+          },
+          "./gone": "./src/gone.ts",
+          "./node": { default: "./src/node.ts", import: "./wrong.ts" },
+          "./typed": { types: "./dist/typed.d.ts" },
+        },
+        name: "@foundry/sample",
+      },
+      { "async-scope.ts": "", "node.ts": "", "node/async-scope.ts": "" }
+    );
+    expect(auditExportLayout(packagesDir)).toEqual([
+      '@foundry/sample: export "./async-scope" targets "./src/node/async-scope.ts", expected ./src/async-scope.ts or ./src/async-scope/index.ts',
+      '@foundry/sample: export "./gone" targets missing file "./src/gone.ts"',
+      '@foundry/sample: export "./node" targets "./wrong.ts", expected ./src/node.ts or ./src/node/index.ts',
+      '@foundry/sample: export "./node" targets missing file "./wrong.ts"',
+      '@foundry/sample: export "./typed" has no source target',
+    ]);
+  });
+
+  it("permits only the @foundry/lib async-scope node and bun conditions to diverge", () => {
+    const packagesDir = tempPackages();
+    const conditional = {
+      bun: "./src/node/async-scope.ts",
+      default: "./src/async-scope.ts",
+      import: "./src/node/async-scope.ts",
+      node: "./src/node/async-scope.ts",
+    };
+    writePackage(
+      packagesDir,
+      "lib",
+      { exports: { "./async-scope": conditional }, name: "@foundry/lib" },
+      { "async-scope.ts": "", "node/async-scope.ts": "" }
+    );
+    expect(auditExportLayout(packagesDir)).toEqual([
+      '@foundry/lib: export "./async-scope" targets "./src/node/async-scope.ts", expected ./src/async-scope.ts or ./src/async-scope/index.ts',
     ]);
   });
 });

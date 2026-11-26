@@ -1,11 +1,15 @@
 import { dirname, join, relative, resolve } from "node:path";
 
+import {
+  type ModuleImport,
+  parseModuleImports,
+  sourceFiles,
+} from "@foundry/lib/testing/seam";
 import { describe, expect, it } from "vitest";
 import { MemoryContainerStore } from "../store/memory";
 import { CONTAINER_ROW_STATUSES } from "../store/schema";
-import type { ParsedImport } from "./helpers/boundary-scan";
-import { importSites, REPO_ROOT, sourceFiles } from "./helpers/boundary-scan";
 
+const REPO_ROOT = resolve(import.meta.dirname, "../../../..");
 const CONTRACTS_ROOT = join(REPO_ROOT, "packages/sandbox/src/store");
 
 const RECORDS_SCHEMA = join(CONTRACTS_ROOT, "schema.ts");
@@ -18,7 +22,7 @@ const RUNTIME_SPECIFIERS = ["ignore", "just-bash", "microsandbox", "zod"];
 
 function isRuntimeImport(
   fromPath: string,
-  { specifier }: ParsedImport
+  { specifier }: ModuleImport
 ): boolean {
   if (specifier.startsWith("node:")) {
     return true;
@@ -34,6 +38,16 @@ function isRuntimeImport(
     return false;
   }
   return relative(CONTRACTS_ROOT, target).startsWith("..");
+}
+
+function importSites(files: readonly string[]) {
+  return files.flatMap((path) =>
+    parseModuleImports(path).map((parsed) => ({
+      import: parsed,
+      path,
+      relativePath: relative(REPO_ROOT, path),
+    }))
+  );
 }
 
 describe("container store contract", () => {

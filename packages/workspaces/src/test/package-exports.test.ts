@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseModuleImports, sourceFiles } from "@foundry/lib/testing/seam";
 import { describe, expect, it } from "vitest";
 
 describe("@foundry/workspaces dependencies", () => {
@@ -58,9 +59,9 @@ describe("@foundry/workspaces store paths", () => {
   });
 });
 
-const IMPORTS_DRIZZLE = /from "drizzle-orm/;
-const IMPORTS_LIBSQL = /from "@libsql\/client"/;
-const IMPORTS_NODE = /from "node:/;
+const IMPORTS_DRIZZLE = /^drizzle-orm/;
+const IMPORTS_LIBSQL = /^@libsql\/client(?:\/|$)/;
+const IMPORTS_NODE = /^node:/;
 
 describe("@foundry/workspaces runtime boundaries", () => {
   it("keeps Drizzle an optional peer, used only on the SQLite paths", () => {
@@ -84,11 +85,14 @@ describe("@foundry/workspaces runtime boundaries", () => {
 
 function importers(pattern: RegExp): string[] {
   const source = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  return readdirSync(source, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
-    .map((entry) => relative(source, join(entry.parentPath, entry.name)))
+  return sourceFiles(source, { extensions: [".ts"] })
+    .map((path) => relative(source, path))
     .filter((path) => !path.startsWith("test/"))
-    .filter((path) => pattern.test(readFileSync(join(source, path), "utf8")))
+    .filter((path) =>
+      parseModuleImports(join(source, path)).some(({ specifier }) =>
+        pattern.test(specifier)
+      )
+    )
     .sort();
 }
 

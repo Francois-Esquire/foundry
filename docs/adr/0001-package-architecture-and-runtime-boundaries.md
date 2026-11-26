@@ -73,10 +73,12 @@ Runtime-conditional `"node"` / `"bun"` vs. `"default"` exports—specifically `@
 
 Runtime **seams**, tier rules, and naming rules are enforced by `@foundry/lib/testing/seam` through Vitest, alongside `bun run validate` (Biome/Ultracite, Sherif, TypeScript, and Knip):
 
-- `assertWebStandardExports(packageDir, portableSubpaths(packageDir))` runs in each package's `base-entry.test.ts`, so a new subpath that is not opt-in is audited by default. `@foundry/core` cannot run its own copy without a dependency cycle (`lib` depends on `core`), so `@foundry/lib` audits it.
+`packages/lib/src/test/seam.test.ts` runs all four repo-wide audits across every package under `packages/*`, so a new package or a new subpath is audited without adding a test to that package:
+
+- `assertWebStandardExports(packageDir, portableSubpaths(packageDir))` runs once per package, so a new subpath that is not opt-in is audited by default. It also audits `@foundry/core/testing/storage`, a shared conformance suite. Portable code must not import an opt-in subpath, whether by a package specifier (workspace or third-party) with an opt-in subpath or by a relative path to a file that only an opt-in export targets. Node and Bun built-ins are rejected in `import`, `import()`, and `require()`, as are unguarded Node/Bun globals (bare or on `globalThis`) and `import.meta.dirname` / `import.meta.filename`.
 - `assertPackageTiers(packagesDir)` fails when a package under `packages/*` is missing from `PACKAGE_TIERS`, when a dependency points to a higher tier (which covers Tools depending on Domains), when a package depends on a workspace package outside `packages/*` (other than `@foundry/tsconfig`), or when the dependency graph has a cycle. Same-tier edges are allowed.
 - `assertExportNames(packagesDir)` fails on exported `*Manager`, `*System` (except `*FileSystem`), and `InMemory*` names outside `test/` and `testing/`.
-- `assertExportLayout(packagesDir)` fails on wildcard exports or any export key `./a/b` whose source target does not mirror `./src/a/b.ts` or `./src/a/b/index.ts` (and `.` → `./src/index.ts`).
+- `assertExportLayout(packagesDir)` fails on wildcard exports, on any runtime condition of an export key `./a/b` whose target does not mirror `./src/a/b.ts` or `./src/a/b/index.ts` (and `.` → `./src/index.ts`), and on a target file that does not exist. `types` conditions are not checked. The only permitted divergence is the `node` and `bun` conditions of `@foundry/lib/async-scope`, which target `./src/node/async-scope.ts` (see section 4).
 
 Every package migration removes `node:*` imports and unguarded runtime globals from `.` and `./store/memory` without reintroducing them.
 

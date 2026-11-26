@@ -1,21 +1,8 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  createSourceFile,
-  forEachChild,
-  type ImportClause,
-  isCallExpression,
-  isExportDeclaration,
-  isImportDeclaration,
-  isNamedExports,
-  isNamedImports,
-  isStringLiteralLike,
-  type Node,
-  ScriptTarget,
-  SyntaxKind,
-} from "typescript";
+import { parseModuleImports, sourceFiles } from "@foundry/lib/testing/seam";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -35,56 +22,14 @@ const PROGRAM_SUPERVISOR_SRC = join(
   "platform/program-supervisor.ts"
 );
 const TARGET_ROOTS = [MODULES_SRC] as const;
-const SOURCE_EXTENSIONS = new Set([
-  ".ts",
-  ".tsx",
-  ".mts",
-  ".cts",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-]);
 const TEST_OR_STORY_FILE = /\.(?:test|stories)\.(?:ts|tsx)$/u;
 const TEST_DIRECTORY = /\/(?:tests|test|testing)\//u;
 const GUEST_SOURCE_DIRECTORY = /\/(?:sdk|template)\//u;
 const NODE_OR_GUEST_SOURCE_DIRECTORY = /\/(?:node|sdk|template)\//u;
 const NODE_ADAPTER_SPECIFIER = /(?:^|\/)node(?:\/|$)/u;
 
-function sourceFiles(root: string): string[] {
-  if (!existsSync(root)) {
-    return [];
-  }
-  if (statSync(root).isFile()) {
-    return SOURCE_EXTENSIONS.has(extname(root)) ? [root] : [];
-  }
-  const files: string[] = [];
-  const pending = [root];
-  while (pending.length > 0) {
-    const path = pending.pop();
-    if (path === undefined) {
-      continue;
-    }
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      if (["dist", "node_modules", ".cache", ".turbo"].includes(entry.name)) {
-        continue;
-      }
-      const child = join(path, entry.name);
-      if (entry.isDirectory()) {
-        pending.push(child);
-      } else if (
-        statSync(child).isFile() &&
-        SOURCE_EXTENSIONS.has(extname(child))
-      ) {
-        files.push(child);
-      }
-    }
-  }
-  return files.sort();
-}
-
 function targetSourceFiles(): string[] {
-  return TARGET_ROOTS.flatMap(sourceFiles).filter((path) => {
+  return TARGET_ROOTS.flatMap((root) => sourceFiles(root)).filter((path) => {
     const relativePath = relative(MODULES_SRC, path);
     return !(
       relativePath.startsWith("test/") || relativePath.startsWith("testing/")
@@ -95,90 +40,6 @@ function targetSourceFiles(): string[] {
 function productionSourceFiles(root: string): string[] {
   return sourceFiles(root).filter(
     (path) => !(TEST_OR_STORY_FILE.test(path) || TEST_DIRECTORY.test(path))
-  );
-}
-
-function importSpecifiers(source: string): string[] {
-  const specifiers: string[] = [];
-  const expression =
-    /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["']([^"']+)["']/g;
-  for (const match of source.matchAll(expression)) {
-    const [, specifier] = match;
-    if (specifier !== undefined) {
-      specifiers.push(specifier);
-    }
-  }
-  return specifiers;
-}
-
-interface ModuleImport {
-  readonly specifier: string;
-  readonly typeOnly: boolean;
-}
-
-function moduleImports(path: string): ModuleImport[] {
-  const source = createSourceFile(
-    path,
-    readFileSync(path, "utf8"),
-    ScriptTarget.Latest,
-    true
-  );
-  const imports: ModuleImport[] = [];
-  const visit = (node: Node): void => {
-    if (
-      isImportDeclaration(node) &&
-      isStringLiteralLike(node.moduleSpecifier)
-    ) {
-      imports.push({
-        specifier: node.moduleSpecifier.text,
-        typeOnly: isTypeOnlyImportClause(node.importClause),
-      });
-    } else if (
-      isExportDeclaration(node) &&
-      node.moduleSpecifier !== undefined &&
-      isStringLiteralLike(node.moduleSpecifier)
-    ) {
-      const clause = node.exportClause;
-      imports.push({
-        specifier: node.moduleSpecifier.text,
-        typeOnly:
-          node.isTypeOnly ||
-          (clause !== undefined &&
-            isNamedExports(clause) &&
-            clause.elements.length > 0 &&
-            clause.elements.every((element) => element.isTypeOnly)),
-      });
-    } else if (
-      isCallExpression(node) &&
-      node.expression.kind === SyntaxKind.ImportKeyword
-    ) {
-      const [argument] = node.arguments;
-      if (argument !== undefined && isStringLiteralLike(argument)) {
-        imports.push({ specifier: argument.text, typeOnly: false });
-      }
-    }
-    forEachChild(node, visit);
-  };
-  visit(source);
-  return imports;
-}
-
-function isTypeOnlyImportClause(clause: ImportClause | undefined): boolean {
-  if (clause === undefined) {
-    return false;
-  }
-  if (clause.phaseModifier === SyntaxKind.TypeKeyword) {
-    return true;
-  }
-  if (clause.name !== undefined) {
-    return false;
-  }
-  const bindings = clause.namedBindings;
-  return (
-    bindings !== undefined &&
-    isNamedImports(bindings) &&
-    bindings.elements.length > 0 &&
-    bindings.elements.every((element) => element.isTypeOnly)
   );
 }
 
@@ -291,7 +152,7 @@ describe("Modules boundary", () => {
 
   it("admits every production import through the boundary allowlist", () => {
     const violations = targetSourceFiles().flatMap((path) =>
-      moduleImports(path)
+      parseModuleImports(path)
         .filter(({ specifier }) => !isModuleAllowedImport(specifier, path))
         .map(
           ({ specifier }) => `${relative(REPO_ROOT, path)} imports ${specifier}`
@@ -304,7 +165,7 @@ describe("Modules boundary", () => {
     const violations = targetSourceFiles()
       .filter((path) => relative(MODULES_SRC, path).startsWith("platform/"))
       .flatMap((path) =>
-        moduleImports(path)
+        parseModuleImports(path)
           .filter(({ specifier }) => specifier.startsWith("@foundry/sandbox"))
           .filter(({ typeOnly }) => !typeOnly)
           .map(
@@ -334,7 +195,8 @@ describe("Modules boundary", () => {
     const violations = targetSourceFiles()
       .filter((path) => !GUEST_SOURCE_DIRECTORY.test(path))
       .flatMap((path) =>
-        importSpecifiers(readFileSync(path, "utf8"))
+        parseModuleImports(path)
+          .map(({ specifier }) => specifier)
           .filter((specifier) => specifier.startsWith("node:"))
           .filter((specifier) => !isModuleAllowedImport(specifier, path))
           .map(
@@ -379,7 +241,8 @@ describe("Modules boundary", () => {
     const violations = targetSourceFiles()
       .filter((path) => !NODE_OR_GUEST_SOURCE_DIRECTORY.test(path))
       .flatMap((path) =>
-        importSpecifiers(readFileSync(path, "utf8"))
+        parseModuleImports(path)
+          .map(({ specifier }) => specifier)
           .filter((specifier) => NODE_ADAPTER_SPECIFIER.test(specifier))
           .map(
             (specifier) => `${relative(REPO_ROOT, path)} imports ${specifier}`
@@ -410,7 +273,7 @@ describe("Modules boundary", () => {
     const violations = productionSourceFiles(
       join(REPO_ROOT, "packages")
     ).flatMap((path) =>
-      moduleImports(path)
+      parseModuleImports(path)
         .filter(
           ({ specifier, typeOnly }) => specifier === "microsandbox" && !typeOnly
         )
