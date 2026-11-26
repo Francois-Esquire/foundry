@@ -142,7 +142,6 @@ export function replying(
       });
     },
     models: shape.models,
-    offline: false,
     ...(shape.turnLimit ? { turnLimit: shape.turnLimit } : {}),
   };
 }

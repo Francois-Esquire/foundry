@@ -8,7 +8,7 @@ import { configureModelObservability } from "./observability";
 import type { Provider } from "./provider";
 import { catalogRow, servesKind } from "./provider";
 import type { Host, Resolution } from "./resolution";
-import { guarded, instanceOf, resolution } from "./resolution";
+import { resolution } from "./resolution";
 import type { ModelSelection } from "./selection";
 
 // biome-ignore lint/suspicious/noExplicitAny: Preserve EventEmitter compatibility for custom listener signatures.
@@ -24,7 +24,6 @@ const UNRESOLVED = new Set<string>([
   modelErrors.MODEL_NOT_FOUND.code,
   modelErrors.NO_MODEL_OF_KIND.code,
   modelErrors.PROVIDER_NOT_CONFIGURED.code,
-  modelErrors.PROVIDER_RESTRICTED.code,
   modelErrors.PROVIDER_UNAVAILABLE.code,
   modelErrors.SELECTION_AMBIGUOUS.code,
 ]);
@@ -33,26 +32,12 @@ export interface ModelsOptions {
   providers?: readonly Provider[];
 }
 
-export interface ProviderPolicy {
-  admit(provider: Provider): true | string;
-  readonly id: string;
-}
-
 export class Models {
   private readonly _providers = new Map<string, Provider>();
   private readonly leaseCounts = new Map<Provider, number>();
   private readonly leaving = new Set<Provider>();
   private readonly disposing = new Set<Promise<void>>();
-  private readonly policies = new Map<string, ProviderPolicy>();
-  private readonly calls = new Map<Provider, Set<AbortController>>();
-  private readonly views = new WeakMap<Provider, Provider>();
   private readonly leases: Host = {
-    admit: (provider: Provider) => {
-      const refusal = this.refusal(provider);
-      if (refusal) {
-        throw refusal;
-      }
-    },
     give: (provider: Provider) => {
       const count = (this.leaseCounts.get(provider) ?? 1) - 1;
       if (count > 0) {
@@ -72,36 +57,19 @@ export class Models {
       this.leaseCounts.set(provider, count + 1);
       return true;
     },
-    track: (provider: Provider, call: AbortController) => {
-      const running = this.calls.get(provider) ?? new Set();
-      running.add(call);
-      this.calls.set(provider, running);
-      return () => {
-        running.delete(call);
-        if (running.size === 0 && this.calls.get(provider) === running) {
-          this.calls.delete(provider);
-        }
-      };
-    },
   };
 
   readonly events = new ModelsEventEmitter();
 
   constructor(options: ModelsOptions = {}) {
     this.setProviders(options.providers ?? []);
-    held.set(this, () =>
-      [...this._providers.values(), ...this.leaving].map((provider) =>
-        this.view(provider)
-      )
-    );
   }
 
   get providers(): readonly Provider[] {
-    return [...this._providers.values()].map((provider) => this.view(provider));
+    return [...this._providers.values()];
   }
 
-  setProviders(given: readonly Provider[]): void {
-    const providers = given.map(instanceOf);
+  setProviders(providers: readonly Provider[]): void {
     const ids = new Set(providers.map((provider) => provider.id));
     if (ids.size !== providers.length) {
       throw new Error("Each provider id may appear once in the set");
@@ -144,21 +112,6 @@ export class Models {
         throw error;
       }
     });
-  }
-
-  restrict(policy: ProviderPolicy): () => void {
-    if (this.policies.has(policy.id)) {
-      throw new Error(`A policy "${policy.id}" is already installed`);
-    }
-    this.policies.set(policy.id, policy);
-    this.abortRefused();
-    this.events.emit("policies-changed");
-    return () => {
-      if (this.policies.get(policy.id) === policy) {
-        this.policies.delete(policy.id);
-        this.events.emit("policies-changed");
-      }
-    };
   }
 
   async dispose(): Promise<void> {
@@ -219,7 +172,6 @@ export class Models {
       if (!provider) {
         throw modelErrors.PROVIDER_NOT_CONFIGURED({ provider: providerId });
       }
-      this.leases.admit(provider);
       if (!provider.available) {
         throw modelErrors.PROVIDER_UNAVAILABLE({ kind, provider: provider.id });
       }
@@ -231,18 +183,12 @@ export class Models {
     const serving = [...this._providers.values()].filter((candidate) =>
       servesKind(candidate, kind)
     );
-    const provider = serving.find(
-      (candidate) => candidate.available && !this.refusal(candidate)
-    );
+    const provider = serving.find((candidate) => candidate.available);
     if (!provider) {
       if (serving.length === 0) {
         throw modelErrors.NO_MODEL_OF_KIND({ kind, provider: "any" });
       }
-      const refused = serving.find((candidate) => candidate.available);
-      throw (
-        (refused && this.refusal(refused)) ??
-        modelErrors.PROVIDER_UNAVAILABLE({ kind })
-      );
+      throw modelErrors.PROVIDER_UNAVAILABLE({ kind });
     }
     return { definition: catalogRow(provider, kind), provider };
   }
@@ -256,11 +202,6 @@ export class Models {
       );
       if (!row) {
         otherKind ??= provider.models.find((entry) => entry.id === model);
-        continue;
-      }
-      const refusal = this.refusal(provider);
-      if (refusal) {
-        skipped.push(`${provider.id} (${refusal.message})`);
         continue;
       }
       if (!provider.available) {
@@ -287,40 +228,6 @@ export class Models {
     });
   }
 
-  private view(provider: Provider): Provider {
-    let view = this.views.get(provider);
-    if (!view) {
-      view = guarded(this.leases, provider);
-      this.views.set(provider, view);
-    }
-    return view;
-  }
-
-  private refusal(provider: Provider): Error | undefined {
-    for (const policy of this.policies.values()) {
-      const verdict = policy.admit(provider);
-      if (verdict !== true) {
-        return modelErrors.PROVIDER_RESTRICTED({
-          policy: policy.id,
-          provider: provider.id,
-          reason: verdict,
-        });
-      }
-    }
-    return undefined;
-  }
-
-  private abortRefused(): void {
-    for (const [provider, running] of this.calls) {
-      const refusal = this.refusal(provider);
-      if (refusal) {
-        for (const call of running) {
-          call.abort(refusal);
-        }
-      }
-    }
-  }
-
   private leave(provider: Provider): void {
     if (this.leaseCounts.has(provider)) {
       this.leaving.add(provider);
@@ -336,7 +243,7 @@ export class Models {
       })
       .finally(() => {
         this.disposing.delete(disposal);
-        this.events.emit("provider-retired", this.view(provider));
+        this.events.emit("provider-retired", provider);
       });
     this.disposing.add(disposal);
   }
@@ -357,12 +264,6 @@ export class Models {
       configureModelObservability({ cost });
     }
   }
-}
-
-const held = new WeakMap<Models, () => readonly Provider[]>();
-
-export function heldProviders(models: Models): readonly Provider[] {
-  return held.get(models)?.() ?? [];
 }
 
 interface Match {

@@ -276,7 +276,6 @@ it("runs multiple model/tool steps and stops at maxTurns", async () => {
         id: "network",
         languageModel: () => model,
         models: [{ id: "test", kind: "text", modelId: "test" }],
-        offline: false,
       },
     ],
   });

@@ -3,7 +3,6 @@ import {
   OpenAICompatibleEmbeddingModel,
   OpenAICompatibleImageModel,
 } from "@ai-sdk/openai-compatible";
-import { withoutTrailingSlash } from "@ai-sdk/provider-utils";
 import type { ModelKind, ProviderModelDefinition } from "../model-definition";
 import type { Provider } from "../provider";
 
@@ -21,8 +20,10 @@ export interface GatewayProviderOptions {
   models: ProviderModelDefinition[];
 }
 
+const TRAILING_SLASHES = /\/+$/;
+
 function urlFor(config: GatewayProviderConfig, path: string): string {
-  const base = withoutTrailingSlash(config.baseURL) ?? config.baseURL;
+  const base = config.baseURL.replace(TRAILING_SLASHES, "");
   const target = new URL(`${base}${path}`);
   for (const [key, value] of Object.entries(config.queryParams ?? {})) {
     target.searchParams.set(key, value);
@@ -84,6 +85,5 @@ export function gatewayProvider(options: GatewayProviderOptions): Provider {
     languageModel: (modelId) =>
       new OpenAICompatibleChatLanguageModel(modelId, settings()),
     models: options.models,
-    offline: false,
   };
 }

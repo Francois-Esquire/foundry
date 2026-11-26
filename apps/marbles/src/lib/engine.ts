@@ -7,8 +7,6 @@ import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type { Models } from "@foundry/models";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
-import type { AirplaneMode } from "@foundry/models/providers/airplane";
-import { airplaneMode } from "@foundry/models/providers/airplane";
 import type { Containers } from "@foundry/sandbox";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
@@ -141,7 +139,6 @@ export class Engine {
   readonly feed: FeedReader;
   readonly interactions: HarnessInteractions;
   readonly models: Models;
-  readonly airplane: AirplaneMode;
   readonly providers: ProviderConfiguration | undefined;
   readonly root: string;
   readonly sandboxes: SandboxesManager;
@@ -194,7 +191,7 @@ export class Engine {
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
-  #prices: ModelsDevHold | undefined;
+  readonly #prices: ModelsDevHold;
 
   static worktreesFor(state: string | undefined): string {
     return join(state ?? join(tmpdir(), "marbles"), "worktrees");
@@ -221,23 +218,6 @@ export class Engine {
     const { containers } = options;
     this.models = models;
     this.#prices = holdModelsDev();
-    const airplane = airplaneMode(models);
-    this.airplane = {
-      dispose: () => airplane.dispose(),
-      get enabled() {
-        return airplane.enabled;
-      },
-      set: (enabled) => {
-        airplane.set(enabled);
-        this.providers?.setOffline(enabled);
-        if (enabled) {
-          this.#releasePrices();
-        } else if (!this.#disposing) {
-          this.#prices ??= holdModelsDev();
-          this.#listModels();
-        }
-      },
-    };
     this.providers = options.providers;
     this.#unwatch =
       options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
@@ -838,11 +818,6 @@ export class Engine {
     }
   }
 
-  #releasePrices(): void {
-    this.#prices?.release();
-    this.#prices = undefined;
-  }
-
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();
     return this.#disposing;
@@ -879,8 +854,7 @@ export class Engine {
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());
     this.#unwatch();
-    this.airplane.dispose();
-    this.#releasePrices();
+    this.#prices.release();
     await close(async () => {
       await this.providers?.dispose();
     });

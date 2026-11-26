@@ -6,7 +6,7 @@ import { silentExecutable } from "../helpers/env-dump";
 const CALL = {
   prompt: [{ content: [{ text: "hi", type: "text" }], role: "user" }],
 } as LanguageModelV4CallOptions;
-const OFFLINE_PATTERN = /is offline/;
+const DISPOSED_PATTERN = /is disposed/;
 
 let cli: ReturnType<typeof silentExecutable>;
 const saved = { ...process.env };
@@ -56,41 +56,31 @@ async function hangingCall(
   return { call };
 }
 
-it("going offline ends the call in flight and resolves only once the app-server has exited", async () => {
+it("dispose ends the call in flight and resolves only once the app-server has exited", async () => {
   const codex = provider();
-  try {
-    const { call } = await hangingCall(codex.languageModel("gpt-5.5"), 1);
-    const [first = 0] = cli.pids();
+  const { call } = await hangingCall(codex.languageModel("gpt-5.5"), 1);
+  const [first = 0] = cli.pids();
 
-    await codex.setOffline?.(true);
+  await codex.dispose?.();
 
-    expect(alive(first)).toBe(false);
-    await expect(call).rejects.toThrow();
-  } finally {
-    await codex.dispose?.();
-  }
+  expect(alive(first)).toBe(false);
+  await expect(call).rejects.toThrow();
 }, 20_000);
 
-it("refuses every call while offline, including on a model opened before", async () => {
+it("refuses every call once disposed, including on a model opened before", async () => {
   const codex = provider();
   const model = codex.languageModel("gpt-5.5");
-  try {
-    await codex.setOffline?.(true);
-    await expect(model.doGenerate(CALL)).rejects.toThrow(OFFLINE_PATTERN);
-    await expect(codex.languageModel("gpt-5.5").doStream(CALL)).rejects.toThrow(
-      OFFLINE_PATTERN
-    );
-    expect(cli.pids()).toEqual([]);
 
-    await codex.setOffline?.(false);
-    await hangingCall(model, 1);
-    expect(cli.pids()).toHaveLength(1);
-  } finally {
-    await codex.dispose?.();
-  }
+  await codex.dispose?.();
+
+  await expect(model.doGenerate(CALL)).rejects.toThrow(DISPOSED_PATTERN);
+  await expect(codex.languageModel("gpt-5.5").doStream(CALL)).rejects.toThrow(
+    DISPOSED_PATTERN
+  );
+  expect(cli.pids()).toEqual([]);
 }, 20_000);
 
-it("keeps one app-server while the environment holds, starts another when it changes, and stops both offline", async () => {
+it("keeps one app-server while the environment holds, starts another when it changes, and stops both", async () => {
   const codex = provider();
   const model = codex.languageModel("gpt-5.5");
   try {
@@ -104,7 +94,7 @@ it("keeps one app-server while the environment holds, starts another when it cha
     const [old = 0, current = 0] = cli.pids();
     expect(alive(old)).toBe(true);
 
-    await codex.setOffline?.(true);
+    await codex.dispose?.();
     expect(alive(old)).toBe(false);
     expect(alive(current)).toBe(false);
   } finally {
@@ -123,7 +113,7 @@ it("still stops an app-server superseded when its environment comes back", async
     await hangingCall(model, 3);
     const pids = cli.pids();
 
-    await codex.setOffline?.(true);
+    await codex.dispose?.();
     expect(pids.filter(alive)).toEqual([]);
   } finally {
     await codex.dispose?.();

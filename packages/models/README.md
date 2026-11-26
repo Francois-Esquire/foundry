@@ -1,8 +1,9 @@
 # @foundry/models
 
-An ordered set of provider instances — hosted gateways, Vercel, on-device
-weights, and the CLI harnesses — and one catalog-checked way to choose among
-them. Resolving a selection returns a route; opening it returns an AI SDK model.
+An ordered set of provider instances (an OpenAI-compatible gateway, the Vercel
+AI Gateway, and the Claude Code, Codex and Pi harnesses) and one
+catalog-checked way to choose among them. Resolving a selection returns a
+route; opening it returns an AI SDK model.
 
 Also owns the catalog: what each model costs, how large its context is, what it
 can do.
@@ -31,18 +32,16 @@ for the kind; nothing picks the first available provider serving the kind. An
 id no catalog lists is refused rather than passed through.
 
 `open()` leases the instance until `release()` (or `using`), so a session keeps
-it after it leaves the set. For `"text"` it returns an `AgentModel` — the
-`LanguageModelV4` to hand to `generateText`, `streamText`, or an agent,
-carrying its `route` and `limits`. Other kinds return the AI SDK model for the
-kind: `"embedding"`, `"image"`, `"speech"`, `"transcription"`, `"video"`, and
-`"music"`, `"sound"`, `"segmentation"` as a `MediaModel`.
+it after it leaves the set. The kinds are `"text"`, `"embedding"` and
+`"image"`. For `"text"` it returns an `AgentModel`: the `LanguageModelV4` to
+hand to `generateText`, `streamText`, or an agent, carrying its `route` and
+`limits`. The other kinds return the AI SDK model for the kind.
 
 ## A provider is a record
 
 ```typescript
 interface Provider {
   id: string; // the instance id; unique within a set
-  offline: boolean; // can serve without network
   available: boolean; // credentialed / installed / switched on
   models: readonly ProviderModelDefinition[]; // the catalog, fixed for life
   defaults?: Partial<Record<ModelKind, string>>; // catalog id per kind
@@ -51,20 +50,14 @@ interface Provider {
   languageModel(modelId, options?): LanguageModelV4;
   embeddingModel?(modelId): EmbeddingModelV4;
   imageModel?(modelId): ImageModelV4;
-  transcriptionModel?(modelId): TranscriptionModelV4;
-  speechModel?(modelId): SpeechModelV4;
-  videoModel?(modelId): Experimental_VideoModelV4;
-  mediaModel?(modelId): MediaModel;
-  grant?(modelId, operation): Promise<LiveAccess>;
 
-  setOffline?(offline: boolean): void | Promise<void>;
   dispose?(): Promise<void>;
 }
 ```
 
 The model methods are the AI SDK's own `ProviderV4` shape and take the **wire**
-id. Resolving a catalog id to a wire id is the `Models` registry's job. Adding a provider
-is writing one of these:
+id. Resolving a catalog id to a wire id is the `Models` registry's job. Adding a
+provider is writing one of these:
 
 ```typescript
 import { createVertex } from "@ai-sdk/google-vertex";
@@ -74,7 +67,6 @@ import { fromSdk } from "@foundry/models";
 const vertex = fromSdk(
   {
     id: "vertex",
-    offline: false,
     available: Boolean(project),
     models: [{ id: "gemini-2.5-pro", modelId: "gemini-2.5-pro", kind: "text" }],
   },
@@ -84,14 +76,17 @@ models.setProviders([...models.providers, vertex]);
 ```
 
 Each built-in factory is its own subpath, so a host bundles only what it
-configures: `vercelProvider` (`@foundry/models/providers/vercel`), `gatewayProvider`
-(`/providers/gateway`), `falProvider` (`/providers/fal`), `replicateProvider` (`/providers/replicate`),
-`claudeCodeProvider` (`/providers/claude-code`), `codexProvider` (`/providers/codex`), and
-`piProvider` (`/providers/pi`). Each takes `id` and `models`, so one factory can build
-several instances; all but FAL and Replicate also take `defaults`. The root
-entry exports no provider. `gatewayProvider` has no models of its own and
-requires `models`. `gatewayModels(config)` reads them from the server's
-`GET <baseURL>/models`, each id as a text model with nothing else known.
+configures: `vercelProvider` (`@foundry/models/providers/vercel`),
+`gatewayProvider` (`/providers/gateway`), `claudeCodeProvider`
+(`/providers/claude-code`), `codexProvider` (`/providers/codex`), and
+`piProvider` (`/providers/pi`). Each takes `id`, `models` and `defaults`, so one
+factory can build several instances. The root entry exports no provider.
+`gatewayProvider` has no models of its own and requires `models`.
+`gatewayModels(config)` reads them from the server's `GET <baseURL>/models`,
+each id as a text model with nothing else known.
+
+The root entry, `/providers/gateway`, `/providers/vercel`, `/cost` and
+`/catalog/*` are Web-standard. The three harness providers need Node.
 
 `vercelModels(config, { signal })` reads the Vercel AI Gateway's
 `GET /models` listing. It uses the configured base URL and sends a bearer
@@ -128,12 +123,7 @@ uses the discovered catalog.
 
 | Subpath | What it holds |
 | --- | --- |
-| `/providers/airplane` | `airplaneMode`: the offline-only policy for one `Models` registry |
-| `/providers/local` | `LocalProvider` and `configureCache`: on-device transformers-js |
-| `/providers/local/remote` | `RemoteLocalProvider` and `forkLocalWorker`: the local surface and its worker IPC transport |
-| `/live`, `/node/live` | Live interactions, browser and Node |
 | `/catalog/models-dev`, `/catalog/models-dev-source` | models.dev read at run time |
-| `/embeddings/*` | Chunking, embedding, and ranking |
 | `/cost` | Pure leaf; see below |
 
 **models.dev at run time.** `holdModelsDev()` (`/catalog/models-dev-source`)
@@ -151,38 +141,27 @@ absent. `loadedModelsDev()` returns what has loaded, without fetching.
 fills a row's absent facts from it and never overrides what the row states.
 
 **Two ids per row, on purpose.** `id` is how callers and the picker name a
-model; `modelId` is what goes on the wire. They coincide for cloud rows and
-differ for on-device rows, whose short ids (`text`, `embed`) hosts persist.
-Live access is the exception: `grant(id, operation)` takes the catalog id and
-returns a token or a proxy, never a key.
+model; `modelId` is what goes on the wire. They differ where a selector such as
+Codex's `sol` stands for a versioned model.
 
 ## `Models`
 
 ```typescript
 new Models({ providers? });
-models.providers; // the set, in preference order, as guarded views
+models.providers; // the set, in preference order
 models.setProviders(providers); // replace the set; leavers are disposed once released
-models.resolve(kind, selection?); // Resolution: check, hold, open, release
-models.restrict(policy); // install a ProviderPolicy; returns the remover
+models.resolve(kind, selection?); // Resolution: hold, open, release
+models.available(selection); // does it resolve for any kind?
 await models.dispose(); // release every instance, leased ones included
-models.events; // providers-changed, policies-changed, provider-retired, …
+models.events; // providers-changed, provider-retired, dispose-failed
 ```
 
-Order is preference. Every view the `Models` registry hands out, and every model or
-live access opened through one, consults the installed policies on each call;
-a call in flight on an instance a new policy refuses is aborted.
-
-**Airplane Mode** is one such policy. `airplaneMode(models).set(true)` admits
-only providers with `offline: true`, and tells every instance the registry
-still holds, leased ones that left the set included, to `setOffline(true)`.
-It is off when created and never persisted.
+Order is preference.
 
 ## `@foundry/models/cost`
 
 `costFromUsage(costs, usage)` prices a turn with cache and tiered rates; the
-subpath is a pure leaf a renderer can import without the Node-only runtime.
-`toModelOption(row)` flattens a catalog row for a picker and is exported from the
-root entry.
+subpath is a pure leaf a renderer can import on its own.
 
 `claudeCodeCallCost(providerMetadata)` returns what Claude Code reported a
 call cost (its `total_cost_usd`), only for a call that resumed no session.
@@ -199,14 +178,15 @@ the figure from its own price table on any login, so it is an estimate.
 `beginTurnObservation()` opens one wide event per turn; `observeAgentTurn` is
 the same thing in the shape an agent surface takes (`observe`), so the harness
 wraps the model and settles the event itself. `configureModelObservability`
-wires the drain; `Models` keeps its cost map current from the catalogs.
+wires the drain. Every `Models` instance merges its catalog costs into one
+process-wide cost map when its provider set changes, so the last registry to
+list a wire id sets its price, and a removed row's price stays.
 Errors are a defined catalog (`modelErrors`), so callers branch on the code.
 
 ## Notes
 
 - Types resolve from `dist/`. Build this package before a consumer typechecks
   against a changed public API.
-- `/providers/local` loads transformers-js; the root entry never does.
 
 ## Local checks
 
@@ -214,13 +194,8 @@ Tests live in `src/test/`; shared helpers live in `src/test/helpers/`.
 Run `bun run test`, `bun run typecheck`, and `bun run build` from this package.
 Lint and formatting are owned by the repository root.
 
-One `vitest.config.ts` defines the `unit`, `integration`, and `pi` projects.
-The default test suite excludes credentialed vendor tests, the
-network-dependent tree-sitter grammar test (`*.integration.test.ts`), and the
-Pi runtime test. Run `bun run test:integration` explicitly with the relevant
-provider credentials and media fixtures to exercise them. Vendor tests can make
-paid API calls. The grammar test needs network access or a cached grammar and
-fails, rather than skips, when neither is available.
+One `vitest.config.ts` defines the `unit` and `pi` projects. The default test
+suite excludes the Pi runtime test.
 The model catalog is application data, not a dependency version catalog.
 
 ## Pi harness

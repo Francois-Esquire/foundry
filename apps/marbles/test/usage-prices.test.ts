@@ -28,7 +28,6 @@ function manager(row: ProviderModelDefinition): Models {
       throw new Error("no turn runs here");
     },
     models: [row],
-    offline: false,
   };
   return new Models({ providers: [provider] });
 }
@@ -149,48 +148,6 @@ it("an engine holds the models.dev load while it runs, and disposing it aborts a
   expect(signal(0)?.aborted).toBe(false);
   await engine.dispose();
   expect(signal(0)?.aborted).toBe(true);
-});
-
-it("Airplane Mode gives up the load, and leaving it starts the load again", async () => {
-  const { fetch, signal } = hangingFetch();
-  vi.resetModules();
-  const { testEngine } = await import("./helpers/engine");
-  const engine = testEngine();
-  try {
-    engine.airplane.set(true);
-    expect(engine.airplane.enabled).toBe(true);
-    expect(signal(0)?.aborted).toBe(true);
-    engine.airplane.set(false);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(signal(1)?.aborted).toBe(false);
-  } finally {
-    await engine.dispose();
-  }
-  expect(signal(1)?.aborted).toBe(true);
-});
-
-it("an engine that started offline is priced after Airplane Mode is turned on and off", async () => {
-  const fetch = vi
-    .fn(async () => Response.json(PAYLOAD))
-    .mockRejectedValueOnce(new Error("offline"));
-  vi.stubGlobal("fetch", fetch);
-  vi.resetModules();
-  const { testEngine } = await import("./helpers/engine");
-  const { loadedModelsDev } = await import(
-    "@foundry/models/catalog/models-dev-source"
-  );
-  const engine = testEngine();
-  try {
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    await Promise.resolve();
-    expect(loadedModelsDev()).toBeUndefined();
-    engine.airplane.set(true);
-    engine.airplane.set(false);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    await vi.waitFor(() => expect(loadedModelsDev()).toBeDefined());
-  } finally {
-    await engine.dispose();
-  }
 });
 
 async function claudeCode(

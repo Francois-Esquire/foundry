@@ -3,7 +3,6 @@ import { once } from "node:events";
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import { recordChild } from "@foundry/lib/node/spawn-record";
 import type { createCodexAppServer } from "ai-sdk-provider-codex-cli";
-import { modelErrors } from "../errors";
 import type { ModelKind, ProviderModelDefinition } from "../model-definition";
 import type { Provider } from "../provider";
 import { fromCodexListing } from "./codex/listing";
@@ -156,7 +155,7 @@ interface AppServer {
 export function codexProvider(options: CodexProviderOptions): Provider {
   const id = options.id ?? "codex";
   const config = options.config ?? {};
-  let offline = false;
+  let disposed = false;
   const servers = new Set<AppServer>();
   let current: AppServer | undefined;
 
@@ -215,16 +214,18 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     return server;
   };
 
-  const lease = async (modelId: string, cwd: string | undefined) => {
-    if (offline) {
-      throw modelErrors.PROVIDER_OFFLINE({ provider: id });
+  const assertOpen = (): void => {
+    if (disposed) {
+      throw new Error(`Provider "${id}" is disposed and takes no calls`);
     }
+  };
+
+  const lease = async (modelId: string, cwd: string | undefined) => {
+    assertOpen();
     const { createCodexAppServer: create } = await import(
       "ai-sdk-provider-codex-cli"
     );
-    if (offline) {
-      throw modelErrors.PROVIDER_OFFLINE({ provider: id });
-    }
+    assertOpen();
     const server = serverFor(create, environmentOverlay(options.env, ""));
     const model = server.client.languageModel(modelId, cwd ? { cwd } : {});
     const connection = (model as { client?: unknown }).client;
@@ -263,9 +264,8 @@ export function codexProvider(options: CodexProviderOptions): Provider {
       (result): result is PromiseRejectedResult => result.status === "rejected"
     );
     if (failed) {
-      throw modelErrors.PROVIDER_OFFLINE_UNCONFIRMED({
-        provider: id,
-        reason: String(failed.reason),
+      throw new Error(`Provider "${id}" could not stop its app-server`, {
+        cause: failed.reason,
       });
     }
   };
@@ -276,20 +276,13 @@ export function codexProvider(options: CodexProviderOptions): Provider {
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
     dispose: async () => {
-      offline = true;
+      disposed = true;
       await stopAll();
     },
     id,
     languageModel: (modelId, opts) =>
       leasedModel(modelId, () => lease(modelId, opts?.workingDirectory)),
     models: options.models ?? [],
-    offline: false,
-    setOffline: async (value) => {
-      offline = value;
-      if (value) {
-        await stopAll();
-      }
-    },
     turnLimit: "unsupported",
   };
 }

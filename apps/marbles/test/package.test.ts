@@ -439,7 +439,7 @@ import { vercel } from "@foundry.sh/marbles/providers/vercel";
 import { z } from "zod";
 const settings = z.object({ region: z.string() });
 function create({ id, models, settings: { region } }: ProviderSetup<z.infer<typeof settings>>): ProviderInstance {
-  return { provider: { available: region !== "", id, languageModel: () => { throw new Error("offline"); }, models: [...models], offline: false } };
+  return { provider: { available: region !== "", id, languageModel: () => { throw new Error("offline"); }, models: [...models] } };
 }
 const acme: ProviderPlugin<z.infer<typeof settings>> = defineProvider({
   catalog: () => [{ id: "echo", kind: "text", modelId: "echo" }],

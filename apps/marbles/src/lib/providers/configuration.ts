@@ -123,7 +123,6 @@ export class ProviderConfiguration {
   readonly #listings = new Map<string, Listing>();
   readonly #listed = new Map<string, number>();
   readonly #lists = new AbortController();
-  #online = new AbortController();
 
   constructor(options: ProviderConfigurationOptions) {
     this.#options = options;
@@ -404,14 +403,6 @@ export class ProviderConfiguration {
       )
     );
     return [...named].map(undefinedProvider);
-  }
-
-  setOffline(offline: boolean): void {
-    if (offline) {
-      this.#online.abort();
-    } else if (this.#online.signal.aborted) {
-      this.#online = new AbortController();
-    }
   }
 
   dispose(): Promise<void> {
@@ -1116,11 +1107,7 @@ export class ProviderConfiguration {
   }
 
   async #listAll(): Promise<readonly string[]> {
-    if (
-      this.#lists.signal.aborted ||
-      this.#online.signal.aborted ||
-      this.#options.fixed !== undefined
-    ) {
+    if (this.#lists.signal.aborted || this.#options.fixed !== undefined) {
       return [];
     }
     let files: (ProvidersFile | undefined)[];
@@ -1170,7 +1157,7 @@ export class ProviderConfiguration {
     const key = listingKey(plugin, settings, env);
     const started = (this.#listed.get(key) ?? 0) + 1;
     this.#listed.set(key, started);
-    const ended = AbortSignal.any([this.#lists.signal, this.#online.signal]);
+    const ended = this.#lists.signal;
     const signal = AbortSignal.any([
       ended,
       AbortSignal.timeout(LIST_TIMEOUT_MS),
