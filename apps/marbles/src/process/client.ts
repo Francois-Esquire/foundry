@@ -39,7 +39,7 @@ import { recordSpawned } from "~/process/spawned";
 import { version } from "../../package.json";
 
 export interface ConnectOptions {
-  readonly cliEntry?: string;
+  readonly daemonEntry?: string;
   readonly layout: Layout;
   readonly start?: boolean;
   readonly timeoutMs?: number;
@@ -150,10 +150,10 @@ const STOP_PROCESS_TIMEOUT_MS =
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
-function cliEntry(): string {
+function daemonEntry(): string {
   return fileURLToPath(
     new URL(
-      import.meta.url.endsWith(".ts") ? "../cli.ts" : "./cli.js",
+      import.meta.url.endsWith(".ts") ? "./daemon-entry.ts" : "./daemon.js",
       import.meta.url
     )
   );
@@ -207,7 +207,7 @@ function startDetachedDaemon(options: ConnectOptions): void {
   try {
     child = spawn(
       runtime(),
-      [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
+      [...RUNTIME_FLAGS, options.daemonEntry ?? daemonEntry()],
       {
         detached: true,
         env: { ...process.env, FOUNDRY_ROOT: layout.home },
@@ -220,7 +220,6 @@ function startDetachedDaemon(options: ConnectOptions): void {
   child.unref();
   recordSpawned(child.pid, true, { recovery: false });
 }
-
 interface Opened {
   readonly channel: Channel;
   readonly hello: HelloResult;
@@ -283,7 +282,7 @@ export async function connect(options: ConnectOptions): Promise<MarblesClient> {
   if (found && !start) {
     found.channel.close();
     throw new ProcessMismatchError(
-      `the Marbles process for ${layout.state} runs version ${found.hello.version}, not ${version}; stop it with \`marbles daemon stop\` first`
+      `the Marbles process for ${layout.state} runs version ${found.hello.version}, not ${version}; stop it with \`marbles stop\` first`
     );
   }
   if (found) {
@@ -295,7 +294,7 @@ export async function connect(options: ConnectOptions): Promise<MarblesClient> {
       );
     }
     throw new NoProcessError(
-      `no Marbles process runs for ${layout.state}; start one with \`marbles daemon\``
+      `no Marbles process runs for ${layout.state}; start one with \`marbles start\``
     );
   }
   return clientOver(
@@ -335,7 +334,7 @@ function sameStore(opened: Opened, layout: Layout): Opened {
   }
   opened.channel.close();
   throw new ProcessMismatchError(
-    `the Marbles process for ${layout.state} keeps artifacts in ${opened.hello.artifacts}, not ${layout.artifacts}; stop it with \`marbles daemon stop\` to start one with the other store`
+    `the Marbles process for ${layout.state} keeps artifacts in ${opened.hello.artifacts}, not ${layout.artifacts}; stop it with \`marbles stop\` to start one with the other store`
   );
 }
 

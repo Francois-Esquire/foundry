@@ -601,7 +601,7 @@ export interface Resources {
 function outdatedDaemon(method: string, cause: Error): ToolRefusal {
   return new ToolRefusal(
     "daemon_outdated",
-    `the running Marbles process predates the "${method}" method this MCP server needs; restart it with \`marbles daemon stop\` and then \`marbles daemon start\``,
+    `the running Marbles process predates the "${method}" method this MCP server needs; restart it with \`marbles stop\` and then \`marbles start\``,
     { cause }
   );
 }

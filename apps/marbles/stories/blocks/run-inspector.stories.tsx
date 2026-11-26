@@ -1,14 +1,14 @@
 import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import type { DashboardSelection } from "~/cli/state/dashboard-model";
-import type { InspectorTab } from "~/cli/state/dashboard-state";
-import { STREAM_TAIL_LINES } from "~/cli/state/run-stream";
 import {
   RunInspector,
   type RunTabView,
 } from "~/components/blocks/run-inspector";
 import { RunStream, type RunStreamView } from "~/components/blocks/run-stream";
+import type { DashboardSelection } from "~/tui/state/dashboard-model";
+import type { InspectorTab } from "~/tui/state/dashboard-state";
+import { STREAM_TAIL_LINES } from "~/tui/state/run-stream";
 import { ignore, renderFrame } from "../frame";
 import { inspectedTab, inspectRun } from "./fixtures-b";
 

@@ -5,8 +5,6 @@ import {
 } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { afterEach, expect, test } from "vitest";
-import { feedItem, feedMeta } from "../src/cli/state/feed-model";
-import { usageBreakdown } from "../src/cli/state/usage-format";
 import { EmptyState } from "../src/components/blocks/empty-state";
 import { FeedList } from "../src/components/blocks/feed-list";
 import { FeedMetaLine } from "../src/components/blocks/feed-meta";
@@ -16,6 +14,8 @@ import { RunOverview } from "../src/components/blocks/run-overview";
 import { JSONView } from "../src/components/ui/json";
 import { Log } from "../src/components/ui/log";
 import { Tabs } from "../src/components/ui/tabs";
+import { feedItem, feedMeta } from "../src/tui/state/feed-model";
+import { usageBreakdown } from "../src/tui/state/usage-format";
 import {
   mediaEntry,
   pendingEntry,

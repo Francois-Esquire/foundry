@@ -19,7 +19,7 @@ import { dispatchSchema } from "~/workspace/dispatch";
 import { version } from "../../package.json";
 
 const NEEDS_HOST =
-  "Needs a running Marbles process that hosts the workspace (marbles daemon attach); this server starts none.";
+  "Needs a running Marbles process that hosts the workspace (marbles start); this server starts none.";
 
 const OFFLINE =
   "workspaces and tasks are read from stored state without a running Marbles process; definitions and runs need one.";

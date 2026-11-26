@@ -1,7 +1,7 @@
 import { defineStories, story } from "textbook-sh";
-import { feedMeta } from "~/cli/state/feed-model";
 import { FeedMetaLine } from "~/components/blocks/feed-meta";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { feedMeta } from "~/tui/state/feed-model";
 import { renderFrame } from "../frame";
 import {
   answeredEntry,

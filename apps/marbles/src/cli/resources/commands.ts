@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { resourceLines } from "~/cli/resources/text";
+import {
+  type ResourceItem,
+  resourceItems,
+  resourceLines,
+} from "~/cli/resources/text";
 import type { LinksReport } from "~/database/links";
 import { rebuildLinks } from "~/database/links";
 import { writeDatabase } from "~/database/open";
@@ -20,6 +24,7 @@ import { workspaceState } from "~/lib/state/workspace";
 export interface ResourceCommandContext {
   readonly artifacts: string;
   readonly directory: string;
+  readonly json?: boolean;
   readonly print: (line: string) => void;
   readonly state: string;
   readonly workspace: Workspace;
@@ -32,6 +37,14 @@ export async function listResources(
 ): Promise<void> {
   const here = context.workspace.id;
   const scope: ViewScope = all ? ALL_WORKSPACES : { workspace: here };
+  if (context.json) {
+    const items: ResourceItem[] =
+      (await readResourceView(context.state, scope, (view) =>
+        resourceItems(kind, view)
+      )) ?? [];
+    context.print(JSON.stringify({ all, items, kind }, null, 2));
+    return;
+  }
   const lines = await readResourceView(context.state, scope, (view) =>
     resourceLines(kind, view, here)
   );
@@ -66,12 +79,71 @@ export async function changeAssociation(
       `no ${request.kind} ${request.id} in this workspace`
     );
   }
+  const report =
+    ref.kind === "artifact" ? await rebuildOne(other, context) : undefined;
+  if (context.json) {
+    context.print(
+      JSON.stringify(
+        {
+          action: change,
+          changed,
+          id: ref.id,
+          kind: ref.kind,
+          target: other.root,
+          ...(report === undefined ? {} : { links: report }),
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
   const verb = change === "share" ? "shared with" : "unshared from";
   context.print(
     `${changed ? "" : "already "}${verb} ${other.root}: ${ref.kind} ${ref.id}`
   );
   if (ref.kind === "artifact") {
-    await relinkOne(other, context);
+    for (const line of reportLines(other.root, report)) {
+      context.print(line);
+    }
+  }
+}
+
+interface RelinkEntry {
+  readonly error?: string;
+  readonly missing?: true;
+  readonly report?: LinksReport | null;
+  readonly root: string;
+}
+
+async function relinkWorkspace(
+  workspace: Pick<Workspace, "id" | "root">,
+  all: boolean,
+  context: ResourceCommandContext
+): Promise<RelinkEntry> {
+  if (!existsSync(workspace.root)) {
+    if (!context.json) {
+      context.print(`${workspace.root}: not here, left as it is`);
+    }
+    return { missing: true, root: workspace.root };
+  }
+  try {
+    const report = await rebuildOne(workspace, context);
+    if (!context.json) {
+      for (const line of reportLines(workspace.root, report)) {
+        context.print(line);
+      }
+    }
+    return { report: report ?? null, root: workspace.root };
+  } catch (error) {
+    if (!all) {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    if (!context.json) {
+      context.print(`${workspace.root}: not relinked: ${message}`);
+    }
+    return { error: message, root: workspace.root };
   }
 }
 
@@ -85,41 +157,27 @@ export async function relink(
         root: record.root,
       }))
     : [context.workspace];
+  const results: RelinkEntry[] = [];
   for (const workspace of workspaces) {
-    if (!existsSync(workspace.root)) {
-      context.print(`${workspace.root}: not here, left as it is`);
-    } else if (all) {
-      try {
-        await relinkOne(workspace, context);
-      } catch (error) {
-        context.print(
-          `${workspace.root}: not relinked: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    } else {
-      await relinkOne(workspace, context);
-    }
+    results.push(await relinkWorkspace(workspace, all, context));
+  }
+  if (context.json) {
+    context.print(JSON.stringify({ all, workspaces: results }, null, 2));
   }
 }
 
-async function relinkOne(
+function rebuildOne(
   workspace: Pick<Workspace, "id" | "root">,
   context: ResourceCommandContext
-): Promise<void> {
-  const report = await readResourceView(
-    context.state,
-    { workspace: workspace.id },
-    (view) =>
-      rebuildLinks({
-        artifacts: context.artifacts,
-        root: workspace.root,
-        view,
-        workspace: workspace.id,
-      })
+): Promise<LinksReport | undefined> {
+  return readResourceView(context.state, { workspace: workspace.id }, (view) =>
+    rebuildLinks({
+      artifacts: context.artifacts,
+      root: workspace.root,
+      view,
+      workspace: workspace.id,
+    })
   );
-  for (const line of reportLines(workspace.root, report)) {
-    context.print(line);
-  }
 }
 
 function reportLines(root: string, report: LinksReport | undefined): string[] {

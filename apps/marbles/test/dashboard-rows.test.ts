@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { WorkspaceSummary } from "~/model/connection";
 import {
   runSelection,
   selectionKey,
   type TriggerSnapshot,
-} from "~/cli/state/dashboard-model";
+} from "~/tui/state/dashboard-model";
 import {
   definitionRows,
   latestRows,
@@ -13,10 +14,9 @@ import {
   triggerRows,
   workspaceDetails,
   workspaceRows,
-} from "~/cli/state/dashboard-rows";
-import { runRows } from "~/cli/state/dashboard-tree";
-import type { OperatingLogEntry } from "~/cli/state/operating-model";
-import type { WorkspaceSummary } from "~/model/connection";
+} from "~/tui/state/dashboard-rows";
+import { runRows } from "~/tui/state/dashboard-tree";
+import type { OperatingLogEntry } from "~/tui/state/operating-model";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const remoteTrigger: TriggerSnapshot = {

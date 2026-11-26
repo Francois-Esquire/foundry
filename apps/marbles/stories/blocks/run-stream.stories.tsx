@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { STREAM_TAIL_LINES, streamTail } from "~/cli/state/run-stream";
 import { RunStream, type RunStreamView } from "~/components/blocks/run-stream";
+import { STREAM_TAIL_LINES, streamTail } from "~/tui/state/run-stream";
 import { renderFrame } from "../frame";
 
 const size = { height: 18, width: 70 };

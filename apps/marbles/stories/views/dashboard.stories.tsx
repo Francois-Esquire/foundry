@@ -1,18 +1,18 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import type {
-  DashboardSnapshot,
-  RunSnapshot,
-} from "~/cli/state/dashboard-model";
-import type { Launcher, RunActions } from "~/cli/state/run-actions";
-import type { HostedWorkspace } from "~/cli/state/use-dashboard";
-import type { AnswerHandler } from "~/cli/state/use-feed";
-import { DashboardView } from "~/cli/views/dashboard";
 import { Action } from "~/components/ui/action";
 import { Text } from "~/components/ui/text";
 import type { JsonValue } from "~/model/json";
 import type { SettingsChange } from "~/model/settings";
+import type {
+  DashboardSnapshot,
+  RunSnapshot,
+} from "~/tui/state/dashboard-model";
+import type { Launcher, RunActions } from "~/tui/state/run-actions";
+import type { HostedWorkspace } from "~/tui/state/use-dashboard";
+import type { AnswerHandler } from "~/tui/state/use-feed";
+import { DashboardView } from "~/tui/views/dashboard";
 import { type PreviewScenario, previewScenarios } from "../fixtures/scenarios";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { ignore, renderFrame } from "../frame";

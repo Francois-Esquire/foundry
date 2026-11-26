@@ -125,15 +125,14 @@ From this checkout, without a build, run `bun --no-env-file
 `--source` accepts a file or directory and defaults to `.foundry/marbles`
 under `cwd`. The server reads and writes that workspace's stored state and
 drives the Marbles process when one runs. It never starts the process,
-never attaches the workspace, and runs none of its source, under
-`--dry-run` too. Workspaces and tasks
+never attaches the workspace, and runs none of its source. Workspaces and tasks
 work without a process, and without a source, for this workspace and any
 workspace recorded under the state root, even one whose checkout is gone:
 the Marbles process that hosts the workspace
 answers, or the server opens the stored tasks for the call. Definitions,
 runs, a workspace's configuration, `enqueue_workflow`, `dispatch_agent`, and
 `cancel_run` need the Marbles process to host the workspace, and return an
-error that names `marbles daemon attach` without one. Its engine
+error that names `marbles start` without one. Its engine
 generation loads the workspace's source modules, and an edit brings up the next generation.
 
 The server offers six tools: `list`, `get`, `enqueue_workflow`,
@@ -215,7 +214,7 @@ Dispatched runs belong to the engine generation that started them, so
 closing the MCP connection ends only the server and leaves them running.
 `get` reads the run's stored records, so any server for the same
 workspace finds it, and a later generation still finds it after a source
-reload or `marbles daemon stop`, once a Marbles process hosts the workspace
+reload or `marbles stop`, once a Marbles process hosts the workspace
 again. Its saved output stays watchable.
 
 ### Enqueue and watch a run
@@ -227,9 +226,10 @@ stdout, so a script can keep it (`id=$(marbles enqueue build)`); a line on
 stderr says what was queued. `--key` enqueues the definition once per key,
 the key a definition's own `enqueue(input, { key })` and
 `step.enqueue(name, input, { key })` match too: a later enqueue with the same
-key prints the first run's ID, whatever became of it. `--dry-run` refuses
-`enqueue`, since a dry run has no queue to leave the run on. `marbles run
-<name>` runs it in the foreground instead and prints its result.
+key prints the first run's ID, whatever became of it. `marbles run <name>` runs
+it in the foreground instead and prints its result. Pass `--json` to any data
+command (such as `status`, `list`, `run`, `enqueue`, `tasks`, `start`, `stop`,
+`theme`, or resource commands) for structured JSON on stdout.
 
 After `marbles enqueue` or either MCP launch command returns, wait for the
 result in one CLI call:
@@ -257,8 +257,8 @@ Persisted engines append output to
 workflow `stream.write`/`exec` output, and step lifecycle messages. Raw
 `console.log` and process stdout still belong to the owning process's
 stderr. Completed output remains watchable after that process exits.
-Output from runs started before this feature, and in-memory `--dry-run`
-runs, has no saved journal to watch. Output files have no retention policy yet.
+Output from runs started before this feature has no saved journal to watch.
+Output files have no retention policy yet.
 
 The watcher exits with code 0 on completion, 1 on failure or cancellation,
 and 130 when interrupted. Interrupting the watcher does not cancel the run.
@@ -281,11 +281,7 @@ or SIGTERM, or when writing a response to that process fails. Shutdown takes a f
 finish in time is cut off, and the server is killed if it still runs. A
 Marbles process that hosts the workspace keeps hosting it, and several MCP
 clients can use one process at once. Set `FOUNDRY_ROOT` to use a separate
-Foundry home (each home has its own process). Under `--dry-run` the server
-joins no process, lists only its own workspace, keeps its tasks in memory
-for the session, and writes nothing. Whatever needs the Marbles process
-then returns a `not_hosted` error. A dry run of a workflow
-goes through `marbles run <name> --dry-run`.
+Foundry home (each home has its own process).
 
 ### Dashboard
 
@@ -293,12 +289,11 @@ goes through `marbles run <name> --dry-run`.
 which starts its schedules and monitors, and opens a dashboard on it;
 `marbles </dev/null` attaches it and follows its status lines instead.
 Either way the triggers keep running after the command exits, until
-`marbles daemon stop`. `marbles run <name>` runs one step, workflow,
+`marbles stop`. `marbles run <name>` runs one step, workflow,
 schedule or monitor now, waits for it, prints its output and result, and
 exits; `marbles run` with no name opens nothing. The dashboard
 lists every workspace the process hosts (`w` moves between them) and can
-answer questions; a run that asks waits on the Feed for one, and is
-cancelled at the ask only under `--dry-run`. Source edits bring up the next
+answer questions; a run that asks waits on the Feed for one. Source edits bring up the next
 engine generation on their own.
 
 ### Engine generations
@@ -363,26 +358,13 @@ secrets, which is why the database is its owner's only. The Marbles process
 creates the state root mode 0700 and tightens an existing one to that when
 it starts, claims `locks/process` at the state root and listens on `marbles.sock`
 beside it, so a second Marbles process for the same home is refused with
-the holder's pid. `marbles daemon` (or `marbles daemon start`) runs the
-process in the foreground for a service manager, `marbles daemon stop`
-stops it and every workspace it hosts, `marbles daemon attach` hosts this
-workspace in it and exits, and `marbles daemon detach` stops hosting it,
-so it is not started again at boot. `marbles status` shows the process and
-which workspaces it hosts. `--dry-run` hosts the workspace in the calling process
-instead, substitutes Marbles-owned operations, and avoids state writes;
-ordinary TypeScript and monitor I/O still execute. Each command decides
-what the flag means for it: the dashboard, `run`, `list`, `tasks` and
-`mcp` have a dry mode, the listings, `theme`, `theme list`, `status`,
-`watch` and `help` only read, and `enqueue`, `init`, every `daemon`
-action, `theme <name>`, `artifacts relink`, and `share` and `unshare`
-under any resource refuse it before anything is opened or written. Where there is
-no source, a dry run offers no starter: `marbles init`, without the flag,
-creates one. A dry run writes nothing under the Foundry home but SQLite's
-shared-memory index of a database that is already there
-(`marbles.db-shm`), which every reader of it maps and which holds no
-data; a definition the source uses as it loads runs dry too, and an
-echoed worktree is an empty directory under the system's temporary
-directory.
+the holder's pid. `marbles start` ensures the background Marbles process is
+running, hosts this workspace in it, and exits; `marbles stop` stops the
+process and every workspace it hosts; and `marbles stop --workspace` stops
+hosting only this workspace, so it is not started again at boot. `marbles status`
+shows the process and which workspaces it hosts. Pass `--json` to any data
+command for structured JSON output on stdout (bypassing interactive TUI views
+such as `marbles status`).
 
 ### Resources and workspaces
 

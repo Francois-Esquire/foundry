@@ -3,21 +3,19 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseArgs, UsageError } from "~/cli/args";
+import { UsageError } from "~/cli/errors";
+import { parseArgs } from "~/cli/index";
 
-function foundryHome(): string {
-  return process.env.FOUNDRY_ROOT ?? join(homedir(), ".foundry");
+function foundryRoot(): string {
+  return process.env.FOUNDRY_ROOT || join(homedir(), ".foundry");
 }
 
 describe("parseArgs", () => {
   it("opens the dashboard with no command, and takes no command word for it", () => {
     expect(parseArgs([])).toMatchObject({ command: "dashboard" });
-    expect(
-      parseArgs(["--dry-run", "--source", "/tmp/config.ts"])
-    ).toMatchObject({
+    expect(parseArgs(["--source", "/tmp/config.ts"])).toMatchObject({
       command: "dashboard",
       config: "/tmp/config.ts",
-      dry: true,
     });
     expect(() => parseArgs(["dashboard"])).toThrow(
       'unknown command "dashboard"'
@@ -27,30 +25,46 @@ describe("parseArgs", () => {
     }
   });
 
-  it("takes --recheck-providers for the live dashboard alone", () => {
-    expect(parseArgs(["--recheck-providers"])).toMatchObject({
-      command: "dashboard",
-      recheckProviders: true,
+  it("supports top-level --json on data commands and refuses it on streaming/interactive commands", () => {
+    expect(parseArgs(["status", "--json"])).toMatchObject({
+      command: "status",
+      json: true,
+    });
+    expect(parseArgs(["--json", "status"])).toMatchObject({
+      command: "status",
+      json: true,
+    });
+    expect(parseArgs(["--json", "tasks", "list"])).toMatchObject({
+      command: "tasks",
+      json: true,
+    });
+    expect(parseArgs(["runs", "--all", "--json"])).toMatchObject({
+      action: "list",
+      all: true,
+      command: "runs",
+      json: true,
     });
     for (const argv of [
-      ["--recheck-providers", "--dry-run"],
-      ["run", "hello", "--recheck-providers"],
-      ["enqueue", "hello", "--recheck-providers"],
+      ["--json"],
+      ["mcp", "--json"],
+      ["watch", "rn-1", "--json"],
+      ["help", "--json"],
     ]) {
       expect(() => parseArgs(argv), argv.join(" ")).toThrow(
-        "--recheck-providers requires a live dashboard"
+        "does not support --json"
       );
     }
   });
+
   it("defaults to the authoring folder and the home state dir", () => {
     expect(parseArgs([])).toEqual({
-      artifacts: join(foundryHome(), "artifacts"),
+      artifacts: join(foundryRoot(), "artifacts"),
       command: "dashboard",
       config: "./.foundry/marbles",
       directory: process.cwd(),
       dry: false,
-      inputJson: undefined,
-      state: join(foundryHome(), "marbles"),
+      json: false,
+      state: join(foundryRoot(), "marbles"),
     });
   });
 
@@ -124,22 +138,27 @@ describe("parseArgs", () => {
     }
   });
 
-  it("reads daemon actions, start when none is given", () => {
-    expect(parseArgs(["daemon"])).toMatchObject({
-      action: "start",
-      command: "daemon",
+  it("reads start and stop, with optional --workspace on stop", () => {
+    expect(parseArgs(["start"])).toMatchObject({ command: "start" });
+    expect(() => parseArgs(["start", "extra"])).toThrow(
+      "start takes no arguments"
+    );
+    expect(parseArgs(["stop"])).toMatchObject({
+      command: "stop",
+      workspace: false,
     });
-    for (const action of ["start", "stop", "attach", "detach"]) {
-      expect(parseArgs(["daemon", action])).toMatchObject({
-        action,
-        command: "daemon",
-      });
-      expect(() => parseArgs(["daemon", action, "extra"])).toThrow(
-        `daemon ${action} takes no arguments`
-      );
-    }
-    expect(() => parseArgs(["daemon", "restart"])).toThrow(
-      "daemon takes start, stop, attach, or detach"
+    expect(parseArgs(["stop", "--workspace"])).toMatchObject({
+      command: "stop",
+      workspace: true,
+    });
+    expect(() => parseArgs(["stop", "extra"])).toThrow(
+      "stop takes no arguments but --workspace"
+    );
+    expect(() => parseArgs(["stop", "--workspace", "extra"])).toThrow(
+      "stop takes no arguments but --workspace"
+    );
+    expect(() => parseArgs(["stop", "--all"])).toThrow(
+      "stop: unknown option --all"
     );
   });
 
@@ -161,7 +180,7 @@ describe("parseArgs", () => {
     );
   });
 
-  it("reads enqueue by name, with --key on either side of it", () => {
+  it("reads enqueue by name, with --key and --input on either side of it", () => {
     expect(parseArgs(["enqueue", "build"])).toMatchObject({
       command: "enqueue",
       name: "build",
@@ -177,13 +196,13 @@ describe("parseArgs", () => {
         name: "build",
       });
     }
-    expect(
-      parseArgs(["enqueue", "build", "--input", '{"a":1}']).inputJson
-    ).toBe('{"a":1}');
+    expect(parseArgs(["enqueue", "build", "--input", '{"a":1}'])).toMatchObject(
+      { command: "enqueue", inputJson: '{"a":1}', name: "build" }
+    );
     expect(() => parseArgs(["enqueue", "build", "--key", " "])).toThrow(
       "enqueue: --key takes a key that is not blank"
     );
-    for (const flag of ["--dry-run", "-h", "--help", "--input"]) {
+    for (const flag of ["--json", "-h", "--help", "--input"]) {
       expect(() => parseArgs(["enqueue", "build", "--key", flag])).toThrow(
         `enqueue: --key takes a value, not the flag ${flag}`
       );
@@ -202,26 +221,40 @@ describe("parseArgs", () => {
     );
   });
 
-  it("reads positionals around flags", () => {
-    const args = parseArgs(["run", "--dry-run", "guides", "--source", "/c.ts"]);
+  it("reads positionals around flags and scopes --input to run, enqueue, and tasks change", () => {
+    const args = parseArgs(["run", "--json", "guides", "--source", "/c.ts"]);
     expect(args).toMatchObject({
       command: "run",
+      config: "/c.ts",
+      json: true,
       name: "guides",
     });
-    expect(args.dry).toBe(true);
-    expect(args.config).toBe("/c.ts");
+    expect(parseArgs(["run", "ask", "--input", '{"q":1}'])).toMatchObject({
+      command: "run",
+      inputJson: '{"q":1}',
+      name: "ask",
+    });
+    expect(parseArgs(["run", "ask", "--input", "-1"])).toMatchObject({
+      command: "run",
+      inputJson: "-1",
+      name: "ask",
+    });
+    for (const argv of [
+      ["status", "--input", "{}"],
+      ["list", "--input", "{}"],
+      ["theme", "--input", "{}"],
+    ]) {
+      expect(() => parseArgs(argv), argv.join(" ")).toThrow(
+        "unknown option --input"
+      );
+    }
   });
 
-  it("keeps --input raw, including a negative number", () => {
-    expect(parseArgs(["run", "ask", "--input", '{"q":1}']).inputJson).toBe(
-      '{"q":1}'
-    );
-    expect(parseArgs(["run", "ask", "--input", "-1"]).inputJson).toBe("-1");
-  });
-
-  it("refuses an unknown flag by name, the removed ones included, even beside --help", () => {
+  it("refuses unknown and removed flags by name, even beside --help", () => {
     for (const flag of [
       "--dry",
+      "--dry-run",
+      "--recheck-providers",
       "--config",
       "--harness",
       "--state",
@@ -255,17 +288,17 @@ describe("parseArgs", () => {
     }
   });
 
-  it("refuses a flag where --source or --input takes its value, so a dry run never runs live", () => {
-    for (const command of [[], ["run", "ask"], ["daemon", "attach"]]) {
-      expect(() => parseArgs([...command, "--source", "--dry-run"])).toThrow(
-        "--source takes a value, not the flag --dry-run"
+  it("refuses a flag where --source or --input takes its value", () => {
+    for (const command of [[], ["run", "ask"], ["start"]]) {
+      expect(() => parseArgs([...command, "--source", "--json"])).toThrow(
+        "--source takes a value, not the flag --json"
       );
     }
     expect(() => parseArgs(["--source", "--help"])).toThrow(
       "--source takes a value, not the flag --help"
     );
     expect(() => parseArgs(["run", "ask", "--input", "-h"])).toThrow(
-      "--input takes a value, not the flag -h"
+      "run: --input takes a value, not the flag -h"
     );
   });
 });
@@ -291,14 +324,18 @@ it("refuses a command line that cannot run, before anything else happens", () =>
       ["roll", "ping"],
       'unknown command "roll"; roll is now marbles run <name>',
     ],
-    [["stop"], 'unknown command "stop"; stop is now marbles daemon stop'],
     [
-      ["attach"],
-      'unknown command "attach"; attach is now marbles daemon attach',
+      ["daemon"],
+      'unknown command "daemon"; daemon is now marbles start or marbles stop',
     ],
     [
+      ["daemon", "stop"],
+      'unknown command "daemon"; daemon is now marbles start or marbles stop',
+    ],
+    [["attach"], 'unknown command "attach"; attach is now marbles start'],
+    [
       ["detach"],
-      'unknown command "detach"; detach is now marbles daemon detach',
+      'unknown command "detach"; detach is now marbles stop --workspace',
     ],
     [
       ["relink"],
@@ -343,9 +380,10 @@ it("parses watch by run ID and refuses missing or extra arguments", () => {
 });
 
 it("parses the mcp command, which takes flags only", () => {
-  expect(
-    parseArgs(["mcp", "--source", "/tmp/source.ts", "--dry-run"])
-  ).toMatchObject({ command: "mcp", config: "/tmp/source.ts", dry: true });
+  expect(parseArgs(["mcp", "--source", "/tmp/source.ts"])).toMatchObject({
+    command: "mcp",
+    config: "/tmp/source.ts",
+  });
   expect(() => parseArgs(["mcp", "list"])).toThrow("mcp takes no arguments");
   expect(() => parseArgs(["mcp", "--harness", "codex"])).toThrow(
     "mcp: unknown option --harness"

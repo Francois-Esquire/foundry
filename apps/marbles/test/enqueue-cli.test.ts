@@ -111,7 +111,7 @@ step("dispatcher").do(async () => {
     expect(unkeyed.stdout.trim()).not.toBe(id);
   });
 
-  it("refuses a name the workspace does not declare, a blank key, and --dry-run, leaving stdout empty", () => {
+  it("refuses a name the workspace does not declare and a blank key, and supports --json", () => {
     const home = testHome();
     const { file, root } =
       workspace(`import { step } from "@foundry.sh/marbles";
@@ -130,11 +130,13 @@ step("keyed").do(() => "keyed done");
     expect(blank.stderr).toContain(
       "enqueue: --key takes a key that is not blank"
     );
-    const dry = marbles("enqueue", "keyed", "--dry-run");
-    expect(dry.status).toBe(1);
-    expect(dry.stdout).toBe("");
-    expect(dry.stderr).toContain("enqueue leaves a run on the Marbles process");
-    expect(dry.stderr).toContain("it takes no --dry-run");
+    const json = marbles("enqueue", "keyed", "--json");
+    expect(json.status, json.stderr).toBe(0);
+    expect(json.stderr).toBe("");
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      name: "keyed",
+      runId: expect.stringMatching(RUN_ID),
+    });
   });
 });
 
@@ -159,15 +161,21 @@ monitor("watched/**").name("watcher").every("1h").do(() => {
       ["flow", '"kind": "step"'],
       ["nightly", '"kind": "schedule"'],
     ] as const) {
-      const ran = marbles("run", name, "--dry-run");
+      const ran = marbles("run", name);
       expect(ran.status, `${name}: ${ran.stderr}`).toBe(0);
       expect(ran.stdout, name).toContain(said);
     }
-    const watched = marbles("run", "watcher", "--dry-run");
+    const json = marbles("run", "leaf", "--json");
+    expect(json.status, json.stderr).toBe(0);
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      name: "leaf",
+      value: { kind: "step" },
+    });
+    const watched = marbles("run", "watcher");
     expect(watched.status, watched.stderr).toBe(0);
     expect(watched.stdout).toContain('"changed": true');
     expect(existsSync(marker)).toBe(true);
-    const missing = marbles("run", "nothing-here", "--dry-run");
+    const missing = marbles("run", "nothing-here");
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain(
       'no step, workflow, schedule, or monitor named "nothing-here"'

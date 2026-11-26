@@ -152,7 +152,7 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
     const home = testHome();
     const source = join(home.path, "marbles.ts");
     writeFileSync(source, 'import "@foundry.sh/marbles";\n');
-    const attached = marbles(home, "daemon", "attach", "--source", source);
+    const attached = marbles(home, "start", "--source", source);
     expect(attached.status, attached.stderr).toBe(0);
     const refused = marbles(
       home,

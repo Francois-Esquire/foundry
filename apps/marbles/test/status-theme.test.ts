@@ -1,16 +1,16 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { parseArgs } from "~/cli/args";
-import { COMMANDS } from "~/cli/command-line";
-import { applyTheme } from "~/cli/theme";
+import { createCliContext } from "~/cli/context";
+import { COMMANDS, parseArgs } from "~/cli/index";
 import { BUILT_IN_PALETTES } from "~/components/ui/theme";
+import { applyTheme } from "~/tui/theme";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { temporaryDirectory } from "./helpers/temporary";
 
 const shown = vi.hoisted(() => ({ backgrounds: [] as string[] }));
 
-vi.mock("~/cli/status/view", async () => {
+vi.mock("~/tui/status/view", async () => {
   const { theme } = await import("~/components/ui/theme");
   return {
     showStatus: () => {
@@ -62,7 +62,11 @@ describe("the interactive status view", () => {
     }
     const opened = { workspace: { id: "ws1" } } as unknown as OpenedWorkspace;
     asTerminal();
-    await handler.run(args, opened);
+    const ctx = {
+      ...createCliContext({ argv: ["status"], flags: args }),
+      workspace: opened,
+    };
+    await handler.run(ctx, args);
     expect(shown.backgrounds).toEqual([
       BUILT_IN_PALETTES.light.colors.background,
     ]);

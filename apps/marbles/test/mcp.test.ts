@@ -273,118 +273,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   }
 }, 30_000);
 
-function toolAnswer(value: unknown): { isError: boolean; text: string } {
-  const parsed = CallToolResultSchema.parse(value);
-  const [block] = parsed.content;
-  return {
-    isError: parsed.isError === true,
-    text: block?.type === "text" ? block.text : "",
-  };
-}
-
-const DRY_REFUSAL =
-  "A dry run of a workflow goes through `marbles run <name> --dry-run`.";
-
-it("under --dry-run, loads no source, keeps tasks in memory, and refuses what needs a running instance", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
-  const source = join(root, "marbles.ts");
-  const home = testHome({ providers: false });
-  const { state } = home.layout;
-  await writeFile(
-    source,
-    `import { step, workflow } from "@foundry.sh/marbles";
-console.error("SOURCE_LOADED");
-workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
-  );
-  const transport = new RecordedStdioTransport({
-    args: [
-      "--no-env-file",
-      resolve("src/cli.ts"),
-      "mcp",
-      "--source",
-      source,
-      "--dry-run",
-    ],
-    command: "bun",
-    cwd: root,
-    env: home.env,
-    stderr: "pipe",
-  });
-  let diagnostics = "";
-  transport.stderr?.on("data", (chunk: Buffer) => {
-    diagnostics += chunk.toString();
-  });
-  const client = new Client({ name: "marbles-test", version: "1.0.0" });
-  try {
-    await client.connect(transport);
-    const listed = await client.listTools();
-    expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
-    const workspaces = summaries(await client.callTool(WORKSPACES));
-    expect(workspaces).toEqual([
-      expect.objectContaining({ source, state: "stopped" }),
-    ]);
-    expect(
-      payload(
-        await client.callTool({
-          arguments: { resource: "workspace" },
-          name: "get",
-        })
-      )
-    ).toMatchObject({ item: { source, state: "stopped" } });
-    for (const [name, args] of [
-      ["list", { resource: "definitions" }],
-      ["list", { resource: "runs" }],
-      ["get", { fields: ["definitions"], resource: "workspace" }],
-      ["get", { id: "greeting", resource: "definition" }],
-      ["get", { id: "any", resource: "run" }],
-      ["enqueue_workflow", { name: "greeting" }],
-      ["dispatch_agent", { prompt: "Hello" }],
-      ["cancel_run", { id: "any" }],
-    ] as const) {
-      const refused = toolAnswer(
-        await client.callTool({ arguments: args, name })
-      );
-      expect(refused.isError, name).toBe(true);
-      const { error } = z
-        .object({ error: z.object({ code: z.string(), message: z.string() }) })
-        .parse(JSON.parse(refused.text));
-      expect(error.code, name).toBe("not_hosted");
-      expect(error.message, name).toContain("marbles daemon attach");
-      expect(error.message, name).toContain(DRY_REFUSAL);
-    }
-    const created = await client.callTool({
-      arguments: {
-        operations: [
-          { input: { title: "Dry" }, key: "dry", kind: "task.create" },
-        ],
-      },
-      name: "change_tasks",
-    });
-    expect(created.isError, JSON.stringify(created)).not.toBe(true);
-    const tasks = await client.callTool(TASKS);
-    expect(tasks.structuredContent).toMatchObject({
-      items: [{ title: "Dry" }],
-      total: 1,
-    });
-    const elsewhere = toolAnswer(
-      await client.callTool({
-        arguments: { resource: "tasks", workspace: "other" },
-        name: "list",
-      })
-    );
-    expect(elsewhere.isError).toBe(true);
-    expect(elsewhere.text).toContain("is available under --dry-run");
-  } catch (error) {
-    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
-  } finally {
-    await client.close();
-    expect(transport.pid).toBeNull();
-    expect(diagnostics).not.toContain("SOURCE_LOADED");
-    expect(existsSync(state)).toBe(false);
-    await rm(root, { force: true, recursive: true });
-  }
-}, 30_000);
-
 it("keeps what the server process writes to stdout, natively or through a child, off the protocol stream", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-stdout-"));
   const { env: homeEnv } = testHome();
@@ -403,7 +291,7 @@ process.on("exit", () => {
   );
   const session = await rawMcpSession(
     "bun",
-    ["--no-env-file", resolve("src/cli.ts"), "mcp", "--dry-run"],
+    ["--no-env-file", resolve("src/cli.ts"), "mcp"],
     { cwd: root, env }
   );
   try {
@@ -442,7 +330,6 @@ Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });`,
       "--no-env-file",
       resolve("src/cli.ts"),
       "mcp",
-      "--dry-run",
     ],
     { cwd: root, env }
   );
@@ -486,11 +373,10 @@ it("refuses to serve without the relay's protocol pipe", async () => {
   }
 }, 20_000);
 
-it("under --dry-run, never runs a source that throws at load, and still serves the task tools", async () => {
+it("never runs a source that throws at load, and still serves the task tools", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
   const source = join(root, "marbles.ts");
   const home = testHome({ providers: false });
-  const { state } = home.layout;
   const ran = join(root, "ran");
   await writeFile(
     source,
@@ -502,14 +388,7 @@ throw new Error("broken source");
   );
   const session = await rawMcpSession(
     "bun",
-    [
-      "--no-env-file",
-      resolve("src/cli.ts"),
-      "mcp",
-      "--source",
-      source,
-      "--dry-run",
-    ],
+    ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
     { cwd: root, env: home.env }
   );
   const resultSchema = z.object({
@@ -542,7 +421,6 @@ throw new Error("broken source");
     expect(ended.code).toBe(0);
     expect(ended.stderr).not.toContain("SOURCE_LOADED");
     expect(existsSync(ran)).toBe(false);
-    expect(existsSync(state)).toBe(false);
     expect(strayLines(ended.stdout)).toEqual([]);
     await rm(root, { force: true, recursive: true });
   }
@@ -626,7 +504,7 @@ schedule(tick).every("1s");`
       const refused = await client.callTool({ arguments: args, name });
       expect(refused.isError, name).toBe(true);
       expect(JSON.stringify(refused.content), name).toContain(
-        "`marbles daemon attach` in its root hosts it"
+        "`marbles start` in its root hosts it"
       );
     }
     await new Promise((settle) => setTimeout(settle, 1500));
@@ -848,14 +726,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   try {
     const attached = spawnSync(
       "bun",
-      [
-        "--no-env-file",
-        resolve("src/cli.ts"),
-        "daemon",
-        "attach",
-        "--source",
-        source,
-      ],
+      ["--no-env-file", resolve("src/cli.ts"), "start", "--source", source],
       { cwd: root, encoding: "utf8", env: home.env, timeout: 60_000 }
     );
     expect(attached.status, attached.stderr).toBe(0);
@@ -927,54 +798,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "list",
     });
     expect(unknown.isError).toBe(true);
-    const dry = new Client({ name: "marbles-dry", version: "1.0.0" });
-    const dryTransport = new RecordedStdioTransport({
-      args: [
-        "--no-env-file",
-        resolve("src/cli.ts"),
-        "mcp",
-        "--source",
-        source,
-        "--dry-run",
-      ],
-      command: "bun",
-      cwd: root,
-      env: home.env,
-      stderr: "pipe",
-    });
-    try {
-      await dry.connect(dryTransport);
-      expect(summaries(await dry.callTool(WORKSPACES))).toEqual([
-        expect.objectContaining({ id: workspace.id, state: "stopped" }),
-      ]);
-      const refused = toolAnswer(
-        await dry.callTool({
-          arguments: { input: { name: "Dry" }, name: "greeting" },
-          name: "enqueue_workflow",
-        })
-      );
-      expect(refused.isError).toBe(true);
-      expect(refused.text).toContain(DRY_REFUSAL);
-      expect(toolAnswer(await dry.callTool(runOf(runId))).isError).toBe(true);
-      const created = await dry.callTool({
-        arguments: {
-          operations: [
-            { input: { title: "Dry only" }, key: "d", kind: "task.create" },
-          ],
-        },
-        name: "change_tasks",
-      });
-      expect(created.isError, JSON.stringify(created)).not.toBe(true);
-      expect((await dry.callTool(TASKS)).structuredContent).toMatchObject({
-        items: [{ title: "Dry only" }],
-        total: 1,
-      });
-    } finally {
-      await dry.close();
-    }
-    expect(JSON.stringify(await client.callTool(TASKS))).not.toContain(
-      "Dry only"
-    );
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
   } finally {

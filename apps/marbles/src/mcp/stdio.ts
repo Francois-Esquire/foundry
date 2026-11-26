@@ -3,11 +3,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   joinProcess,
   NotHostedError,
-  type TaskRunner,
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
-import type { Flags } from "~/cli/args";
+import type { GlobalFlags } from "~/cli/context";
 import { recordedWorkspaces } from "~/database/workspaces";
 import { ToolRefusal } from "~/mcp/errors";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
@@ -26,42 +25,9 @@ interface Served extends McpServerOptions {
   readonly release: () => Promise<void>;
 }
 
-function sessionTasks(flags: Flags, opened: OpenedWorkspace) {
-  let runner: Promise<TaskRunner> | undefined;
-  let session: Promise<void> = Promise.resolve();
-  let letGo = (): void => undefined;
-  return {
-    open(): Promise<TaskRunner> {
-      runner ??= new Promise<TaskRunner>((ready, fail) => {
-        const done = new Promise<void>((end) => {
-          letGo = end;
-        });
-        let held = false;
-        session = withTasks(flags, opened, (run) => {
-          held = true;
-          ready(run);
-          return done;
-        }).catch((error: unknown) => {
-          if (held) {
-            throw error;
-          }
-          runner = undefined;
-          fail(error);
-        });
-      });
-      return runner;
-    },
-    release(): Promise<void> {
-      letGo();
-      return session;
-    },
-  };
-}
-
-function serveWorkspace(flags: Flags): Served {
+function serveWorkspace(flags: GlobalFlags): Served {
   const opened = findWorkspace(flags);
   const own = opened.workspace;
-  const memory = flags.dry ? sessionTasks(flags, opened) : undefined;
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
     const next = turn.then(work, work);
@@ -71,12 +37,6 @@ function serveWorkspace(flags: Flags): Served {
   const recorded = async (id: string): Promise<OpenedWorkspace> => {
     if (id === own.id) {
       return opened;
-    }
-    if (flags.dry) {
-      throw new ToolRefusal(
-        "not_found",
-        `only workspace "${own.id}" is available under --dry-run`
-      );
     }
     const found = await recordedWorkspace(flags, id);
     if (found === undefined) {
@@ -112,18 +72,13 @@ function serveWorkspace(flags: Flags): Served {
       }
     },
     id: own.id,
-    release: () => turn.then(() => memory?.release()),
+    release: () => turn.then(() => undefined),
     tasks: (command, id = own.id) =>
       inTurn(async () => {
         const target = await recorded(id);
-        return memory === undefined
-          ? withTasks(flags, target, (run) => run(command))
-          : (await memory.open())(command);
+        return withTasks(flags, target, (run) => run(command));
       }),
     async workspaces() {
-      if (flags.dry) {
-        return [ownSummary];
-      }
       const client = await joinProcess();
       let listed: readonly WorkspaceSummary[];
       if (client === undefined) {
@@ -144,7 +99,7 @@ function serveWorkspace(flags: Flags): Served {
   };
 }
 
-async function serve(flags: Flags): Promise<void> {
+async function serve(flags: GlobalFlags): Promise<void> {
   const output = protocolOutput();
   const configPath = resolveSource(flags.config, flags.directory);
   let served: Served;
@@ -216,6 +171,6 @@ function report(error: unknown): void {
   process.exitCode = 1;
 }
 
-export async function serveStdio(flags: Flags): Promise<void> {
+export async function serveStdio(flags: GlobalFlags): Promise<void> {
   await serve(flags).catch(report);
 }

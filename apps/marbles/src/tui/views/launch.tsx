@@ -1,7 +1,5 @@
 import { useKeyboard } from "@opentui/react";
 import { useCallback } from "react";
-import { useAsyncAction } from "~/cli/hooks/use-async-action";
-import { useQuitGuard } from "~/cli/hooks/use-quit-guard";
 import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { SetupFlow } from "~/components/layouts/setup-flow";
@@ -14,6 +12,8 @@ import {
   inputProblem,
   parseInputs,
 } from "~/lib/inputs";
+import { useAsyncAction } from "~/tui/hooks/use-async-action";
+import { useQuitGuard } from "~/tui/hooks/use-quit-guard";
 import type { DefinitionSnapshot } from "../state/dashboard-model";
 import type { Launcher } from "../state/run-actions";
 

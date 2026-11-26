@@ -1,10 +1,10 @@
 import { RGBA } from "@opentui/core";
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { selectionKey } from "../src/cli/state/dashboard-model";
-import { DashboardView } from "../src/cli/views/dashboard";
 import { theme } from "../src/components/ui/theme";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { selectionKey } from "../src/tui/state/dashboard-model";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { previewScenarios } from "../stories/fixtures/scenarios";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import {

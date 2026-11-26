@@ -1,24 +1,20 @@
 import { basename } from "node:path";
-import { openDashboard } from "~/cli/app";
-import type { Flags } from "~/cli/args";
+import type { GlobalFlags } from "~/cli/context";
 import { loadSettings, saveSettings, settingsPath } from "~/cli/settings";
-import type { HostedWorkspace } from "~/cli/state/use-dashboard";
-import { applyTheme } from "~/cli/theme";
 import { layout } from "~/layout";
-import type { Engine } from "~/lib/engine";
 import type { WorkspaceConnection, WorkspaceSummary } from "~/model/connection";
 import type { DashboardSnapshot } from "~/model/dashboard";
 import type { LogEntry } from "~/model/log";
 import type { SettingsChange } from "~/model/settings";
 import type { MarblesClient } from "~/process/client";
 import { connect } from "~/process/client";
+import { openDashboard } from "~/tui/app";
+import type { HostedWorkspace } from "~/tui/state/use-dashboard";
+import { applyTheme } from "~/tui/theme";
 import { createStarter } from "~/workspace/create";
 import { Diagnostics } from "~/workspace/diagnostics";
-import type { WorkspaceHost } from "~/workspace/host";
-import { hostWorkspace } from "~/workspace/host";
 import { findWorkspace, recordedWorkspace } from "~/workspace/open";
 import { discoverProviderSetup } from "~/workspace/provider-setup";
-import { resolveSource, sourceRoot } from "~/workspace/source";
 import type { SetupDraft } from "~/workspace/templates";
 
 const REFRESH_MS = 200;
@@ -26,25 +22,16 @@ const WORKSPACES_REFRESH_MS = 3000;
 
 type Terminal = Awaited<ReturnType<typeof openDashboard>>;
 
-export async function runInteractive(args: Flags): Promise<void> {
+export async function runInteractive(args: GlobalFlags): Promise<void> {
   const controller = new AbortController();
   const local = localState(args);
-  const onboarding = args.dry ? undefined : await onboardingFor(args, local);
-  const terminal = await openDashboard(
-    basename(
-      onboarding?.root ?? sourceRoot(resolveSource(args.config, args.directory))
-    ),
-    controller
-  );
+  const onboarding = await onboardingFor(args, local);
+  const terminal = await openDashboard(basename(onboarding.root), controller);
   const stop = () => controller.abort();
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   try {
-    if (onboarding) {
-      await runRemote(terminal, controller, local, onboarding);
-    } else {
-      await runLocal(args, terminal, controller, local);
-    }
+    await runRemote(terminal, controller, local, onboarding);
   } catch (error) {
     process.exitCode = 1;
     if (!controller.signal.aborted) {
@@ -61,10 +48,10 @@ export async function runInteractive(args: Flags): Promise<void> {
 interface LocalState {
   readonly decorate: (snapshot: DashboardSnapshot) => DashboardSnapshot;
   readonly report: (line: string, level?: LogEntry["level"]) => void;
-  readonly save?: (changes: SettingsChange) => void;
+  readonly save: (changes: SettingsChange) => void;
 }
 
-function localState(args: Flags): LocalState {
+function localState(args: GlobalFlags): LocalState {
   let loaded = loadSettings(settingsPath(args.state));
   applyTheme(loaded.settings.theme);
   const diagnostics = new Diagnostics();
@@ -88,16 +75,12 @@ function localState(args: Flags): LocalState {
       },
     }),
     report: (line, level) => diagnostics.add(line, level),
-    ...(args.dry
-      ? {}
-      : {
-          save(changes: SettingsChange) {
-            const saved = saveSettings(loaded.path, changes);
-            loaded = { path: loaded.path, settings: saved };
-            applyTheme(saved.theme);
-            diagnostics.add(`[settings] theme ${saved.theme}`);
-          },
-        }),
+    save(changes: SettingsChange) {
+      const saved = saveSettings(loaded.path, changes);
+      loaded = { path: loaded.path, settings: saved };
+      applyTheme(saved.theme);
+      diagnostics.add(`[settings] theme ${saved.theme}`);
+    },
   };
 }
 
@@ -121,78 +104,6 @@ function every(
   return () => clearInterval(timer);
 }
 
-async function runLocal(
-  args: Flags,
-  terminal: Terminal,
-  controller: AbortController,
-  local: LocalState
-): Promise<void> {
-  const print = (line: string) => {
-    host?.setStatus(line);
-  };
-  let host: WorkspaceHost | undefined;
-  let loop: Promise<void> | undefined;
-  let refresh: (() => void) | undefined;
-  let stopping: Promise<void> | undefined;
-  const stop = () => {
-    stopping ??= stopAfterSchedules(loop, host?.engine);
-    stopping.catch(() => undefined);
-  };
-  controller.signal.addEventListener("abort", stop, { once: true });
-  try {
-    host = await hostWorkspace({
-      artifacts: args.artifacts,
-      askable: true,
-      directory: args.directory,
-      dry: args.dry,
-      print,
-      source: args.config,
-      state: args.state,
-    });
-    if (controller.signal.aborted) {
-      return;
-    }
-    const running = host;
-    const hasConfig = running.config !== null;
-    const shown = (snapshot: DashboardSnapshot): DashboardSnapshot => ({
-      ...local.decorate(snapshot),
-      status: `dry · ${snapshot.status}`,
-    });
-    const update = async () =>
-      terminal.update(shown(await running.snapshot()), hasConfig);
-    terminal.connect({
-      ...running.actions,
-      rollSchedule: (key) => rollSchedule(running, key),
-    });
-    running.setStatus(hasConfig ? "Marbles loaded" : NO_SOURCE_WHEN_DRY);
-    await update();
-    if (!(await terminal.entry)) {
-      return;
-    }
-    running.setStatus(await readyStatus(running.engine, hasConfig));
-    await update();
-    refresh = every(REFRESH_MS, controller.signal, () =>
-      update().catch((error: unknown) => {
-        const line = `[dashboard] ${String(error)}`;
-        print(line);
-        local.report(line, "error");
-      })
-    );
-    loop = running.run(controller.signal);
-    await loop;
-  } finally {
-    refresh?.();
-    stop();
-    try {
-      await stopping;
-      await loop;
-    } finally {
-      controller.signal.removeEventListener("abort", stop);
-      await host?.close();
-    }
-  }
-}
-
 async function rollSchedule(
   connection: Pick<WorkspaceConnection, "roll">,
   key: string
@@ -203,14 +114,13 @@ async function rollSchedule(
   }
 }
 
-async function onboardingFor(args: Flags, local: LocalState) {
+async function onboardingFor(args: GlobalFlags, local: LocalState) {
   const { configPath, workspace, config } = findWorkspace(args);
   const path = settingsPath(args.state);
   const { settings, problem } = loadSettings(path);
   const [recorded, providers] = await Promise.all([
     recordedWorkspace(args, workspace.id),
     discoverProviderSetup({
-      recheck: args.recheckProviders,
       state: args.state,
       workspace,
     }),
@@ -241,8 +151,7 @@ async function onboardingFor(args: Flags, local: LocalState) {
     },
     configPath,
     hasSource: config !== null,
-    providers:
-      args.recheckProviders || reviewFirstSetup ? providers : undefined,
+    providers: reviewFirstSetup ? providers : undefined,
     root: workspace.root,
     workspaceSetup:
       reviewFirstSetup ||
@@ -411,18 +320,15 @@ function remoteSession(
   };
   follow(attached);
 
-  const { save } = local;
-  const settings = save
-    ? async (changes: SettingsChange): Promise<void> => {
-        save(changes);
-        republish();
-      }
-    : undefined;
+  const settings = async (changes: SettingsChange): Promise<void> => {
+    local.save(changes);
+    republish();
+  };
   const connectActions = (): void => {
     terminal.connect({
       ...connection.actions,
-      ...(settings ? { settings } : {}),
       rollSchedule: (key) => rollSchedule(connection, key),
+      settings,
       switchWorkspace,
     });
   };
@@ -507,29 +413,3 @@ function remoteSession(
 }
 
 const NO_WORKSPACE = "no workspace is attached to the Marbles process";
-
-const NO_SOURCE_WHEN_DRY =
-  "No authoring folder · run marbles init without --dry-run";
-
-async function readyStatus(
-  engine: Engine,
-  hasConfig: boolean
-): Promise<string> {
-  if (!hasConfig) {
-    return NO_SOURCE_WHEN_DRY;
-  }
-  return (await engine.schedules()).length === 0
-    ? "Ready · no triggers configured"
-    : "Watching triggers";
-}
-
-async function stopAfterSchedules(
-  loop: Promise<void> | undefined,
-  engine: Engine | undefined
-): Promise<void> {
-  try {
-    await loop;
-  } finally {
-    await engine?.stop({ cancel: true });
-  }
-}

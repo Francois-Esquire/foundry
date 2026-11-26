@@ -454,31 +454,37 @@ Five buckets, each importing only what sits below it:
   so the daemon never loads an authoring module and survives any of them.
 - `src/access/` is how a command reaches its workspace, shared by the CLI
   and the MCP server (`workspace.ts`): through stored state, its rows in
-  the database opened for each command (in memory under `--dry-run`); through a running instance, joining the Marbles process
+  the database opened for each command (or in memory when callers pass `dry: true`); through a running instance, joining the Marbles process
   without starting it (`NotHostedError` when no generation hosts the
   workspace); or by starting and hosting it, which only the CLI does. It
   imports `workspace/`, `process/`, `database/`, `lib/`, `layout.ts` and
   `model/`, and nothing from the app.
-- The app sits on top and may import anything: `src/cli.ts` (the entry,
-  which runs `main` whenever it loads, imported by `bin/marbles` too),
-  `src/cli/` (what only the CLI and its terminal UI use:
-  `command-line.ts`, every command's handler, and what `--dry-run` means
-  for each of its actions, beside `main`; `args.ts`, which parses a
-  command line completely, before anything loads: no command is the
-  dashboard, `run <name>` runs one thing now and waits, `enqueue <name>`
-  queues it on the Marbles process and prints its run ID, and `daemon`,
-  the resource nouns (`runs`, `sessions`, `artifacts`, `sandboxes`) and
-  `theme` each take their actions as a second word; `interactive.ts`
-  and `app.tsx`, the dashboard and its renderer; `views/`, the screens; `state/`,
-  their models, reducers and hooks; `hooks/`, the shared React hooks;
-  `settings.ts`, the settings file `marbles theme` reads and writes;
-  `watch.ts`, `marbles watch`, which waits out a run still in its queue
+- The app sits on top and may import anything: `src/cli.ts` (the thin entry
+  that checks `envFilesLoaded()` and calls `runCli`, imported by `bin/marbles`
+  too), `src/cli/` (zero-dependency CLI framework and command modules, free of
+  top-level React/OpenTUI imports: `index.ts`, the static command registry,
+  argument scanner, auto-generated `--help`, global `--source`/`--json`/`--help`
+  flags, and uniform middleware; `command.ts`, the typed `defineCommand()`
+  contract; `context.ts`, the shared `CliContext` with `output()` for text vs.
+  JSON rendering; `errors.ts`, `UsageError` and actionable error classification;
+  `commands/*.ts`, one self-contained module per command — no command is the
+  dashboard, `start` ensures the background daemon is running and hosts this
+  workspace, `stop [--workspace]` stops the daemon or unhosts this workspace,
+  `run <name>` runs one thing now and waits, `enqueue <name>` queues it on the
+  Marbles process and prints its run ID, and the resource nouns (`runs`,
+  `sessions`, `artifacts`, `sandboxes`) and `theme` each take their actions as
+  a second word; `settings.ts`, the settings file `marbles theme` reads and
+  writes; `watch.ts`, `marbles watch`, which waits out a run still in its queue
   before it follows the run's output; the output of `marbles status` and
-  the task commands, `status/` and `tasks/`; and `resources/`, the
+  the task commands, `status/text.ts` and `tasks/text.ts`; and `resources/`, the
   resource listings, sharing, and `marbles artifacts relink`, which
   rebuilds each workspace's links under `<root>/.marbles/` from the
-  database; they are never read back), `src/components/`,
-  `src/mcp/`, `src/status/`. The dashboard is a client of the process.
+  database; they are never read back), `src/tui/` (the OpenTUI dashboard and
+  interactive status UI, lazy-imported by `src/cli/` only on a TTY:
+  `interactive.ts` and `app.tsx`, the dashboard and its renderer; `views/`,
+  the screens; `state/`, their models, reducers and hooks; `hooks/`, the shared
+  React hooks; `theme.ts`, theme-to-palette resolution; and `status/view.ts`),
+  `src/components/`, `src/mcp/`, `src/status/`. The dashboard is a client of the process.
   `src/mcp/stdio.ts` is the `marbles mcp` server, which `cli.ts` loads
   only when that command runs. `src/mcp/relay.ts` runs it in a child
   process whose stdout is the relay's stderr. Protocol frames go out on
@@ -489,10 +495,7 @@ Five buckets, each importing only what sits below it:
   shutdown deadline passes. The relay kills a server that outlives a later
   one, counted from a signal it passes on or the end of stdin. The server reaches the
   workspace through `access/` and never starts the process or attaches a
-  workspace. Under `--dry-run` the CLI hosts the workspace in its own
-  process through `hostWorkspace`, since nothing is persisted. The MCP
-  server hosts nothing even then: it keeps the tasks in memory and joins
-  no process.
+  workspace.
 
 `src/layout.ts` decides where things live, all of it under the Foundry
 home (`$FOUNDRY_ROOT`, else `~/.foundry`): the Marbles state root, the
@@ -529,17 +532,17 @@ and directories are excluded from discovery but can be imported, and the
 source watcher digests them too. The workspace root stays above `.foundry`.
 
 The dashboard's keys, footer, and keyboard help come from one command table
-(`cli/state/dashboard-commands.ts`), and its state changes in a pure reducer
-(`cli/state/dashboard-state.ts`). `src/components/` is presentational: props
+(`tui/state/dashboard-commands.ts`), and its state changes in a pure reducer
+(`tui/state/dashboard-state.ts`). `src/components/` is presentational: props
 and callbacks in, rendering out. It imports React, `@opentui/*`, other
 components, and types from `model/` (from `lib/` only where `model/` has none),
-and nothing from `cli/`; `test/components-imports.test.ts` holds it there.
+and nothing from `cli/` or `tui/`; `test/components-imports.test.ts` holds it there.
 Lookups, filtering, selection, statistics, eligibility, and usage formatting
-live in `cli/state/` and `cli/views/`, which hand components ready rows:
+live in `tui/state/` and `tui/views/`, which hand components ready rows:
 `dashboard-rows.ts`, `dashboard-metrics.ts`, `dashboard-views.ts`,
 `feed-model.ts` and `feed-answer.ts` (each feed row's pending mark and
 metadata label and tone), `inspector.ts` (with `views/inspector.tsx`), and
-`cli/hooks/use-run-stream.ts`, building only what is mounted; `cli/theme.ts`
+`tui/hooks/use-run-stream.ts`, building only what is mounted; `tui/theme.ts`
 resolves theme names to palettes. `src/components/ui/` holds primitives;
 `src/components/blocks/` holds the domain components; `src/components/layouts/`
 holds the chrome: each layout arranges a few `ReactNode` regions and owns its
@@ -548,7 +551,7 @@ function beside it (`dashboardMain`, which also says whether main is shown,
 so the view builds no model for a covered main; the metrics block's
 `showsWorkflowRankings` likewise). `ui/` imports neither blocks nor layouts,
 and blocks import no layouts; the import test holds that too. A view in
-`cli/views/` places the models `cli/state/` builds into those regions.
+`tui/views/` places the models `tui/state/` builds into those regions.
 
 Source files configure pools with `export default defineConfig({ pools: { review: 2 }, pool: "review" })`.
 Pool limits are positive integers or `Infinity`. Hosted and script engines use

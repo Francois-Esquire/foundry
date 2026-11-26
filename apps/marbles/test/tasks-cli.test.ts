@@ -108,26 +108,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     expect(stored.filter((file) => file.includes("tasks"))).toEqual([]);
   });
 
-  it("--dry-run keeps tasks in memory and leaves the workspace's untouched", async () => {
-    expect(marbles("tasks", "create", "Dry first", "--dry-run").status).toBe(0);
-    expect(await files(state)).toEqual([]);
-    expect(marbles("tasks", "create", "Real").status).toBe(0);
-    const [path] = await files(state);
-    const before = await readFile(join(state, path ?? ""), "utf8");
-
-    const dry = marbles("tasks", "create", "Dry", "--dry-run");
-    expect(dry.status, dry.stderr).toBe(0);
-    expect(dry.stdout).toContain("Dry");
-    expect(marbles("tasks", "list", "--dry-run").stdout).toBe(
-      "no tasks (0 matching)\n"
-    );
-    expect(await readFile(join(state, path ?? ""), "utf8")).toBe(before);
-    const real = JSON.parse(marbles("tasks", "list", "--json").stdout);
-    expect(real.items.map((task: { title: string }) => task.title)).toEqual([
-      "Real",
-    ]);
-  });
-
   it("reads without executing source or writing a file", async () => {
     const source = join(root, ".foundry", "marbles");
     await mkdir(source, { recursive: true });
@@ -209,9 +189,6 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
         (item: { title: string }) => item.title
       );
     expect(titles("list", "--tag", "review", "--tag", "api")).toEqual([
-      "Tagged",
-    ]);
-    expect(titles("list", "--any-tag", "x", "--any-tag", "api")).toEqual([
       "Tagged",
     ]);
     expect(titles("ready", "--tag", "missing")).toEqual([]);

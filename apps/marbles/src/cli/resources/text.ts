@@ -3,6 +3,13 @@ import type { ResourceKind } from "~/lib/resources";
 import type { RunStep } from "~/lib/run-trace";
 import { runSteps } from "~/lib/run-trace";
 
+export interface ResourceItem {
+  readonly id: string;
+  readonly owner: string;
+  readonly sharedWith: readonly string[];
+  readonly [key: string]: unknown;
+}
+
 export function resourceLines(
   kind: ResourceKind,
   view: ResourceView,
@@ -10,6 +17,71 @@ export function resourceLines(
 ): Promise<string[]> {
   return LINES[kind](view, here);
 }
+
+export function resourceItems(
+  kind: ResourceKind,
+  view: ResourceView
+): Promise<ResourceItem[]> {
+  return ITEMS[kind](view);
+}
+
+function ownership(shown: Shown<unknown>): {
+  readonly owner: string;
+  readonly sharedWith: readonly string[];
+} {
+  const [owner = "", ...sharedWith] = shown.workspaces;
+  return { owner, sharedWith };
+}
+
+const ITEMS: {
+  readonly [K in ResourceKind]: (view: ResourceView) => Promise<ResourceItem[]>;
+} = {
+  async artifact(view) {
+    return (await view.artifacts()).map((shown) => ({
+      id: shown.ref.id,
+      name: shown.value.name,
+      ...ownership(shown),
+      status: shown.value.status,
+      type: shown.value.type,
+      updatedAt: shown.value.updatedAt.toISOString(),
+    }));
+  },
+  async run(view) {
+    return (await view.runs()).map((shown) => {
+      const { record } = shown.value;
+      return {
+        createdAt: new Date(record.timestamps.createdAt).toISOString(),
+        id: record.id,
+        ...ownership(shown),
+        status: record.status,
+        step: record.step,
+        steps: runSteps(record),
+      };
+    });
+  },
+  async sandbox(view) {
+    return (await view.sandboxes()).map((shown) => ({
+      createdAt: new Date(shown.value.createdAt).toISOString(),
+      id: shown.ref.id,
+      ...ownership(shown),
+      status: shown.value.status,
+    }));
+  },
+  async session(view) {
+    const sessions = await view.sessions();
+    const tallies = await view.messageTallies(sessions.map(({ ref }) => ref));
+    return sessions.map((shown) => {
+      const tally = tallies.get(shown.ref);
+      return {
+        id: shown.ref.id,
+        messages: tally?.messages ?? 0,
+        ...ownership(shown),
+        summarized: Boolean(tally?.summarized),
+        updatedAt: new Date(shown.value.updatedAt).toISOString(),
+      };
+    });
+  },
+};
 
 const LINES: {
   readonly [K in ResourceKind]: (

@@ -1,15 +1,15 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { useCallback, useState } from "react";
 import { defineStories, story } from "textbook-sh";
+import type { HarnessActivitySnapshot } from "~/model/dashboard";
 import {
   type DashboardSelection,
   type DashboardSnapshot,
   resolveSelection,
-} from "~/cli/state/dashboard-model";
-import type { InspectorTab } from "~/cli/state/dashboard-state";
-import type { RunActions } from "~/cli/state/run-actions";
-import { Inspector } from "~/cli/views/inspector";
-import type { HarnessActivitySnapshot } from "~/model/dashboard";
+} from "~/tui/state/dashboard-model";
+import type { InspectorTab } from "~/tui/state/dashboard-state";
+import type { RunActions } from "~/tui/state/run-actions";
+import { Inspector } from "~/tui/views/inspector";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { ignore, renderFrame } from "../frame";
 
