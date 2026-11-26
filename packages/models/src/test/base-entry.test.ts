@@ -26,7 +26,7 @@ it("publishes exactly the intended subpaths", () => {
   );
 });
 
-it("keeps every web-safe subpath free of Node and Bun dependencies", () => {
+it("keeps workspace sources of every web-safe subpath free of Node and Bun imports and globals", () => {
   expect(() =>
     assertWebStandardExports(PACKAGE_DIR, WEB_STANDARD)
   ).not.toThrow();

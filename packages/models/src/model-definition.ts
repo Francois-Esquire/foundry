@@ -18,11 +18,8 @@ export interface ModelCosts {
 }
 
 export interface ModelLimits {
-  maxDurationSeconds?: number;
-  maxInputBytes?: number;
   maxInputTokens?: number;
   maxOutputTokens?: number;
-  maxResolution?: { width: number; height: number };
 }
 
 export interface ModelCapabilities {
@@ -43,6 +40,5 @@ export interface ProviderModelDefinition {
   label?: string;
   limits?: ModelLimits;
   modelId: string;
-  params?: string[];
   vendor?: string;
 }
