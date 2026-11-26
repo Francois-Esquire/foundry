@@ -297,7 +297,7 @@ process.on("exit", () => {
   try {
     const listed = z
       .object({ result: z.object({ structuredContent: z.unknown() }) })
-      .parse(await session.request("tools/call", TASKS));
+      .parse(await session.request("tools/call", WORKSPACES));
     expect(listed.result.structuredContent).toMatchObject({ total: 0 });
   } finally {
     const ended = await session.close();

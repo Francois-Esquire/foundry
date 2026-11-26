@@ -31,7 +31,11 @@ async function defaultWorkspace(
   if (flags.sourceExplicit || opened.config !== null) {
     return opened;
   }
-  return await recordedWorkspace(flags, opened.workspace.id);
+  try {
+    return await recordedWorkspace(flags, opened.workspace.id);
+  } catch {
+    return undefined;
+  }
 }
 
 async function serveGlobal(flags: GlobalFlags): Promise<Served> {
