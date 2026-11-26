@@ -1,4 +1,10 @@
+import type { DatasetAnalysis } from "./dataset-analysis";
 import {
+  verifyDatasetAnalysis,
+  verifyDatasetAnalysisCorrespondence,
+} from "./dataset-analysis";
+import {
+  DATASET_ANALYSIS_FILE,
   DATASET_FILES,
   HISTORY_DIRECTORY,
   HISTORY_FILES,
@@ -42,10 +48,13 @@ interface DatasetHistory {
 }
 
 export interface DatasetReader {
+  analysis(): Promise<DatasetAnalysis | undefined>;
   dependencyGraph(): Promise<WorkspaceGraphProjection>;
   dependencyInventory(): Promise<DependencyInventory | undefined>;
+
   history(): Promise<DatasetHistory | undefined>;
   internals(name: string): Promise<PackageInternals>;
+
   lens<I extends LensId>(id: I): Promise<LensOutputs[I]>;
   manifest(): Promise<DatasetManifest>;
   moduleEdgeShards(): Promise<SemanticsModuleEdgeShard[]>;
@@ -102,6 +111,16 @@ export function datasetReader(
       pick(await readIndex()).map(({ file }) => required<T>(read, file))
     );
   return {
+    analysis: async () => {
+      const saved = await readManifest();
+      const analysis = await read(DATASET_ANALYSIS_FILE);
+      return analysis === undefined
+        ? undefined
+        : verifyDatasetAnalysisCorrespondence(
+            verifyDatasetAnalysis(analysis),
+            saved
+          );
+    },
     dependencyGraph: () =>
       fromManifest((saved) => saved.files.projections.dependencyGraph),
     dependencyInventory: async () => {

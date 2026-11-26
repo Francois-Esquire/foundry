@@ -1,10 +1,9 @@
-import { relative } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
 import { Node, SyntaxKind, ts } from "ts-morph";
-import type { Boundary } from "./boundary";
-import { ownerBoundary, toPosix } from "./boundary";
+import { relative } from "#path";
+import type { Boundary, SourceOwner } from "./boundary-model";
+import { toPosix } from "./boundary-model";
 import type { AnalysisConfig } from "./config";
-import { ANALYSIS_CONFIG } from "./config";
 import type { CollectedSymbol } from "./symbols";
 import { kindOf } from "./symbols";
 import type {
@@ -25,6 +24,7 @@ import { classifyReference } from "./usage";
 export interface ConceptInventorySource {
   boundary: Boundary;
   project: Project;
+
   surface: SurfaceSymbol[];
   symbols: CollectedSymbol[];
 }
@@ -99,10 +99,10 @@ function topLevelOwner(node: Node): Node | undefined {
 
 export function prepareConceptSeeds(
   source: Omit<ConceptInventorySource, "project">,
-  config: AnalysisConfig = ANALYSIS_CONFIG
+  config: AnalysisConfig,
+  ownerOf: SourceOwner
 ): ConceptSeedGroup {
   const { boundary } = source;
-  const { root } = boundary;
   const surfaceById = new Map(source.surface.map((s) => [s.id, s]));
   const seedByNode = new Map<ts.Node, ConceptSeedState>();
   const seeds: ConceptSeedState[] = [];
@@ -121,10 +121,7 @@ export function prepareConceptSeeds(
     const seed: ConceptSeed = {
       declaration: {
         file,
-        package: ownerBoundary(
-          root,
-          collected.node.getSourceFile().getFilePath()
-        ),
+        package: ownerOf(collected.node.getSourceFile().getFilePath()),
       },
       id: collected.id,
       kind: collected.kind,
@@ -158,7 +155,8 @@ export function prepareConceptSeeds(
 export function sweepConceptEvidence(
   project: Project,
   root: string,
-  groups: ConceptSeedGroup[]
+  groups: ConceptSeedGroup[],
+  ownerOf: SourceOwner
 ): void {
   const active = groups.filter((group) => group.states.length > 0);
   if (active.length === 0) {
@@ -219,12 +217,13 @@ export function sweepConceptEvidence(
     });
   };
 
-  sweepConceptEvidenceFile(project, root, seedsOf, record);
+  sweepConceptEvidenceFile(project, root, ownerOf, seedsOf, record);
 }
 
 function sweepConceptEvidenceFile(
   project: Project,
   root: string,
+  ownerOf: SourceOwner,
   seedsOf: (node: Node) => ConceptSeedState[],
   record: (
     seed: ConceptSeedState,
@@ -240,7 +239,7 @@ function sweepConceptEvidenceFile(
       continue;
     }
     const relFile = toPosix(relative(root, filePath));
-    const owner = ownerBoundary(root, filePath);
+    const owner = ownerOf(filePath);
 
     sweepConceptEvidenceFileReference(file, seedsOf, record, relFile, owner);
 

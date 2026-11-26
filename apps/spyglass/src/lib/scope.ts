@@ -1,13 +1,11 @@
-import { resolve } from "node:path";
 import type { Node, Project } from "ts-morph";
-
-import type { Boundary } from "./boundary";
-
-import { boundaryEntrypoints } from "./boundary";
+import { resolve } from "#path";
+import type { Boundary, BoundaryEntrypoint } from "./boundary-model";
 
 export function packagePublicNodes(
   project: Project,
-  boundary: Boundary
+  boundary: Boundary,
+  entries: readonly BoundaryEntrypoint[]
 ): Set<Node> | null {
   if (boundary.type !== "package") {
     return null;
@@ -18,7 +16,6 @@ export function packagePublicNodes(
   ) {
     return null;
   }
-  const entries = boundaryEntrypoints(boundary);
   if (entries.length === 0) {
     return null;
   }

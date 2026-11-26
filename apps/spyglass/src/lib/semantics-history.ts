@@ -16,6 +16,7 @@ import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
 } from "./config";
+import { moduleConceptRoles } from "./dataset-assembly";
 import {
   HISTORY_FILES,
   historyDeltaFile,
@@ -27,7 +28,6 @@ import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";
 import type { SemanticsDeriver, SemanticsLocalAnalyzer } from "./semantics";
 import {
   mapBounded,
-  moduleConceptRoles,
   rootName,
   spawnDeriver,
   spawnLocalAnalyzer,

@@ -1,11 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import {
-  expandPattern,
-  resolveBoundary,
-  toPosix,
-  workspacePatterns,
-} from "./boundary";
+import { expandPattern, resolveBoundary, workspacePatterns } from "./boundary";
+import { toPosix } from "./boundary-model";
 import { collectCrossBoundaryEdges } from "./dependencies";
 import { collectGitHistory } from "./git-history";
 import { packageSourceFiles, workspaceSourceFiles } from "./project";

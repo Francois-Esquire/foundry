@@ -63,17 +63,23 @@ export const LENS_IDS: readonly LensId[] = (
 
 export interface LensSettings {
   domains: readonly DomainDeclaration[];
+
   rules: readonly Rule[];
 }
 
 interface LensPackage {
   id: string;
+
   internals: boolean;
+
   path: string;
   status: DatasetManifest["packages"][number]["status"];
 }
 
-export type LensReader = Omit<DatasetReader, "history" | "manifest"> & {
+export type LensReader = Omit<
+  DatasetReader,
+  "analysis" | "history" | "manifest"
+> & {
   packages(): readonly LensPackage[];
 };
 
@@ -83,10 +89,14 @@ export interface Lens<
   K extends keyof LensSettings = never,
 > {
   consumes?: readonly LensId[];
+
   derive(source: Source, settings: Pick<LensSettings, K>): LensOutputs[I];
   id: I;
+
   read(reader: LensReader, settings: Pick<LensSettings, K>): Promise<Source>;
+
   schemaVersion: number;
+
   settings: readonly K[];
 }
 

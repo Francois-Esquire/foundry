@@ -9,6 +9,7 @@ import type {
   SourceFile,
 } from "ts-morph";
 import { Node, SyntaxKind } from "ts-morph";
+import { boundaryEntrypoints } from "./boundary";
 import { classifyFile } from "./file-kind";
 import type {
   PlannedClosureDependency,
@@ -40,12 +41,16 @@ export interface ImportSite {
   fileKind: ChurnFileKind;
   form: ImportSiteForm;
   kind: PlannedImportKind;
+
   names: string[];
+
   otherNames: string[];
   package?: string;
+
   resolvedFile: string;
   specifier: string;
   typeOnly: boolean;
+
   viaPackage: boolean;
 }
 
@@ -440,6 +445,7 @@ export interface MovementClosureInput {
 
 export interface MovementClosureResult {
   closure: PlannedMovementClosure;
+
   internalNodes: Node[];
 }
 
@@ -760,7 +766,11 @@ function entrypointContexts(
 ): { contexts: EntrypointContext[]; unresolved: string[] } {
   let cached = entrypointCache.get(pkg);
   if (cached === undefined) {
-    cached = buildEntrypointContexts(context.project, pkg.boundary);
+    cached = buildEntrypointContexts(
+      context.project,
+      pkg.boundary,
+      boundaryEntrypoints(pkg.boundary)
+    );
     entrypointCache.set(pkg, cached);
   }
   return cached;
@@ -823,6 +833,7 @@ export function relativeSpecifier(fromFile: string, toFile: string): string {
 export interface PackageImportEdge {
   from: string;
   runtimeSites: number;
+
   sites: number;
   to: string;
 }

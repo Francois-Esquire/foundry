@@ -1,10 +1,8 @@
-import { relative as pathRelative } from "node:path";
 import type { Project, SourceFile } from "ts-morph";
-
 import { Node } from "ts-morph";
-
-import type { Boundary } from "./boundary";
-import { boundaryContains, boundaryEntrypoints, toPosix } from "./boundary";
+import { relative as pathRelative } from "#path";
+import type { Boundary, BoundaryEntrypoint } from "./boundary-model";
+import { boundaryContains, toPosix } from "./boundary-model";
 import type { ModuleRole } from "./types";
 
 function isDeclaration(statement: Node): boolean {
@@ -70,11 +68,10 @@ export function roleOf(file: SourceFile, entrypoint: boolean): ModuleRole {
 
 export function collectModuleRoles(
   project: Project,
-  boundary: Boundary
+  boundary: Boundary,
+  declared: readonly BoundaryEntrypoint[]
 ): Map<string, ModuleRole> {
-  const entrypoints = new Set(
-    boundaryEntrypoints(boundary).map((entry) => entry.file)
-  );
+  const entrypoints = new Set(declared.map((entry) => entry.file));
   const roles = new Map<string, ModuleRole>();
   for (const file of project.getSourceFiles()) {
     const absolute = file.getFilePath();

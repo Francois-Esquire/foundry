@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename } from "#path";
 import {
   ANALYSIS_POLICY_VERSION,
   WORKSPACE_INTELLIGENCE_POLICY_VERSION,
@@ -28,15 +28,20 @@ export interface DatasetManifestInput {
   concepts: SemanticsConceptIndex;
   concurrency: number;
   context: WorkspaceProjectionContext;
+
   derived: boolean;
   discovery: DeclaredDiscovery;
+
   files: readonly { reused: boolean }[];
   finishedAt: Date;
-  inputs: SemanticsGenerationInputs;
+
+  inputs?: SemanticsGenerationInputs;
   mode: SemanticsGenerationMode;
   modules: readonly SemanticsModuleRecord[];
   packages: SemanticsManifestPackage[];
+
   packagesAnalyzed: number;
+
   packagesReused: number;
   partial: boolean;
   phases: SemanticsPhaseTiming[];
@@ -78,7 +83,7 @@ export function datasetManifest(input: DatasetManifestInput): DatasetManifest {
       concurrency: input.concurrency,
       derived: input.derived,
       finishedAt: finishedAt.toISOString(),
-      inputs: input.inputs,
+      ...(input.inputs !== undefined && { inputs: input.inputs }),
       mode: input.mode,
       packageFailures: failures,
       packagesAnalyzed: input.packagesAnalyzed,

@@ -1,4 +1,5 @@
-import { DatasetNotFoundError } from "../../lib/dataset";
+import type { DatasetTransport } from "../../lib/dataset";
+import { DatasetNotFoundError, datasetReader } from "../../lib/dataset";
 import { placeFiles } from "../../lib/file-placement";
 import { prepareVisualization } from "../../lib/visualization/prepare";
 import { ownDependencies } from "../../lib/visualization/sea-stacks";
@@ -59,6 +60,7 @@ export async function loadImports(
           signal,
         }).moduleEdgeShards();
         await stillTheSameDataset(dataset, signal);
+
         const file = (path: string) => (id ? `${id}:${path}` : path);
         return read.flatMap((shard) =>
           shard.edges.map(({ source, target }) => ({
@@ -79,6 +81,21 @@ const atDataRoot = (generatedAt: string): DatasetRef => ({
 
 export const COLLECTION_UNSUPPORTED =
   "This spyglass serves a collection of workspaces; the map draws one workspace at a time. Open each workspace on its own.";
+
+export async function loadHeldSpyglass(
+  transport: DatasetTransport
+): Promise<SpyglassData> {
+  markLoad("spyglass:data-requested");
+  const source = await readCodexSource(datasetReader(transport));
+  markLoad("spyglass:data-loaded");
+  const data = layoutWorkspace(source, {
+    generatedAt: source.dataset.generatedAt,
+    root: "",
+    transport,
+  });
+  markLoad("spyglass:layout-settled");
+  return data;
+}
 
 export async function loadSpyglass(
   signal?: AbortSignal
@@ -192,6 +209,7 @@ function layoutWorkspace(
     declaredDependencies,
     dependencyCoverage:
       saved.dependencyInventory?.graph?.resolution.status ?? "unavailable",
+
     fileEdges: [],
     foundationGroups: prepared.groups,
     foundations: prepared.foundations,

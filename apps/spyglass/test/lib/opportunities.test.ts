@@ -2,7 +2,8 @@ import { join } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 import { analyzeSurface } from "../../src/lib/analyze";
-import { classifySpecifier, resolveBoundary } from "../../src/lib/boundary";
+import { resolveBoundary } from "../../src/lib/boundary";
+import { classifySpecifier } from "../../src/lib/boundary-model";
 import type { ReductionOperation, SurfaceReport } from "../../src/lib/types";
 
 const root = join(import.meta.dirname, "fixtures", "deps");

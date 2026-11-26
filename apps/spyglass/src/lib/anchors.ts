@@ -1,4 +1,4 @@
-import type { Boundary } from "./boundary";
+import type { Boundary } from "./boundary-model";
 import type { AnalysisConfig, AnchorDefinition } from "./config";
 import type { ReductionOperation } from "./types";
 

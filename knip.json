@@ -7,7 +7,10 @@
         "src/lib/index.ts",
         "src/lib/semantics-worker.ts",
         "src/lib/config-worker.ts",
-        "vitest.package.config.ts"
+        "vitest.package.config.ts",
+        "src/lib/browser-analysis.ts",
+        "vitest.browser.config.ts",
+        "test/browser/**/*.test.ts"
       ],
       "ignore": ["test/lib/fixtures/**"],
       "ignoreDependencies": ["@vgpu/wgsl-std"]
@@ -15,6 +18,7 @@
     "apps/website": {
       "ignore": ["src/components/ascii-*.{ts,tsx}"],
       "ignoreDependencies": [
+        "@foundry.sh/spyglass",
         "@react-three/fiber",
         "@react-three/postprocessing",
         "@types/three",

@@ -1,6 +1,5 @@
 import type { DatasetTransport } from "../dataset";
 import { datasetReader } from "../dataset";
-import { fileTransport } from "../dataset-files";
 import { DATASET_FILES, lensFile } from "../dataset-layout";
 import type { DatasetManifest } from "../semantics-types";
 import { domainsLens } from "./domains";
@@ -31,15 +30,18 @@ export const LENSES: readonly AnyLens[] = [
 ];
 
 export interface WriteLensesOptions {
-  dir: string;
   draft: DatasetManifest;
+
   lenses?: readonly AnyLens[];
+
+  read: DatasetTransport;
   settings: LensSettings;
+
   write: (file: string, value: unknown) => void;
 }
 
 export async function writeLenses(options: WriteLensesOptions): Promise<void> {
-  const reader = lensReader(options.dir, options.draft);
+  const reader = lensReader(options.read, options.draft);
   const written = new Set<LensId>();
   const { lenses = LENSES } = options;
   for (const lens of lenses) {
@@ -83,8 +85,10 @@ function pickSettings<K extends keyof LensSettings>(
   >;
 }
 
-function lensReader(dir: string, draft: DatasetManifest): LensReader {
-  const files = fileTransport(dir);
+function lensReader(
+  files: DatasetTransport,
+  draft: DatasetManifest
+): LensReader {
   const withDraft =
     (read: DatasetTransport): DatasetTransport =>
     (path) =>

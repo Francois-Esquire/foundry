@@ -203,7 +203,7 @@ bun run test --filter=@foundry.sh/spyglass
 bun run --cwd=apps/spyglass test:package      # install the tarball and run the bin
 ```
 
-`build` clears `dist`, bundles the CLI, the library entry, both workers, and
+`build` clears `dist/lib` and `dist/web`, bundles the CLI, the library entry, both workers, and
 their shared chunks into `dist/lib` with Bun, writes the library's
 declarations to `dist/lib/index.d.ts` with tsup, and builds the viewer into
 `dist/web` with Vite. `dev` and `dev:package` scan incrementally before starting Vite with hot reload.

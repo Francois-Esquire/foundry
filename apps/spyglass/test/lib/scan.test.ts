@@ -47,6 +47,8 @@ vi.mock("../../src/lib/dataset-files", async (importOriginal) => {
         return value;
       };
     },
+
+    previousVisualization: actual.previousVisualization,
   };
 });
 
@@ -176,6 +178,7 @@ it(
     let recordWhileScanning: unknown;
     const first = await scan.workspace(root, {
       ...options,
+
       onProgress: () => {
         if (second === undefined) {
           recordWhileScanning = readJson(
@@ -193,6 +196,7 @@ it(
     expect((refused as Error).message).toBe(
       `Workspace ${root} is being scanned, exported, or applied by this process.`
     );
+
     expect(recordWhileScanning).toEqual({
       id: state.id,
       root,
@@ -264,6 +268,7 @@ it("scan saves every complete package's internals in the dataset it publishes, r
     ["@s/c", "internals/@s__c.json"],
   ]);
   expect(unlistedFiles(everything.output)).toEqual([]);
+
   const writePhase = everythingEvents.findIndex(
     (event) => event.kind === "phase" && event.phase === "write"
   );
@@ -346,6 +351,7 @@ it("scan.package returns one package's internals, as the dataset saves them", as
     readJson(datasetFile(everything.output, "internals", "@s/b"))
   );
   expect(existsSync(join(root, ".foundry"))).toBe(false);
+
   const state = await workspaceState(root);
   expect(existsSync(state.output)).toBe(false);
   expect(existsSync(join(state.directory, "workspace.json"))).toBe(false);
@@ -355,6 +361,45 @@ it("scan.package rejects a name with no package the workspace declares", async (
   await expect(scan.package(root, "@s/lib")).rejects.toThrow(
     `Workspace ${root} has no package named @s/lib.`
   );
+});
+
+function brokenNestedManifest(into: string, source: string): string {
+  const target = join(directory, into);
+  const files: Record<string, string> = {
+    "package.json": JSON.stringify({
+      private: true,
+      workspaces: ["packages/*"],
+    }),
+    "packages/a/package.json": JSON.stringify({
+      exports: "./src/nested/index.ts",
+      name: "@fixture/a",
+      private: true,
+    }),
+    "packages/a/src/nested/index.ts": source,
+    "packages/a/src/nested/package.json": "{broken",
+  };
+  for (const [file, text] of Object.entries(files)) {
+    mkdirSync(join(target, file, ".."), { recursive: true });
+    writeFileSync(join(target, file), text);
+  }
+  return realpathSync(target);
+}
+
+it("scan.package analyzes a package whose analysis never asks a broken manifest's owner", async () => {
+  const broken = brokenNestedManifest(
+    "broken-owner-function",
+    "export function twice(x: number) { return x * 2; }\n"
+  );
+  const internals = await scan.package(broken, "@fixture/a");
+  expect(internals.topology.package.id).toBe("@fixture/a");
+});
+
+it("scan.package raises a broken manifest's error once analysis asks that owner", async () => {
+  const broken = brokenNestedManifest(
+    "broken-owner-type",
+    "export interface Item { value: number }\n"
+  );
+  await expect(scan.package(broken, "@fixture/a")).rejects.toThrow(SyntaxError);
 });
 
 it("scans a standalone package into a viewer dataset with internals", async () => {
