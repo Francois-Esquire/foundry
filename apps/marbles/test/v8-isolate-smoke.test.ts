@@ -1,5 +1,5 @@
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
-import vm from "node:vm";
 import { describe, expect, test } from "vitest";
 
 const NODE_BUILTIN =
@@ -216,48 +216,69 @@ globalThis.structuredClone = (value) => {
 };
 `;
 
-function createWebStandardContext(): vm.Context {
-  const globals: Record<string, unknown> = {
-    AbortController,
-    AbortSignal,
-    atob,
-    Blob,
-    btoa,
-    CompressionStream,
-    Crypto,
-    CustomEvent,
-    clearInterval,
-    clearTimeout,
-    console,
-    crypto,
-    DecompressionStream,
-    DOMException,
-    Event,
-    EventTarget,
-    File,
-    FormData,
-    fetch,
-    Headers,
-    Intl,
-    performance,
-    queueMicrotask,
-    ReadableStream,
-    Request,
-    Response,
-    setInterval,
-    setTimeout,
-    TextDecoder,
-    TextEncoder,
-    TransformStream,
-    URL,
-    URLSearchParams,
-    WritableStream,
-  };
-  const context = vm.createContext(globals);
-  context.globalThis = context;
-  context.self = context;
-  vm.runInContext(VM_STRUCTURED_CLONE, context);
-  return context;
+const NODE_VM_RUNNER = `
+const fs = require("node:fs");
+const vm = require("node:vm");
+const code = fs.readFileSync(0, "utf8");
+const context = vm.createContext({
+  AbortController,
+  AbortSignal,
+  atob,
+  Blob,
+  btoa,
+  CompressionStream,
+  Crypto,
+  CustomEvent,
+  clearInterval,
+  clearTimeout,
+  console,
+  crypto,
+  DecompressionStream,
+  DOMException,
+  Event,
+  EventTarget,
+  File,
+  FormData,
+  fetch,
+  Headers,
+  Intl,
+  performance,
+  queueMicrotask,
+  ReadableStream,
+  Request,
+  Response,
+  setInterval,
+  setTimeout,
+  TextDecoder,
+  TextEncoder,
+  TransformStream,
+  URL,
+  URLSearchParams,
+  WritableStream,
+});
+context.globalThis = context;
+context.self = context;
+vm.runInContext(${JSON.stringify(VM_STRUCTURED_CLONE)}, context);
+vm.runInContext(code, context, { filename: "v8-isolate-smoke.js" });
+Promise.resolve(context.__smokeResult).then(
+  (result) => {
+    process.stdout.write(JSON.stringify(result));
+  },
+  (error) => {
+    console.error(error);
+    process.exit(1);
+  }
+);
+`;
+
+function runInNodeV8Isolate(code: string): Record<string, unknown> {
+  const stdout = execFileSync("node", ["-e", NODE_VM_RUNNER], {
+    encoding: "utf8",
+    input: code,
+    maxBuffer: 32 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  return JSON.parse(stdout) as Record<string, unknown>;
 }
 
 describe("Non-Node V8 isolate smoke test", () => {
@@ -304,10 +325,7 @@ describe("Non-Node V8 isolate smoke test", () => {
       throw new Error("Expected bundled output");
     }
     const code = await output.text();
-
-    const context = createWebStandardContext();
-    vm.runInContext(code, context, { filename: "v8-isolate-smoke.js" });
-    const result = (await context.__smokeResult) as Record<string, unknown>;
+    const result = runInNodeV8Isolate(code);
 
     expect(result).toMatchObject({
       committed: true,

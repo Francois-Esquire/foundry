@@ -73,10 +73,7 @@ export default defineConfig([
   {
     ...SHARED,
     clean: false,
-    dts: {
-      compilerOptions: { ignoreDeprecations: "6.0", paths: internalPaths },
-      resolve: true,
-    },
+    dts: false,
     entry: {
       index: "src/authoring/index.ts",
       prebuilt: "src/authoring/prebuilt.ts",
@@ -92,11 +89,7 @@ export default defineConfig([
   {
     ...SHARED,
     clean: false,
-    dts: {
-      banner: '/// <reference types="node" />',
-      compilerOptions: { ignoreDeprecations: "6.0", paths: internalPaths },
-      resolve: true,
-    },
+    dts: false,
     entry: {
       cli: "src/cli.ts",
       daemon: "src/process/daemon-entry.ts",
@@ -115,5 +108,29 @@ export default defineConfig([
       cpSync("src/database/migrations", "dist/migrations", { recursive: true });
     },
     platform: "node",
+  },
+  {
+    ...SHARED,
+    clean: false,
+    dts: {
+      banner: '/// <reference types="node" />',
+      compilerOptions: { ignoreDeprecations: "6.0", paths: internalPaths },
+      only: true,
+      resolve: true,
+    },
+    entry: {
+      cli: "src/cli.ts",
+      daemon: "src/process/daemon-entry.ts",
+      engine: "src/entries/embedded.ts",
+      generation: "src/process/generation.ts",
+      index: "src/authoring/index.ts",
+      lib: "src/entries/lib.ts",
+      prebuilt: "src/authoring/prebuilt.ts",
+      process: "src/process/index.ts",
+      providers: "src/authoring/providers.ts",
+      ...providerEntries,
+      statuses: "src/lib/execution-statuses.ts",
+      workspace: "src/workspace/index.ts",
+    },
   },
 ]);
