@@ -1,10 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { schedule, step, workflow } from "@foundry.sh/marbles";
-import { afterEach, expect, it, vi } from "vitest";
+import { Catalog, schedule, step, workflow } from "@foundry.sh/marbles";
+import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import type { Engine } from "~/lib/engine";
 import type * as Harnesses from "~/lib/harnesses";
@@ -29,7 +28,7 @@ const textFields = [
   { label: "Text", name: "text", required: true, type: "text" },
 ];
 
-function engineIn(root: string, stateDir?: string) {
+function engineIn(root: string, catalog: Catalog, stateDir?: string) {
   return createEngine({
     catalog,
     dry: false,
@@ -50,10 +49,6 @@ async function view(engine: Engine) {
   };
 }
 
-afterEach(() => {
-  catalog.reset();
-});
-
 it("projects real nested runs, logs and trigger provenance, including restored history", async () => {
   const dir = mkdtempSync(join(tmpdir(), "marbles-dashboard-"));
   const shout = step("shout")
@@ -71,12 +66,16 @@ it("projects real nested runs, logs and trigger provenance, including restored h
   const twice = workflow("twice")
     .input(text)
     .do(({ input }) => bang({ first: shout({}, input) }));
-  schedule(twice({}, { text: "hi" })).every("1h");
-  schedule(twice({}, { text: "other" })).every("1d");
-  const [hourly, daily] = [...catalog.schedules.keys()] as [string, string];
-  let engine = await engineIn(dir, dir);
+  const s1 = schedule(twice({}, { text: "hi" })).every("1h");
+  const s2 = schedule(twice({}, { text: "other" })).every("1d");
+  const collected = Catalog.collect({
+    declarations: [shout, twice, s1, s2],
+    source: import.meta.filename,
+  });
+  const [hourly, daily] = [...collected.schedules.keys()] as [string, string];
+  let engine = await engineIn(dir, collected, dir);
   try {
-    const scheduled = catalog.schedules.get(hourly);
+    const scheduled = collected.schedules.get(hourly);
     if (!scheduled) {
       throw new Error("missing fixture schedule");
     }
@@ -85,7 +84,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     expect(snapshot.mode).toBe("live");
     const declaredHere = {
       external: true,
-      source: expect.stringContaining("dashboard-runtime.test.ts:"),
+      source: expect.stringContaining("dashboard-runtime.test.ts"),
     };
     expect(snapshot.definitions).toEqual([
       {
@@ -132,7 +131,7 @@ it("projects real nested runs, logs and trigger provenance, including restored h
     ]);
     await engine.stop();
     await engine.dispose();
-    engine = await engineIn(dir, dir);
+    engine = await engineIn(dir, collected, dir);
     const restored = dashboardSnapshot(await engine.runs(), await view(engine));
     expect(restored.runs).toEqual(snapshot.runs);
   } finally {
@@ -149,7 +148,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
   });
   let calls = 0;
   let aborted = false;
-  step("wait").do(
+  const wait = step("wait").do(
     ({ signal, log }) =>
       new Promise<void>((resolve) => {
         calls += 1;
@@ -165,7 +164,7 @@ it("shows a running step and cancels it on shutdown without starting queued work
         announce();
       })
   );
-  const engine = await engineIn(process.cwd());
+  const engine = await engineIn(process.cwd(), Catalog.collect([wait]));
   try {
     const running = engine.run("wait", {}, "watch");
     const result = running.catch((error: unknown) => error);
@@ -196,9 +195,14 @@ it("shows a suspended step as cancelled and keeps its completed prerequisite", a
   const askForReview = step("ask-review")
     .input(z.object({ draft: z.string() }))
     .do(({ ask, input }) => ask.question({ title: `Keep ${input.draft}?` }));
-  workflow("review").do(() => askForReview({ draft: prepare({}) }));
+  const review = workflow("review").do(() =>
+    askForReview({ draft: prepare({}) })
+  );
 
-  const engine = await startEngine({ askable: true });
+  const engine = await startEngine({
+    askable: true,
+    collect: [prepare, askForReview, review],
+  });
   try {
     const run = await engine.launch("review", {});
     const result = run.result.catch((error: unknown) => error);

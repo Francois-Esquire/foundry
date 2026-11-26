@@ -705,7 +705,7 @@ it("starts the Marbles process all the same when it cannot be recorded", async (
   const source = join(home, "marbles.ts");
   writeFileSync(
     source,
-    'import { step } from "@foundry.sh/marbles";\nstep("noop").do(() => "ok");\n'
+    'import { step } from "@foundry.sh/marbles";\nexport const noop = step("noop").do(() => "ok");\n'
   );
   const env = {
     ...process.env,
@@ -943,7 +943,7 @@ it("records the Marbles process a test's CLI starts in the test's home", async (
   const source = join(home.path, "marbles.ts");
   writeFileSync(
     source,
-    'import { step } from "@foundry.sh/marbles";\nstep("noop").do(() => "ok");\n'
+    'import { step } from "@foundry.sh/marbles";\nexport const noop = step("noop").do(() => "ok");\n'
   );
   const attached = spawnSync("bun", cliArgs("start", "--source", source), {
     encoding: "utf8",

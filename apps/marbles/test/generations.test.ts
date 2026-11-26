@@ -95,7 +95,7 @@ function moduleText(
   await new Promise((resolve) => setTimeout(resolve, 700));
   appendFileSync(${JSON.stringify(fixture.log)}, "tock " + process.pid + " " + Date.now() + "\\n");
 });
-schedule(tick).every("1s");`
+export const tickSchedule = schedule(tick).every("1s");`
       : "",
     asking
       ? `export const scheduledAsk = step("scheduled-ask").do(async ({ ask }) => {
@@ -104,7 +104,7 @@ schedule(tick).every("1s");`
   note("scheduled-answered");
   return answer;
 });
-schedule(scheduledAsk).every("1s");`
+export const scheduledAskSchedule = schedule(scheduledAsk).every("1s");`
       : "",
     holding
       ? `export const scheduledHold = step("scheduled-hold").do(async () => {
@@ -115,7 +115,7 @@ schedule(scheduledAsk).every("1s");`
   note("scheduled-held");
   return process.pid;
 });
-schedule(scheduledHold).every("1s");`
+export const scheduledHoldSchedule = schedule(scheduledHold).every("1s");`
       : "",
     suspending
       ? `export const scheduledLate = step("scheduled-late").do(async ({ ask }) => {
@@ -127,7 +127,7 @@ schedule(scheduledHold).every("1s");`
   note("scheduled-late-answered");
   return answer;
 });
-schedule(scheduledLate).every("1s");`
+export const scheduledLateSchedule = schedule(scheduledLate).every("1s");`
       : "",
     'export const crash = step("crash").do(() => process.exit(1));',
     `export const late = step("late").do(async ({ ask }) => {
@@ -145,7 +145,7 @@ schedule(scheduledLate).every("1s");`
     note("picky");
     return await ask.question({ title: "Picky?", choices: ["yes", "no"] });
   });`,
-    `observe(tasks, function seen(payload) {
+    `export const seenObserver = observe(tasks, function seen(payload) {
   for (const change of payload.tasks) {
     note("seen-" + (change.after?.title ?? "-"));
   }

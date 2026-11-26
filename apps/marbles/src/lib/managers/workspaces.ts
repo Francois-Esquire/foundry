@@ -16,6 +16,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceHandle,
 } from "../types";
+import { WORKSPACE_METHODS } from "../workspace-methods";
 
 export type LocalWorkspaces = WorkspaceRuntime<
   [ReturnType<typeof directory>, ReturnType<typeof git>]
@@ -95,18 +96,6 @@ function wrapGit<G extends Git>(
     },
   });
 }
-
-export const WORKSPACE_METHODS = [
-  "createFile",
-  "entries",
-  "files",
-  "read",
-  "refresh",
-  "registration",
-  "save",
-  "scan",
-  "summary",
-] as const satisfies readonly (keyof Loaded)[];
 
 type Method = (...args: unknown[]) => Promise<unknown>;
 

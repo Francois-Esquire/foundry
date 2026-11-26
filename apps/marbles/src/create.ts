@@ -15,7 +15,13 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/node/git";
-import { Catalog, catalog as unhosted } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
+import {
+  dispose,
+  hasDefaultRuntime,
+  setDefaultRoot,
+  setDefaultRuntime,
+} from "~/authoring/runtime";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import type { LinksKept } from "~/database/artifact-links";
@@ -64,6 +70,7 @@ import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 import { Registry } from "~/lib/registry";
 import { containerHolder } from "~/lib/sandbox/holders";
+import { initializeUsage } from "~/workspace/node-usage";
 
 export const DEFAULT_HOSTED_POOL_LIMIT = 4;
 
@@ -89,21 +96,43 @@ export interface CreateEngineOptions {
   readonly workspaceId: string;
 }
 
-type Declarable = Pick<Engine, "define" | "monitor" | "schedule"> &
-  Partial<Pick<Engine, "observe">>;
-
-export function declareCatalog(target: Declarable, catalog: Catalog): void {
-  for (const definition of catalog.definitions.values()) {
-    target.define(definition, catalog.poolFor(definition.origin));
+function declareDefinitions(target: Engine | Registry, catalog: Catalog): void {
+  if (target instanceof Registry) {
+    for (const [name, definition] of catalog.definitions) {
+      const origin = catalog.originOf(name);
+      target.define(definition, {
+        name,
+        ...(origin === undefined ? {} : { origin }),
+      });
+    }
+    return;
   }
+  target.bindCatalog(catalog);
+  for (const [name, definition] of catalog.definitions) {
+    const origin = catalog.originOf(name);
+    target.define(definition, catalog.poolForDefinition(name), {
+      name,
+      ...(origin === undefined ? {} : { origin }),
+    });
+  }
+}
+
+export function declareCatalog(
+  target: Engine | Registry,
+  catalog: Catalog
+): void {
+  declareDefinitions(target, catalog);
   for (const record of catalog.schedules.values()) {
     target.schedule(record);
   }
   for (const record of catalog.monitors.values()) {
     target.monitor(record);
   }
+  if (target instanceof Registry) {
+    return;
+  }
   for (const { handler, name, source, timeout, types } of catalog.observers) {
-    target.observe?.(source, handler, {
+    target.observe(source, handler, {
       name,
       ...(timeout === undefined ? {} : { timeout }),
       ...(types === undefined ? {} : { types }),
@@ -417,6 +446,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     },
     ...artifacts,
     askable: options.askable,
+    catalog,
     ...(stores === undefined ? {} : { containerRows: stores.containers }),
     containers: containersFor(options, worktrees, stores?.containers),
     dry,
@@ -475,18 +505,14 @@ function unrecordedObservers(
   }
 }
 
-export function createDefaultEngine({
-  dry,
-}: {
-  readonly dry: boolean;
-}): Engine {
+function createDefaultEngine({ dry }: { readonly dry: boolean }): Engine {
   const machine = layout();
   const { id, root } = machine.workspace(process.cwd());
   return createEngine({
     artifacts: machine.artifacts,
     catalog: new Catalog(),
     dry,
-    plugins: [...DEFAULT_PROVIDERS, ...unhosted.providers.values()],
+    plugins: [...DEFAULT_PROVIDERS],
     print: (line) => {
       process.stderr.write(`${line}\n`);
     },
@@ -495,6 +521,32 @@ export function createDefaultEngine({
     workspaceId: id,
   });
 }
+
+export function installDefaultRuntime(): void {
+  setDefaultRoot(() => process.cwd());
+  if (hasDefaultRuntime()) {
+    return;
+  }
+  setDefaultRuntime(async ({ dry }) => {
+    const [engine] = await Promise.all([
+      Promise.resolve(createDefaultEngine({ dry })),
+      initializeUsage(),
+    ]);
+    const problems =
+      (await engine.providers
+        ?.refresh()
+        .catch((error: unknown) => [String(error)])) ?? [];
+    for (const problem of problems) {
+      process.stderr.write(`[providers] ${problem}\n`);
+    }
+    process.once("beforeExit", () => {
+      dispose().catch(() => undefined);
+    });
+    return engine;
+  });
+}
+
+installDefaultRuntime();
 
 function echoExec(print: (line: string) => void): (
   command: readonly string[]

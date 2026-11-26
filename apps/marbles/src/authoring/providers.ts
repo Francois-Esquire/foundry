@@ -1,5 +1,5 @@
-import { callSite, originOf } from "~/authoring/identity";
-import { providingCatalog } from "~/authoring/runtime";
+import { trackCreatedDeclaration } from "~/authoring/runtime";
+import { PROVIDER_DECLARATION } from "~/lib/handles";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 
 export type {
@@ -19,10 +19,17 @@ export function defineProvider<S>(
       "defineProvider: pass a provider, such as vercel from @foundry.sh/marbles/providers/vercel, or an object with an id, a label, settings, catalog() and create()"
     );
   }
-  const site = callSite();
-  providingCatalog(provider.id).provide(
-    provider,
-    site === undefined ? undefined : originOf(site)
-  );
-  return provider;
+  const descriptors = Object.getOwnPropertyDescriptors(provider);
+  const tagged = Object.create(Object.getPrototypeOf(provider), {
+    ...descriptors,
+    [PROVIDER_DECLARATION]: {
+      configurable: false,
+      enumerable: false,
+      value: provider,
+      writable: false,
+    },
+  }) as ProviderPlugin<S>;
+  const frozen = Object.freeze(tagged);
+  trackCreatedDeclaration(frozen);
+  return frozen;
 }

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
@@ -28,7 +27,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
   await rm(root, { force: true, recursive: true });
 });
@@ -142,7 +140,6 @@ async function suspendedThenOrphaned(): Promise<string> {
     expect(first.executions.get(id)?.status).toBe("suspended")
   );
   await first.dispose();
-  catalog.reset();
   return id;
 }
 

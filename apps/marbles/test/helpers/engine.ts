@@ -8,7 +8,7 @@ import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { workspaces } from "@foundry/workspaces/node";
 import { git } from "@foundry/workspaces/node/git";
-import { catalog } from "~/authoring/catalog";
+import { Catalog, type CollectInput } from "~/authoring/catalog";
 import { declareCatalog, echoGit } from "~/create";
 import { Engine as DatabaseEngine } from "~/entries/engine";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
@@ -23,6 +23,8 @@ import { Registry } from "~/lib/registry";
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");
 
 export interface TestEngineOptions extends Partial<EngineOptions> {
+  readonly catalog?: Catalog;
+  readonly collect?: CollectInput;
   readonly executors?: readonly TurnExecutorRef[];
   readonly hold?: MockOptions["hold"];
   readonly live?: boolean;
@@ -67,6 +69,8 @@ export function testInstances(
 
 export function testEngine(options: TestEngineOptions = {}): Engine {
   const {
+    catalog: givenCatalog,
+    collect,
     executors: _executors,
     hold: _hold,
     live: _live,
@@ -90,7 +94,12 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
           records: new MemoryWorkspaceRecords(),
           ...engineOptions,
         });
-  declareCatalog(engine, catalog);
+  const effective =
+    givenCatalog ??
+    (collect === undefined ? undefined : Catalog.collect(collect));
+  if (effective !== undefined) {
+    declareCatalog(engine, effective);
+  }
   return engine;
 }
 
@@ -98,8 +107,11 @@ export function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
   return testEngine(options).start();
 }
 
-export function declared(): Registry {
+export function declared(input: Catalog | CollectInput): Registry {
   const registry = new Registry();
-  declareCatalog(registry, catalog);
+  declareCatalog(
+    registry,
+    input instanceof Catalog ? input : Catalog.collect(input)
+  );
   return registry;
 }

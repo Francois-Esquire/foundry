@@ -62,6 +62,11 @@ export const dashboardCommand = defineCommand({
   group: "core",
   hidden: true,
   async interactive(ctx) {
+    if (!("Bun" in globalThis)) {
+      throw new Error(
+        "the interactive dashboard currently requires Bun; headless commands work natively on Node.js 22.18+"
+      );
+    }
     const { runInteractive } = await import("~/tui/interactive");
     await runInteractive(ctx.flags);
   },

@@ -78,7 +78,7 @@ it(
     await writeFile(
       join(root, "workspace", "marbles.ts"),
       `import { step } from "@foundry.sh/marbles";
-step("plain").do(() => 1);
+export const plain = step("plain").do(() => 1);
 `
     );
 

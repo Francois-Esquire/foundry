@@ -262,7 +262,7 @@ const spin = step("spinner").do(async () => {
   const end = Date.now() + 15_000;
   while (Date.now() < end) {}
 });
-workflow("spin").do(() => spin({}));`
+export const spinWorkflow = workflow("spin").do(() => spin({}));`
     );
     const attached = spawnSync(
       "bun",

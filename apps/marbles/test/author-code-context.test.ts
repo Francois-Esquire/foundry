@@ -6,7 +6,7 @@ import { serve } from "bun";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { Catalog, catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { observe } from "~/authoring/observe";
 import { agent } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
@@ -21,7 +21,6 @@ import { seedRepository } from "./helpers/repository";
 
 afterEach(async () => {
   await dispose();
-  catalog.reset();
 });
 
 const ANSWER = '{"answer":1}';
@@ -62,7 +61,7 @@ it("runs every author function as its engine's work, through every public entry"
     (recipe as unknown as { generate(i: string): Promise<unknown> }).generate(
       input
     );
-  observe(tasks, function watcher() {
+  const watcherObs = observe(tasks, function watcher() {
     probe("observer");
   });
   const direct = step("direct").do(() => {
@@ -75,6 +74,7 @@ it("runs every author function as its engine's work, through every public entry"
   writeFileSync(join(root, "notes.md"), "hello");
   mkdirSync(join(root, "state"), { recursive: true });
   engine = await startEngine({
+    collect: { watcher: watcherObs },
     git: {},
     print: () => undefined,
     reply: () => ANSWER,

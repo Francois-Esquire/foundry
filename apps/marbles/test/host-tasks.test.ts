@@ -48,7 +48,7 @@ async function workspace(root: string, name: string): Promise<string> {
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, tasks } from "@foundry.sh/marbles";
-observe(tasks, function seenTitles(payload) {
+export const seenTitles = observe(tasks, function seenTitles(payload) {
   if (process.env.MARBLES_TEST_FAIL) throw new Error("down");
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
   appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + "\\n");
@@ -299,8 +299,7 @@ function generationSource(dir: string, revision: number): string {
   return `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(zod)};
-// Each revision edits the handler's body: it stays the same observer.
-observe(tasks, function seenTitles(payload) {
+export const seenTitles = observe(tasks, function seenTitles(payload) {
   const revision = ${String(revision)};
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
   appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + (revision > 0 ? "\\n" : ""));

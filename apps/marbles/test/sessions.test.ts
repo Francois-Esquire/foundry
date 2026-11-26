@@ -4,7 +4,6 @@ import type { SessionStore } from "@foundry/agents/store";
 import { agent, step } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import { resourceLines } from "~/cli/resources/text";
 import { ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
@@ -20,7 +19,6 @@ import { temporaryDirectory } from "./helpers/temporary";
 let mock: MockBindings | undefined;
 
 afterEach(async () => {
-  catalog.reset();
   vi.useRealTimers();
   await mock?.dispose();
   mock = undefined;

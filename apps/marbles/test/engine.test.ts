@@ -1,9 +1,8 @@
 import { Step } from "@foundry/workflows/step";
 import { step, workflow } from "@foundry.sh/marbles";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 
 import { startEngine, testEngine } from "./helpers/engine";
@@ -11,10 +10,6 @@ import { startEngine, testEngine } from "./helpers/engine";
 const RUN_EXPLODE_FAILED_PATTERN = /run "explode" failed/;
 const NOT_STARTED = /has not started/;
 const ALREADY_STARTED = /already started/;
-
-afterEach(() => {
-  catalog.reset();
-});
 
 class Shout extends Step<string, string> {
   readonly definitionKey = "test.shout";
@@ -107,12 +102,12 @@ describe("Engine", () => {
     const join = step()
       .input(z.object({ a: z.string(), b: z.string() }))
       .do(({ input }) => `${input.a}${input.b}`);
-    workflow("twice")
+    const twice = workflow("twice")
       .input(text)
       .do(({ input }) =>
         join({ a: shout({}, input), b: shout({}, { text: "!" }) })
       );
-    const engine = await startEngine({ print });
+    const engine = await startEngine({ collect: [twice], print });
 
     await expect(engine.run<string>("twice", { text: "hey" })).resolves.toBe(
       "HEY!"

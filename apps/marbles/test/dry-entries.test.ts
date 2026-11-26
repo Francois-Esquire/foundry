@@ -13,7 +13,7 @@ import { temporaryDirectory } from "./helpers/temporary";
 import { snapshotTrees } from "./helpers/tree-snapshot";
 
 const SOURCE = `import { step } from "@foundry.sh/marbles";
-step("hello").do(() => "ran");
+export const hello = step("hello").do(() => "ran");
 `;
 
 function machine() {

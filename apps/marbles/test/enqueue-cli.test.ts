@@ -33,13 +33,13 @@ describe("marbles trigger --async", { timeout: 120_000 }, () => {
     const { file, root } = workspace(`import { existsSync } from "node:fs";
 import { defineConfig, step } from "@foundry.sh/marbles";
 export default defineConfig({ pools: { default: 1 } });
-step("blocker").do(async () => {
+export const blocker = step("blocker").do(async () => {
   while (!existsSync(${JSON.stringify(gate)})) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   return "unblocked";
 });
-step("echo").do(({ input }) => input);
+export const echo = step("echo").do(({ input }) => input);
 `);
     const marbles = marblesIn(home, root, file);
 
@@ -92,8 +92,8 @@ step("echo").do(({ input }) => input);
     const home = testHome();
     const { file, root } =
       workspace(`import { step } from "@foundry.sh/marbles";
-step("keyed").do(() => "keyed done");
-step("dispatcher").do(async () => {
+export const keyed = step("keyed").do(() => "keyed done");
+export const dispatcher = step("dispatcher").do(async () => {
   const run = await step.enqueue("keyed", {}, { key: "shared" });
   return run.id;
 });
@@ -121,7 +121,7 @@ step("dispatcher").do(async () => {
     const home = testHome();
     const { file, root } =
       workspace(`import { step } from "@foundry.sh/marbles";
-step("keyed").do(() => "keyed done");
+export const keyed = step("keyed").do(() => "keyed done");
 `);
     const marbles = marblesIn(home, root, file);
     const missing = marbles("trigger", "nothing-here", "--async");
@@ -152,10 +152,11 @@ describe("marbles trigger <name>", { timeout: 120_000 }, () => {
     const marker = join(temporaryDirectory("marbles-monitor-"), "ran");
     const { file, root } = workspace(`import { writeFileSync } from "node:fs";
 import { monitor, schedule, step, workflow } from "@foundry.sh/marbles";
-const leaf = step("leaf").do(() => ({ kind: "step" }));
-workflow("flow").do(() => leaf({}));
-schedule(step("nightly").do(() => ({ kind: "schedule" }))).every("1h");
-monitor("watched/**").name("watcher").every("1h").do(() => {
+export const leaf = step("leaf").do(() => ({ kind: "step" }));
+export const flow = workflow("flow").do(() => leaf({}));
+export const nightly = step("nightly").do(() => ({ kind: "schedule" }));
+export const nightlySchedule = schedule(nightly).every("1h");
+export const watcher = monitor("watched/**").name("watcher").every("1h").do(() => {
   writeFileSync(${JSON.stringify(marker)}, "ran");
 });
 `);

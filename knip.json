@@ -26,6 +26,7 @@
       "ignoreDependencies": [
         "@ai-sdk/mcp",
         "@ai-sdk/openai-compatible",
+        "@ai-sdk/provider-utils",
         "@noble/hashes",
         "croner",
         "evlog",

@@ -1,5 +1,5 @@
 import { summarizeCodebase } from "@foundry.sh/marbles/prebuilt";
 
-summarizeCodebase({
+export const summarizeCodebaseStep = summarizeCodebase({
   name: "summarize-codebase",
 });

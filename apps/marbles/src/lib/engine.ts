@@ -12,6 +12,7 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { BaseContext } from "@foundry/workflows/executable";
+import type { Output } from "ai";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
@@ -22,7 +23,7 @@ import {
   type RecoveryLog,
   type RecoveryReport,
 } from "~/lib/crash-recovery";
-import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
+import type { AnyDefinition } from "~/lib/definition";
 import { EngineDefinitions } from "~/lib/engine-definitions";
 import {
   agentsOf,
@@ -65,7 +66,11 @@ import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
 import { localWorkspaces, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import { QueuedWorkflows } from "~/lib/queued-workflows";
-import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
+import type {
+  DefinitionEntry,
+  DefinitionRegistration,
+  MonitorRecord,
+} from "~/lib/registry";
 import type { Factory } from "~/lib/run-queue";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
 import { RunScopes } from "~/lib/run-scope";
@@ -80,12 +85,18 @@ import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
 import type { TriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
+import type { AgentLike } from "~/lib/types";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
 import type { ReconciledRun } from "~/lib/usage-evidence";
 import { UsageEvidence } from "~/lib/usage-evidence";
 import type { UsageStore } from "~/lib/usage-store";
 import type { RunRecord } from "~/lib/workflow-runs";
+
+export interface CatalogIdentity {
+  agentIdOf(agent: AgentLike<Output.Output>): string | undefined;
+  structuralIdentityOf(definition: AnyDefinition): string | undefined;
+}
 
 export interface EngineOptions {
   readonly activityStore?: ActivityStore;
@@ -94,6 +105,7 @@ export interface EngineOptions {
   readonly artifacts: ArtifactSubstrate;
   readonly askable?: boolean;
   readonly automationStore?: AutomationStore;
+  readonly catalog?: CatalogIdentity;
   readonly changeRetention?: number;
   readonly containerRows?: Pick<ContainerStore, "list">;
   readonly containers: Containers | (() => Promise<Containers>);
@@ -153,6 +165,7 @@ export class Engine {
   readonly worktrees: string;
 
   readonly #askable: boolean;
+  #catalog: CatalogIdentity | undefined;
   readonly #evidence: UsageEvidence;
   readonly #publisher: FeedPublisher;
   readonly #feedEntries: Pick<ArtifactSubstrate, "get">;
@@ -171,6 +184,7 @@ export class Engine {
   readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
   readonly #runsSource: RunsSource = {
+    declaredName: (definition) => this.#definitions.declaredName(definition),
     enqueue: (definition, input, options) =>
       this.enqueueDefinition(definition, input, options),
     execution: (runId) => this.executions.get(runId),
@@ -181,6 +195,8 @@ export class Engine {
     stored: async (runId) => await this.#running?.record(runId),
     storedAll: () =>
       this.#running === undefined ? Promise.resolve([]) : this.runs(),
+    structuralIdentityOf: (definition) =>
+      this.#catalog?.structuralIdentityOf(definition),
   };
   #running: QueuedWorkflows | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
@@ -246,9 +262,16 @@ export class Engine {
       sessions,
       ...sessionListing(sessions, usage),
     });
+    this.#catalog = options.catalog;
+    const resolveAgentId = (
+      agent: AgentLike<Output.Output>
+    ): string | undefined => this.#catalog?.agentIdOf(agent);
     this.workspaceId = workspaceId;
-    this.context = contextOf(options, spawned, () =>
-      this.disposed ? undefined : models
+    this.context = contextOf(
+      options,
+      spawned,
+      () => (this.disposed ? undefined : models),
+      resolveAgentId
     );
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
     this.#executions = new Executions({
@@ -314,6 +337,7 @@ export class Engine {
     this.sandboxes = sandboxes;
     this.agents = agentsOf(options, {
       activities: this.activities,
+      agentIdOf: resolveAgentId,
       automations: this.automations,
       context: this.context,
       executions: this.#executions,
@@ -366,15 +390,23 @@ export class Engine {
     ];
   }
 
-  define(definition: AnyDefinition, pool?: string): void {
-    this.#definitions.define(definition, pool);
+  bindCatalog(catalog: CatalogIdentity): void {
+    this.#catalog = catalog;
+  }
+
+  define(
+    definition: AnyDefinition,
+    pool?: string,
+    registration?: DefinitionRegistration
+  ): void {
+    this.#definitions.define(definition, pool, registration);
   }
 
   has(name: string): boolean {
     return this.#definitions.registry.definitions.has(name);
   }
 
-  definition(name: string): NamedDefinition | undefined {
+  definition(name: string): AnyDefinition | undefined {
     return this.#definitions.registry.launchable(name);
   }
 

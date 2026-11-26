@@ -8,7 +8,7 @@ import { step } from "@foundry.sh/marbles";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, expect, it, vi } from "vitest";
-import { catalog as authoringCatalog, Catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import { RunQueue } from "~/lib/run-queue";
@@ -442,7 +442,7 @@ it.each(["running", "suspended"] as const)(
   async (status) => {
     const state = await mkdtemp(join(tmpdir(), "marbles-background-peer-"));
     const release = Promise.withResolvers<void>();
-    step("peer-keyed").do(async ({ ask }) => {
+    const peerKeyed = step("peer-keyed").do(async ({ ask }) => {
       if (status === "suspended") {
         await ask.approval({ title: "Continue?" });
       } else {
@@ -450,8 +450,8 @@ it.each(["running", "suspended"] as const)(
       }
       return "done";
     });
-    const owner = testEngine({ askable: true, state });
-    const peer = testEngine({ askable: true, state });
+    const owner = testEngine({ askable: true, collect: [peerKeyed], state });
+    const peer = testEngine({ askable: true, collect: [peerKeyed], state });
     const ownJobs = new BackgroundRuns(owner, new Catalog());
     const peerJobs = new BackgroundRuns(peer, new Catalog());
     try {
@@ -491,7 +491,6 @@ it.each(["running", "suspended"] as const)(
       release.resolve();
       await owner.dispose();
       await peer.dispose();
-      authoringCatalog.reset();
       await rm(state, { force: true, recursive: true });
     }
   },

@@ -11,6 +11,7 @@ import type {
 import {
   agent,
   artifact,
+  Catalog,
   monitor,
   observe,
   step,
@@ -27,7 +28,6 @@ import {
   vi,
 } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { buildDefinition } from "~/lib/managers/agents";
@@ -56,7 +56,6 @@ afterAll(() => {
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
 });
 
 describe("agent(name, define)", () => {
@@ -68,7 +67,8 @@ describe("agent(name, define)", () => {
     );
     expect(byTeam.web?.id).toBe("reviewer-web");
     expect(byTeam.api?.id).toBe("reviewer-api");
-    expect([...catalog.agents.keys()].sort()).toEqual([
+    const collected = Catalog.collect(Object.values(byTeam));
+    expect([...collected.agents.keys()].sort()).toEqual([
       "reviewer-api",
       "reviewer-web",
     ]);
@@ -79,10 +79,9 @@ describe("agent(name, define)", () => {
 
   it("refuses a blank name, and one name taken by another function", () => {
     expect(() => agent("  ", () => ({ prompt: "x" }))).toThrow(BLANK_AGENT);
-    agent("shared", () => ({ prompt: "one" }));
-    expect(() => agent("shared", () => ({ prompt: "two" }))).toThrow(
-      TAKEN_AGENT
-    );
+    const first = agent("shared", () => ({ prompt: "one" }));
+    const second = agent("shared", () => ({ prompt: "two" }));
+    expect(() => Catalog.collect([first, second])).toThrow(TAKEN_AGENT);
   });
 
   it("still takes a bare function and an object with a name", () => {
@@ -96,16 +95,17 @@ describe("agent(name, define)", () => {
 
 describe("monitor(source).name(key)", () => {
   it("keys a monitor by the name it is given, wherever it comes in the chain", () => {
-    monitor("docs/**/*.md")
+    const docs = monitor("docs/**/*.md")
       .name("docs")
       .every("5m")
       .do(() => undefined);
-    monitor("https://example.test/feed")
+    const feed = monitor("https://example.test/feed")
       .request({ headers: { accept: "application/json" } })
       .name("feed")
       .do(() => undefined);
-    expect([...catalog.monitors.keys()]).toEqual(["docs", "feed"]);
-    expect(catalog.monitors.get("docs")?.trigger).toEqual({
+    const collected = Catalog.collect([docs, feed]);
+    expect([...collected.monitors.keys()]).toEqual(["docs", "feed"]);
+    expect(collected.monitors.get("docs")?.trigger).toEqual({
       kind: "interval",
       ms: 300_000,
     });
@@ -114,21 +114,20 @@ describe("monitor(source).name(key)", () => {
   it("refuses a blank name, one of several words, and a name already taken", () => {
     expect(() => monitor("*.md").name(" ")).toThrow(BLANK_MONITOR);
     expect(() => monitor("*.md").name("two words")).toThrow(ONE_WORD);
-    monitor("*.md")
+    const first = monitor("*.md")
       .name("docs")
       .do(() => undefined);
-    expect(() =>
-      monitor("*.txt")
-        .name("docs")
-        .do(() => undefined)
-    ).toThrow(MONITOR_TAKEN);
+    const second = monitor("*.txt")
+      .name("docs")
+      .do(() => undefined);
+    expect(() => Catalog.collect([first, second])).toThrow(MONITOR_TAKEN);
   });
 });
 
 describe("observe(artifact, …)", () => {
   it("types its handler for artifact and share facts alike, and is handed shares when it names their types", async () => {
     const seen: ArtifactShareEvent[] = [];
-    observe(
+    const shares = observe(
       artifact,
       (fact) => {
         expectTypeOf(fact).toEqualTypeOf<ArtifactEvent | ArtifactShareEvent>();
@@ -143,7 +142,12 @@ describe("observe(artifact, …)", () => {
     );
     const state = machine.workspace();
     const records = machine.records(state);
-    const engine = testEngine({ print: () => undefined, records, state });
+    const engine = testEngine({
+      collect: [shares],
+      print: () => undefined,
+      records,
+      state,
+    });
     engines.push(engine);
     setHost(engine);
     await engine.start();
@@ -189,7 +193,11 @@ describe("step().exec(command, options)", () => {
         { dir: string; greeting: string }
       >
     >();
-    const engine = await startEngine({ print: () => undefined, root });
+    const engine = await startEngine({
+      collect: [where],
+      print: () => undefined,
+      root,
+    });
     engines.push(engine);
     await expect(
       engine.run("where-in", { dir: root, greeting: "hi" })
@@ -198,11 +206,15 @@ describe("step().exec(command, options)", () => {
 
   it("awaits options a function resolves later", async () => {
     root = await realpath(await mkdtemp(join(tmpdir(), "marbles-exec-")));
-    step("checked-later").exec("sh -c 'exit 4'", async () => {
+    const checked = step("checked-later").exec("sh -c 'exit 4'", async () => {
       await Promise.resolve();
       return { check: false };
     });
-    const engine = await startEngine({ print: () => undefined, root });
+    const engine = await startEngine({
+      collect: [checked],
+      print: () => undefined,
+      root,
+    });
     engines.push(engine);
     await expect(engine.run("checked-later", {})).resolves.toMatchObject({
       exitCode: 4,
@@ -233,7 +245,10 @@ describe("locking a leaf", () => {
       mode: "series",
     });
     const both = workflow("both", () => checks());
-    const engine = await startEngine({ print: () => undefined });
+    const engine = await startEngine({
+      collect: [checks, both],
+      print: () => undefined,
+    });
     engines.push(engine);
     await expect(both.run()).resolves.toBe("checked");
   });
@@ -241,7 +256,10 @@ describe("locking a leaf", () => {
   it("lets workflow() take such a definition uncalled, as a function returning its node", async () => {
     const leaf = step("bare-leaf").do(() => "bare");
     const wrapped = workflow("wrapped", leaf);
-    const engine = await startEngine({ print: () => undefined });
+    const engine = await startEngine({
+      collect: [leaf, wrapped],
+      print: () => undefined,
+    });
     engines.push(engine);
     await expect(wrapped.run()).resolves.toBe("bare");
   });

@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 import { DEFAULT_POOL } from "@foundry/queue";
 import {
+  type CollectInput,
   monitor,
   observe,
   runs,
@@ -20,18 +21,12 @@ import {
   vi,
 } from "vitest";
 import { z } from "zod";
-import { libraryOfLoad } from "~/authoring/bound";
-import { Catalog, catalog } from "~/authoring/catalog";
-import {
-  abandonHost,
-  loadInto,
-  releaseEngine,
-  setDefaultRuntime,
-  setHost,
-} from "~/authoring/runtime";
+import { Catalog } from "~/authoring/catalog";
+import { captureScope, releaseEngine, setHost } from "~/authoring/runtime";
 import { declareCatalog } from "~/create";
 import { DatabaseRunStore } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
+import { inContext } from "~/lib/execution-context";
 import { testEngine } from "./helpers/engine";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
@@ -45,11 +40,8 @@ const NOT_A_STEP =
   /"by-name-flow" is a workflow, not a step; use workflow\.enqueue\("by-name-flow"\)/;
 const RETIRING = /this engine is retiring/;
 const DISPOSED = /host that held these runs was disposed; nothing was enqueued/;
-const LOADING = /runs are not available while its source loads; enqueue them/;
 const RELEASED = /no longer hosted in this process/;
 const AMBIGUOUS = /hosts 2 workspaces/;
-
-const library = await import("~/authoring");
 
 const engines: Engine[] = [];
 let machine: TestMachine;
@@ -68,14 +60,16 @@ afterEach(async () => {
   for (const engine of disposed) {
     releaseEngine(engine);
   }
-  catalog.reset();
 });
 
-function host(askable = false): Engine {
+function host(
+  options: { askable?: boolean; collect?: CollectInput } = {}
+): Engine {
   const state = machine.workspace();
   const records = machine.records(state);
   const engine = testEngine({
-    askable,
+    askable: options.askable ?? false,
+    ...(options.collect === undefined ? {} : { collect: options.collect }),
     pools: { [DEFAULT_POOL]: { limit: 4 } },
     print: () => undefined,
     records,
@@ -91,9 +85,12 @@ function host(askable = false): Engine {
   return engine;
 }
 
-function unhosted(options: { askable?: boolean; limit?: number } = {}): Engine {
+function unhosted(
+  options: { askable?: boolean; collect?: CollectInput; limit?: number } = {}
+): Engine {
   const engine = testEngine({
     askable: options.askable ?? false,
+    ...(options.collect === undefined ? {} : { collect: options.collect }),
     pools: {
       [DEFAULT_POOL]: { limit: options.limit ?? 4 },
       children: { limit: 1 },
@@ -117,12 +114,12 @@ async function answerOpen(engine: Engine): Promise<void> {
 
 describe("step.enqueue(name) and workflow.enqueue(name)", () => {
   it("launches the step or workflow the workspace declares by that name, with the input it is given", async () => {
-    step("by-name-build")
+    const build = step("by-name-build")
       .input(z.object({ ref: z.string() }))
       .do(({ input }) => `built ${input.ref}`);
     const leaf = step("by-name-leaf").do(() => "leaf");
-    workflow("by-name-flow", () => leaf());
-    const engine = host();
+    const flow = workflow("by-name-flow", () => leaf());
+    const engine = host({ collect: { build, flow, leaf } });
     await engine.start();
 
     const built = await step.enqueue<string>("by-name-build", { ref: "main" });
@@ -135,10 +132,9 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
 
   it("refuses a blank name, a name the workspace does not declare, a monitor's key, and the other kind", async () => {
     const leaf = step("by-name-leaf").do(() => "leaf");
-    workflow("by-name-flow", () => leaf());
-    monitor("notes/*.md").do(() => undefined);
-    const [watcher] = [...catalog.monitors.keys()];
-    const engine = host();
+    const flow = workflow("by-name-flow", () => leaf());
+    const notes = monitor("notes/*.md").do(() => undefined);
+    const engine = host({ collect: { flow, leaf, notes } });
     await engine.start();
 
     await expect(step.enqueue("")).rejects.toThrow(BLANK);
@@ -148,8 +144,7 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
     ).rejects.toBeInstanceOf(TypeError);
     await expect(step.enqueue("missing")).rejects.toThrow(UNDECLARED);
     await expect(workflow.enqueue("missing")).rejects.toThrow(UNDECLARED);
-    expect(watcher).toBeTypeOf("string");
-    await expect(step.enqueue(watcher ?? "")).rejects.toThrow(
+    await expect(step.enqueue(notes.key)).rejects.toThrow(
       "declares no step or workflow"
     );
     await expect(workflow.enqueue("by-name-leaf")).rejects.toThrow(
@@ -172,7 +167,7 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
       return "leaf";
     });
     const flow = workflow("by-name-keyed-flow", () => leaf());
-    const engine = host();
+    const engine = host({ collect: { build, flow, leaf } });
     await engine.start();
 
     const direct = await build.enqueue({ ref: "a" }, { key: "one" });
@@ -211,14 +206,14 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
   it("launches from an observer, once per key however often the change is delivered", async () => {
     let bodies = 0;
     let deliveries = 0;
-    step("by-name-review")
+    const review = step("by-name-review")
       .input(z.object({ title: z.string() }))
       .do(({ input }) => {
         bodies += 1;
         return `reviewed ${input.title}`;
       });
     const launched: string[] = [];
-    observe(
+    const dispatcher = observe(
       tasks,
       async (event) => {
         for (const delta of event.tasks) {
@@ -240,7 +235,7 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
       },
       { name: "by-name-dispatcher" }
     );
-    const engine = host();
+    const engine = host({ collect: { dispatcher, review } });
     await engine.start();
 
     const created = await tasks.create({ title: "first" });
@@ -262,7 +257,7 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
   it("from a step body launches once however often the body runs, and hands back the same run", async () => {
     let bodies = 0;
     let children = 0;
-    step("by-name-child").do(() => {
+    const child = step("by-name-child").do(() => {
       children += 1;
       return "child";
     });
@@ -272,7 +267,7 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
       await ask.question({ title: "Continue?" });
       return { id: launched.id, value: await launched.result };
     });
-    const engine = unhosted({ askable: true });
+    const engine = unhosted({ askable: true, collect: { child, parent } });
     await engine.start();
     const running = engine.execute<{ id: string; value: string }>(parent, {});
     await answerOpen(engine);
@@ -296,8 +291,6 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
       const flow = await workflow.enqueue<string>("by-name-awaited-flow");
       return `${await child.result} and ${await flow.result}`;
     });
-    catalog.definitions.delete("by-name-awaited");
-    catalog.definitions.delete("by-name-awaited-flow");
     const engine = unhosted({ limit: 1 });
     engine.define(childDefinition, "children");
     engine.define(flowDefinition, "children");
@@ -315,13 +308,13 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
     const root = temporaryDirectory("marbles-by-name-monitor-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const results: string[] = [];
-    step("by-name-on-change").do(() => "noticed");
-    monitor("**/*.md").do(async () => {
+    const onChange = step("by-name-on-change").do(() => "noticed");
+    const watchMd = monitor("**/*.md").do(async () => {
       const launched = await step.enqueue<string>("by-name-on-change");
       results.push(await launched.result);
     });
-    const [key] = [...catalog.monitors.keys()] as [string];
     const engine = testEngine({
+      collect: { onChange, watchMd },
       pools: { [DEFAULT_POOL]: { limit: 4 } },
       print: () => undefined,
       root,
@@ -329,7 +322,9 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
     engines.push(engine);
     await engine.start();
 
-    await expect(engine.run(key, {})).resolves.toEqual({ changed: true });
+    await expect(engine.run(watchMd.key, {})).resolves.toEqual({
+      changed: true,
+    });
     expect(results).toEqual(["noticed"]);
   });
 
@@ -342,14 +337,14 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
   });
 
   it("handles rejected results when callers launch without awaiting the result", async () => {
-    step("by-name-failing").do(() => {
+    const failing = step("by-name-failing").do(() => {
       throw new Error("child failed");
     });
     const parent = step("by-name-fire-and-forget").do(async () => {
       await step.enqueue("by-name-failing");
       return "launched";
     });
-    const engine = host();
+    const engine = host({ collect: { failing, parent } });
     await engine.start();
 
     await step.enqueue("by-name-failing");
@@ -364,8 +359,8 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
   });
 
   it("refuses once the engine retires or is disposed", async () => {
-    step("by-name-refused").do(() => "never");
-    const engine = host();
+    const refused = step("by-name-refused").do(() => "never");
+    const engine = host({ collect: { refused } });
     await engine.start();
     await engine.retire({ pid: thisProcess().pid + 1, started: null });
     await expect(step.enqueue("by-name-refused")).rejects.toThrow(RETIRING);
@@ -374,49 +369,11 @@ describe("step.enqueue(name) and workflow.enqueue(name)", () => {
   });
 });
 
-describe("step.enqueue(name) bound to a load", () => {
-  it("refuses while the source loads, building no engine", async () => {
-    const fallback = vi.fn(() =>
-      Promise.reject(new Error("built a fallback engine"))
-    );
-    setDefaultRuntime(fallback);
-    const into = new Catalog();
-    let refused: unknown;
-    await loadInto(
-      "by-name-loading",
-      into,
-      async (load) => {
-        const bound = libraryOfLoad(library, load) as typeof library;
-        bound.step("by-name-early").do(() => "early");
-        refused = await bound.step
-          .enqueue("by-name-early")
-          .catch((error) => error);
-      },
-      { dry: false }
-    );
-    expect(refused).toBeInstanceOf(Error);
-    expect(String(refused)).toMatch(LOADING);
-    expect(fallback).not.toHaveBeenCalled();
-    abandonHost("by-name-loading", into);
-  });
-
-  it("routes each load's word to its own workspace, from a run of another workspace too, and refuses once that host is disposed", async () => {
-    const loaded = async (workspaceId: string, value: string) => {
-      const into = new Catalog();
-      let words: typeof library | undefined;
-      await loadInto(
-        workspaceId,
-        into,
-        (load) => {
-          words = libraryOfLoad(library, load) as typeof library;
-          words.step("shared-name").do(() => value);
-          return Promise.resolve();
-        },
-        { dry: false }
-      );
-      if (words === undefined) {
-        throw new Error("the load bound no words");
-      }
+describe("step.enqueue(name) across multiple hosted workspaces", () => {
+  it("routes each workspace's runs and captured scope to its own host, and refuses once disposed", async () => {
+    const setup = async (workspaceId: string, value: string) => {
+      const shared = step("shared-name").do(() => value);
+      const into = Catalog.collect({ shared });
       const engine = testEngine({
         pools: { default: { limit: 4 } },
         print: () => undefined,
@@ -426,82 +383,27 @@ describe("step.enqueue(name) bound to a load", () => {
       engines.push(engine);
       setHost(engine, into);
       await engine.start();
-      return { engine, into, words };
+      const scope = inContext(engine.context, captureScope);
+      return { engine, into, scope };
     };
-    const a = await loaded("by-name-a", "from a");
-    const b = await loaded("by-name-b", "from b");
-    const relay = b.words.step("relay").do(async () => {
-      const mine = await b.words.step.enqueue<string>("shared-name");
-      const theirs = await a.words.step.enqueue<string>("shared-name");
-      return {
-        mine: await mine.result,
-        theirId: theirs.id,
-        theirs: await theirs.result,
-      };
-    });
+    const a = await setup("by-name-a", "from a");
+    const b = await setup("by-name-b", "from b");
 
-    const fromA = await a.words.step.enqueue("shared-name");
+    const fromA = await a.scope(() => step.enqueue<string>("shared-name"));
     await expect(fromA.result).resolves.toBe("from a");
     expect(a.engine.executions.get(fromA.id)).toBeDefined();
     expect(b.engine.executions.get(fromA.id)).toBeUndefined();
-    const fromB = await b.words.step.enqueue("shared-name");
+    const fromB = await b.scope(() => step.enqueue<string>("shared-name"));
     await expect(fromB.result).resolves.toBe("from b");
-
-    const relayed = await b.engine.execute<{
-      mine: string;
-      theirId: string;
-      theirs: string;
-    }>(relay, {});
-    expect(relayed.mine).toBe("from b");
-    expect(relayed.theirs).toBe("from a");
-    expect(a.engine.executions.get(relayed.theirId)?.name).toBe("shared-name");
 
     await expect(step.enqueue("shared-name")).rejects.toThrow(AMBIGUOUS);
 
     await a.engine.dispose();
     releaseEngine(a.engine);
-    await expect(a.words.step.enqueue("shared-name")).rejects.toThrow(RELEASED);
-    const stillB = await b.words.step.enqueue<string>("shared-name");
+    await expect(a.scope(() => step.enqueue("shared-name"))).rejects.toThrow(
+      RELEASED
+    );
+    const stillB = await b.scope(() => step.enqueue<string>("shared-name"));
     await expect(stillB.result).resolves.toBe("from b");
-  });
-
-  it("refuses by-name launch while a reload is still running over a live host", async () => {
-    const firstCatalog = new Catalog();
-    await loadInto(
-      "reload-ws",
-      firstCatalog,
-      (load) => {
-        const words = libraryOfLoad(library, load) as typeof library;
-        words.step("old-step").do(() => "old");
-        return Promise.resolve();
-      },
-      { dry: false }
-    );
-    const engine = testEngine({
-      pools: { default: { limit: 4 } },
-      print: () => undefined,
-      workspaceId: "reload-ws",
-    });
-    declareCatalog(engine, firstCatalog);
-    engines.push(engine);
-    setHost(engine, firstCatalog);
-    await engine.start();
-
-    const nextCatalog = new Catalog();
-    await loadInto(
-      "reload-ws",
-      nextCatalog,
-      async (load) => {
-        const words = libraryOfLoad(library, load) as typeof library;
-        words.step("fresh-step").do(() => "fresh");
-        await expect(words.step.enqueue("old-step")).rejects.toThrow(
-          "not available while its source loads"
-        );
-        await expect(words.step.enqueue("fresh-step")).rejects.toThrow(
-          "not available while its source loads"
-        );
-      },
-      { dry: false }
-    );
   });
 });

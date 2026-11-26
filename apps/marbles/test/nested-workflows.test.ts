@@ -5,7 +5,6 @@ import type { WorkflowDefinition } from "@foundry.sh/marbles";
 import { step, workflow } from "@foundry.sh/marbles";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { StepSnapshot } from "~/model/dashboard";
@@ -28,7 +27,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -77,7 +75,7 @@ describe("a workflow locked inside another", () => {
     const outer = workflow("outer", () =>
       sum({ a: plusOne({}, { n: 1 }), b: plusOne({}, { n: 10 }) })
     );
-    const engine = await engineFor();
+    const engine = await engineFor({ collect: [outer] });
 
     await expect(engine.execute(outer, {})).resolves.toBe(13);
     expect(paths).toEqual([
@@ -88,10 +86,10 @@ describe("a workflow locked inside another", () => {
 
   it("shows a nested workflow's steps on the dashboard as a subtree of the place it is locked", async () => {
     const { plusOne, sum } = incrementing();
-    workflow("shown", () =>
+    const shown = workflow("shown", () =>
       sum({ a: plusOne({}, { n: 1 }), b: plusOne({}, { n: 2 }) })
     );
-    const engine = await engineFor();
+    const engine = await engineFor({ collect: [shown] });
     const launched = await engine.launch<number>("shown", {});
     await expect(launched.result).resolves.toBe(5);
 
@@ -319,13 +317,15 @@ describe("a nested workflow's run", () => {
     const report = step("report")
       .input(z.object({ outcome: z.string() }))
       .do(({ input }) => `report ${input.outcome}`);
-    workflow("release", () => report({ outcome: gate({ state: before() }) }));
-    return counts;
+    const release = workflow("release", () =>
+      report({ outcome: gate({ state: before() }) })
+    );
+    return { counts, release };
   }
 
   it("suspends on an approval inside a nested workflow and goes on once it is answered", async () => {
-    const counts = suspendingTree();
-    const engine = await engineFor({ askable: true });
+    const { counts, release } = suspendingTree();
+    const engine = await engineFor({ askable: true, collect: [release] });
 
     const launched = await engine.launch<string>("release", {});
     const question = await openQuestion(() => engine.feed());
@@ -340,11 +340,12 @@ describe("a nested workflow's run", () => {
   it("is adopted by the next engine while suspended inside a nested workflow, and resumes there", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
-    let counts = suspendingTree();
+    let first = suspendingTree();
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await engineFor({
       artifacts: feedOne.artifacts,
       askable: true,
+      collect: [first.release],
       state,
     });
     const launched = await one.launch<string>("release", {});
@@ -356,15 +357,15 @@ describe("a nested workflow's run", () => {
       ).toBe("suspended")
     );
     await one.dispose();
-    expect(counts).toEqual({ approve: 1, before: 1, prep: 1, setup: 1 });
+    expect(first.counts).toEqual({ approve: 1, before: 1, prep: 1, setup: 1 });
 
-    catalog.reset();
-    counts = suspendingTree();
+    first = suspendingTree();
     const lines: string[] = [];
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const two = await engineFor({
       artifacts: feedTwo.artifacts,
       askable: true,
+      collect: [first.release],
       print: (line) => lines.push(line),
       state,
     });
@@ -377,7 +378,7 @@ describe("a nested workflow's run", () => {
       expect(run?.status).toBe("complete");
       expect(run?.output).toBe("report ready prepared: shipped");
     });
-    expect(counts).toEqual({ approve: 1, before: 0, prep: 0, setup: 1 });
+    expect(first.counts).toEqual({ approve: 1, before: 0, prep: 0, setup: 1 });
   });
 
   it("uses saved outputs from sequential synchronous children after restart", async () => {
@@ -405,13 +406,14 @@ describe("a nested workflow's run", () => {
         await ask.approval({ title: "Keep saved result?" });
         return { prior, result };
       });
-      workflow("sequential-output", () => sequence());
+      return workflow("sequential-output", () => sequence());
     }
-    defineSequence();
+    const seqOne = defineSequence();
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await engineFor({
       artifacts: feedOne.artifacts,
       askable: true,
+      collect: [seqOne],
       state,
     });
     const launched = await one.launch("sequential-output", {});
@@ -429,13 +431,13 @@ describe("a nested workflow's run", () => {
       secondCalls: 1,
     });
 
-    catalog.reset();
     sourceValue = 99;
-    defineSequence();
+    const seqTwo = defineSequence();
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const two = await engineFor({
       artifacts: feedTwo.artifacts,
       askable: true,
+      collect: [seqTwo],
       state,
     });
     await two.answer(question.id, "approve");
@@ -479,8 +481,8 @@ describe("a nested workflow's run", () => {
     const shell = step("shell")
       .input(z.object({ value: z.string() }))
       .do(({ input }) => input.value.toUpperCase());
-    workflow("paused", () => shell({ value: inner() }));
-    const engine = await engineFor();
+    const paused = workflow("paused", () => shell({ value: inner() }));
+    const engine = await engineFor({ collect: [paused] });
 
     const launched = await engine.launch<string>("paused", {});
     await started.promise;
@@ -517,8 +519,10 @@ describe("a nested workflow's run", () => {
     const shell = step("hang-shell")
       .input(z.object({ value: z.string() }))
       .do(({ input }) => input.value);
-    workflow("cancelled-outer", () => shell({ value: inner() }));
-    const engine = await engineFor();
+    const cancelledOuter = workflow("cancelled-outer", () =>
+      shell({ value: inner() })
+    );
+    const engine = await engineFor({ collect: [cancelledOuter] });
 
     const launched = await engine.launch<string>("cancelled-outer", {});
     await started.promise;
@@ -583,10 +587,10 @@ it("resumes an explicit suspension inside a nested workflow after restart", asyn
     const output = step("restart-output")
       .input(z.object({ value: z.string() }))
       .do(({ input }) => input.value);
-    workflow("restart-outer", () => output({ value: inner() }));
+    return workflow("restart-outer", () => output({ value: inner() }));
   };
-  declare();
-  const first = await engineFor({ state });
+  const firstDef = declare();
+  const first = await engineFor({ collect: [firstDef], state });
   const launched = await first.launch("restart-outer", {});
   launched.result.catch(() => undefined);
   await started.promise;
@@ -597,10 +601,9 @@ it("resumes an explicit suspension inside a nested workflow after restart", asyn
     ).toBe("suspended");
   });
   await first.dispose();
-  catalog.reset();
   started = Promise.withResolvers<void>();
-  declare();
-  const second = await engineFor({ state });
+  const secondDef = declare();
+  const second = await engineFor({ collect: [secondDef], state });
   await second.resume(launched.id, "restart-outer.value");
   await vi.waitFor(async () => {
     expect(

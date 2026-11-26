@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { abandonHost, releaseEngine } from "~/authoring/runtime";
+import { expectHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
@@ -129,6 +129,7 @@ export interface StagedWorkspace {
 export async function stageWorkspace(
   options: HostWorkspaceOptions
 ): Promise<StagedWorkspace> {
+  expectHost();
   const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
   const diagnostics = new Diagnostics();
@@ -157,7 +158,6 @@ export async function stageWorkspace(
   const shared = hostOptions.dry ? undefined : options.database;
   let own: MarblesDatabase | undefined;
   const unbind = (): void => {
-    abandonHost(loaded.workspace.id, loaded.catalog);
     own?.close();
   };
   const release = async (built: Engine): Promise<void> => {
@@ -447,11 +447,13 @@ function hosted(
     configPath,
     describe(): Promise<WorkspaceConfig> {
       return Promise.resolve({
-        agents: [...catalog.agents.values()].map(({ id, model, provider }) => ({
-          id,
-          ...(model === undefined ? {} : { model }),
-          ...(provider === undefined ? {} : { provider }),
-        })),
+        agents: [...catalog.agents.entries()].map(
+          ([id, { model, provider }]) => ({
+            id,
+            ...(model === undefined ? {} : { model }),
+            ...(provider === undefined ? {} : { provider }),
+          })
+        ),
         definitions: dispatches.definitions(),
         monitors: [...catalog.monitors.values()].map(
           ({ key, label, source, trigger }) => ({

@@ -5,6 +5,12 @@ import type { Step } from "@foundry/workflows/step";
 import type { Bindings, HostBindings } from "./bindings";
 import type { AnyDefinition } from "./definition";
 import { Ledger } from "./ledger";
+import {
+  CURRENT_RUN_KEY,
+  registerAsyncStorageFactory,
+  SETUP_COUNTERS_KEY,
+  scopeStorageFor,
+} from "./scope-bridge";
 import type { LiveWork, StepInput } from "./step-work";
 import { StepInputError, StepWork } from "./step-work";
 import type { SessionRef } from "./types";
@@ -42,9 +48,22 @@ export interface Current {
   readonly write: (value: unknown) => void;
 }
 
-export const current = new AsyncLocalStorage<Current>();
+registerAsyncStorageFactory(() => new AsyncLocalStorage());
 
-export const setupCounters = new AsyncLocalStorage<Map<string, number>>();
+function scoped<T>(key: symbol) {
+  return {
+    exit: <R>(work: () => R): R =>
+      scopeStorageFor<T | undefined>(key).run(undefined, work),
+    getStore: (): T | undefined =>
+      scopeStorageFor<T | undefined>(key).getStore(),
+    run: <R>(value: T, work: () => R): R =>
+      scopeStorageFor<T | undefined>(key).run(value, work),
+  };
+}
+
+export const current = scoped<Current>(CURRENT_RUN_KEY);
+
+export const setupCounters = scoped<Map<string, number>>(SETUP_COUNTERS_KEY);
 
 export function workingDirectory(fallback: string): string {
   return current.getStore()?.cwd ?? fallback;
