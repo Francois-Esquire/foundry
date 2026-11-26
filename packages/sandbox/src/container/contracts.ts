@@ -34,6 +34,7 @@ export interface CreateContainersOptions {
 }
 
 export interface Containers {
+  get(id: string): Promise<ContainerRow | undefined>;
   list(): Promise<readonly ContainerRow[]>;
   open(id: string, signal?: AbortSignal): Promise<Container>;
   recover(
@@ -51,6 +52,7 @@ export interface Containers {
     spec: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<Container>;
+  stop(id: string): Promise<void>;
   sweep(signal?: AbortSignal): Promise<ContainerSweep>;
 }
 

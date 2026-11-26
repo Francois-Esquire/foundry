@@ -305,7 +305,7 @@ it("runs model-free work without provider configuration, and refuses a session w
   }
 });
 
-it("echoes the configured providers under dry, lets a programmatic set supersede them, and gives each engine its own Airplane", async () => {
+it("echoes the configured providers under dry, and lets a programmatic set supersede them", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
   await DatabaseProviderStore.forState(stateRoot).update(undefined, () => ({
     machine: {
@@ -329,9 +329,8 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
     workspaceId: "ws",
   };
   const dry = createEngine({ ...base, dry: true });
-  const other = createEngine({ ...base, dry: true });
   const programmatic = createEngine({ ...base, dry: false, providers: [] });
-  await Promise.all([dry, other].map((each) => each.providers?.refresh()));
+  await dry.providers?.refresh();
   try {
     expect(dry.models.providers.map((provider) => provider.id)).toEqual([
       "codex",
@@ -340,14 +339,7 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
       "ready",
     ]);
     expect(programmatic.models.providers).toEqual([]);
-    dry.airplane.set(true);
-    expect(() => dry.models.resolve("text", "codex/gpt-5.5")).toThrow(
-      "refused by airplane"
-    );
-    expect(other.models.resolve("text", "codex/gpt-5.5").provider).toBe(
-      "codex"
-    );
-    const session = await other.agents.session({
+    const session = await dry.agents.session({
       id: "reviewer",
       kind: "agent",
       model: "gpt-5.5",
@@ -363,7 +355,7 @@ it("echoes the configured providers under dry, lets a programmatic set supersede
       true
     );
   } finally {
-    await Promise.all([dry.dispose(), other.dispose(), programmatic.dispose()]);
+    await Promise.all([dry.dispose(), programmatic.dispose()]);
     await rm(stateRoot, { force: true, recursive: true });
   }
 });
@@ -384,7 +376,6 @@ it("echoes a programmatic set under dry, so a supplied provider is never called"
       { id: "m", kind: "text", modelId: "m" },
       { id: "chosen", kind: "text", modelId: "chosen" },
     ],
-    offline: false,
   };
   const lines: string[] = [];
   const engine = createEngine({
@@ -422,7 +413,6 @@ it("answers every dry-run command and model turn with the same fixed reply", asy
       throw new Error("the real provider was called");
     },
     models: [{ id: "chosen", kind: "text", modelId: "chosen" }],
-    offline: false,
   };
   const lines: string[] = [];
   step("on-host").do(({ exec }) => exec(["git", "status"]));

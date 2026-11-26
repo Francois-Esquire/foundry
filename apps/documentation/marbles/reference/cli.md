@@ -251,10 +251,9 @@ Usage is recorded once per agent turn inside a run, from the token counts the
 harness reports. A cost is estimated at the list price the model's catalog
 row states, when a server or the configuration gave one, else at the
 models.dev list price for it, and keeps that price with the turn; `~` marks
-an estimate. Marbles fetches models.dev when an engine starts and when
-Airplane Mode turns off, keeps it once it loads, and never waits for it. A
-fetch that fails is tried again while the engine runs and Airplane Mode is off:
-after 30 s, then twice as long each time, up to 10 minutes.
+an estimate. Marbles fetches models.dev when an engine starts, keeps it once
+it loads, and never waits for it. A fetch that fails is tried again while the
+engine runs: after 30 s, then twice as long each time, up to 10 minutes.
 
 Claude Code reports `total_cost_usd`, a running total for its CLI session.
 Marbles records it only for a turn that made one model call and resumed no
@@ -513,9 +512,8 @@ the workspace's source calls `defineProvider(gateway)` with `gateway` from
 `apiKey` names the environment variable that holds the key, never the key
 itself, and the instance is available once that variable is set. Any other
 setting is an error. Its models are the ones its server lists at
-`GET <baseURL>/models`. Marbles asks when it starts, when the provider
-configuration changes, and when Airplane Mode turns off, and never while Airplane Mode is
-on. Each listed id is a text model. Name the model, or set the entry's
+`GET <baseURL>/models`. Marbles asks when it starts and when the provider
+configuration changes. Each listed id is a text model. Name the model, or set the entry's
 `defaults`; otherwise the first listed id is used. Its capabilities and limits are unknown,
 and its price comes from models.dev when that knows the id. A model the
 server does not list is refused. A server that gives no list within 5

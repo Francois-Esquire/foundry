@@ -99,7 +99,6 @@
     "@ai-sdk/mcp": "2.0.29",
     "@ai-sdk/openai-compatible": "3.0.27",
     "@ai-sdk/provider": "4.0.7",
-    "@ai-sdk/provider-utils": "5.0.25",
     "@libsql/client": "^0.18.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@noble/hashes": "^2.2.0",

@@ -11,7 +11,7 @@
 
 - [Prompts](./packages/prompts/CONTEXT.md): reads, checks, and writes prompts across CLI harness dialects
 - [Usage](./packages/usage/CONTEXT.md): observes and reports provider account limits, consumption, charges, and spend
-- **Models** (`packages/models`): unified model catalog and provider access across remote providers, CLI harnesses, and on-device models
+- **Models** (`packages/models`): unified model catalog and provider access across remote providers and CLI harnesses
 
 ### Domains
 

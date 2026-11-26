@@ -361,42 +361,6 @@ function heldText(
   return model;
 }
 
-export function policed(
-  session: HarnessSession,
-  resolution: Resolution<"text">,
-  models: Models,
-  site: SessionSite
-): HarnessSession {
-  const recheck = () => {
-    try {
-      resolution.check();
-    } catch {
-      session.interrupt().catch(() => undefined);
-    }
-  };
-  models.events.on("policies-changed", recheck);
-  site.retain({
-    close: () => {
-      models.events.off("policies-changed", recheck);
-    },
-  });
-  const turns = new Set(["generate", "steer", "stream"]);
-  return new Proxy(session, {
-    get: (target, name) => {
-      const value = Reflect.get(target, name, target);
-      if (typeof value !== "function") {
-        return value;
-      }
-      return turns.has(String(name))
-        ? (...args: unknown[]) => {
-            resolution.check();
-            return Reflect.apply(value, target, args);
-          }
-        : value.bind(target);
-    },
-  });
-}
-
 function selectionOf(route: {
   readonly model?: string;
   readonly provider?: string;
@@ -938,10 +902,7 @@ async function openSandboxSession(
       : { wireModelId: resolution.definition.modelId }),
     write: site.write,
   });
-  return deps.activities.attach(
-    id,
-    guest ? policed(harness, resolution, deps.models, site) : harness
-  );
+  return deps.activities.attach(id, harness);
 }
 
 async function openLocalSession(

@@ -2,29 +2,13 @@
   "name": "@foundry/models",
   "version": "0.1.0",
   "private": true,
-  "description": "Unified model registry: remote providers, CLI harnesses, on-device models, and their catalogs behind one Models registry.",
+  "description": "One catalog-checked Models registry over gateway, Vercel and CLI harness providers, with their catalogs and costs.",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
       "import": "./src/index.ts"
-    },
-    "./providers/fal": {
-      "types": "./dist/src/providers/fal.d.ts",
-      "import": "./src/providers/fal.ts"
-    },
-    "./live": {
-      "types": "./dist/src/live.d.ts",
-      "import": "./src/live.ts"
-    },
-    "./node/live": {
-      "types": "./dist/src/node/live.d.ts",
-      "import": "./src/node/live.ts"
-    },
-    "./providers/airplane": {
-      "types": "./dist/src/providers/airplane.d.ts",
-      "import": "./src/providers/airplane.ts"
     },
     "./providers/claude-code": {
       "types": "./dist/src/providers/claude-code.d.ts",
@@ -38,14 +22,6 @@
       "types": "./dist/src/providers/pi.d.ts",
       "import": "./src/providers/pi.ts"
     },
-    "./providers/local": {
-      "types": "./dist/src/providers/local.d.ts",
-      "import": "./src/providers/local.ts"
-    },
-    "./providers/local/remote": {
-      "types": "./dist/src/providers/local/remote.d.ts",
-      "import": "./src/providers/local/remote.ts"
-    },
     "./providers/gateway": {
       "types": "./dist/src/providers/gateway.d.ts",
       "import": "./src/providers/gateway.ts"
@@ -53,10 +29,6 @@
     "./providers/vercel": {
       "types": "./dist/src/providers/vercel.d.ts",
       "import": "./src/providers/vercel.ts"
-    },
-    "./providers/replicate": {
-      "types": "./dist/src/providers/replicate.d.ts",
-      "import": "./src/providers/replicate.ts"
     },
     "./cost": {
       "types": "./dist/src/cost.d.ts",
@@ -69,38 +41,6 @@
     "./catalog/models-dev-source": {
       "types": "./dist/src/catalog/models-dev-source.d.ts",
       "import": "./src/catalog/models-dev-source.ts"
-    },
-    "./embeddings/chunk": {
-      "types": "./dist/src/embeddings/chunk.d.ts",
-      "import": "./src/embeddings/chunk.ts"
-    },
-    "./embeddings/code": {
-      "types": "./dist/src/embeddings/code.d.ts",
-      "import": "./src/embeddings/code.ts"
-    },
-    "./embeddings/pipeline": {
-      "types": "./dist/src/embeddings/pipeline.d.ts",
-      "import": "./src/embeddings/pipeline.ts"
-    },
-    "./embeddings/recursive": {
-      "types": "./dist/src/embeddings/recursive.d.ts",
-      "import": "./src/embeddings/recursive.ts"
-    },
-    "./embeddings/semantic": {
-      "types": "./dist/src/embeddings/semantic.d.ts",
-      "import": "./src/embeddings/semantic.ts"
-    },
-    "./embeddings/source": {
-      "types": "./dist/src/embeddings/source.d.ts",
-      "import": "./src/embeddings/source.ts"
-    },
-    "./embeddings/text": {
-      "types": "./dist/src/embeddings/text.d.ts",
-      "import": "./src/embeddings/text.ts"
-    },
-    "./embeddings/types": {
-      "types": "./dist/src/embeddings/types.d.ts",
-      "import": "./src/embeddings/types.ts"
     }
   },
   "files": [
@@ -112,27 +52,17 @@
     "clean": "rm -rf dist .cache .turbo coverage",
     "test": "vitest run --project unit",
     "test:coverage": "vitest run --project unit --coverage",
-    "test:integration": "vitest run --project integration",
     "test:pi": "vitest run --project pi",
     "test:watch": "vitest --project unit",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/fal": "3.0.26",
     "@ai-sdk/openai-compatible": "3.0.27",
     "@ai-sdk/provider": "4.0.7",
-    "@ai-sdk/provider-utils": "5.0.25",
-    "@ai-sdk/replicate": "3.0.26",
-    "@browser-ai/transformers-js": "3.0.0",
-    "@chonkiejs/core": "^0.0.11",
-    "@fal-ai/client": "1.11.0-alpha.2",
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
-    "@huggingface/transformers": "^4.2.0",
-    "@kreuzberg/tree-sitter-language-pack": "^1.10.9",
     "ai": "7.0.58",
     "evlog": "^2.25.0",
-    "werift": "0.24.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -140,7 +70,6 @@
     "@types/bun": "1.3.14",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^4.1.9",
-    "happy-dom": "^20.11.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },

@@ -64,7 +64,6 @@ export async function createModuleRuntime(
   const system = createModulePlatform({
     artifacts,
     checkouts: createModuleCheckouts({ artifacts, root: checkoutsRoot }),
-    containerRuntime: runtime,
     containers,
     files: {
       backup: (id) => files.backup(dataId(id)),

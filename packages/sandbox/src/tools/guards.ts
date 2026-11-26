@@ -145,13 +145,18 @@ function record(
     truncated?: boolean;
   }
 ): void {
-  state.audit?.record({
-    at: state.now(),
-    input: event.input,
-    outcome: event.outcome,
-    tool: event.name,
-    ...(event.reason === undefined ? {} : { reason: event.reason }),
-    ...(event.path === undefined ? {} : { path: event.path }),
-    ...(event.truncated === true ? { truncated: true } : {}),
-  });
+  try {
+    state.audit?.record({
+      at: state.now(),
+      input: event.input,
+      outcome: event.outcome,
+      tool: event.name,
+      ...(event.reason === undefined ? {} : { reason: event.reason }),
+      ...(event.path === undefined ? {} : { path: event.path }),
+      ...(event.truncated === true ? { truncated: true } : {}),
+    });
+  } catch {
+    // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+    return;
+  }
 }

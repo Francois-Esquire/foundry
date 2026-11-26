@@ -131,7 +131,7 @@ export const bashDefinition = {
       .min(1)
       .optional()
       .describe(
-        "Stop waiting for the command after this many milliseconds. Note: this abandons the output stream; the process inside the sandbox may keep running."
+        "Cancel the command after this many milliseconds; its output is discarded. Processes it started may keep running."
       ),
   }),
 };
@@ -150,7 +150,7 @@ export const sandboxToolDefinitions = {
 export type SandboxToolName = keyof typeof sandboxToolDefinitions;
 
 export const TOOL_LINES: Record<SandboxToolName, string> = {
-  bash: "- `bash` — run a shell command. Prefer the dedicated file tools above when they fit. `timeout` stops waiting for output but does not kill the process.",
+  bash: "- `bash` — run a shell command. Prefer the dedicated file tools above when they fit. `timeout` cancels the command and discards its output; processes it started may keep running.",
   cd: "- `cd` — move the working directory. Later relative paths resolve against it, and `bash` runs there. Use it to settle into a subtree instead of repeating a long prefix.",
   edit: "- `edit` — replace an exact string in a file. `old_string` must match uniquely, so include enough surrounding context; set `replace_all` to change every occurrence.",
   glob: "- `glob` — list files matching a glob pattern, as workdir-relative paths.",

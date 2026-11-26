@@ -1,17 +1,15 @@
 import { createMemoryAgentAuthorizer } from "@foundry/agents/authorization";
-import type { HarnessSession } from "@foundry/agents/harness";
 import type { SessionEvent } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
-import { airplaneMode } from "@foundry/models/providers/airplane";
 import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ManagerArgs } from "~/lib/bindings";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
-import { AgentsManager, policed } from "~/lib/managers/agents";
+import { AgentsManager } from "~/lib/managers/agents";
 import { echoModels, mockModels } from "~/lib/models/mock";
 import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition, SandboxHandle } from "~/lib/types";
@@ -453,7 +451,7 @@ describe("structured output", () => {
   });
 });
 
-describe("guest sessions and policies", () => {
+describe("guest sessions", () => {
   const sandbox = { id: "guest" } as unknown as SandboxHandle;
 
   it("refuses a model the CLI's catalog does not list, before any guest starts", async () => {
@@ -467,50 +465,6 @@ describe("guest sessions and policies", () => {
       ).rejects.toThrow('No configured provider lists "unlisted"');
     } finally {
       await manager.close();
-    }
-  });
-
-  it("refuses a guest CLI the policy refuses, before any guest starts", async () => {
-    const d = deps();
-    airplaneMode(d.models).set(true);
-    const manager = new AgentsManager(d);
-    try {
-      await expect(
-        manager.session(
-          { ...reviewer, model: CODEX.model, provider: CODEX.provider },
-          { sandbox }
-        )
-      ).rejects.toThrow("refused by airplane");
-    } finally {
-      await manager.close();
-    }
-  });
-
-  it("checks each guest turn and interrupts the one in flight when a policy refuses", async () => {
-    const { models } = deps();
-    const resolution = models.resolve("text", CODEX);
-    resolution.hold();
-    let interrupted = 0;
-    const session = {
-      generate: () => Promise.resolve({}),
-      interrupt: () => {
-        interrupted += 1;
-        return Promise.resolve();
-      },
-    } as unknown as HarnessSession;
-    const closers: (() => unknown)[] = [];
-    const site = {
-      retain: ({ close }: { close: () => unknown }) => closers.push(close),
-    } as unknown as Parameters<typeof policed>[3];
-    const guarded = policed(session, resolution, models, site);
-    await expect(guarded.generate("hi")).resolves.toEqual({});
-
-    airplaneMode(models).set(true);
-
-    expect(interrupted).toBe(1);
-    expect(() => guarded.generate("again")).toThrow("refused by airplane");
-    for (const close of closers) {
-      close();
     }
   });
 });
