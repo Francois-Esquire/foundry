@@ -34,6 +34,6 @@ describe("modelErrors catalog", () => {
   it("carries the HTTP-style status hint", () => {
     expect(modelErrors.MODEL_KIND_MISMATCH.status).toBe(422);
     expect(modelErrors.CAPABILITY_UNSUPPORTED.status).toBe(501);
-    expect(modelErrors.INVALID_EMBEDDING_JSON.status).toBe(400);
+    expect(modelErrors.MODEL_NOT_FOUND.status).toBe(404);
   });
 });

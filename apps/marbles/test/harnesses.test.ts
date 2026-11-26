@@ -10,7 +10,6 @@ import { delimiter, join } from "node:path";
 
 import type { ModelKind, Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
-import { airplaneMode } from "@foundry/models/providers/airplane";
 import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/providers/claude-code";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -19,13 +18,11 @@ import { mockModels } from "~/lib/models/mock";
 import { which } from "~/lib/which";
 
 const NO_PROVIDER = /No configured model provider is available/;
-const REFUSED = /refused by airplane/;
 
 function serving(
   id: string,
   options: {
     readonly defaults?: Partial<Record<ModelKind, string>>;
-    readonly offline?: boolean;
   } = {}
 ): Provider {
   return {
@@ -37,7 +34,6 @@ function serving(
       id === "claude-code"
         ? CLAUDE_CODE_DEFAULT_MODELS
         : [{ id: "m", kind: "text", modelId: "m" }],
-    offline: options.offline ?? false,
   };
 }
 
@@ -89,23 +85,5 @@ describe("default route", () => {
     expect(selectExecutor(configured).model).toBe("haiku");
     const plain = new Models({ providers: [serving("claude-code")] });
     expect(selectExecutor(plain).model).toBe(CLAUDE_CODE_DEFAULT_MODELS[0]?.id);
-  });
-
-  it("lets the manager skip a provider its policy refuses", () => {
-    const models = new Models({
-      providers: [serving("claude-code"), serving("local", { offline: true })],
-    });
-    airplaneMode(models).set(true);
-    expect(selectExecutor(models)).toEqual({
-      harness: "direct",
-      model: "m",
-      provider: "local",
-    });
-  });
-
-  it("reports the refusal when the policy refuses every provider", () => {
-    const models = new Models({ providers: [serving("claude-code")] });
-    airplaneMode(models).set(true);
-    expect(() => selectExecutor(models)).toThrow(REFUSED);
   });
 });
