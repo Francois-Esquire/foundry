@@ -135,7 +135,6 @@ export interface ContainerInstance<TNative = unknown> {
     options: ContainerExecOptions
   ): Promise<ContainerProcess>;
   stat(path: string): Promise<SandboxDirectoryEntry["type"] | undefined>;
-  stop(): Promise<void>;
   readonly storage: Storage;
   writeFile(path: string, content: Uint8Array): Promise<void>;
 }

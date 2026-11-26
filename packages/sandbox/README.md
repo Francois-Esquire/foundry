@@ -12,7 +12,7 @@ these peers as development dependencies to build and test its adapters.
 
 MicroSandbox is pinned to `0.6.18` in development and peer dependencies. Its
 native inventory includes `created`, `starting`, and `paused` states. The
-`Containers` instance stops active orphaned VMs before removing them.
+`Containers` instance stops active VMs before removing them.
 
 ```typescript
 interface Sandbox {
@@ -210,8 +210,8 @@ and `containerId`:
 | ------------------- | ---------------------------------------------------------------------------------- |
 | `sandbox.created`   | `start`, in the write that inserts the row                                         |
 | `sandbox.started`   | the write that moves the row into `running`: a first boot, a reopen (after a failure too) or a restart |
-| `sandbox.stopped`   | the write that moves the row into `stopped`: its last handle closing, or `shutdown` |
-| `sandbox.failed`    | the write that moves the row into `failed`: a boot that does not come up           |
+| `sandbox.stopped`   | the write that moves the row into `stopped`: its last handle closing, `shutdown`, or `stop` of a row left booted |
+| `sandbox.failed`    | the write that moves the row into `failed`: a boot that does not come up, or a live restart that fails |
 | `sandbox.destroyed` | `remove`, in the write that deletes the row; none if it was already gone           |
 
 A row that enters `starting` or `restarting`, a new native name, a spec
@@ -378,7 +378,9 @@ try {
 ```
 
 A container's `files.watch` is a polling stub: the guest reports no events, so
-it calls `changed` every second until closed and the observer reads again.
+it calls `changed` every second until the watcher is closed or the VM's removal
+begins (a last handle closing, a restart or `shutdown`), and the observer reads
+again.
 
 For host-backed work, mount the selected directory into the container and bind
 its guest path. File and command operations then reach the same mounted bytes;
@@ -461,6 +463,7 @@ await c.shell.open();
 await c.volumes?.list(); // only when `Containers` has allowedMountRoots
 await containers.restart(id, newSpec); // the one change mechanism; handles follow
 await c.close(); // last handle out stops the VM, row -> stopped
+await containers.stop(id); // remove a not-live row's retained VMs; the row stays
 await containers.get(id); // one row | undefined
 await containers.list(); // rows for the UI
 await containers.shutdown();
@@ -498,17 +501,30 @@ Row status, persisted, is the one state: `starting`, `running`, `restarting`,
 
 Once a container's removal begins (its last handle closing, a restart or
 `shutdown`), every facet operation on the old VM is refused with
-`invalid-transition`, whether or not the removal succeeds, and its running piped
-processes are cancelled. A removal the runtime rejects reaches the caller of
+`invalid-transition`, whether or not the removal succeeds, its running piped
+processes are cancelled and its watchers stop. A removal the runtime rejects reaches the caller of
 `close`, `restart` or `shutdown`. The MicroSandbox runtime treats only a VM that
 is already gone as removed.
 
 A service id is free again once `services.stop(id)` completes or the service
 fails to become ready. Stopping an id that is not held is refused.
 
+A `close` that rejects can be called again: it retries the removal unless the
+row has since been reopened or removed.
+
+`stop(id)` is for a row that is not live here but may still have a VM, left by a
+failed close or an earlier process. It removes every VM that is provably the
+row's, keeps the row, and moves a `starting`, `running` or `restarting` row to
+`stopped`; a `failed` or `removing` row keeps its status. It refuses a live row,
+an unknown id, and a row another holder is removing. It rejects, leaving the
+row's status as it was, when the inventory cannot be read, when a VM will not go
+(kept to retry), or when a VM bearing the row's id or name is not provably its
+own (left, and named in the error).
+
 `close` never deletes a row; the owner calls `remove(id)` when it goes, which
-refuses while a handle is open. `open`, `remove` and `shutdown` wait for an
-in-flight release of the same row, so a stop never overlaps the next boot.
+refuses while a handle is open. `open`, `stop`, `remove` and `shutdown` wait
+for an in-flight release or `stop` of the same row, so a stop never overlaps the
+next boot.
 
 A VM is not adopted across processes. `open` on a row that is not live in this
 process removes whatever the runtime still holds under the old native name and
@@ -527,7 +543,7 @@ removed, and taken out by hand as below. `Containers` puts
 it on every VM it boots, as the `com.foundry.container.store` label. A VM is a
 row's only when all three say so: it carries this store's identity, its name
 is one of that row's own (`<rowId>-<generation>`), and its id label names that
-row. Every stop or removal asks this right before it acts (`recover`,
+row. Every stop or removal asks this right before it acts (`stop`, `recover`,
 `remove`, `sweep`, the retries of `sweep` and `shutdown`, `open`'s removal of
 the old VM, a close, a restart, a failed boot), and a VM is kept to retry only
 if it passes. The instance label names a workspace, not a store, so two

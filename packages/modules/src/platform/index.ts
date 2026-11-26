@@ -6,7 +6,6 @@ export {
 export {
   ModuleRuntimeCleanupError,
   rethrowAfterCleanup,
-  withConfirmedModuleContainerCleanup,
 } from "./container-cleanup";
 export {
   type CreateContainerModuleProgramRuntimeOptions,

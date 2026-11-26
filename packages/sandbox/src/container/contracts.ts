@@ -52,6 +52,7 @@ export interface Containers {
     spec: ContainerSandboxConstraints,
     signal?: AbortSignal
   ): Promise<Container>;
+  stop(id: string): Promise<void>;
   sweep(signal?: AbortSignal): Promise<ContainerSweep>;
 }
 

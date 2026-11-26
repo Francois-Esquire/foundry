@@ -160,6 +160,25 @@ function wrap(container: Container, site: HandleSite): SandboxHandle {
   ) as SandboxHandle;
 }
 
+async function closeAfterFailure(
+  error: unknown,
+  container: Container
+): Promise<never> {
+  const [closed] = await Promise.allSettled([container.close()]);
+  if (closed.status === "rejected") {
+    throw new AggregateError(
+      [error, closed.reason],
+      `${errorMessage(error)}\nSandbox cleanup also failed: ${errorMessage(closed.reason)}`,
+      { cause: error }
+    );
+  }
+  throw error;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export class SandboxesManager implements Sandboxes {
   readonly #deps: SandboxesDeps;
   readonly #handles = new WeakMap<SandboxHandle, Container>();
@@ -204,13 +223,10 @@ export class SandboxesManager implements Sandboxes {
       constraintsFor(sandbox, { cwd: workingDirectory(root), root }),
       signal
     );
-    try {
-      if ("files" in sandbox) {
-        await container.files.copyIn(guestFiles(sandbox.files));
-      }
-    } catch (error) {
-      await container.close();
-      throw error;
+    if ("files" in sandbox) {
+      await container.files
+        .copyIn(guestFiles(sandbox.files))
+        .catch((error: unknown) => closeAfterFailure(error, container));
     }
     this.#started.add(container.id);
     return container;

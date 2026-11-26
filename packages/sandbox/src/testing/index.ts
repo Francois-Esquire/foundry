@@ -308,11 +308,6 @@ function createInstance(
         [...directories, ...files.keys()].some((p) => p.startsWith(prefix));
       return Promise.resolve(isDirectory ? ("directory" as const) : undefined);
     },
-    stop() {
-      instance.stopped = true;
-      instance.nativeStatus = "stopped";
-      return Promise.resolve();
-    },
     stopped: false,
     storage: {
       async lstat(path) {

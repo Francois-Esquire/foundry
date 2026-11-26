@@ -1,4 +1,7 @@
 import { Buffer } from "node:buffer";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -257,23 +260,71 @@ describe("a container's facets", () => {
     await containers.shutdown();
   });
 
-  it("refuses every further operation once closed", async () => {
-    const { container, containers, instance } = await started();
-    const { commands, files, ports, processes, shell } = container;
+  it("refuses every operation on every facet once closed", async () => {
+    const source = await mkdtemp(join(tmpdir(), "sandbox-facets-"));
+    const runtime = createFakeContainerRuntime();
+    const containers = createContainers({
+      allowedMountRoots: [source],
+      instanceLabel: "facet-contract",
+      runtime,
+      store: new MemoryContainerStore(),
+    });
+    const container = await containers.start({
+      ...SPEC,
+      mounts: [
+        { access: "read-only", id: "data", source, target: "/workspace/data" },
+      ],
+    });
+    const { commands, files, ports, processes, services, shell, volumes } =
+      container;
+    if (volumes === undefined) {
+      throw new Error("expected a volumes facet");
+    }
+    await services.start({
+      argv: ["serve"],
+      id: "program",
+      readiness: { kind: "started" },
+    });
 
     await container.close();
 
-    expect(instance.removed).toBe(true);
+    expect(runtime.instances[0]?.removed).toBe(true);
     for (const run of [
       () => commands.exec(["true"]),
-      () => files.readFile("a"),
-      () => files.writeFile("a", "a"),
-      () => files.lstat("a"),
+      () => files.copyIn({}),
+      () => files.copyOut("."),
+      () => files.isDirectory("."),
       () => files.list("."),
+      () => files.list(".", { recursive: true }),
+      () => files.lstat("a"),
+      () => files.readDirectory("."),
+      () => files.readFile("a"),
+      () => files.readLink("a"),
+      () => files.realpath("a"),
+      () => files.replaceFile("a", new Uint8Array()),
+      () =>
+        files.watch(
+          ".",
+          () => undefined,
+          () => undefined
+        ),
+      () => files.writeFile("a", "a"),
       () => ports.hostPort(3000),
       () => processes.spawn(["true"]),
       () => processes.start(["true"]),
+      () => services.list(),
+      () =>
+        services.start({
+          argv: ["serve"],
+          id: "late",
+          readiness: { kind: "started" },
+        }),
+      () => services.stop("program"),
+      () => services.stop("unknown"),
       () => shell.open(),
+      () => volumes.list(),
+      () => volumes.unmount("data"),
+      () => volumes.unmount("unknown"),
     ]) {
       await expect(run()).rejects.toThrow(REMOVED_CONTAINER_ERROR);
       await expect(run()).rejects.toMatchObject({
@@ -281,7 +332,38 @@ describe("a container's facets", () => {
       });
     }
     await containers.shutdown();
+    await rm(source, { force: true, recursive: true });
   });
+
+  it.each(["close", "restart", "shutdown"] as const)(
+    "stops an active watcher on %s",
+    async (ending) => {
+      const { container, containers } = await started();
+      vi.useFakeTimers();
+      try {
+        const changed = vi.fn();
+        const closed = vi.fn();
+        await container.files.watch(".", changed, vi.fn());
+        const watcher = await container.files.watch(".", closed, vi.fn());
+        await watcher.close();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(changed).toHaveBeenCalledTimes(2);
+
+        await {
+          close: () => container.close(),
+          restart: () => containers.restart(container.id),
+          shutdown: () => containers.shutdown(),
+        }[ending]();
+        await vi.advanceTimersByTimeAsync(5000);
+
+        expect(changed).toHaveBeenCalledTimes(2);
+        expect(closed).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+      await containers.shutdown();
+    }
+  );
 
   it("refuses further operations once removal began, even if it failed, and retries the removal", async () => {
     const { container, containers, instance } = await started();

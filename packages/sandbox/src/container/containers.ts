@@ -363,33 +363,68 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
   };
 
-  const release = (entry: Live): Promise<void> => {
-    live.delete(entry.row.id);
-    const done = (async () => {
-      await entry.turn;
-      await removeOwned(entry, "close");
-      await update(entry, { status: "stopped" });
-    })().finally(() => releasing.delete(entry.row.id));
-    releasing.set(entry.row.id, done);
-    return done;
-  };
-
   const released = (id: string): Promise<void> | undefined =>
     releasing.get(id)?.catch(() => undefined);
 
+  const inReleaseTurn = (
+    id: string,
+    work: () => Promise<void>
+  ): Promise<void> => {
+    const prior = released(id);
+    const done: Promise<void> = (async () => {
+      await prior;
+      await work();
+    })().finally(() => {
+      if (releasing.get(id) === done) {
+        releasing.delete(id);
+      }
+    });
+    releasing.set(id, done);
+    return done;
+  };
+
+  const release = (entry: Live): Promise<void> => {
+    live.delete(entry.row.id);
+    return inReleaseTurn(entry.row.id, async () => {
+      await entry.turn;
+      await removeOwned(entry, "close");
+      await update(entry, { status: "stopped" });
+    });
+  };
+
+  const retryRelease = async (id: string): Promise<void> => {
+    if (live.has(id) || pending.has(id) || removing.has(id)) {
+      return;
+    }
+    await inReleaseTurn(id, async () => {
+      if ((await store.get(id)) !== undefined) {
+        await stopRow(id);
+      }
+    });
+  };
+
   const handleFor = (entry: Live): Container => {
     entry.handles += 1;
-    let closed = false;
+    let closing: Promise<void> | undefined;
+    let failed = false;
+    const letGo = async (): Promise<void> => {
+      if (failed) {
+        await retryRelease(entry.row.id);
+        return;
+      }
+      entry.handles -= 1;
+      if (entry.handles === 0 && live.get(entry.row.id) === entry) {
+        await release(entry);
+      }
+    };
     return Object.freeze({
-      async close() {
-        if (closed) {
-          return;
-        }
-        closed = true;
-        entry.handles -= 1;
-        if (entry.handles === 0 && live.get(entry.row.id) === entry) {
-          await release(entry);
-        }
+      close() {
+        closing ??= letGo().catch((error: unknown) => {
+          failed = true;
+          closing = undefined;
+          throw error;
+        });
+        return closing;
       },
       get commands() {
         return entry.vm.facets.commands;
@@ -482,21 +517,16 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
-  const removeClaimed = async (
-    row: ContainerRow
-  ): Promise<{
-    readonly conflicts: readonly string[];
-    readonly removed: boolean;
-  }> => {
+  const clearMachines = async (row: ContainerRow): Promise<Clearance> => {
+    const conflicts: string[] = [];
+    const stuck: ContainerResourceSummary[] = [];
     let resources: readonly ContainerResourceSummary[];
     try {
       resources = await enumerate(runtime, selection, undefined);
     } catch {
-      return { conflicts: [], removed: false };
+      return { conflicts, stuck, unjudged: true };
     }
     const recordedByAnother = recordedNames();
-    const conflicts: string[] = [];
-    let removed = true;
     for (const resource of resources) {
       if (
         resource.labels[CONTAINER_ID_LABEL] !== row.id &&
@@ -507,19 +537,70 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       const others = await anotherOwns(row, resource, recordedByAnother);
       if (others === undefined) {
-        return { conflicts, removed: false };
+        return { conflicts, stuck, unjudged: true };
       }
       if (others) {
         conflicts.push(resource.name);
-      } else if (!(await disposeListed(resource))) {
-        removed = false;
+      } else if (await disposeListed(resource)) {
+        abandoned.delete(resource.name);
+      } else {
+        stuck.push(resource);
       }
     }
-    if (conflicts.length > 0 || !removed) {
-      return { conflicts, removed: false };
+    return { conflicts, stuck, unjudged: false };
+  };
+
+  const removeClaimed = async (
+    row: ContainerRow
+  ): Promise<{
+    readonly conflicts: readonly string[];
+    readonly removed: boolean;
+  }> => {
+    const { conflicts, stuck, unjudged } = await clearMachines(row);
+    const removed = !unjudged && conflicts.length === 0 && stuck.length === 0;
+    if (removed) {
+      await deleteHeld(row.id);
     }
-    await deleteHeld(row.id);
-    return { conflicts, removed: true };
+    return { conflicts, removed };
+  };
+
+  const stopRow = async (id: string): Promise<void> => {
+    const row = await rowOrThrow(id);
+    assertNotClaimedElsewhere(row);
+    const { conflicts, stuck, unjudged } = await clearMachines(row);
+    if (unjudged) {
+      if (row.nativeId !== undefined && ownsNativeName(id, row.nativeId)) {
+        abandoned.set(row.nativeId, id);
+      }
+      throw new SandboxError(
+        "provider-failed",
+        `container ${id}: its VMs could not be judged; stop it again to retry`
+      );
+    }
+    if (stuck.length > 0) {
+      const own = await store.identity();
+      for (const resource of stuck) {
+        abandon(resource, id, own);
+      }
+    }
+    if (conflicts.length > 0) {
+      throw new SandboxError(
+        "invalid-contract",
+        `container ${id}: the VM(s) ${conflicts.join(", ")} carry its id or name but are not provably its own, so they are left; remove them by hand with ${conflicts.map(removeByHand).join(", ")}`
+      );
+    }
+    if (stuck.length > 0) {
+      throw new SandboxError(
+        "provider-failed",
+        `container ${id}: the VM(s) ${stuck.map((each) => each.name).join(", ")} could not be removed; stop it again to retry`
+      );
+    }
+    await update({ row }, (current) => {
+      assertNotClaimedElsewhere(current);
+      return current.nativeId === row.nativeId && BOOTED.has(current.status)
+        ? { status: "stopped" }
+        : {};
+    });
   };
 
   const anotherOwns = async (
@@ -765,6 +846,18 @@ export function createContainers(options: CreateContainersOptions): Containers {
       const row = await insert(constraints);
       return handleFor(await bringUp({ row }, constraints, signal));
     },
+    async stop(id) {
+      assertOpen();
+      if (live.has(id) || pending.has(id)) {
+        throw new SandboxError(
+          "invalid-transition",
+          `container ${id} is live; close every handle before stopping it`
+        );
+      }
+      assertNotRemoving(id);
+      await inReleaseTurn(id, () => stopRow(id));
+    },
+
     async sweep(signal) {
       assertOpen();
       const own = await store.identity();
@@ -841,6 +934,18 @@ function parseSpec(input: unknown): ContainerSandboxConstraints {
     );
   }
   return Object.freeze(result.data);
+}
+
+const BOOTED: ReadonlySet<ContainerRow["status"]> = new Set([
+  "restarting",
+  "running",
+  "starting",
+]);
+
+interface Clearance {
+  readonly conflicts: readonly string[];
+  readonly stuck: readonly ContainerResourceSummary[];
+  readonly unjudged: boolean;
 }
 
 interface Machine {

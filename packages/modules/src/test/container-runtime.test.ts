@@ -150,7 +150,6 @@ describe("Module container runtime", () => {
       const system = createNodeModulePlatform({
         artifacts: f.artifacts,
         checkoutsRoot: f.checkoutsRoot,
-        containerRuntime: f.native,
         containers: f.options.containers,
         fetch: f.fetchHealth,
         files: {

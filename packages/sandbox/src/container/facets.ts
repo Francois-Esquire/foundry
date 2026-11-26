@@ -120,6 +120,9 @@ function guestContainer(
   };
 
   return {
+    assertActive(operation: string): void {
+      active(operation);
+    },
     async copyIn(files: Readonly<Record<string, string | Uint8Array>>) {
       active("copyIn");
       for (const [path, content] of Object.entries(files)) {
@@ -160,6 +163,7 @@ function guestContainer(
     async isDirectory(path: string) {
       return (await active("isDirectory").stat(path)) === "directory";
     },
+    lifetime,
     list,
     async openShell(options: SandboxShellOptions = {}): Promise<SandboxShell> {
       return active("openShell").execStream(
@@ -236,14 +240,20 @@ function containerFacets(
       ...base.files,
       ...guest.storage,
       separator: "/" as const,
-      watch(_root: string, changed: () => void) {
+      async watch(_root: string, changed: () => void) {
+        guest.assertActive("watch");
         const timer = setInterval(changed, GUEST_WATCH_INTERVAL_MS);
-        return Promise.resolve({
+        const stop = (): void => {
+          clearInterval(timer);
+          guest.lifetime.removeEventListener("abort", stop);
+        };
+        guest.lifetime.addEventListener("abort", stop);
+        return {
           close() {
-            clearInterval(timer);
+            stop();
             return Promise.resolve();
           },
-        });
+        };
       },
     }),
     ports: Object.freeze({
@@ -306,23 +316,24 @@ function createContainerVolumesFacet(
   guest: GuestContainer
 ): SandboxVolumesFacet {
   return Object.freeze({
-    list: () =>
-      Promise.resolve(
-        Object.freeze(
-          [...handle.mounts.values()]
-            .filter((mount) => mount.mounted)
-            .map((mount) =>
-              Object.freeze({
-                access: mount.spec.readOnly
-                  ? ("read-only" as const)
-                  : ("read-write" as const),
-                id: mount.spec.id,
-                target: mount.spec.target,
-              })
-            )
-        )
-      ),
+    async list() {
+      guest.assertActive("listVolumes");
+      return Object.freeze(
+        [...handle.mounts.values()]
+          .filter((mount) => mount.mounted)
+          .map((mount) =>
+            Object.freeze({
+              access: mount.spec.readOnly
+                ? ("read-only" as const)
+                : ("read-write" as const),
+              id: mount.spec.id,
+              target: mount.spec.target,
+            })
+          )
+      );
+    },
     async unmount(id: string): Promise<void> {
+      guest.assertActive("unmount");
       const mount = handle.mounts.get(id);
       if (mount === undefined) {
         throw new SandboxError(
@@ -356,8 +367,12 @@ function createContainerServicesFacet(
     }
   };
   return Object.freeze({
-    list: () => Promise.resolve(Object.freeze([...handle.services.values()])),
+    async list() {
+      guest.assertActive("listServices");
+      return Object.freeze([...handle.services.values()]);
+    },
     async start(input: SandboxStartServiceInput): Promise<SandboxService> {
+      guest.assertActive("startService");
       validateServiceInput(input);
       if (handle.services.has(input.id)) {
         throw new SandboxError(
@@ -438,6 +453,7 @@ function createContainerServicesFacet(
       }
     },
     async stop(id: string): Promise<void> {
+      guest.assertActive("stopService");
       const service = handle.services.get(id);
       if (service === undefined) {
         throw new SandboxError(

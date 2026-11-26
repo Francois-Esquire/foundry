@@ -124,7 +124,9 @@ async function openContainer(
       error,
       async () => {
         await container.close();
-        await options.containers.remove(container.id);
+        if ((await options.containers.get(container.id)) !== undefined) {
+          await options.containers.remove(container.id);
+        }
       },
       "Module container linking and cleanup failed"
     );
