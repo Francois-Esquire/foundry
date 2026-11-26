@@ -2,7 +2,6 @@
 export {
   type ContainerSandboxConstraints,
   type ContainerSandboxMount,
-  containerSandboxConfigFromConstraints,
   containerSandboxConstraintsSchema,
 } from "./container/constraints";
 export type {
@@ -20,19 +19,9 @@ export {
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
-  CONTAINER_OWNER_ID_LABEL,
-  CONTAINER_OWNER_KIND_LABEL,
-  CONTAINER_PORTABLE_ID_PATTERN,
-  CONTAINER_RUNTIME_SCOPE_LABEL,
   CONTAINER_SANDBOX_BASE_LABEL,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
   CONTAINER_STORE_LABEL,
-  DEFAULT_CONTAINER_CPUS,
-  DEFAULT_CONTAINER_IMAGE,
-  DEFAULT_CONTAINER_MEMORY_MIB,
-  DEFAULT_CONTAINER_WORKDIR,
-  INVENTORY_PAGE_LIMIT,
-  MAX_INVENTORY_PAGES,
   removeByHand,
 } from "./container/defaults";
 export type {
@@ -49,10 +38,7 @@ export type {
   ContainerResourceStatus,
   ContainerResourceSummary,
   ContainerRuntime,
-  ContainerSandbox,
-  ContainerSandboxDeps,
   ContainerSpec,
-  ContainerStatus,
   PullPolicy,
 } from "./container/runtime";
 export {
@@ -67,18 +53,13 @@ export {
 } from "./path";
 export type {
   Sandbox,
-  SandboxCapability,
   SandboxCommand,
   SandboxCommandFacet,
   SandboxDirectoryEntry,
   SandboxExecOptions,
   SandboxExecResult,
   SandboxFilesystemFacet,
-  SandboxHeadlessFacet,
-  SandboxImagesFacet,
   SandboxListOptions,
-  SandboxNetworkMode,
-  SandboxNetworkPolicyFacet,
   SandboxPipedProcess,
   SandboxPortBinding,
   SandboxPortsFacet,
@@ -87,10 +68,6 @@ export type {
   SandboxProcessStatus,
   SandboxReadable,
   SandboxResourceLimits,
-  SandboxResourcesFacet,
-  SandboxResourceUsage,
-  SandboxSearchMatch,
-  SandboxSearchOptions,
   SandboxService,
   SandboxServiceExit,
   SandboxServiceReadiness,
@@ -98,14 +75,12 @@ export type {
   SandboxShell,
   SandboxShellFacet,
   SandboxShellOptions,
-  SandboxSpec,
   SandboxStartServiceInput,
   SandboxVolumeMount,
   SandboxVolumesFacet,
   SandboxWritable,
 } from "./sandbox";
 export {
-  assertNotAborted,
   type SandboxAdapter,
   sandboxFromAdapter,
 } from "./sandbox-adapter";

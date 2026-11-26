@@ -90,4 +90,47 @@ describe("Module container cleanup", () => {
     await handle.close();
     await containers.remove(handle.id);
   });
+
+  it.each(["starting", "paused"] as const)(
+    "stops a retained %s VM before removing it",
+    async (status) => {
+      const { runtime, containers } = fixture();
+      const handle = await containers.start(spec);
+      const [instance] = runtime.instances;
+      if (instance === undefined) {
+        throw new Error("Expected container instance");
+      }
+      instance.nativeStatus = status;
+
+      await containers.stopRetained(handle.id);
+
+      expect(instance.stopped).toBe(true);
+      expect(instance.removed).toBe(true);
+    }
+  );
+
+  it("looks only among the VMs labelled as that row", async () => {
+    const { runtime, containers } = fixture();
+    const handle = await containers.start(spec);
+    const [instance] = runtime.instances;
+    if (instance === undefined) {
+      throw new Error("Expected container instance");
+    }
+    const list = runtime.listResources.bind(runtime);
+    const asked: Readonly<Record<string, string>>[] = [];
+    runtime.listResources = (query) => {
+      asked.push(query.labels);
+      return list(query);
+    };
+
+    await containers.stopRetained(handle.id);
+
+    expect(asked).toEqual([
+      {
+        "com.foundry.container.id": handle.id,
+        "com.foundry.environment.managed-by": "foundry-sandbox",
+      },
+    ]);
+    expect(instance.removed).toBe(true);
+  });
 });

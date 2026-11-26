@@ -27,7 +27,7 @@ export interface CreateContainerModuleProgramRuntimeOptions {
   readonly checkouts: ModuleCheckouts;
   readonly containers: Pick<
     Containers,
-    "list" | "start" | "restart" | "open" | "remove"
+    "get" | "start" | "restart" | "open" | "remove"
   >;
   readonly fetch?: CreateModuleProgramRuntimeOptions["fetch"];
   readonly healthCheckTimeoutMs?: number;
@@ -106,7 +106,7 @@ async function openContainer(
   const existing = context.installation.containerId;
   if (
     existing !== null &&
-    (await options.containers.list()).some((row) => row.id === existing)
+    (await options.containers.get(existing)) !== undefined
   ) {
     await options.containers.restart(existing, spec, input.signal);
     return options.containers.open(existing, input.signal);

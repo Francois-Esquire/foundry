@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join, posix } from "node:path";
+import { posix } from "node:path";
+import type { Storage } from "@foundry/core/storage";
 import type {
   ExecHandle,
   Sandbox as MicroSandbox,
@@ -65,14 +64,6 @@ interface MicrosandboxNetworkPolicy {
   readonly rules: readonly unknown[];
 }
 
-interface MicrosandboxNetworkConfigurable {
-  network(
-    configure: (
-      network: MicrosandboxNetworkBuilder
-    ) => MicrosandboxNetworkBuilder
-  ): unknown;
-}
-
 const PULL_POLICY = {
   always: "always",
   missing: "if-missing",
@@ -91,47 +82,6 @@ let installing: Promise<void> | undefined;
 const MAX_SERVICE_OUTPUT_BYTES = 1024 * 1024;
 const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 const REMOVE_STOP_TIMEOUT_MS = 2000;
-
-export function microsandboxEngineVersion(): string | undefined {
-  try {
-    const require = createRequire(import.meta.url);
-    let directory = dirname(require.resolve("microsandbox"));
-    for (let depth = 0; depth < 8; depth += 1) {
-      const version = packageVersion(join(directory, "package.json"));
-      if (version !== undefined) {
-        return version;
-      }
-      const parent = dirname(directory);
-      if (parent === directory) {
-        break;
-      }
-      directory = parent;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
-function packageVersion(manifestPath: string): string | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
-  } catch {
-    return undefined;
-  }
-  if (typeof parsed !== "object" || parsed === null) {
-    return undefined;
-  }
-  if (!("name" in parsed) || parsed.name !== "microsandbox") {
-    return undefined;
-  }
-  if (!("version" in parsed)) {
-    return undefined;
-  }
-  const version: unknown = parsed.version;
-  return typeof version === "string" ? version : undefined;
-}
 
 export function createMicrosandboxRuntime(): ContainerRuntime<MicroSandbox> {
   return {
@@ -180,22 +130,24 @@ export function createMicrosandboxRuntime(): ContainerRuntime<MicroSandbox> {
           : { nextCursor: page.nextCursor }),
       };
     },
-    async removeResource(name) {
-      const { Sandbox, SandboxNotFoundError } = await sdk();
-      try {
-        await Sandbox.remove(name);
-      } catch (error: unknown) {
-        if (!(error instanceof SandboxNotFoundError)) {
-          throw error;
-        }
-      }
-    },
+    removeResource: removeIfPresent,
     async stopResource(name) {
       const { Sandbox } = await sdk();
       const handle = await Sandbox.get(name);
       await handle.stop();
     },
   };
+}
+
+async function removeIfPresent(name: string): Promise<void> {
+  const { Sandbox, SandboxNotFoundError } = await sdk();
+  try {
+    await Sandbox.remove(name);
+  } catch (error: unknown) {
+    if (!(error instanceof SandboxNotFoundError)) {
+      throw error;
+    }
+  }
 }
 
 function labelsOf(config: Record<string, unknown>): Record<string, string> {
@@ -254,8 +206,7 @@ function applySpec(
 }
 
 function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
-  const configurable = builder as unknown as MicrosandboxNetworkConfigurable;
-  configurable.network((network) => {
+  builder.network((network: MicrosandboxNetworkBuilder) => {
     let configured = network;
     if (typeof spec.network === "object") {
       configured = allowlistNetwork(network, spec.network);
@@ -318,14 +269,14 @@ function assertPrivatePortMapping(
 class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   readonly native: MicroSandbox;
   private readonly spec: ContainerSpec;
-  get storage() {
-    return guestStorage(this.native.fs(), (argv) =>
-      this.exec(argv, { cwd: this.spec.workdir, env: {} })
-    );
-  }
+  readonly storage: Storage;
+
   constructor(native: MicroSandbox, spec: ContainerSpec) {
     this.native = native;
     this.spec = spec;
+    this.storage = guestStorage(native.fs(), (argv) =>
+      this.exec(argv, { cwd: spec.workdir, env: {} })
+    );
   }
 
   get id(): string {
@@ -390,7 +341,7 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
         closed = true;
         listeners.clear();
         await stdin?.close().catch(() => undefined);
-        await handle.kill().catch(() => undefined);
+        await handle[Symbol.asyncDispose]();
       },
       onData(listener) {
         listeners.add(listener);
@@ -496,11 +447,10 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   }
 
   async remove(): Promise<void> {
-    const { Sandbox } = await sdk();
     await this.native
       .stopWithTimeout(REMOVE_STOP_TIMEOUT_MS)
       .catch(() => undefined);
-    await Sandbox.remove(this.spec.name).catch(() => undefined);
+    await removeIfPresent(this.spec.name);
   }
 }
 
@@ -549,25 +499,21 @@ async function collectWithSignal(
   handle: ExecHandle,
   signal: AbortSignal
 ): Promise<SandboxExecResult> {
-  if (signal.aborted) {
-    await handle.kill().catch(() => undefined);
-    throw new SandboxError("cancelled", "exec aborted");
-  }
-  let onAbort = (): void => undefined;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    onAbort = () => {
-      handle.kill().catch(() => undefined);
-      reject(new SandboxError("cancelled", "exec aborted"));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-
+  const aborted = Promise.withResolvers<never>();
+  const onAbort = (): void => {
+    aborted.reject(new SandboxError("cancelled", "exec aborted"));
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
   try {
+    if (signal.aborted) {
+      throw new SandboxError("cancelled", "exec aborted");
+    }
     return await Promise.race([
       collectBoundedProcess(handle, MAX_EXEC_OUTPUT_BYTES),
-      aborted,
+      aborted.promise,
     ]);
   } finally {
     signal.removeEventListener("abort", onAbort);
+    await handle[Symbol.asyncDispose]();
   }
 }

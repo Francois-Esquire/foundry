@@ -6,7 +6,6 @@ import {
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
-  CONTAINER_RUNTIME_SCOPE_LABEL,
   CONTAINER_STORE_LABEL,
 } from "../container/defaults";
 import { MemoryContainerStore } from "../store/memory";
@@ -53,7 +52,7 @@ describe.each(CONTAINER_STORES)(
           image: "x",
           labels: {
             [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-            [CONTAINER_RUNTIME_SCOPE_LABEL]: "scope",
+            "com.foundry.environment.scope-id": "scope",
             [CONTAINER_ENVIRONMENT_ID_LABEL]: "harness-vm",
           },
           memoryMib: 1,
@@ -64,7 +63,7 @@ describe.each(CONTAINER_STORES)(
           workdir: "/w",
         });
 
-        expect(await mine.sweep()).toEqual([`${orphan.id}-1`]);
+        expect((await mine.sweep()).swept).toEqual([`${orphan.id}-1`]);
         const byName = new Map(runtime.instances.map((i) => [i.id, i.removed]));
         expect(byName.get(`${kept.id}-1`)).toBe(false);
         expect(byName.get(`${orphan.id}-1`)).toBe(true);
@@ -93,7 +92,7 @@ describe.each(CONTAINER_STORES)(
           pull: "missing",
           workdir: "/work",
         });
-        expect(await containers.sweep()).toEqual([]);
+        expect((await containers.sweep()).swept).toEqual([]);
         expect(instance.removed).toBe(false);
         await containers.shutdown();
       });
@@ -112,9 +111,9 @@ describe.each(CONTAINER_STORES)(
         });
         const held = await theirs.start(CONTAINER_SPEC);
         const name = held.row.nativeId ?? "";
-        const swept = await ours.sweep();
-        expect([...swept]).toEqual([]);
-        expect(swept.passedOver).toEqual([name]);
+        const result = await ours.sweep();
+        expect(result.swept).toEqual([]);
+        expect(result.passedOver).toEqual([name]);
         expect(runtime.instances.find((i) => i.id === name)?.removed).toBe(
           false
         );
@@ -315,7 +314,9 @@ describe.each(CONTAINER_STORES)(
               workdir: "/work",
             });
             instance.nativeStatus = status;
-            await expect(containers.sweep()).resolves.toEqual([instance.id]);
+            await expect(containers.sweep()).resolves.toMatchObject({
+              swept: [instance.id],
+            });
             expect(instance.removed).toBe(true);
             expect(instance.stopped).toBe(status !== "created");
           } finally {

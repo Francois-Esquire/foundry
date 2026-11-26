@@ -21,7 +21,6 @@ export async function pipedProcess(
       );
     }
   } catch (error) {
-    await handle.kill();
     await handle[Symbol.asyncDispose]();
     throw error;
   }
@@ -58,7 +57,6 @@ export async function pipedProcess(
       process.complete(exitCode);
     } catch (error) {
       process.fail(processError(error));
-      await handle.kill();
     } finally {
       signal?.removeEventListener("abort", abort);
       input.destroy();

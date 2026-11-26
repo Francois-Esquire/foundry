@@ -1,10 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ContainerSandboxConstraints } from "../container/constraints";
 import { createContainers } from "../container/containers";
-import {
-  provisionContainerSandbox,
-  startContainerSandbox,
-} from "../container/sandbox";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
 import { SqliteContainerStore } from "../store/sqlite";
@@ -118,7 +114,7 @@ describe("a commit that fails after a boot", () => {
     const [row] = await store.list();
     expect(row).toMatchObject({ nativeId: `${row?.id}-1`, status: "failed" });
     allow();
-    expect(await containers.sweep()).toEqual([]);
+    expect((await containers.sweep()).swept).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -146,7 +142,7 @@ describe("a commit that fails after a boot", () => {
     const again = await containers.open(first.id);
     expect(remaining(runtime)).toEqual([`${first.id}-3`]);
     await again.close();
-    expect(await containers.sweep()).toEqual([]);
+    expect((await containers.sweep()).swept).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -171,7 +167,7 @@ describe("a commit that fails after a boot", () => {
     });
     allow();
     await handle.close();
-    expect(await containers.sweep()).toEqual([]);
+    expect((await containers.sweep()).swept).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -202,7 +198,7 @@ describe("a commit that fails after a boot", () => {
     await holder;
     const [row] = await store.list();
     expect(row).toMatchObject({ nativeId: `${row?.id}-1`, status: "starting" });
-    expect(await containers.sweep()).toEqual([]);
+    expect((await containers.sweep()).swept).toEqual([]);
     await containers.shutdown();
     expect(remaining(runtime)).toEqual([]);
   });
@@ -221,9 +217,9 @@ describe("a VM the Containers could not remove", () => {
     expect(remaining(runtime)).toEqual([name]);
 
     allow();
-    expect(await containers.sweep()).toEqual([name]);
+    expect((await containers.sweep()).swept).toEqual([name]);
     expect(remaining(runtime)).toEqual([]);
-    expect(await containers.sweep()).toEqual([]);
+    expect((await containers.sweep()).swept).toEqual([]);
     await containers.shutdown();
   });
 
@@ -303,7 +299,7 @@ describe.each(STORES)(
       expect(name).toBeDefined();
       resume.resolve();
 
-      expect(await sweeping).toEqual([]);
+      expect((await sweeping).swept).toEqual([]);
       expect(remaining(runtime)).toEqual([name]);
       allow();
       await containers.shutdown();
@@ -331,7 +327,7 @@ describe("an old VM whose stop fails", () => {
     expect(remaining(runtime)).toEqual([`${id}-1`, `${id}-2`]);
 
     failStop.length = 0;
-    expect(await containers.sweep()).toEqual([`${id}-1`]);
+    expect((await containers.sweep()).swept).toEqual([`${id}-1`]);
     expect(remaining(runtime)).toEqual([`${id}-2`]);
     await expect(handle.commands.exec(["true"])).resolves.toBeDefined();
     await containers.shutdown();
@@ -384,7 +380,7 @@ describe("a boot whose guest setup fails", () => {
     expect(row?.status).toBe("failed");
     expect(remaining(runtime)).toEqual([`${row?.id}-1`]);
 
-    expect(await containers.sweep()).toEqual([`${row?.id}-1`]);
+    expect((await containers.sweep()).swept).toEqual([`${row?.id}-1`]);
     expect(remaining(runtime)).toEqual([]);
     await containers.shutdown();
   });
@@ -415,23 +411,6 @@ describe("a boot whose guest setup fails", () => {
     await expect(containers.start(SPEC)).rejects.toThrow("guest setup failed");
     expect(remaining(runtime)).toEqual([]);
     await containers.shutdown();
-  });
-});
-
-describe("a start whose guest setup and removal both fail", () => {
-  it("rejects with the setup's error even when the left-behind callback throws", async () => {
-    const runtime = brokenSetupRuntime(true);
-    const provisioned = await provisionContainerSandbox({}, { runtime });
-    const onLeftBehind = vi.fn(() => {
-      throw new Error("callback failed");
-    });
-
-    await expect(
-      startContainerSandbox(provisioned, { onLeftBehind })
-    ).rejects.toThrow("guest setup failed");
-    expect(onLeftBehind).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "remove failed" })
-    );
   });
 });
 

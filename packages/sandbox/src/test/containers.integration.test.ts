@@ -59,18 +59,20 @@ describe("real MicroSandbox Containers", () => {
 
     await containers.shutdown();
 
+    const durable = new MemoryContainerStore();
     const crashed = createContainers({
       instanceLabel,
       runtime,
-      store: new MemoryContainerStore(),
+      store: durable,
     });
     const orphan = await crashed.start(SPEC);
+    await durable.commit({ deleteContainers: [orphan.id] });
     const nextBoot = createContainers({
       instanceLabel,
       runtime,
-      store: new MemoryContainerStore(),
+      store: durable,
     });
-    expect(await nextBoot.sweep()).toEqual([`${orphan.id}-1`]);
+    expect((await nextBoot.sweep()).swept).toEqual([`${orphan.id}-1`]);
     expect(
       (await inventory()).filter(
         (r) => r.labels[CONTAINER_ID_LABEL] === orphan.id

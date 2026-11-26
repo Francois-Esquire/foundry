@@ -4,9 +4,6 @@ import {
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
-  CONTAINER_OWNER_ID_LABEL,
-  CONTAINER_OWNER_KIND_LABEL,
-  CONTAINER_RUNTIME_SCOPE_LABEL,
   CONTAINER_SANDBOX_BASE_LABEL,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
   normalizeSandboxPath,
@@ -46,12 +43,7 @@ it("exposes sandbox ownership labels and the persisted spec format", () => {
   expect(CONTAINER_SANDBOX_BASE_LABEL).toBe("com.foundry.sandbox");
   expect(CONTAINER_MANAGED_BY_LABEL).toBe("com.foundry.environment.managed-by");
   expect(CONTAINER_MANAGED_BY_VALUE).toBe("foundry-sandbox");
-  expect(CONTAINER_RUNTIME_SCOPE_LABEL).toBe(
-    "com.foundry.environment.scope-id"
-  );
   expect(CONTAINER_ENVIRONMENT_ID_LABEL).toBe("com.foundry.environment.id");
-  expect(CONTAINER_OWNER_KIND_LABEL).toBe("com.foundry.environment.owner-kind");
-  expect(CONTAINER_OWNER_ID_LABEL).toBe("com.foundry.environment.owner-id");
   expect(CONTAINER_SANDBOX_CONSTRAINTS_FORMAT).toBe(
     "foundry.sandbox.container/1"
   );

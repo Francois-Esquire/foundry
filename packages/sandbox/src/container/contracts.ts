@@ -34,6 +34,7 @@ export interface CreateContainersOptions {
 }
 
 export interface Containers {
+  get(id: string): Promise<ContainerRow | undefined>;
   list(): Promise<readonly ContainerRow[]>;
   open(id: string, signal?: AbortSignal): Promise<Container>;
   recover(
@@ -54,9 +55,10 @@ export interface Containers {
   sweep(signal?: AbortSignal): Promise<ContainerSweep>;
 }
 
-export type ContainerSweep = readonly string[] & {
+export interface ContainerSweep {
   readonly passedOver: readonly string[];
-};
+  readonly swept: readonly string[];
+}
 
 export interface ContainerRecovery {
   readonly conflicts: readonly string[];

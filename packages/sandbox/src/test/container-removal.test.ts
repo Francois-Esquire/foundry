@@ -150,7 +150,7 @@ describe.each(CONTAINER_STORES)(
         await expect(next.remove(left.id)).rejects.toThrow(vm);
 
         await store.commit({ deleteContainers: [left.id] });
-        expect(await next.sweep()).not.toContain(vm);
+        expect((await next.sweep()).swept).not.toContain(vm);
         expect(instance?.removed).toBe(false);
         await next.shutdown();
       });
@@ -271,7 +271,7 @@ describe.each(CONTAINER_STORES)(
           conflicts: [`${other.id}-1`],
           kept: [left.id],
         });
-        expect(await next.sweep()).not.toContain(`${other.id}-1`);
+        expect((await next.sweep()).swept).not.toContain(`${other.id}-1`);
         const instance = runtime.instances.find(
           (i) => i.id === `${other.id}-1`
         );
@@ -420,7 +420,7 @@ describe.each(CONTAINER_STORES)(
         expect(lines).toEqual([expect.stringContaining(`${left.id}-1`)]);
         const old = runtime.instances.find((i) => i.id === `${left.id}-1`);
         expect(old?.removed).toBe(false);
-        expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
+        expect((await next.sweep()).swept).toEqual([`${left.id}-1`]);
         expect(old?.removed).toBe(true);
         await reopened.close();
         await next.shutdown();
@@ -457,7 +457,7 @@ describe.each(CONTAINER_STORES)(
           nativeId: `${left.id}-2`,
           status: "running",
         });
-        expect([...(await next.sweep())]).toEqual([`${left.id}-1`]);
+        expect((await next.sweep()).swept).toEqual([`${left.id}-1`]);
         await reopened.close();
         await next.shutdown();
       });

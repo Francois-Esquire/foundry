@@ -92,8 +92,8 @@ tool lands:
 | `grep` `bash`                | `commands`   | `grep` is a _specialized exec_ whose argv the toolkit builds                             |
 | `cd`                         | neither      | moves the toolkit's working directory; uses `list` to refuse an out-of-bounds move first |
 
-`SandboxFilesystemFacet.search` is optional. Without it, the toolkit runs
-`grep` through the sandbox command facet.
+`bash`'s `timeout` aborts the `exec` signal and discards the output; processes
+the command started may keep running.
 
 **Limits are split by what each layer can see.** The toolkit counts tool calls
 and clips result text; it cannot count bytes, because one `grep` reads a whole
@@ -116,7 +116,6 @@ interface SandboxFilesystemFacet {
   copyOut(path): Promise<Record<string, Uint8Array>>;
   list(path, options?): Promise<readonly SandboxDirectoryEntry[]>;
   isDirectory(path): Promise<boolean>;
-  search?(pattern, options?): Promise<readonly SandboxSearchMatch[]>; // optional
 }
 
 interface SandboxCommandFacet {
@@ -142,8 +141,10 @@ sandboxFromAdapter(adapter); // a Sandbox over a backend's SandboxAdapter
 
 POSIX glob matching lives in `@foundry/lib/glob` (`globToRegExp`).
 
-Sandbox and container constants are exported from `@foundry/sandbox`; toolkit
-constants are exported from `@foundry/sandbox/tools`.
+The root exports the container labels, the constraints format,
+`ACTIVE_CONTAINER_RESOURCE_STATUSES`, `DEFAULT_SANDBOX_WORKING_DIRECTORY` and
+`removeByHand`. `@foundry/sandbox/tools` exports the toolkit, the tool
+definitions, `DEFAULT_LIMITS` and `MAX_EDIT_RESULT_CHARS`.
 
 ## Storage
 
@@ -350,7 +351,8 @@ interface SandboxToolEvent {
 
 Two details worth keeping when you touch this: **`path` is absent on a
 refusal**, so a denial never records where it would have landed; and audit is
-fire-and-forget, because recording must never block or fail a tool call.
+fire-and-forget, because recording must never block or fail a tool call. A
+`record` that throws is ignored.
 
 Exceeding the call rate throws `SandboxRateLimitError` — a refusal, not a
 failure.
@@ -374,6 +376,9 @@ try {
   await container.close();
 }
 ```
+
+A container's `files.watch` is a polling stub: the guest reports no events, so
+it calls `changed` every second until closed and the observer reads again.
 
 For host-backed work, mount the selected directory into the container and bind
 its guest path. File and command operations then reach the same mounted bytes;
@@ -417,7 +422,7 @@ POSIX status or claim an observed signal.
 
 ### Egress and workspace execution
 
-Guest egress defaults to denied, including the direct provisioner. Constraints
+Guest egress defaults to denied. Constraints
 accept `network: "disabled"`, explicit `"unrestricted"`, or an exact destination
 allowlist:
 
@@ -446,7 +451,7 @@ mounts should stay read-only with execution disabled.
 
 ```typescript
 const containers = createContainers({ runtime, store, instanceLabel });
-await containers.sweep(); // boot: stop VMs with our labels and no row
+await containers.sweep(); // boot: stop VMs with our labels and no row -> { swept, passedOver }
 const c = await containers.start(spec); // new row, new VM, a handle
 const c = await containers.open(id); // join a row; restarts its VM if not live here
 await c.commands.exec(["bun", "test"]);
@@ -456,6 +461,7 @@ await c.shell.open();
 await c.volumes?.list(); // only when `Containers` has allowedMountRoots
 await containers.restart(id, newSpec); // the one change mechanism; handles follow
 await c.close(); // last handle out stops the VM, row -> stopped
+await containers.get(id); // one row | undefined
 await containers.list(); // rows for the UI
 await containers.shutdown();
 ```
@@ -483,10 +489,22 @@ Change is restart. The microVM runtime cannot change ports or network policy on
 a live VM, so `restart(id, spec?)` replaces the VM under the same row: status
 `restarting`, old VM removed, new VM under `<rowId>-<n+1>`, status `running`.
 On a row not live in this process, `restart` only records the spec for the next
-`open`.
+`open`, and is refused while another holder is removing the row. A live restart
+that fails drops the row from this process and marks it `failed`; if the old VM
+would not go, it is kept to retry.
 
 Row status, persisted, is the one state: `starting`, `running`, `restarting`,
-`missing`, `stopped`, `failed`.
+`stopped`, `failed`, `removing`.
+
+Once a container's removal begins (its last handle closing, a restart or
+`shutdown`), every facet operation on the old VM is refused with
+`invalid-transition`, whether or not the removal succeeds, and its running piped
+processes are cancelled. A removal the runtime rejects reaches the caller of
+`close`, `restart` or `shutdown`. The MicroSandbox runtime treats only a VM that
+is already gone as removed.
+
+A service id is free again once `services.stop(id)` completes or the service
+fails to become ready. Stopping an id that is not held is refused.
 
 `close` never deletes a row; the owner calls `remove(id)` when it goes, which
 refuses while a handle is open. `open`, `remove` and `shutdown` wait for an
