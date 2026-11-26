@@ -40,7 +40,7 @@ function cli(root: string, ...args: string[]): string {
     encoding: "utf8",
     env: home.env,
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: 15_000,
+    timeout: 30_000,
   });
 }
 
@@ -82,7 +82,7 @@ it("discovers modules in order, skips leading underscores, declarations and syml
 });
 
 it("loads the default folder, imports ignored helpers, and operates on the project root", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-folder-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "marbles-folder-")));
   try {
     const source = join(root, ".foundry", "marbles");
     await mkdir(join(source, "_app"), { recursive: true });
@@ -114,16 +114,14 @@ step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }
       join(source, "nested", "second.ts"),
       'import { step } from "@foundry.sh/marbles"; step("second").do(() => "second");'
     );
-    const listed = cli(root, "list", "--dry-run");
+    const listed = cli(root, "list");
     expect(
       listed.split("\n").filter((line) => line.startsWith("[step]"))
     ).toEqual(["[step] second", "[step] inspect"]);
-    const result = cli(root, "run", "inspect", "--dry-run");
+    const result = cli(root, "run", "inspect");
     expect(result).toContain(root);
     expect(result).toContain("helper imported");
-    expect(
-      cli(tmpdir(), "run", "inspect", "--source", source, "--dry-run")
-    ).toContain(root);
+    expect(cli(tmpdir(), "run", "inspect", "--source", source)).toContain(root);
   } finally {
     await rm(root, { force: true, recursive: true });
   }
@@ -138,9 +136,7 @@ it("init creates a starter without running it and refuses to overwrite it", asyn
     expect(initialized).not.toContain("[run]");
     const original = await readFile(file, "utf8");
     expect(original).toContain("summarizeCodebase");
-    expect(cli(root, "list", "--dry-run")).toContain(
-      "[step] summarize-codebase"
-    );
+    expect(cli(root, "list")).toContain("[step] summarize-codebase");
     expect(() => cli(root, "init")).toThrow("not overwritten");
     expect(await readFile(file, "utf8")).toBe(original);
     expect(() => cli(root, "init", "unknown")).toThrow(
@@ -162,7 +158,7 @@ observe(tasks, () => undefined, { name: "triage" });
 observe(artifact, () => undefined, { name: "shares", types: ["artifact.shared", "artifact.unshared"] });
 monitor("*.md").name("docs").every("5m").do(() => undefined);`
     );
-    const listed = cli(root, "list", "--source", config, "--dry-run")
+    const listed = cli(root, "list", "--source", config)
       .split("\n")
       .filter((line) => line.startsWith("["));
     expect(listed).toEqual([
