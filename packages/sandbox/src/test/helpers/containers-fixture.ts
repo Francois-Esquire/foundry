@@ -1,5 +1,5 @@
 import type { ContainerSandboxConstraints } from "../../container/constraints";
-import { createContainers } from "../../node/containers";
+import { createContainers } from "../../container/containers";
 import type { ContainerStore, ContainerStoreWrite } from "../../store/index";
 import { MemoryContainerStore } from "../../store/memory";
 import type { ContainerRow } from "../../store/schema";

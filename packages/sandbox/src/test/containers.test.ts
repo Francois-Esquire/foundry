@@ -4,13 +4,13 @@ import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContainerSandboxConstraints } from "../container/constraints";
+import { createContainers } from "../container/containers";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
 } from "../container/defaults";
-import { createContainers } from "../node/containers";
 import { createFakeContainerRuntime } from "../testing/index";
 import {
   CONTAINER_SPEC,

@@ -12,7 +12,7 @@ export type {
   ContainerSweep,
   Containers,
   CreateContainersOptions,
-} from "./container/containers";
+} from "./container/contracts";
 export {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ENVIRONMENT_ID_LABEL,

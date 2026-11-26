@@ -4,7 +4,7 @@ import { eq, getTableColumns, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createContainers } from "../node/containers";
+import { createContainers } from "../container/containers";
 import type { ContainerStoreWrite } from "../store/index";
 import type { ContainerRow } from "../store/schema";
 import { containerRowSchema } from "../store/schema";

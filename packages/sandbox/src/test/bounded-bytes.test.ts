@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BoundedBytes } from "../node/bounded-bytes";
+import { BoundedBytes } from "../container/bounded-bytes";
 
 const encoder = new TextEncoder();
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ContainerSandboxConstraints } from "../container/constraints";
+import { createContainers } from "../container/containers";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
 } from "../container/defaults";
-import { createContainers } from "../node/containers";
 import { createMicrosandboxRuntime } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 

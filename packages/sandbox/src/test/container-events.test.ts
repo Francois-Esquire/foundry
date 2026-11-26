@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createContainers } from "../node/containers";
+import { createContainers } from "../container/containers";
 import { sandboxEventSchema } from "../store/schema";
 import { createFakeContainerRuntime } from "../testing/index";
 import {

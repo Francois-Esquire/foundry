@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import { expect, it } from "vitest";
 
-import { createContainers } from "../node/containers";
+import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 

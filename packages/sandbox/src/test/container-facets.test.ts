@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../node/containers";
+import { createContainers } from "../container/containers";
 import { MemoryContainerStore } from "../store/memory";
 import type { FakeContainerRuntimeOptions } from "../testing/index";
 import { createFakeContainerRuntime } from "../testing/index";

@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { expect, it } from "vitest";
-import { createContainers } from "../node/containers";
+import { createContainers } from "../container/containers";
 import { prepareSandboxProcess } from "../node/prepare-process";
 import { ProcessController } from "../node/process-controller";
 import { MemoryContainerStore } from "../store/memory";

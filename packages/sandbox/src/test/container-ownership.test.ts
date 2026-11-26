@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ContainerSandboxConstraints } from "../container/constraints";
+import { createContainers } from "../container/containers";
 import {
   provisionContainerSandbox,
   startContainerSandbox,
-} from "../node/container-sandbox";
-import { createContainers } from "../node/containers";
+} from "../container/sandbox";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
 import { SqliteContainerStore } from "../store/sqlite";

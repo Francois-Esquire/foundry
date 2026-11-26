@@ -6,7 +6,7 @@ import type { ContainerSandbox } from "../container/runtime";
 import {
   provisionContainerSandbox,
   startContainerSandbox,
-} from "../node/container-sandbox";
+} from "../container/sandbox";
 import { createMicrosandboxRuntime } from "../node/microsandbox";
 
 const PACKAGE_URL = new URL("../../", import.meta.url);

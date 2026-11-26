@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { createContainers } from "../container/containers";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
@@ -6,7 +7,6 @@ import {
   CONTAINER_MANAGED_BY_VALUE,
   CONTAINER_STORE_LABEL,
 } from "../container/defaults";
-import { createContainers } from "../node/containers";
 import { createFakeContainerRuntime } from "../testing/index";
 import {
   CONTAINER_SPEC,

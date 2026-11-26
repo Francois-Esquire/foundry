@@ -5,7 +5,7 @@ import { clearTimeout, setTimeout } from "node:timers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createContainers } from "../node/containers";
+import { createContainers } from "../container/containers";
 import { createMicrosandboxRuntime } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 import { MODULE_GATEWAY_SERVER } from "./helpers/module-gateway-server";

@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import {
   provisionContainerSandbox,
   startContainerSandbox,
-} from "../node/container-sandbox";
+} from "../container/sandbox";
 import { createMicrosandboxRuntime } from "../node/microsandbox";
 
 const request = (url: string) => [

@@ -6,6 +6,9 @@ import type {
   Sandbox as MicroSandbox,
   SandboxBuilder,
 } from "microsandbox";
+import { BoundedBytes } from "../container/bounded-bytes";
+import { pipedProcess } from "../container/piped-process";
+import { isTcpPort } from "../container/ports";
 import type {
   ContainerExecOptions,
   ContainerInstance,
@@ -14,16 +17,13 @@ import type {
   ContainerRuntime,
   ContainerSpec,
 } from "../container/runtime";
+import { guestStorage } from "../container/storage";
 import { SandboxError } from "../errors";
 import type {
   SandboxDirectoryEntry,
   SandboxExecResult,
   SandboxShell,
 } from "../sandbox";
-import { BoundedBytes } from "./bounded-bytes";
-import { guestStorage } from "./guest-storage";
-import { pipedProcess } from "./piped-process";
-import { isTcpPort } from "./ports";
 
 async function sdk() {
   return import("microsandbox");
