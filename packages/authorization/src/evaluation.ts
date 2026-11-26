@@ -218,7 +218,12 @@ export function scopeFromRequest(request: AccessRequest): Scope | null {
         }
         continue;
       }
-      constraints[key] = { op: "eq", value };
+      Object.defineProperty(constraints, key, {
+        configurable: true,
+        enumerable: true,
+        value: { op: "eq", value },
+        writable: true,
+      });
       hasConstraints = true;
     }
   }

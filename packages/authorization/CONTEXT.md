@@ -41,7 +41,7 @@ A persisted consumption record keyed by invocation id that prevents one-shot and
 _Avoid_: receipt, lock, nonce
 
 **Permit**:
-An unforgeable execution handle returned by authorization, carrying a receipt and an in-process abort signal wired to live grant revocations and newly added deny restrictions (including committed host transactions bound via `within`). Expiry is enforced at evaluation time rather than by background timers.
+An unforgeable execution handle returned by authorization, carrying a receipt and an in-process abort signal wired to live grant revocations and newly added deny restrictions (including committed host transactions bound via `within`). Live permits require a commit-durable store (`authorize()` rejects on `durability: "host"` instances so a permit cannot outlive a rolled-back host transaction). Expiry is enforced at evaluation time rather than by background timers.
 _Avoid_: lease, ticket, handle
 
 **Grant Path**:

@@ -144,7 +144,7 @@ export class Authorization {
   }
 
   async check(request: AccessRequest): Promise<Decision> {
-    const now = this.#clock();
+    const snapshot = structuredClone(request);
     const { grants, restrictions } = await this.#inTransaction(async (view) => {
       const [loadedGrants, loadedRestrictions] = await Promise.all([
         view.listGrants(),
@@ -152,12 +152,13 @@ export class Authorization {
       ]);
       return { grants: loadedGrants, restrictions: loadedRestrictions };
     });
+    const now = this.#clock();
     const result = evaluateRequestAgainstGrants(
-      request,
+      snapshot,
       grants,
       restrictions,
       now,
-      request.invocationId
+      snapshot.invocationId
     );
     if (result.selected !== undefined) {
       return {
@@ -192,10 +193,16 @@ export class Authorization {
     options: AuthorizeOptions = {}
   ): Promise<Outcome> {
     assertNonEmptyText(invocationId, "invocationId");
+    if (this.durability === "host") {
+      throw new AuthorizationStateError(
+        "authorize() requires a commit-durable store; commit the host transaction before issuing a live permit"
+      );
+    }
     const effects = this.#resolveEffects(options.effects);
     if (options.signal?.aborted) {
       return { kind: "denied", reason: "Authorization signal already aborted" };
     }
+    const snapshot = structuredClone(request);
 
     const buffered: AuthorizationEvent[] = [];
     let liveHandler: ((event: AuthorizationEvent) => void) | null = null;
@@ -211,7 +218,7 @@ export class Authorization {
     let outcome: AuthorizationTransactionResult;
     try {
       outcome = await this.#inTransaction((view) =>
-        this.#authorizeInTransaction(view, request, invocationId, options)
+        this.#authorizeInTransaction(view, snapshot, invocationId, options)
       );
     } catch (error) {
       this.#hub.permitHandlers.delete(collector);
@@ -234,7 +241,7 @@ export class Authorization {
 
     const { permit, activate } = this.#bindLivePermit(
       outcome.receipt,
-      request,
+      snapshot,
       options.signal,
       collector
     );
@@ -250,12 +257,12 @@ export class Authorization {
     assertPositiveInteger(requiredApprovals, "requiredApprovals");
     validateGrantBounds(input);
 
-    const now = this.#clock();
-    const { grant, created } = await this.#inTransaction(async (view) => {
+    const { grant, created, now } = await this.#inTransaction(async (view) => {
       const [grants, restrictions] = await Promise.all([
         view.listGrants(),
         view.listRestrictions(),
       ]);
+      const at = this.#clock();
       const blocking = findBlockingDenyForGrantScope(
         input.holder,
         input.scope,
@@ -272,7 +279,19 @@ export class Authorization {
             item.invocationId === input.invocationId && item.state === "pending"
         );
         if (existing !== undefined) {
-          return { created: false, grant: existing };
+          if (isExpired(existing, at)) {
+            throw new AuthorizationStateError(
+              `Pending grant for invocation ${input.invocationId} has expired`
+            );
+          }
+          if (
+            !matchesPendingGrantRequestInput(existing, input, requiredApprovals)
+          ) {
+            throw new AuthorizationStateError(
+              `Invocation ${input.invocationId} is already bound to a different pending grant`
+            );
+          }
+          return { created: false, grant: existing, now: at };
         }
       }
       assertUnusedGrantId(input.id, grants);
@@ -283,7 +302,7 @@ export class Authorization {
         id: input.id,
         invocationId: input.invocationId,
         issuanceKey: input.issuanceKey,
-        now,
+        now: at,
         parentIds: [],
         reason: input.reason,
         requestedBy: input.requestedBy,
@@ -294,7 +313,7 @@ export class Authorization {
         usesRemaining: input.usesRemaining,
       });
       await view.commit({ putGrants: [createdGrant] });
-      return { created: true, grant: createdGrant };
+      return { created: true, grant: createdGrant, now: at };
     });
 
     if (created) {
@@ -311,13 +330,13 @@ export class Authorization {
     validateScope(input.scope);
     validateGrantBounds(input);
 
-    const now = this.#clock();
     const parentIds = uniqueIds(input.parentIds ?? []);
-    const { grant, created } = await this.#inTransaction(async (view) => {
+    const { grant, created, now } = await this.#inTransaction(async (view) => {
       const [grants, restrictions] = await Promise.all([
         view.listGrants(),
         view.listRestrictions(),
       ]);
+      const at = this.#clock();
       if (input.issuanceKey !== undefined) {
         const duplicate = findIdempotentIssuance(
           grants,
@@ -328,7 +347,16 @@ export class Authorization {
           input.sessionId
         );
         if (duplicate !== undefined) {
-          return { created: false, grant: duplicate };
+          if (
+            duplicate.canDelegate !== (input.canDelegate ?? false) ||
+            duplicate.expiresAt !== input.expiresAt ||
+            duplicate.usesRemaining !== input.usesRemaining
+          ) {
+            throw new AuthorizationStateError(
+              `Issuance key ${input.issuanceKey} already issued a grant with different bounds`
+            );
+          }
+          return { created: false, grant: duplicate, now: at };
         }
       }
       assertUnusedGrantId(input.id, grants);
@@ -337,7 +365,7 @@ export class Authorization {
         parentIds,
         grantMap,
         input,
-        now
+        at
       );
       const blocking = findBlockingDenyForGrantScope(
         input.holder,
@@ -355,7 +383,7 @@ export class Authorization {
         holder: input.holder,
         id: input.id,
         issuanceKey: input.issuanceKey,
-        now,
+        now: at,
         parentIds,
         reason: input.reason,
         requestedBy: input.requestedBy,
@@ -366,7 +394,7 @@ export class Authorization {
         usesRemaining: input.usesRemaining,
       });
       await view.commit({ putGrants: [issued] });
-      return { created: true, grant: issued };
+      return { created: true, grant: issued, now: at };
     });
 
     if (created) {
@@ -382,27 +410,29 @@ export class Authorization {
     }
     validateGrantBounds(input);
 
-    const now = this.#clock();
-    const { updated, approval } = await this.#inTransaction(async (view) => {
-      const [grants, restrictions] = await Promise.all([
-        view.listGrants(),
-        view.listRestrictions(),
-      ]);
-      const grantMap = new Map(grants.map((item) => [item.id, item]));
-      const existing = grantMap.get(grantId);
-      if (existing === undefined) {
-        throw new AuthorizationNotFoundError("grant", grantId);
+    const { updated, approval, now } = await this.#inTransaction(
+      async (view) => {
+        const [grants, restrictions] = await Promise.all([
+          view.listGrants(),
+          view.listRestrictions(),
+        ]);
+        const at = this.#clock();
+        const grantMap = new Map(grants.map((item) => [item.id, item]));
+        const existing = grantMap.get(grantId);
+        if (existing === undefined) {
+          throw new AuthorizationNotFoundError("grant", grantId);
+        }
+        const prepared = this.#prepareApproval(
+          existing,
+          input,
+          grantMap,
+          restrictions,
+          at
+        );
+        await view.commit({ putGrants: [prepared.updated] });
+        return { ...prepared, now: at };
       }
-      const prepared = this.#prepareApproval(
-        existing,
-        input,
-        grantMap,
-        restrictions,
-        now
-      );
-      await view.commit({ putGrants: [prepared.updated] });
-      return prepared;
-    });
+    );
 
     this.#scheduleEvents(
       [{ approval, at: now, grant: updated, type: "grant.approved" }],
@@ -581,12 +611,12 @@ export class Authorization {
     invocationId: string,
     options: AuthorizeOptions
   ): Promise<AuthorizationTransactionResult> {
-    const now = this.#clock();
     const [grants, restrictions, existingClaim] = await Promise.all([
       view.listGrants(),
       view.listRestrictions(),
       view.getClaim(invocationId),
     ]);
+    const now = this.#clock();
 
     if (existingClaim !== null) {
       return this.#handleExistingClaim(
@@ -612,6 +642,7 @@ export class Authorization {
         grants,
         evaluation.selected.grant,
         evaluation.selected.grantPath,
+        request,
         invocationId,
         now
       );
@@ -661,6 +692,18 @@ export class Authorization {
         reason: `Invocation ${claim.invocationId} has already been claimed`,
       };
     }
+    const fingerprint = fingerprintRequest(request);
+    if (
+      claim.requestFingerprint === undefined ||
+      fingerprint === null ||
+      claim.requestFingerprint !== fingerprint
+    ) {
+      return {
+        events: [],
+        kind: "denied",
+        reason: `Invocation ${claim.invocationId} was claimed for a different request`,
+      };
+    }
     const grant = grants.find((item) => item.id === claim.grantId);
     if (grant === undefined) {
       return {
@@ -701,13 +744,16 @@ export class Authorization {
     grants: readonly Grant[],
     selected: Grant,
     grantPath: readonly GrantId[],
+    request: AccessRequest,
     invocationId: string,
     now: number
   ): Promise<AuthorizationTransactionResult> {
+    const requestFingerprint = fingerprintRequest(request);
     const claim: InvocationClaim = {
       claimedAt: now,
       grantId: selected.id,
       invocationId,
+      ...(requestFingerprint === null ? {} : { requestFingerprint }),
     };
     const grantMap = new Map(grants.map((item) => [item.id, item]));
     const updatedGrants: Grant[] = [];
@@ -769,10 +815,28 @@ export class Authorization {
     now: number,
     options: AuthorizeOptions
   ): Promise<AuthorizationTransactionResult> {
+    const scope = scopeFromRequest(request);
     const existingPending = grants.find(
       (item) => item.invocationId === invocationId && item.state === "pending"
     );
     if (existingPending !== undefined) {
+      if (isExpired(existingPending, now)) {
+        return {
+          events: [],
+          kind: "denied",
+          reason: "Pending grant request has expired",
+        };
+      }
+      if (
+        scope === null ||
+        !matchesPendingGrantForRequest(existingPending, request, scope)
+      ) {
+        return {
+          events: [],
+          kind: "denied",
+          reason: `Invocation ${invocationId} is already bound to a different pending grant`,
+        };
+      }
       return { events: [], grant: existingPending, kind: "pending" };
     }
     const existingTerminal = grants.find(
@@ -790,7 +854,6 @@ export class Authorization {
             : (existingTerminal.revokedReason ?? "Grant was revoked"),
       };
     }
-    const scope = scopeFromRequest(request);
     if (scope === null) {
       return {
         events: [],
@@ -1347,6 +1410,100 @@ async function selectRevocationTargets(
 
 function isRevocableState(state: Grant["state"]): boolean {
   return state !== "revoked" && state !== "denied";
+}
+
+function matchesPendingGrantForRequest(
+  grant: Grant,
+  request: AccessRequest,
+  scope: Scope
+): boolean {
+  try {
+    return (
+      canonicalizeJson({
+        holder: grant.holder,
+        scope: grant.scope,
+        sessionId: grant.sessionId ?? null,
+      }) ===
+      canonicalizeJson({
+        holder: {
+          kind: "exact",
+          principal: exactPrincipalRef(request.principal),
+        },
+        scope,
+        sessionId: request.sessionId ?? null,
+      })
+    );
+  } catch {
+    return false;
+  }
+}
+
+function matchesPendingGrantRequestInput(
+  grant: Grant,
+  input: RequestGrantInput,
+  requiredApprovals: number
+): boolean {
+  try {
+    return (
+      grant.canDelegate === (input.canDelegate ?? false) &&
+      grant.expiresAt === input.expiresAt &&
+      grant.requiredApprovals === requiredApprovals &&
+      grant.usesRemaining === input.usesRemaining &&
+      canonicalizeJson({
+        holder: grant.holder,
+        scope: grant.scope,
+        sessionId: grant.sessionId ?? null,
+      }) ===
+        canonicalizeJson({
+          holder: input.holder,
+          scope: input.scope,
+          sessionId: input.sessionId ?? null,
+        })
+    );
+  } catch {
+    return false;
+  }
+}
+
+function stripUndefinedProperties(
+  record: Readonly<Record<string, unknown>> | undefined
+): Record<string, unknown> | null {
+  if (record === undefined) {
+    return null;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value === undefined) {
+      continue;
+    }
+    Object.defineProperty(out, key, {
+      configurable: true,
+      enumerable: true,
+      value,
+      writable: true,
+    });
+  }
+  return out;
+}
+
+function fingerprintRequest(request: AccessRequest): string | null {
+  try {
+    return canonicalizeJson({
+      action: request.action,
+      attributes: stripUndefinedProperties(request.attributes),
+      constraintsDigest: request.constraintsDigest ?? null,
+      principal: {
+        attributes: stripUndefinedProperties(request.principal.attributes),
+        id: request.principal.id,
+        kind: request.principal.kind,
+        version: request.principal.version ?? null,
+      },
+      sessionId: request.sessionId ?? null,
+      target: request.target,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function findIdempotentIssuance(

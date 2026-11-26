@@ -48,6 +48,17 @@ export interface SqliteAuthorizationStoreOptions {
 const REENTRY =
   "SqliteAuthorizationStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
+const databaseTurns = new WeakMap<AuthorizationDatabase, Turns>();
+
+function turnsFor(database: AuthorizationDatabase): Turns {
+  let turns = databaseTurns.get(database);
+  if (turns === undefined) {
+    turns = new Turns(REENTRY);
+    databaseTurns.set(database, turns);
+  }
+  return turns;
+}
+
 const {
   position: _grantPosition,
   scope: _grantScope,
@@ -75,7 +86,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
   readonly durability: AuthorizationStoreDurability;
   readonly #database: AuthorizationDatabase;
   readonly #scope: string;
-  readonly #turns = new Turns(REENTRY);
+  readonly #turns: Turns;
 
   constructor(options: SqliteAuthorizationStoreOptions) {
     assertScope(options.scope);
@@ -88,6 +99,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
     this.#scope = options.scope;
+    this.#turns = turnsFor(options.database);
   }
 
   commit(write: AuthorizationStoreWrite): Promise<void> {
@@ -216,6 +228,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
           claimedAt: authorizationClaims.claimedAt,
           grantId: authorizationClaims.grantId,
           invocationId: authorizationClaims.invocationId,
+          requestFingerprint: authorizationClaims.requestFingerprint,
         })
         .from(authorizationClaims)
         .where(
@@ -224,7 +237,17 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
             eq(authorizationClaims.invocationId, invocationId)
           )
         );
-      return row === undefined ? null : row;
+      if (row === undefined) {
+        return null;
+      }
+      return {
+        claimedAt: row.claimedAt,
+        grantId: row.grantId,
+        invocationId: row.invocationId,
+        ...(row.requestFingerprint === null
+          ? {}
+          : { requestFingerprint: row.requestFingerprint }),
+      };
     });
   }
 
@@ -439,6 +462,10 @@ function prepareClaimRow(
     claimedAt: requireInteger(claim.claimedAt, `${at}.claimedAt`),
     grantId: requireText(claim.grantId, `${at}.grantId`),
     invocationId: requireText(claim.invocationId, `${at}.invocationId`),
+    requestFingerprint:
+      claim.requestFingerprint === undefined
+        ? null
+        : requireText(claim.requestFingerprint, `${at}.requestFingerprint`),
   };
 }
 

@@ -6,11 +6,15 @@ import {
   startScript,
 } from "@foundry/lib/testing/child-script";
 import { describe, expect, test } from "vitest";
-import { Authorization, type Principal } from "../index";
+import {
+  Authorization,
+  AuthorizationStateError,
+  type Principal,
+  restrictionId,
+} from "../index";
 import { SqliteAuthorizationStore } from "../store/sqlite";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-const LOCKED = /locked|busy/i;
 const files = libsqlDatabases("file");
 
 const HOST: Principal = { id: "host", kind: "host" };
@@ -40,50 +44,34 @@ describe("SqliteAuthorizationStore cross-process exclusion and host transaction 
 
     let racer: ChildScript | undefined;
     try {
-      const parentOutcome = await store.transaction(async (view) => {
-        const boundCallbacks: (() => Promise<void>)[] = [];
-        const effects: CommitEffects = {
-          afterCommit(callback) {
-            boundCallbacks.push(callback);
-          },
-        };
-        const boundAuth = auth.within(view, effects);
-        racer = await startScript(CLAIM_RACER, [
-          pathToFileURL(
-            createRequire(import.meta.url).resolve("@libsql/client")
-          ).href,
-          `file:${files.path(database)}`,
-          oneShot.id,
-        ]);
-        const probe = await racer.line();
-        const outcome = await boundAuth.authorize(req, "inv-parent", {
-          openPending: false,
-        });
-        return { boundCallbacks, outcome, probe };
+      racer = await startScript(CLAIM_RACER, [
+        pathToFileURL(createRequire(import.meta.url).resolve("@libsql/client"))
+          .href,
+        `file:${files.path(database)}`,
+        oneShot.id,
+      ]);
+      expect(await racer.line()).toBe("locked");
+
+      const parentOutcome = await auth.authorize(req, "inv-parent", {
+        openPending: false,
       });
+      const childResult = await racer.line();
+      await racer.exited();
 
-      await runAfterCommit(parentOutcome.boundCallbacks);
-      expect(parentOutcome.probe).toMatch(LOCKED);
-      expect(parentOutcome.outcome.kind).toBe("permitted");
-      if (parentOutcome.outcome.kind === "permitted") {
-        parentOutcome.outcome.permit.release();
-      }
-
-      const childResult = await racer?.line();
-      await racer?.exited();
-      expect(childResult).toBe("exhausted");
+      expect(childResult).toBe("claimed");
+      expect(parentOutcome.kind).toBe("denied");
 
       const finalGrant = await auth.getGrant(oneShot.id);
       expect(finalGrant?.state).toBe("exhausted");
       expect(finalGrant?.usesRemaining).toBe(0);
-      expect(await store.getClaim("inv-parent")).not.toBeNull();
-      expect(await store.getClaim("inv-child")).toBeNull();
+      expect(await store.getClaim("inv-child")).not.toBeNull();
+      expect(await store.getClaim("inv-parent")).toBeNull();
     } finally {
       await racer?.stop();
     }
-  });
+  }, 20_000);
 
-  test("requires CommitEffects on host-owned SQLite transactions and never fires revocation on rollback", async () => {
+  test("requires CommitEffects on host-owned SQLite transactions, blocks host-durable authorize, and never fires revocation on rollback", async () => {
     const database = await files.open();
     const rootStore = new SqliteAuthorizationStore({ database, scope: "s" });
     const rootAuth = new Authorization({ store: rootStore });
@@ -103,25 +91,42 @@ describe("SqliteAuthorizationStore cross-process exclusion and host transaction 
       throw new Error("expected permitted");
     }
 
-    await expect(
-      database.transaction(async (tx) => {
-        const txStore = new SqliteAuthorizationStore({
-          database: tx,
-          scope: "s",
-        });
-        expect(txStore.durability).toBe("host");
-        expect(
-          () =>
-            new SqliteAuthorizationStore({
-              database: tx,
-              durability: "commit",
-              scope: "s",
-            })
-        ).toThrow(RangeError);
-        const txAuth = new Authorization({ store: txStore });
-        await txAuth.revoke({ grantId: grant.id, kind: "grant" });
-      })
-    ).rejects.toThrow(TypeError);
+    await database.transaction(async (tx) => {
+      const txStore = new SqliteAuthorizationStore({
+        database: tx,
+        scope: "s",
+      });
+      expect(txStore.durability).toBe("host");
+      expect(
+        () =>
+          new SqliteAuthorizationStore({
+            database: tx,
+            durability: "commit",
+            scope: "s",
+          })
+      ).toThrow(RangeError);
+      const txAuth = new Authorization({ store: txStore });
+      await expect(
+        txAuth.revoke({ grantId: grant.id, kind: "grant" })
+      ).rejects.toThrow(TypeError);
+      expect((await txStore.getGrant(grant.id))?.state).toBe("active");
+
+      const hostCallbacks: (() => Promise<void>)[] = [];
+      const hostEffects: CommitEffects = {
+        afterCommit(operation) {
+          hostCallbacks.push(operation);
+        },
+      };
+      const boundAuth = rootAuth.within(txStore, hostEffects);
+      await expect(
+        boundAuth.authorize(
+          { action: "file.read", principal: AGENT, target: "/b" },
+          "inv-host-blocked"
+        )
+      ).rejects.toBeInstanceOf(AuthorizationStateError);
+      expect(hostCallbacks).toEqual([]);
+      expect(await txStore.getClaim("inv-host-blocked")).toBeNull();
+    });
 
     const rollbackCallbacks: (() => Promise<void>)[] = [];
     const rollbackEffects: CommitEffects = {
@@ -180,22 +185,67 @@ describe("SqliteAuthorizationStore cross-process exclusion and host transaction 
     live.permit.release();
     unwatch();
   });
+
+  test("serializes savepoints across multiple SqliteAuthorizationStore instances sharing one host transaction", async () => {
+    const database = await files.open();
+    const keepId = restrictionId("rst-keep");
+    const droppedId = restrictionId("rst-dropped");
+
+    await database.transaction(async (tx) => {
+      const storeA = new SqliteAuthorizationStore({ database: tx, scope: "s" });
+      const storeB = new SqliteAuthorizationStore({ database: tx, scope: "s" });
+
+      const [resultA, resultB] = await Promise.allSettled([
+        storeA.transaction(async (viewA) => {
+          await viewA.commit({
+            putRestrictions: [
+              {
+                createdAt: 1,
+                id: droppedId,
+                kind: "deny",
+                reason: "rolled back",
+                revision: 1,
+                scope: { action: "a", target: { kind: "any" } },
+                updatedAt: 1,
+              },
+            ],
+          });
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          throw new Error("savepoint A failed");
+        }),
+        storeB.commit({
+          putRestrictions: [
+            {
+              createdAt: 1,
+              id: keepId,
+              kind: "deny",
+              reason: "must survive",
+              revision: 1,
+              scope: { action: "b", target: { kind: "any" } },
+              updatedAt: 1,
+            },
+          ],
+        }),
+      ]);
+
+      expect(resultA.status).toBe("rejected");
+      expect(resultB.status).toBe("fulfilled");
+    });
+
+    const verifyStore = new SqliteAuthorizationStore({ database, scope: "s" });
+    expect(await verifyStore.getRestriction(droppedId)).toBeNull();
+    expect((await verifyStore.getRestriction(keepId))?.reason).toBe(
+      "must survive"
+    );
+  });
 });
 
 const CLAIM_RACER = `const [clientPath, url, grantId] = process.argv.slice(2);
 const { createClient } = await import(clientPath);
-const probe = createClient({ url });
-try {
-  const attempt = await probe.transaction("write");
-  await attempt.rollback();
-  console.log("free");
-} catch (error) {
-  console.log(String(error));
-} finally {
-  probe.close();
-}
 const db = createClient({ url, timeout: 10000 });
 const tx = await db.transaction("write");
+console.log("locked");
+await new Promise((resolve) => setTimeout(resolve, 150));
 const result = await tx.execute({
   sql: "SELECT state, record FROM authorization_grants WHERE scope = 's' AND id = ?",
   args: [grantId],

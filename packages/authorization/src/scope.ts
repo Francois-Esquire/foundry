@@ -213,13 +213,34 @@ function matchesBound(
 ): boolean {
   switch (bound.op) {
     case "eq":
-      if (!isJsonPrimitive(value)) {
+      if (
+        !isJsonPrimitive(value) ||
+        (typeof value === "number" && !Number.isFinite(value))
+      ) {
         return mode === "restrictive";
+      }
+      if (
+        mode === "restrictive" &&
+        primitiveKind(value) !== primitiveKind(bound.value)
+      ) {
+        return true;
       }
       return value === bound.value;
     case "in":
-      if (!isJsonPrimitive(value)) {
+      if (
+        !isJsonPrimitive(value) ||
+        (typeof value === "number" && !Number.isFinite(value))
+      ) {
         return mode === "restrictive";
+      }
+      if (
+        mode === "restrictive" &&
+        bound.values.length > 0 &&
+        !bound.values.some(
+          (item) => primitiveKind(item) === primitiveKind(value)
+        )
+      ) {
+        return true;
       }
       return bound.values.includes(value);
     case "range":
@@ -236,6 +257,10 @@ function matchesBound(
     default:
       return false;
   }
+}
+
+function primitiveKind(value: JsonPrimitive): string {
+  return value === null ? "null" : typeof value;
 }
 
 function isValidCommandPrefix(value: string): boolean {

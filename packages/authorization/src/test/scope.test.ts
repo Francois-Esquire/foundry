@@ -293,6 +293,67 @@ describe("covers allow vs restrictive semantics", () => {
         "restrictive"
       )
     ).toBe(false);
+
+    const denyExactAmount: Scope = {
+      action: "expense.submit",
+      constraints: { amount: { op: "eq", value: 1000 } },
+      target: { kind: "any" },
+    };
+    expect(
+      covers(
+        denyExactAmount,
+        request({ action: "expense.submit", attributes: { amount: "1000" } }),
+        "restrictive"
+      )
+    ).toBe(true);
+    expect(
+      covers(
+        denyExactAmount,
+        request({ action: "expense.submit", attributes: { amount: 500 } }),
+        "restrictive"
+      )
+    ).toBe(false);
+    expect(
+      covers(
+        denyExactAmount,
+        request({ action: "expense.submit", attributes: { amount: "1000" } }),
+        "allow"
+      )
+    ).toBe(false);
+
+    const denyAmountSet: Scope = {
+      action: "expense.submit",
+      constraints: { amount: { op: "in", values: [1000, 2000] } },
+      target: { kind: "any" },
+    };
+    expect(
+      covers(
+        denyAmountSet,
+        request({ action: "expense.submit", attributes: { amount: "1000" } }),
+        "restrictive"
+      )
+    ).toBe(true);
+    expect(
+      covers(
+        denyAmountSet,
+        request({ action: "expense.submit", attributes: { amount: true } }),
+        "restrictive"
+      )
+    ).toBe(true);
+    expect(
+      covers(
+        denyAmountSet,
+        request({ action: "expense.submit", attributes: { amount: 500 } }),
+        "restrictive"
+      )
+    ).toBe(false);
+    expect(
+      covers(
+        denyAmountSet,
+        request({ action: "expense.submit", attributes: { amount: "1000" } }),
+        "allow"
+      )
+    ).toBe(false);
   });
 });
 

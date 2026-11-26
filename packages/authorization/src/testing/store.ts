@@ -302,5 +302,6 @@ function sampleClaim(
     claimedAt: 1_700_000_000_000,
     grantId: targetGrantId,
     invocationId,
+    requestFingerprint: '{"action":"tool.call","target":"bash"}',
   };
 }

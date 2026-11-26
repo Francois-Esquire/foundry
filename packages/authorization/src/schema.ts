@@ -72,6 +72,7 @@ export interface InvocationClaim {
   readonly claimedAt: number;
   readonly grantId: GrantId;
   readonly invocationId: string;
+  readonly requestFingerprint?: string;
 }
 
 export interface AuthorizationReceipt {

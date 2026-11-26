@@ -659,4 +659,261 @@ describe("Authorization end-to-end control plane", () => {
     live.permit.release();
     unwatchThrowing();
   });
+
+  it("enforces CodeRabbit review invariants for clock skew, replay/pending binding, expiry, snapshots, issuance bounds, proto keys, and aborted permits", async () => {
+    const clock = createClock(100);
+    const backing = new MemoryAuthorizationStore();
+    let advanceOnList = 0;
+    const delayedStore = {
+      commit: backing.commit.bind(backing),
+      durability: backing.durability,
+      getClaim: backing.getClaim.bind(backing),
+      getGrant: backing.getGrant.bind(backing),
+      getRestriction: backing.getRestriction.bind(backing),
+      async listGrants(query?: Parameters<typeof backing.listGrants>[0]) {
+        const result = await backing.listGrants(query);
+        if (advanceOnList > 0) {
+          clock.advance(advanceOnList);
+          advanceOnList = 0;
+        }
+        return result;
+      },
+      listRestrictions: backing.listRestrictions.bind(backing),
+    };
+    const auth = new Authorization({ clock: clock.now, store: delayedStore });
+    const host: Principal = { id: "host", kind: "host" };
+    const agent: Principal = { id: "agent-1", kind: "agent" };
+
+    await auth.grant({
+      expiresAt: 105,
+      holder: { kind: "exact", principal: agent },
+      requestedBy: host,
+      scope: { action: "file.read", target: { kind: "exact", value: "/exp" } },
+    });
+    const expReq = {
+      action: "file.read",
+      principal: agent,
+      target: "/exp",
+    };
+    advanceOnList = 10;
+    expect((await auth.check(expReq)).kind).toBe("ask");
+    expect(
+      (await auth.authorize(expReq, "inv-exp-check", { openPending: false }))
+        .kind
+    ).toBe("denied");
+
+    await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      requestedBy: host,
+      scope: {
+        action: "file.read",
+        target: { kind: "prefix", value: "/workspace/" },
+      },
+      usesRemaining: 1,
+    });
+    const reqA = {
+      action: "file.read",
+      principal: agent,
+      target: "/workspace/a.ts",
+    };
+    const reqB = {
+      action: "file.read",
+      principal: agent,
+      target: "/workspace/b.ts",
+    };
+    const first = await auth.authorize(reqA, "inv-bound-1");
+    expect(first.kind).toBe("permitted");
+    if (first.kind === "permitted") {
+      first.permit.release();
+    }
+    const replaySame = await auth.authorize(reqA, "inv-bound-1", {
+      idempotent: true,
+    });
+    expect(replaySame.kind).toBe("permitted");
+    if (replaySame.kind === "permitted") {
+      replaySame.permit.release();
+    }
+    const replayOther = await auth.authorize(reqB, "inv-bound-1", {
+      idempotent: true,
+    });
+    expect(replayOther.kind).toBe("denied");
+
+    const pendA = await auth.authorize(reqA, "inv-pend-1");
+    expect(pendA.kind).toBe("pending");
+    const pendSame = await auth.authorize(reqA, "inv-pend-1");
+    expect(pendSame).toEqual(pendA);
+    const pendOther = await auth.authorize(reqB, "inv-pend-1");
+    expect(pendOther.kind).toBe("denied");
+
+    const expPending = await auth.request({
+      expiresAt: clock.now() + 50,
+      holder: { kind: "exact", principal: agent },
+      invocationId: "inv-pend-exp",
+      requestedBy: agent,
+      scope: { action: "deploy.run", target: { kind: "exact", value: "prod" } },
+    });
+    expect(expPending.state).toBe("pending");
+    clock.advance(50);
+    expect(
+      (
+        await auth.authorize(
+          { action: "deploy.run", principal: agent, target: "prod" },
+          "inv-pend-exp"
+        )
+      ).kind
+    ).toBe("denied");
+    await expect(
+      auth.request({
+        expiresAt: clock.now() + 50,
+        holder: { kind: "exact", principal: agent },
+        invocationId: "inv-pend-exp",
+        requestedBy: agent,
+        scope: {
+          action: "deploy.run",
+          target: { kind: "exact", value: "prod" },
+        },
+      })
+    ).rejects.toBeInstanceOf(AuthorizationStateError);
+
+    const mutableAttrs: Record<string, string> = { department: "eng" };
+    await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      requestedBy: host,
+      scope: { action: "db.query", target: { kind: "any" } },
+    });
+    const snapOutcome = await auth.authorize(
+      {
+        action: "db.query",
+        attributes: mutableAttrs,
+        principal: agent,
+        target: "main",
+      },
+      "inv-snap"
+    );
+    expect(snapOutcome.kind).toBe("permitted");
+    if (snapOutcome.kind !== "permitted") {
+      throw new Error("expected permitted");
+    }
+    mutableAttrs.department = "ops";
+    await auth.restrict({
+      kind: "deny",
+      reason: "eng blocked",
+      scope: {
+        action: "db.query",
+        constraints: { department: { op: "eq", value: "eng" } },
+        target: { kind: "any" },
+      },
+    });
+    expect(snapOutcome.permit.signal.aborted).toBe(true);
+    snapOutcome.permit.release();
+
+    const firstIssued = await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      issuanceKey: "iss-bounds",
+      requestedBy: host,
+      scope: { action: "cache.clear", target: { kind: "any" } },
+      usesRemaining: 10,
+    });
+    const exactRetry = await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      issuanceKey: "iss-bounds",
+      requestedBy: host,
+      scope: { action: "cache.clear", target: { kind: "any" } },
+      usesRemaining: 10,
+    });
+    expect(exactRetry.id).toBe(firstIssued.id);
+    await expect(
+      auth.grant({
+        holder: { kind: "exact", principal: agent },
+        issuanceKey: "iss-bounds",
+        requestedBy: host,
+        scope: { action: "cache.clear", target: { kind: "any" } },
+        usesRemaining: 1,
+      })
+    ).rejects.toBeInstanceOf(AuthorizationStateError);
+
+    const protoAttrs = JSON.parse('{"__proto__":"evil"}') as Record<
+      string,
+      string
+    >;
+    const protoPending = await auth.authorize(
+      {
+        action: "proto.test",
+        attributes: protoAttrs,
+        principal: agent,
+        target: "x",
+      },
+      "inv-proto"
+    );
+    expect(protoPending.kind).toBe("pending");
+    if (protoPending.kind !== "pending") {
+      throw new Error("expected pending");
+    }
+    expect(
+      Object.hasOwn(protoPending.grant.scope.constraints ?? {}, "__proto__")
+    ).toBe(true);
+    await auth.approve(protoPending.grant.id, {
+      approver: host,
+      rootAuthority: true,
+    });
+    expect(
+      (
+        await auth.check({
+          action: "proto.test",
+          invocationId: "inv-proto",
+          principal: agent,
+          target: "x",
+        })
+      ).kind
+    ).toBe("ask");
+    expect(
+      (
+        await auth.check({
+          action: "proto.test",
+          attributes: protoAttrs,
+          invocationId: "inv-proto",
+          principal: agent,
+          target: "x",
+        })
+      ).kind
+    ).toBe("allow");
+
+    await auth.grant({
+      holder: { kind: "exact", principal: agent },
+      requestedBy: host,
+      scope: { action: "work.run", target: { kind: "exact", value: "job" } },
+    });
+    const abortController = new AbortController();
+    const abortingStore = {
+      commit: backing.commit.bind(backing),
+      durability: backing.durability,
+      getClaim: backing.getClaim.bind(backing),
+      getGrant: backing.getGrant.bind(backing),
+      getRestriction: backing.getRestriction.bind(backing),
+      async listGrants(query?: Parameters<typeof backing.listGrants>[0]) {
+        const result = await backing.listGrants(query);
+        abortController.abort(new Error("cancelled mid-authorize"));
+        return result;
+      },
+      listRestrictions: backing.listRestrictions.bind(backing),
+    };
+    const abortAuth = new Authorization({
+      clock: clock.now,
+      store: abortingStore,
+    });
+    let workCalled = false;
+    await expect(
+      withPermit(
+        abortAuth,
+        { action: "work.run", principal: agent, target: "job" },
+        "inv-abort-mid",
+        async () => {
+          workCalled = true;
+          return "done";
+        },
+        { signal: abortController.signal }
+      )
+    ).rejects.toThrow("cancelled mid-authorize");
+    expect(workCalled).toBe(false);
+  });
 });

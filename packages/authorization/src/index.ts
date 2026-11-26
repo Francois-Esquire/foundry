@@ -98,6 +98,9 @@ export async function withPermit<T>(
     throw new AuthorizationPendingError(outcome.grant);
   }
   try {
+    if (outcome.permit.signal.aborted) {
+      throw outcome.permit.signal.reason;
+    }
     return await work(outcome.permit);
   } finally {
     outcome.permit.release();
