@@ -142,11 +142,6 @@
       "import": "./src/testing/process-identity.ts",
       "default": "./src/testing/process-identity.ts"
     },
-    "./testing/seam": {
-      "types": "./dist/testing/seam.d.ts",
-      "import": "./src/testing/seam.ts",
-      "default": "./src/testing/seam.ts"
-    },
     "./testing/sqlite": {
       "types": "./dist/testing/sqlite.d.ts",
       "import": "./src/testing/sqlite.ts",
@@ -186,14 +181,10 @@
     "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "drizzle-orm": "^0.45.4",
-    "typescript": "^6.0.3"
+    "drizzle-orm": "^0.45.4"
   },
   "peerDependenciesMeta": {
     "drizzle-orm": {
-      "optional": true
-    },
-    "typescript": {
       "optional": true
     }
   }
