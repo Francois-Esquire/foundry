@@ -33,7 +33,6 @@
         "ignore"
       ],
       "entry": [
-        "src/workspace/hosted.ts",
         "stories/**/*.stories.tsx",
         "test/helpers/daemon-process.ts",
         "test/helpers/mcp-host.ts",

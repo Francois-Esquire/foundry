@@ -5,7 +5,6 @@ import { Catalog } from "~/authoring/catalog";
 import { GenerationRecords } from "~/database/generations";
 import { readLiveGenerations } from "~/database/open";
 import type { Engine } from "~/lib/engine";
-import { CODEX } from "~/lib/harnesses";
 import type { DispatchInfo, DispatchOptions } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { type TestEngineOptions, testEngine } from "./helpers/engine";
@@ -16,6 +15,7 @@ import {
   switchingWorkspace,
   whenLogged,
 } from "./helpers/generation-switch";
+import { CODEX } from "./helpers/harnesses";
 
 const AGENT_DISPATCH = "agent-dispatch";
 

@@ -15,11 +15,11 @@ import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
-import type { MockOptions, Reply } from "~/lib/models/echo";
-import { mockModels } from "~/lib/models/mock";
 import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { Registry } from "~/lib/registry";
+import type { MockOptions, Reply } from "./echo";
+import { CLAUDE_CODE, CODEX } from "./harnesses";
+import { mockModels } from "./mock";
 
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");
 

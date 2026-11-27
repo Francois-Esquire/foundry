@@ -10,13 +10,13 @@ import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
-import { CODEX } from "~/lib/harnesses";
 import { RunQueue } from "~/lib/run-queue";
 import type { SessionRef } from "~/lib/types";
 import { isJsonValue } from "~/lib/workflow-runs";
 import type { RunInfo } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { testEngine } from "./helpers/engine";
+import { CODEX } from "./helpers/harnesses";
 
 const engines: Engine[] = [];
 afterEach(async () => {

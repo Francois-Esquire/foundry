@@ -36,7 +36,7 @@ export type WorkspaceLoad =
       readonly root: string;
     };
 
-export class WorkspaceLoadError extends Error {
+class WorkspaceLoadError extends Error {
   override readonly name = "WorkspaceLoadError";
   readonly root: string;
 

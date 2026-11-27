@@ -7,13 +7,13 @@ import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ManagerArgs } from "~/lib/bindings";
-import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager } from "~/lib/managers/agents";
-import { mockModels } from "~/lib/models/mock";
 import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition, SandboxHandle } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
+import { CLAUDE_CODE, CODEX } from "../helpers/harnesses";
+import { mockModels } from "../helpers/mock";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
 const AMBIGUOUS = /2 agent turns are running/;
