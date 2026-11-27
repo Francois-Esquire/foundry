@@ -18,7 +18,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   const { id, method } = JSON.parse(line);
   if (id === undefined) continue;
   if (method === "initialize") {
-    console.log(JSON.stringify({ id, result: { userAgent: "codex/0.144.6" } }));
+    console.log(JSON.stringify({ id, result: { userAgent: "codex/0.156.0" } }));
   } else if (method === "model/list") {
     const data = catalog && existsSync(catalog)
       ? JSON.parse(readFileSync(catalog, "utf8"))

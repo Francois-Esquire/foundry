@@ -30,6 +30,24 @@ In your project, install the same package for editor types:
 bun add --dev @foundry.sh/marbles@0.0.4
 ```
 
+The checkout build installs no CLI provider SDKs by default. Install only
+the adapters you use, alongside Marbles in the same project or global install:
+
+```sh
+# Codex
+bun add --global ai-sdk-provider-codex-cli@2.4.0
+# Claude Code
+bun add --global ai-sdk-provider-claude-code@4.4.1 @anthropic-ai/claude-agent-sdk@0.3.283 @anthropic-ai/sdk@1.12.0
+# Pi
+bun add --global ai-sdk-provider-pi@0.1.0
+```
+
+Omit `--global` for a project installation. Codex needs CLI 0.156.0 or newer.
+Authenticate the corresponding CLI
+and put it on `PATH`. Marbles detects installed adapters with their CLIs during
+provider setup; after adding one, restart Marbles to review the newly detected provider.
+The current npm release still installs provider SDKs by default.
+
 The [installation guide](https://francois-esquire.github.io/foundry/marbles/get-started/installation/)
 covers editor types and optional capabilities. Features added after a
 release may need an archive built from a checkout; contributors can

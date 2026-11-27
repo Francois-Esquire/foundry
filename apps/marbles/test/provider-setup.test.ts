@@ -105,6 +105,27 @@ it("writes nothing when declined, and asks nothing once configured", async () =>
   expect(confirm).not.toHaveBeenCalled();
 });
 
+it("adds newly detected adapters without replacing the providers already configured", async () => {
+  await configure(["codex"]);
+  const confirm = vi.fn(() => Promise.resolve(true));
+  await setupProviders({
+    confirm,
+    plugins: PLUGINS,
+    print: () => undefined,
+    state,
+  });
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(await machineIds()).toEqual(["codex", "claude-code"]);
+  confirm.mockClear();
+  await setupProviders({
+    confirm,
+    plugins: PLUGINS,
+    print: () => undefined,
+    state,
+  });
+  expect(confirm).not.toHaveBeenCalled();
+});
+
 it("leaves out an id a workspace already uses, and never fails on it", async () => {
   await configure(["claude-code"], "abc123");
   const lines: string[] = [];
@@ -176,7 +197,7 @@ it("saves nothing when a workspace takes an offered id while the question is ope
   expect(lines.at(-1)).toContain("workspace other");
 });
 
-it("offers only Claude Code and Codex by default, with Pi on PATH beside them", async () => {
+it("offers installed Claude Code, Codex and Pi adapters with their CLIs on PATH", async () => {
   const bin = mkdtempSync(join(tmpdir(), "marbles-setup-bin-"));
   try {
     fakeClaude(bin);
@@ -189,6 +210,7 @@ it("offers only Claude Code and Codex by default, with Pi on PATH beside them", 
     expect(setup.offered.map((entry) => entry.id).sort()).toEqual([
       "claude-code",
       "codex",
+      "pi",
     ]);
   } finally {
     vi.unstubAllEnvs();

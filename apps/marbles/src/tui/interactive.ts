@@ -121,11 +121,14 @@ async function onboardingFor(args: GlobalFlags, local: LocalState) {
   const [recorded, providers] = await Promise.all([
     recordedWorkspace(args, workspace.id),
     discoverProviderSetup({
+      recheck: true,
       state: args.state,
       workspace,
     }),
   ]);
-  const firstSetup = !(providers.configured || settings.providerSetupComplete);
+  const firstSetup =
+    providers.offered.length > 0 ||
+    !(providers.configured || settings.providerSetupComplete);
   const failedSettingsWithoutOffers =
     problem !== undefined &&
     recorded !== undefined &&

@@ -44,7 +44,7 @@ export type {
 
 const DEFAULT_POOL = "default";
 const ORIGIN_LINE = /:\d+$/;
-const DEFAULT_PROVIDER_IDS = new Set(["claude-code", "codex"]);
+const DEFAULT_PROVIDER_IDS = new Set(["claude-code", "codex", "pi"]);
 
 export class Catalog {
   readonly pools = new Map<

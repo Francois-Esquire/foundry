@@ -23,6 +23,7 @@ import {
 import type { Capability, ToolSource } from "../authorization/capability";
 import { isHarnessQuestionTool } from "./question";
 import type { StreamPart } from "./stream-transform";
+import { keepToolOutput } from "./tool-output";
 import type {
   AgentIdentity,
   AgentInvocationContext,
@@ -401,10 +402,12 @@ export function compileTool(
       if (permit?.signal.aborted) {
         throw permit.signal.reason;
       }
-      return await originalExecute(
+      const output = await originalExecute(
         input,
         permit ? { ...options, abortSignal: permit.signal } : options
       );
+      keepToolOutput(output, registration.name, options.toolCallId);
+      return output;
     } finally {
       permit?.release();
     }
@@ -424,10 +427,13 @@ export function compileTool(
       if (permit?.signal.aborted) {
         throw permit.signal.reason;
       }
-      yield* originalExecute(
+      for await (const output of originalExecute(
         input,
         permit ? { ...options, abortSignal: permit.signal } : options
-      ) as AsyncIterable<unknown>;
+      ) as AsyncIterable<unknown>) {
+        keepToolOutput(output, registration.name, options.toolCallId);
+        yield output;
+      }
     } finally {
       permit?.release();
     }

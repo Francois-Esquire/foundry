@@ -291,12 +291,12 @@ that run and its workflow.
 On first setup, the live dashboard shows the workspace path and any detected
 model providers. You can use the detected providers across workspaces or skip
 this step. A machine with providers already configured goes straight to
-workspace setup when opening a new workspace.
+workspace setup unless another installed adapter is detected.
 
 In workspace setup, you can load existing Marbles source, create a starter, or
 skip starter creation and open an empty dashboard. Creating a starter attaches
-the workspace and posts a setup milestone to the Feed. Use
-`marbles --recheck-providers` to revisit provider discovery.
+the workspace and posts a setup milestone to the Feed. Restart Marbles after
+installing another adapter to review the newly detected provider.
 
 | Key | Action |
 | --- | --- |
@@ -476,19 +476,20 @@ running, then each workspace with `hosted: yes|no` and
 
 ### Pi and gateway providers
 
-Pi, Vercel AI Gateway and an OpenAI-compatible gateway are available only to
+Vercel AI Gateway and an OpenAI-compatible gateway are available only to
 a workspace whose source defines them, with
 [`defineProvider`](/marbles/reference/api#providers):
 
 ```ts
 import { defineProvider } from "@foundry.sh/marbles/providers";
-import { pi } from "@foundry.sh/marbles/providers/pi";
+import { vercel } from "@foundry.sh/marbles/providers/vercel";
 
-defineProvider(pi);
+defineProvider(vercel);
 ```
 
-First-run setup runs before any source loads, so it offers only Claude Code
-and Codex. A saved entry for a provider the workspace does not define stays
+Setup offers Claude Code, Codex and Pi when their adapters are installed
+alongside Marbles and their CLIs are on `PATH`. Restart Marbles after adding
+an adapter to review it. A saved entry for a provider the workspace does not define stays
 saved; the engine prints a `[providers]` line naming the import and the
 call that make it available. Provider configuration lives in the Marbles
 database; there is no file to edit and no command for it yet, so an entry

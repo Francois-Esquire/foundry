@@ -27,6 +27,7 @@ import { normalizeUsage } from "../session/metadata";
 import { keptValue, stringifyValue } from "../session/serialize";
 
 import { createEventQueue } from "./event-queue";
+import { keepToolOutput, UnkeepableToolOutput } from "./tool-output";
 
 export type { HarnessStreamPart, StreamPart } from "@foundry/core/agents";
 
@@ -261,6 +262,18 @@ export function transformStream<OUTPUT extends Output.Output = never>(
       emit({ ...approval, type: "tool-approval-request" });
     };
 
+    const toolError = (
+      part: Extract<SdkStreamPart, { type: "tool-error" }>
+    ) => {
+      if (part.error instanceof UnkeepableToolOutput) {
+        unkept ??= part.error;
+      }
+      const output = toError(part.error).message;
+      const { toolCallId } = part;
+      append({ isError: true, output, toolCallId, type: "tool_result" });
+      emit({ isError: true, output, toolCallId, type: "tool-result" });
+    };
+
     // biome-ignore-start lint/suspicious/noUnnecessaryConditions: Biome cannot resolve the AI SDK's `TextStreamPart` union, so it sees only the harness members of `StreamPart`; tsc validates each case label against the full union.
     const consume = (part: StreamPart) => {
       switch (part.type) {
@@ -319,10 +332,7 @@ export function transformStream<OUTPUT extends Output.Output = never>(
           }
           break;
         case "tool-error": {
-          const output = toError(part.error).message;
-          const { toolCallId } = part;
-          append({ isError: true, output, toolCallId, type: "tool_result" });
-          emit({ isError: true, output, toolCallId, type: "tool-result" });
+          toolError(part);
           break;
         }
         case "tool-approval-request":
@@ -483,12 +493,13 @@ function keptToolResult(
 ): Extract<SessionPart, { type: "tool_result" }> {
   const { output, toolCallId, toolName } = part;
   try {
-    return { output: keptValue(output), toolCallId, type: "tool_result" };
+    return {
+      output: keepToolOutput(output, toolName, toolCallId),
+      toolCallId,
+      type: "tool_result",
+    };
   } catch (cause) {
-    const error = new Error(
-      `Tool "${toolName}" (call ${toolCallId}) returned a value with no JSON form, so the session cannot keep it: ${toError(cause).message}`,
-      { cause }
-    );
+    const error = toError(cause);
     unkept(error);
     return {
       isError: true,

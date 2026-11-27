@@ -92,7 +92,12 @@ async function machineProviders(state: string): Promise<void> {
           providers: [
             { enabled: true, id: "claude-code", plugin: "claude-code" },
             { enabled: true, id: "codex", plugin: "codex" },
-            { enabled: true, id: "pi", plugin: "pi" },
+            {
+              enabled: true,
+              id: "gateway",
+              plugin: "gateway",
+              settings: { baseURL: "http://127.0.0.1:9" },
+            },
             {
               enabled: true,
               id: "vercel",
@@ -162,8 +167,8 @@ it("refuses anything that is not a provider and returns a pure tagged declaratio
 
 const UNDEFINED_VERCEL =
   'provider "vercel" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { vercel } from "@foundry.sh/marbles/providers/vercel"; export const vercelProvider = defineProvider(vercel);';
-const UNDEFINED_PI =
-  'provider "pi" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { pi } from "@foundry.sh/marbles/providers/pi"; export const piProvider = defineProvider(pi);';
+const UNDEFINED_GATEWAY =
+  'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; export const gatewayProvider = defineProvider(gateway);';
 const UNDEFINED_ACME =
   'provider "acme" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", and export it from the workspace\'s source';
 
@@ -192,12 +197,12 @@ it("gives each workspace Claude Code, Codex and only the providers its own sourc
   const alphaProblems = report.alpha as Record<string, string>;
   expect(alphaProblems.vercel).not.toContain("does not define");
   expect(alphaProblems.acme).toBe("ready");
-  expect(alphaProblems.pi).toBe(UNDEFINED_PI);
+  expect(alphaProblems.gateway).toBe(UNDEFINED_GATEWAY);
   expect(report.alphaReady).toEqual(["acme"]);
   expect(report.acme).toBe("acme");
   expect(report.beta).toMatchObject({
     acme: UNDEFINED_ACME,
-    pi: UNDEFINED_PI,
+    gateway: UNDEFINED_GATEWAY,
     vercel: UNDEFINED_VERCEL,
   });
   const betaProblems = report.beta as Record<string, string>;
@@ -232,7 +237,7 @@ it("keeps the providers of two workspaces whose sources load at once apart", asy
   const beta = await workspace(
     root,
     "beta",
-    overlapping("betaLoading", "alphaLoading", "pi")
+    overlapping("betaLoading", "alphaLoading", "gateway")
   );
   const report = await inProcess(
     root,
@@ -248,8 +253,8 @@ it("keeps the providers of two workspaces whose sources load at once apart", asy
   const alphaProblems = report.alpha as Record<string, string>;
   const betaProblems = report.beta as Record<string, string>;
   expect(alphaProblems.vercel).not.toContain("does not define");
-  expect(alphaProblems.pi).toBe(UNDEFINED_PI);
-  expect(betaProblems.pi).not.toContain("does not define");
+  expect(alphaProblems.gateway).toBe(UNDEFINED_GATEWAY);
+  expect(betaProblems.gateway).not.toContain("does not define");
   expect(betaProblems.vercel).toBe(UNDEFINED_VERCEL);
 }, 120_000);
 

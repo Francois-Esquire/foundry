@@ -478,6 +478,11 @@ export class ProviderConfiguration {
   propose(): readonly Proposal[] {
     const env = this.#options.environment;
     return [...this.#plugins.values()].flatMap((plugin) => {
+      if (
+        this.#machine.read()?.providers.some((entry) => entry.id === plugin.id)
+      ) {
+        return [];
+      }
       const settings = plugin.detect?.({ env });
       if (settings === undefined || settings === null) {
         return [];

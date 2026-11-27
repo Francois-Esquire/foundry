@@ -6,8 +6,8 @@ description: Run one step with no credentials, script your pre-push checks, then
 This page turns a pre-push ritual into a script in three moves. The first
 needs nothing but the [Marbles CLI](/marbles/get-started/installation). The
 second adds `zod`. The third adds an agent and needs an authenticated
-Claude Code or Codex CLI (or Pi, once the workspace's source calls
-[`defineProvider(pi)`](/marbles/reference/api#providers)).
+Claude Code, Codex or Pi CLI with its
+[provider adapter](/marbles/get-started/installation#install-a-provider-adapter).
 
 ## Run one step
 
