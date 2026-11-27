@@ -1,6 +1,6 @@
 import type { HarnessTurnDriver } from "@foundry/core/agents";
 import { describe, expect, it, vi } from "vitest";
-import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { createDriverSession } from "../../harness/driver-session";
 import type { DriverSessionSettings } from "../../harness/harness-session";
 import type { SessionEvent } from "../../session/events";
@@ -16,8 +16,8 @@ function settings(
 ): DriverSessionSettings {
   return {
     agentId: "coder",
+    authorization: createMemoryAuthorization(),
     model: { harness: "native", id: "model" },
-    policy: createMemoryAgentAuthorizer().authorizer,
     profile: {
       allowedTools: [],
       disallowedTools: [],

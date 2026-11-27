@@ -9,7 +9,6 @@ import type { SandboxHandle, SandboxInstance } from "./types";
 
 export interface CommandSite {
   readonly cwd: () => string;
-  readonly dry: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly print: (line: string) => void;
   readonly signal: () => AbortSignal | undefined;
@@ -112,9 +111,6 @@ export function commandRunner(site: CommandSite): Exec {
         { ...options, sandbox: options.sandbox },
         site
       );
-    } else if (site.dry) {
-      site.print(`[exec] ${options.cwd ?? site.cwd()}: ${showArgv(argv)}`);
-      result = { exitCode: 0, stderr: "", stdout: "" };
     } else {
       result = await onHost(argv, options, site);
     }

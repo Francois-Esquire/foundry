@@ -1,3 +1,4 @@
+import type { Authorization, Permit } from "@foundry/authorization";
 import type {
   Container,
   ContainerSpecInput,
@@ -6,7 +7,7 @@ import type {
 
 import type { InstallationId } from "../domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "../errors";
-import { approvedNetworkDestinations } from "../grants";
+import { moduleCapabilityAccessRequest, networkAccessRequest } from "../grants";
 import type { ModuleCommands } from "../modules";
 import { rethrowAfterCleanup } from "./container-cleanup";
 import type {
@@ -24,16 +25,18 @@ import {
 } from "./program-runtime";
 
 export interface CreateContainerModuleProgramRuntimeOptions {
+  readonly authorization?: Authorization;
   readonly checkouts: ModuleCheckouts;
   readonly containers: Pick<
     Containers,
     "get" | "start" | "restart" | "open" | "remove"
-  >;
+  > &
+    Partial<Pick<Containers, "stop">>;
   readonly fetch?: CreateModuleProgramRuntimeOptions["fetch"];
   readonly healthCheckTimeoutMs?: number;
   readonly store: Pick<
     ModuleCommands,
-    "loadGatewayContext" | "setInstallationContainerId"
+    "authorization" | "loadGatewayContext" | "setInstallationContainerId"
   >;
   readonly transport: CreateModuleProgramRuntimeOptions["transport"];
 }
@@ -95,10 +98,27 @@ async function openContainer(
       "Installation selection or generation changed"
     );
   }
-  const destinations = await approvedNetworkDestinations({
-    grants: context.grants,
-    manifest: input.version.manifest,
-  });
+  const authorization = options.authorization ?? options.store.authorization;
+  const network = await networkAccessRequest(input.version.manifest);
+  let networkPermit: Permit | undefined;
+  let destinations: NonNullable<typeof network>["destinations"] | null = null;
+  if (network !== null) {
+    input.signal?.throwIfAborted();
+    const outcome = await authorization.authorize(
+      moduleCapabilityAccessRequest({
+        capability: network.capability,
+        constraintsDigest: network.constraintsDigest,
+        installationId: input.installationId,
+        version: network.version,
+      }),
+      `network:${input.installationId}:${input.generation}:${crypto.randomUUID()}`,
+      { openPending: false }
+    );
+    if (outcome.kind === "permitted") {
+      networkPermit = outcome.permit;
+      ({ destinations } = network);
+    }
+  }
   const spec = moduleRuntimeSpec({
     checkoutPath,
     filesPath: input.files.hostPath,
@@ -114,35 +134,81 @@ async function openContainer(
           },
     resources: input.launch.resources,
   });
-  const existing = context.installation.containerId;
-  if (
-    existing !== null &&
-    (await options.containers.get(existing)) !== undefined
-  ) {
-    await options.containers.restart(existing, spec, input.signal);
-    return options.containers.open(existing, input.signal);
-  }
-  const container = await options.containers.start(spec, input.signal);
+  let container: Container;
   try {
-    await options.store.setInstallationContainerId({
-      containerId: container.id,
-      expectedGeneration: input.generation,
-      installationId: input.installationId,
-      now: new Date(),
-    });
+    const existing = context.installation.containerId;
+    if (
+      existing !== null &&
+      (await options.containers.get(existing)) !== undefined
+    ) {
+      await options.containers.restart(existing, spec, input.signal);
+      container = await options.containers.open(existing, input.signal);
+    } else {
+      container = await options.containers.start(spec, input.signal);
+      try {
+        await options.store.setInstallationContainerId({
+          containerId: container.id,
+          expectedGeneration: input.generation,
+          installationId: input.installationId,
+          now: new Date(),
+        });
+      } catch (error) {
+        return await rethrowAfterCleanup(
+          error,
+          async () => {
+            await container.close();
+            if ((await options.containers.get(container.id)) !== undefined) {
+              await options.containers.remove(container.id);
+            }
+          },
+          "Module container linking and cleanup failed"
+        );
+      }
+    }
   } catch (error) {
-    return rethrowAfterCleanup(
-      error,
-      async () => {
-        await container.close();
-        if ((await options.containers.get(container.id)) !== undefined) {
-          await options.containers.remove(container.id);
-        }
-      },
-      "Module container linking and cleanup failed"
-    );
+    networkPermit?.release();
+    throw error;
   }
-  return container;
+  if (networkPermit === undefined) {
+    return container;
+  }
+  return bindNetworkPermit(container, networkPermit, options.containers);
+}
+
+function bindNetworkPermit(
+  container: Container,
+  permit: Permit,
+  containers: CreateContainerModuleProgramRuntimeOptions["containers"]
+): Container {
+  let closed = false;
+  const cutEgress = () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    permit.release();
+    container.close().catch(() => undefined);
+    containers.stop?.(container.id).catch(() => undefined);
+  };
+  if (permit.signal.aborted) {
+    cutEgress();
+  } else {
+    permit.signal.addEventListener("abort", cutEgress, { once: true });
+  }
+  return new Proxy(container, {
+    get(target, property, receiver) {
+      if (property === "close") {
+        return async () => {
+          closed = true;
+          permit.signal.removeEventListener("abort", cutEgress);
+          permit.release();
+          await target.close();
+        };
+      }
+      const value: unknown = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 function moduleRuntimeSpec(input: {

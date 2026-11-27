@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Provider } from "@foundry/models";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { DatabaseProviderStore } from "~/database/providers";
+import { providerStoreForState } from "~/database/open";
 import {
   discoverProviderSetup,
   setupProviders,
@@ -47,9 +47,9 @@ afterEach(() => {
 });
 
 async function machineIds(): Promise<string[] | undefined> {
-  return (
-    await DatabaseProviderStore.forState(state).read()
-  ).machine?.providers.map((entry) => entry.id);
+  return (await providerStoreForState(state).read()).machine?.providers.map(
+    (entry) => entry.id
+  );
 }
 
 async function configure(
@@ -60,7 +60,7 @@ async function configure(
     providers: ids.map((id) => ({ enabled: true, id, plugin: id })),
     version: 1 as const,
   };
-  await DatabaseProviderStore.forState(state).update(scope, () =>
+  await providerStoreForState(state).update(scope, () =>
     scope === undefined
       ? { machine: configuration }
       : { workspace: configuration }

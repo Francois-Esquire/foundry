@@ -13,7 +13,6 @@ import { workspaces as createWorkspaces } from "@foundry/workspaces/node";
 import { git } from "@foundry/workspaces/node/git";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { skills } from "~/authoring/resources";
-import { echoGit } from "~/create";
 import { workspaceStores } from "~/database/stores";
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
 import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
@@ -26,6 +25,7 @@ import {
 import { skillResolver } from "~/lib/managers/skills";
 import { repositoryRoot, WorkspacesManager } from "~/lib/managers/workspaces";
 import { current, RunScope } from "~/lib/run-scope";
+import { echoGit } from "../helpers/engine";
 import { testMachine } from "./../helpers/records";
 import { seedRepository } from "./../helpers/repository";
 
@@ -377,7 +377,7 @@ describe("artifacts", () => {
     expect((await artifacts.create(prototype)).id).toBe(fresh.id);
   });
 
-  it("reads the latest version, from the real store under a dry run", async () => {
+  it("reads the latest version", async () => {
     const real = new Artifacts({ store: new MemoryArtifactStore() });
     const memory = {
       id: "artifact#1",
@@ -393,20 +393,6 @@ describe("artifacts", () => {
       id: "s-1",
     });
     await expect(kept?.text("missing.json")).resolves.toBeUndefined();
-
-    const dry = new ArtifactsManager({
-      artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
-      readThrough: real,
-      workspaceId: "ws",
-    });
-    expect((await dry.latest(memory))?.version.id).toBe(kept?.version.id);
-    await dry.write(memory, { "ref.json": '{"id":"s-2"}' });
-    expect(await (await dry.latest(memory))?.text("ref.json")).toBe(
-      '{"id":"s-2"}'
-    );
-    expect(await (await live.latest(memory))?.text("ref.json")).toBe(
-      '{"id":"s-1"}'
-    );
   });
 
   it("reads versions back, records who wrote them, and changes only some files", async () => {

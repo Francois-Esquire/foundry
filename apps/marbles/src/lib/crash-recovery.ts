@@ -3,48 +3,20 @@ import { stopOrphans } from "@foundry/lib/node/orphans";
 import type { Containers } from "@foundry/sandbox";
 import { defaultRemovalHint } from "@foundry/sandbox";
 import type { ContainerRow, ContainerStore } from "@foundry/sandbox/store";
-import { z } from "zod";
+import type {
+  RecoveryReport,
+  RecoveryStep,
+  RecoveryStepName,
+} from "./recovery-report";
+
+export type { RecoveryLog, RecoveryReport } from "./recovery-report";
+
 import type { OwnerLiveness } from "~/lib/owner-liveness";
 
 import type { ExecutionRun } from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import type { HarnessActivities } from "./sandbox/activities";
 import { holderState, leftBehind } from "./sandbox/holders";
-
-const RECOVERY_STEPS = [
-  "processes",
-  "containers",
-  "runs",
-  "activities",
-  "artifacts",
-] as const;
-export type RecoveryStepName = (typeof RECOVERY_STEPS)[number];
-
-interface RecoveryStep {
-  readonly detail: string;
-  readonly outcome: "done" | "failed" | "skipped";
-  readonly step: RecoveryStepName;
-}
-
-export interface RecoveryReport {
-  readonly at: string;
-  readonly steps: readonly RecoveryStep[];
-}
-
-export const recoveryReportSchema = z.object({
-  at: z.string(),
-  steps: z.array(
-    z.object({
-      detail: z.string(),
-      outcome: z.enum(["done", "failed", "skipped"]),
-      step: z.enum(RECOVERY_STEPS),
-    })
-  ),
-});
-
-export interface RecoveryLog {
-  record(report: RecoveryReport): Promise<void>;
-}
 
 export interface CrashRecoveryOptions {
   readonly activities: HarnessActivities;

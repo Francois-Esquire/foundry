@@ -21,7 +21,6 @@ describe("Marbles cloud-native sandbox integration", () => {
 
     const engine = createEngine({
       catalog: new Catalog(),
-      dry: false,
       print: () => undefined,
       root: "/virtual/project",
       sandboxDriver: cloudDriver,
@@ -112,7 +111,7 @@ describe("Marbles cloud-native sandbox integration", () => {
               instructions: "test",
               modelId: "claude-sonnet-4-5",
               options: {
-                authority: { policy: {} as never },
+                authority: {} as never,
                 sandbox: {} as never,
               },
               provider: "anthropic",
@@ -215,7 +214,6 @@ describe("Marbles cloud-native sandbox integration", () => {
     const cloudDriver = createCloudFakeDriver();
     const engine = createEngine({
       catalog: new Catalog(),
-      dry: false,
       print: () => undefined,
       root: "/virtual/project",
       sandboxDriver: cloudDriver,

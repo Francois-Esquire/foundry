@@ -1,5 +1,6 @@
 import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
 import type { Page, PageInput } from "@foundry/core/pagination";
+import { createModuleAccess, type ModuleAccess } from "./access";
 import { assertOwnsArtifactCommit } from "./artifact-commit";
 import type {
   Installation,
@@ -10,6 +11,7 @@ import type {
 } from "./domain";
 import { installationIdSchema } from "./domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./errors";
+import type { ModuleCapabilityProvider } from "./gateway/types";
 import type {
   ModuleCommands,
   ModuleGatewayContext,
@@ -76,13 +78,23 @@ export function ensureInstallation(input: {
 }
 
 export function createModuleManagement(options: {
+  readonly access?: Pick<ModuleAccess, "requests" | "carryOver">;
   readonly artifacts: ArtifactSubstrate;
+  readonly providers?: readonly ModuleCapabilityProvider[];
   readonly store: ModuleCommands;
   readonly programs: Pick<ModuleProgramSupervisor, "selectVersion" | "delete">;
   readonly now?: () => Date;
   readonly createInstallationId?: () => InstallationId;
 }): ModuleManagement {
   const { artifacts, store, programs } = options;
+  const access =
+    options.access ??
+    (store.durability === "host"
+      ? undefined
+      : createModuleAccess({
+          providers: options.providers ?? [],
+          store,
+        }));
   const versions = createModuleVersions({ artifacts, store });
   const projects = createModuleProjects({ artifacts, store });
   const now = options.now ?? (() => new Date());
@@ -174,7 +186,10 @@ export function createModuleManagement(options: {
     listVersions: (input: Parameters<ModuleManagement["listVersions"]>[0]) =>
       versions.list(input),
     selectVersion: (input: Parameters<ModuleManagement["selectVersion"]>[0]) =>
-      programs.selectVersion(input),
+      programs.selectVersion({
+        ...input,
+        ...(access === undefined ? {} : { selection: { access } }),
+      }),
     async views({
       installationId,
     }: {

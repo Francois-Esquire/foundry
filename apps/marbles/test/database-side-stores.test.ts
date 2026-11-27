@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Authorization } from "@foundry/authorization";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkspaceDatabaseOptions } from "~/database/managed";
 import {
@@ -8,13 +9,13 @@ import {
   openWorkspaceDatabase,
   withWorkspaceDatabase,
 } from "~/database/managed";
-import { initializeDatabase } from "~/database/open";
-import { readLastRecovery } from "~/database/recoveries";
+import { initializeDatabase, readLastRecovery } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseUsageStore } from "~/database/usage";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { MemoryExecutionStore } from "~/lib/execution-store";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { MemoryRunStore } from "~/lib/run-store";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
@@ -36,7 +37,6 @@ function scratch(): string {
 }
 
 const source = { definition: "review", path: ["review"], runId: "run-1" };
-const session = { agentId: "coder", sessionId: "session-1", source };
 const activity: ActivityRecord = {
   event: {
     agentId: "coder",
@@ -78,28 +78,29 @@ describe("the stores an engine keeps beside its records", () => {
       });
     };
     const first = options();
-    await first.options.grants?.transact(() => ({
-      next: "{}",
-      result: undefined,
-    }));
-    await first.options.approvals?.change((saved) => ({
-      ...saved,
-      sessions: [session],
-    }));
+    if (!first.options.authorizationStore) {
+      throw new Error("expected authorizationStore");
+    }
+    const firstAuth = new Authorization({
+      store: first.options.authorizationStore,
+    });
+    const issued = await firstAuth.grant({
+      holder: { kind: "exact", principal: { id: "coder", kind: "agent" } },
+      requestedBy: { id: "coder", kind: "agent" },
+      scope: { action: "tool.call", target: { kind: "exact", value: "read" } },
+    });
     await first.options.activityStore?.put("child-1", activity);
     await dispose(first);
-    await expect(first.options.approvals?.load()).rejects.toThrow("closed");
+    await expect(
+      first.options.authorizationStore?.listGrants()
+    ).rejects.toThrow("closed");
 
     const second = options();
     try {
-      expect(await second.options.approvals?.load()).toEqual({
-        requests: [],
-        sessions: [session],
-      });
       expect(await second.options.activityStore?.load()).toEqual([activity]);
       expect(
-        await second.options.grants?.transact((stored) => ({ result: stored }))
-      ).toBe("{}");
+        await second.options.authorizationStore?.getGrant(issued.id)
+      ).toMatchObject({ id: issued.id, state: "active" });
     } finally {
       await dispose(second);
     }
@@ -390,9 +391,14 @@ describe("who delivers a workspace's task changes", () => {
           return typeof value === "function" ? value.bind(target) : value;
         },
       });
-      const first = new DatabaseWorkspaceRecords({ database, scope: "ws" });
+      const first = new DatabaseWorkspaceRecords({
+        database,
+        liveness: NODE_OWNER_LIVENESS,
+        scope: "ws",
+      });
       const second = new DatabaseWorkspaceRecords({
         database: opened.database,
+        liveness: NODE_OWNER_LIVENESS,
         scope: "ws",
       });
       expect(await first.claimDelivery()).toBeUndefined();
@@ -414,6 +420,7 @@ describe("who delivers a workspace's task changes", () => {
       const records = () =>
         new DatabaseWorkspaceRecords({
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: "ws",
         });
       const first = records();
@@ -432,6 +439,7 @@ describe("who delivers a workspace's task changes", () => {
       const records = () =>
         new DatabaseWorkspaceRecords({
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: "ws",
         });
       const [first, second] = [records(), records()];
@@ -443,6 +451,7 @@ describe("who delivers a workspace's task changes", () => {
       expect(
         await new DatabaseWorkspaceRecords({
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: "other",
         }).claimDelivery()
       ).toBeUndefined();

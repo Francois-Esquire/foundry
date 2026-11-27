@@ -169,6 +169,59 @@ describe("workflowHandler", () => {
     expect(result.runs.map((run) => run.state.kind)).toEqual(["complete"]);
   });
 
+  test("correlated approval suspensions carry correlationId in the queue suspension key", async () => {
+    const result = await withDurableQueue((queue) =>
+      Effect.gen(function* () {
+        yield* queue.register(
+          "pipeline",
+          workflowHandler(() =>
+            pipeline([], (ctx) =>
+              ctx.suspend<JsonValue>({
+                correlationId: "grant-99",
+                kind: "approval",
+                name: "approval",
+                reason: "grant sign-off",
+                request: { action: "tool:run" },
+              })
+            )
+          )
+        );
+        const job = yield* queue.submit({ handler });
+        yield* settledJob(queue, job.id, ["suspended"]);
+        const [suspension] = yield* queue.listSuspensions({ state: "pending" });
+        if (suspension === undefined) {
+          return yield* Effect.dieMessage("no pending suspension");
+        }
+        yield* queue.resolveSuspension(suspension.id, "granted", {
+          expectedRevision: suspension.revision,
+        });
+        return {
+          job: yield* settledJob(queue, job.id),
+          suspension,
+        };
+      })
+    );
+    expect(result.suspension).toMatchObject({
+      key: suspensionOccurrenceKey(
+        ["pipeline", "second"],
+        "approval",
+        0,
+        "grant-99"
+      ),
+      kind: "approval",
+    });
+    expect(parseSuspensionOccurrenceKey(result.suspension.key)).toEqual({
+      correlationId: "grant-99",
+      name: "approval",
+      occurrence: 0,
+      stepPath: ["pipeline", "second"],
+    });
+    expect(result.job?.state).toMatchObject({
+      kind: "complete",
+      output: { fetched: 21, second: "granted" },
+    });
+  });
+
   test("telemetry logged before a suspension survives the resume", async () => {
     const result = await withDurableQueue((queue) =>
       Effect.gen(function* () {

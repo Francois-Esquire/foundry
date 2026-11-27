@@ -4,6 +4,7 @@ import { UsageError } from "~/cli/errors";
 import { writeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
+import { insideState } from "~/lib/state/workspace";
 import { joinProcess } from "~/process/access";
 import { stopProcess } from "~/process/client";
 
@@ -12,9 +13,11 @@ async function detachWorkspace(ctx: CliContext): Promise<void> {
   const where = `${workspace.root} (${workspace.id})`;
   const forget = async (): Promise<void> => {
     await writeDatabase(stateDatabase(ctx.flags.state), (database) =>
-      new WorkspaceRegistry({ database, state: ctx.flags.state }).unhost(
-        workspace.id
-      )
+      new WorkspaceRegistry({
+        acceptWorkspace: (workspaceId) =>
+          insideState(ctx.flags.state, workspaceId),
+        database,
+      }).unhost(workspace.id)
     );
   };
   const client = await joinProcess();

@@ -4,8 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { readLastRecovery } from "~/database/recoveries";
-import { recordedWorkspaces } from "~/database/workspaces";
+import { readLastRecovery, recordedWorkspaces } from "~/database/open";
 import { testHome } from "./helpers/home";
 
 const SRC = resolve("src");
@@ -59,7 +58,7 @@ ${tail}`;
 }
 
 const FAILING_DATABASE_CLOSE = `import { mock } from "bun:test";
-const workspacesModule = ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+const workspacesModule = ${JSON.stringify(join(SRC, "database/open.ts"))};
 const realWorkspaces = { ...(await import(workspacesModule)) };
 mock.module(workspacesModule, () => ({
   ...realWorkspaces,
@@ -386,7 +385,7 @@ it("ignores unexported side-effect calls during load and keeps each workspace's 
     root,
     `const { openWorkspace } = await import(${JSON.stringify(join(SRC, "workspace/open.ts"))});
   const open = (dir, source) => openWorkspace(
-    { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, directory: dir, dry: true, state: ${JSON.stringify(join(root, "state"))} },
+    { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, directory: dir, state: ${JSON.stringify(join(root, "state"))} },
     { print: () => undefined }
   );
   const alpha = await open(${JSON.stringify(a.dir)}, ${JSON.stringify(a.source)});

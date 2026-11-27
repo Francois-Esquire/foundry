@@ -14,8 +14,8 @@ import { DatabaseTriggerStore } from "~/database/triggers";
 import { DatabaseUsageStore } from "~/database/usage";
 import { testInstances } from "./helpers/engine";
 
-vi.mock("~/database/workspaces", async (original) => {
-  const actual = await original<typeof import("~/database/workspaces")>();
+vi.mock("~/database/open", async (original) => {
+  const actual = await original<typeof import("~/database/open")>();
   return {
     ...actual,
     openHostDatabase: async (

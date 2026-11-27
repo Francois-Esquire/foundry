@@ -1,8 +1,8 @@
 import type { HarnessPermissionRequest } from "@foundry/core/agents";
 import { describe, expect, it, vi } from "vitest";
 import {
-  agentSubject,
-  createMemoryAgentAuthorizer,
+  capabilityToAccessRequest,
+  createMemoryAuthorization,
 } from "../../authorization/authorization";
 import type { HarnessAuthoritySettings } from "../../harness/harness-session";
 import {
@@ -13,6 +13,7 @@ import {
 } from "../../harness/permission";
 import { Sessions } from "../../session/sessions";
 import { MemorySessionStore } from "../../store/memory";
+import { denyAction, grantCapability } from "../helpers/authorizer";
 
 function request(
   signal = new AbortController().signal
@@ -27,14 +28,14 @@ function request(
 }
 
 async function setup(mode: "scheduled" | "attended" = "scheduled") {
-  const authority = createMemoryAgentAuthorizer();
+  const authorization = createMemoryAuthorization();
   const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await sessions.createSession({ id: "session-1" });
   const settings: HarnessAuthoritySettings = {
     agentGeneration: 2,
     agentId: "coder",
-    policy: authority.authorizer,
+    authorization,
     profile: {
       allowedTools: [],
       disallowedTools: [],
@@ -44,7 +45,7 @@ async function setup(mode: "scheduled" | "attended" = "scheduled") {
     },
     store,
   };
-  return { authority, settings, store };
+  return { authorization, settings, store };
 }
 
 describe("native harness permission", () => {
@@ -77,8 +78,8 @@ describe("native harness permission", () => {
     expect(await pending).toMatchObject({ behavior: "deny" });
   });
 
-  it("scheduled asks deny promptly, record identity, and remember a next-run grant", async () => {
-    const { settings, store } = await setup();
+  it("scheduled asks deny promptly, open a durable pending grant, and remember a next-run grant", async () => {
+    const { authorization, settings, store } = await setup();
     const approve = vi.fn(() => new Promise<never>(() => undefined));
     settings.approve = approve;
     const permission = createHarnessPermission(settings);
@@ -99,6 +100,10 @@ describe("native harness permission", () => {
     if (pending?.type !== "tool_approval_request") {
       throw new Error("No approval");
     }
+    const storedGrant = await authorization.listGrants({ state: "pending" });
+    expect(storedGrant).toHaveLength(1);
+    expect(storedGrant[0]?.id).toBe(pending.approvalId);
+
     await resolveHarnessApproval(settings, "session-1", pending.approvalId, {
       approved: true,
       lifetime: "persistent",
@@ -130,7 +135,7 @@ describe("native harness permission", () => {
   });
 
   it("cancels a host answer that never arrives and never grants authority", async () => {
-    const { settings, authority } = await setup("attended");
+    const { settings, authorization } = await setup("attended");
     settings.approve = vi.fn(() => new Promise<never>(() => undefined));
     const controller = new AbortController();
     const pending = createHarnessPermission(settings)(
@@ -141,19 +146,24 @@ describe("native harness permission", () => {
     controller.abort(new Error("interrupted"));
     await rejected;
     expect(
-      await authority.authorizer.decide({
-        capability: { kind: "tool.call", source: "harness", tool: "Bash" },
-        invocationId: "next",
-        subject: agentSubject("coder", 2),
-      })
-    ).toEqual({ kind: "requires-approval" });
+      await authorization.check(
+        capabilityToAccessRequest({
+          agentGeneration: 2,
+          agentId: "coder",
+          capability: { kind: "tool.call", source: "harness", tool: "Bash" },
+          invocationId: "next",
+        })
+      )
+    ).toMatchObject({ kind: "ask" });
   });
 
   it("retains explicit denial reasons and does not ask", async () => {
-    const { settings } = await setup("attended");
-    settings.policy = createMemoryAgentAuthorizer({
-      policy: { byKind: { "tool.call": "deny" }, global: "deny" },
-    }).authorizer;
+    const { settings, authorization } = await setup("attended");
+    await denyAction(
+      authorization,
+      "tool.call",
+      "Denied by capability kind policy."
+    );
     settings.approve = vi.fn();
     expect(await createHarnessPermission(settings)(request())).toEqual({
       behavior: "deny",
@@ -163,7 +173,7 @@ describe("native harness permission", () => {
   });
 
   it("records one answer of two given at once, the first stored, and grants only for it", async () => {
-    const { authority, settings, store } = await setup();
+    const { authorization, settings, store } = await setup();
     await createHarnessPermission(settings)(request());
     const part = (await store.listMessages("session-1"))[0]?.parts[0];
     if (part?.type !== "tool_approval_request") {
@@ -193,126 +203,15 @@ describe("native harness permission", () => {
       .filter((value) => value.type === "tool_approval_response");
     expect(responses).toMatchObject([{ approved: false }]);
     expect(
-      await authority.authorizer.decide({
-        capability: part.capability,
-        invocationId: "later",
-        subject: agentSubject("coder", 2),
-      })
-    ).toEqual({ kind: "requires-approval" });
-  });
-
-  it("grants on a retry of the same answer when the grant failed after the answer was stored, and still refuses another answer", async () => {
-    const { authority, settings, store } = await setup();
-    await createHarnessPermission(settings)(request());
-    const part = (await store.listMessages("session-1"))[0]?.parts[0];
-    if (part?.type !== "tool_approval_request") {
-      throw new Error("No approval");
-    }
-    const { resolveApproval } = authority.authorizer;
-    let failures = 1;
-    let resolved = 0;
-    settings.policy = {
-      ...authority.authorizer,
-      resolveApproval: (auth, resolution) => {
-        resolved += 1;
-        if (failures > 0) {
-          failures -= 1;
-          return Promise.reject(new Error("grant store unavailable"));
-        }
-        return resolveApproval(auth, resolution);
-      },
-    };
-    const answer = { approved: true, lifetime: "persistent" } as const;
-    await expect(
-      resolveHarnessApproval(settings, "session-1", part.approvalId, answer)
-    ).rejects.toThrow("grant store unavailable");
-    const later = {
-      capability: part.capability,
-      invocationId: "later",
-      subject: agentSubject("coder", 2),
-    };
-    expect(await authority.authorizer.decide(later)).toEqual({
-      kind: "requires-approval",
-    });
-
-    await resolveHarnessApproval(
-      settings,
-      "session-1",
-      part.approvalId,
-      answer
-    );
-
-    expect(await authority.authorizer.decide(later)).toMatchObject({
-      kind: "allow",
-    });
-    await resolveHarnessApproval(
-      settings,
-      "session-1",
-      part.approvalId,
-      answer
-    );
-    expect(resolved).toBe(2);
-    await expect(
-      resolveHarnessApproval(settings, "session-1", part.approvalId, {
-        approved: false,
-        lifetime: "persistent",
-      })
-    ).rejects.toThrow("already has a response");
-    await expect(
-      resolveHarnessApproval(settings, "session-1", part.approvalId, {
-        approved: true,
-        lifetime: "session",
-      })
-    ).rejects.toThrow("already has a response");
-    const responses = (await store.listMessages("session-1"))
-      .flatMap((message) => message.parts)
-      .filter((value) => value.type === "tool_approval_response");
-    expect(responses).toMatchObject([{ approved: true, scope: "always" }]);
-  });
-
-  it("does not grant again on a retry of an answer whose grant was issued and later revoked", async () => {
-    const { authority, settings, store } = await setup();
-    await createHarnessPermission(settings)(request());
-    const part = (await store.listMessages("session-1"))[0]?.parts[0];
-    if (part?.type !== "tool_approval_request") {
-      throw new Error("No approval");
-    }
-    const resolveApproval = vi.spyOn(authority.authorizer, "resolveApproval");
-    const answer = { approved: true, lifetime: "persistent" } as const;
-    await resolveHarnessApproval(
-      settings,
-      "session-1",
-      part.approvalId,
-      answer
-    );
-    const subject = agentSubject("coder", 2);
-    const later = {
-      capability: part.capability,
-      invocationId: "later",
-      subject,
-    };
-    expect(await authority.authorizer.decide(later)).toMatchObject({
-      kind: "allow",
-    });
-
-    await authority.revoke(subject, part.capability);
-    await resolveHarnessApproval(
-      settings,
-      "session-1",
-      part.approvalId,
-      answer
-    );
-
-    expect(await authority.authorizer.decide(later)).toEqual({
-      kind: "requires-approval",
-    });
-    expect(resolveApproval).toHaveBeenCalledTimes(1);
-    const responses = (await store.listMessages("session-1"))
-      .flatMap((message) => message.parts)
-      .filter((value) => value.type === "tool_approval_response");
-    expect(responses).toMatchObject([
-      { approved: true, granted: true, scope: "always" },
-    ]);
+      await authorization.check(
+        capabilityToAccessRequest({
+          agentGeneration: 2,
+          agentId: "coder",
+          capability: part.capability,
+          invocationId: "later",
+        })
+      )
+    ).toMatchObject({ kind: "ask" });
   });
 
   it("refuses a deferred once approval and an approval for another generation", async () => {
@@ -337,7 +236,7 @@ describe("native harness permission", () => {
     ).rejects.toThrow("does not belong");
   });
 
-  it("honors static allow prefixes but refuses compound shell escalation", async () => {
+  it("honors static allow prefixes via compiled Grants but refuses compound shell escalation", async () => {
     const { settings } = await setup();
     settings.profile = {
       ...settings.profile,
@@ -357,18 +256,23 @@ describe("native harness permission", () => {
       "bun testing",
     ]) {
       expect(
-        await permission({ ...request(), input: { command } })
+        await permission({
+          ...request(),
+          input: { command },
+          toolCallId: crypto.randomUUID(),
+        })
       ).toMatchObject({ behavior: "deny" });
     }
   });
 
   it("static denies override grants and explicit policy denies override static allows", async () => {
-    const { settings, authority } = await setup();
-    await authority.allow(agentSubject("coder", 2), {
-      kind: "tool.call",
-      source: "harness",
-      tool: "Bash",
-    });
+    const { settings, authorization } = await setup();
+    await grantCapability(
+      authorization,
+      "coder",
+      { kind: "tool.call", source: "harness", tool: "Bash" },
+      { agentGeneration: 2 }
+    );
     settings.profile = {
       ...settings.profile,
       allowedTools: ["Bash"],
@@ -380,13 +284,19 @@ describe("native harness permission", () => {
         input: { command: "git push https://example.test/repo" },
       })
     ).toEqual({ behavior: "deny", message: "Denied by harness profile." });
-    settings.policy = createMemoryAgentAuthorizer({
-      policy: { byKind: { "tool.call": "deny" }, global: "deny" },
-    }).authorizer;
+
+    const restricted = createMemoryAuthorization();
+    await denyAction(
+      restricted,
+      "tool.call",
+      "Denied by capability kind policy."
+    );
+    settings.authorization = restricted;
     expect(
       await createHarnessPermission(settings)({
         ...request(),
         input: { command: "bun test" },
+        toolCallId: "call-2",
       })
     ).toEqual({
       behavior: "deny",

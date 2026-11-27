@@ -1,10 +1,10 @@
+import type { AccessRequest } from "@foundry/authorization";
 import type { TextStreamPart, Tool, ToolExecutionOptions, ToolSet } from "ai";
 
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { AgentAuthorizationRequest } from "../../authorization/authorization";
-import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import type { CommandAuthorityDefinition } from "../../authorization/capability";
 import { classifyCommandCapability } from "../../authorization/capability";
 import {
@@ -12,12 +12,16 @@ import {
   compileTool,
   compileTools,
   isPolicyDeniedOutput,
-  toolAuthorizationRequest,
+  toolAccessRequest,
   withToolCallRegistration,
 } from "../../harness/tool-compiler";
 import type { HarnessToolRegistration } from "../../harness/tool-registration";
 import { registrationsOf, tagTool } from "../../harness/tool-registration";
-import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
+import {
+  createPermissiveAuthorization,
+  denyAction,
+  grantCapability,
+} from "../helpers/authorizer";
 
 function callOptions(
   toolCallId: string,
@@ -71,7 +75,7 @@ describe("tool-compiler — compileTool", () => {
     const registration = registrationFor(execute);
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
@@ -93,7 +97,7 @@ describe("tool-compiler — compileTool", () => {
     const registration = registrationFor(execute);
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
@@ -117,13 +121,11 @@ describe("tool-compiler — compileTool", () => {
       await Promise.resolve();
       yield "should not run";
     });
+    const authorization = createMemoryAuthorization();
+    await denyAction(authorization, "tool.call", "nope");
     const compiled = compileTool(registrationFor(execute), {
       agentId: "a1",
-      policy: fakePolicy(() => ({
-        kind: "deny",
-        reason: "nope",
-        source: "policy",
-      })),
+      authorization,
       sessionId: "s1",
     });
     const result = compiled.execute?.(
@@ -142,14 +144,12 @@ describe("tool-compiler — compileTool", () => {
   it("deny: returns a deterministic denial without executing", async () => {
     const execute = vi.fn(() => "should not run");
     const registration = registrationFor(execute);
+    const authorization = createMemoryAuthorization();
+    await denyAction(authorization, "tool.call", "nope");
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({
-        kind: "deny",
-        reason: "nope",
-        source: "policy",
-      })),
+      authorization,
       sessionId: "s1",
     });
 
@@ -173,7 +173,7 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "requires-approval" })),
+      authorization: createMemoryAuthorization(),
       sessionId: "s1",
     });
 
@@ -188,12 +188,12 @@ describe("tool-compiler — compileTool", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("approved replay executes once while live policy still requires approval", async () => {
+  it("approved replay executes once while live authorization still has no standing grant", async () => {
     const execute = vi.fn(() => "ran");
     const registration = registrationFor(execute);
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "requires-approval" })),
+      authorization: createMemoryAuthorization(),
       sessionId: "s1",
     });
     const messages = [
@@ -228,11 +228,11 @@ describe("tool-compiler — compileTool", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
-  it("sticky: needsApproval stays true once a request exists in history, even if live policy now allows", async () => {
+  it("sticky: needsApproval stays true once a request exists in history, even if authorization now allows", async () => {
     const registration = registrationFor(() => "ran");
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
@@ -257,7 +257,7 @@ describe("tool-compiler — compileTool", () => {
     expect(needs).toBe(true);
   });
 
-  it("preserves an existing needsApproval predicate alongside the policy decision", async () => {
+  it("preserves an existing needsApproval predicate alongside the authorization decision", async () => {
     const original = tool({
       description: "always wants a human",
       execute: () => "ran",
@@ -277,7 +277,7 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
@@ -285,29 +285,28 @@ describe("tool-compiler — compileTool", () => {
     expect(needs).toBe(true);
   });
 
-  it("revoked continuation: execute re-authorizes against the current policy and denies", async () => {
+  it("revoked continuation: execute re-authorizes against current authorization and denies", async () => {
     const execute = vi.fn(() => "should not run");
     const registration = registrationFor(execute);
-
-    let mode: "allow" | "deny" = "allow";
-    const policy = fakePolicy(() =>
-      mode === "allow"
-        ? { kind: "allow", source: "grant" }
-        : { kind: "deny", reason: "revoked", source: "policy" }
-    );
+    const authorization = createMemoryAuthorization();
+    const grant = await grantCapability(authorization, "a1", {
+      kind: "tool.call",
+      source: "declared",
+      tool: "double",
+    });
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy,
+      authorization,
       sessionId: "s1",
     });
 
-    mode = "deny";
+    await authorization.revoke({ grantId: grant.id, kind: "grant" }, "revoked");
     const result: unknown = await compiled.execute?.(
       { x: 1 },
       callOptions("c1")
     );
 
-    expect(result).toEqual({ approved: false, reason: "revoked" });
+    expect(result).toMatchObject({ approved: false });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -318,7 +317,7 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
@@ -327,41 +326,53 @@ describe("tool-compiler — compileTool", () => {
     ).rejects.toThrow("boom");
   });
 
-  it("forwards the abort signal to the underlying execute untouched", async () => {
-    const execute = vi.fn(
-      (_input: { x: number }, options: ToolExecutionOptions<unknown>) =>
-        options.abortSignal
-    );
-    const registration = registrationFor(execute);
-    const controller = new AbortController();
-
+  it("wires permit.signal to the tool abortSignal so caller abort and live revocation both abort execution", async () => {
+    const authorization = createMemoryAuthorization();
+    const grant = await grantCapability(authorization, "a1", {
+      kind: "tool.call",
+      source: "declared",
+      tool: "double",
+    });
+    let observedSignal: AbortSignal | undefined;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const registration = registrationFor(async (_input, options) => {
+      observedSignal = options.abortSignal;
+      await waiting;
+      return observedSignal?.aborted ? "aborted" : "ok";
+    });
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization,
       sessionId: "s1",
     });
 
-    const result: unknown = await compiled.execute?.(
-      { x: 1 },
-      callOptions("c1", { abortSignal: controller.signal })
-    );
-    expect(result).toBe(controller.signal);
+    const running = compiled.execute?.({ x: 1 }, callOptions("c1"));
+    await vi.waitFor(() => expect(observedSignal).toBeDefined());
+    expect(observedSignal?.aborted).toBe(false);
+    await authorization.revoke({ grantId: grant.id, kind: "grant" }, "revoked");
+    expect(observedSignal?.aborted).toBe(true);
+    release();
+    expect(await running).toBe("aborted");
   });
 
-  it("duplicate continuation: a second call with the same toolCallId executes again (no built-in dedupe)", async () => {
+  it("prevents double-claiming the same invocationId on duplicate execution", async () => {
     const execute = vi.fn(() => "ran");
     const registration = registrationFor(execute);
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
-    await compiled.execute?.({ x: 1 }, callOptions("c1"));
-    await compiled.execute?.({ x: 1 }, callOptions("c1"));
-
-    expect(execute).toHaveBeenCalledTimes(2);
+    expect(await compiled.execute?.({ x: 1 }, callOptions("c1"))).toBe("ran");
+    expect(await compiled.execute?.({ x: 1 }, callOptions("c1"))).toMatchObject(
+      { approved: false }
+    );
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("passes agentId, sessionId, and call context through to capability()", async () => {
@@ -381,7 +392,7 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "agent-1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "sess-1",
     });
 
@@ -402,7 +413,7 @@ describe("tool-compiler — compileTool", () => {
     );
   });
 
-  it("derives command authority from validated input and bound context, not the tool name", () => {
+  it("derives command authority from validated input and bound context, not the tool name", async () => {
     const known = [
       {
         command: { id: "analysis.execute", version: 1 },
@@ -444,7 +455,7 @@ describe("tool-compiler — compileTool", () => {
     };
     const compiled = compileRegistrations([registration], {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
@@ -478,7 +489,7 @@ describe("tool-compiler — compileTool", () => {
     ).toEqual({ kind: "tool.call", ...fallback });
   });
 
-  it("passes through a tool with no execute unchanged — nothing to gate", () => {
+  it("passes through a tool with no execute unchanged — nothing to gate", async () => {
     const clientTool = tool({
       description: "client-executed",
       inputSchema: z.object({ x: z.number() }),
@@ -496,7 +507,7 @@ describe("tool-compiler — compileTool", () => {
 
     const compiled = compileTool(registration, {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 
@@ -504,16 +515,19 @@ describe("tool-compiler — compileTool", () => {
   });
 });
 
-describe("tool-compiler — toolAuthorizationRequest", () => {
+describe("tool-compiler — toolAccessRequest", () => {
   it("asks exactly what a compiled call asks, invocation id included", async () => {
-    const requests: AgentAuthorizationRequest[] = [];
+    const authorization = await createPermissiveAuthorization();
+    const requests: AccessRequest[] = [];
+    const originalCheck = authorization.check.bind(authorization);
+    vi.spyOn(authorization, "check").mockImplementation((request) => {
+      requests.push(request);
+      return originalCheck(request);
+    });
     const compiled = compileRegistrations([registrationFor(() => "ran")], {
       agentGeneration: 2,
       agentId: "a1",
-      policy: fakePolicy((request) => {
-        requests.push(request);
-        return { kind: "allow", source: "grant" };
-      }),
+      authorization,
       sessionId: "s1",
     });
 
@@ -525,7 +539,7 @@ describe("tool-compiler — toolAuthorizationRequest", () => {
     );
 
     expect(requests[0]).toEqual(
-      toolAuthorizationRequest({
+      toolAccessRequest({
         agentGeneration: 2,
         agentId: "a1",
         capability: { kind: "tool.call", source: "declared", tool: "double" },
@@ -537,13 +551,13 @@ describe("tool-compiler — toolAuthorizationRequest", () => {
     );
     expect(requests[0]).toMatchObject({
       invocationId: registration?.invocationId,
-      scopeId: "s1",
+      sessionId: "s1",
     });
   });
 });
 
 describe("tool-compiler — tagged tools", () => {
-  it("a tool's own ToolMeta reaches the compiled call's capability and source", () => {
+  it("a tool's own ToolMeta reaches the compiled call's capability and source", async () => {
     const fetchTool = tool({
       description: "fetch",
       execute: () => "ok",
@@ -563,7 +577,7 @@ describe("tool-compiler — tagged tools", () => {
       },
       {
         agentId: "a1",
-        policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+        authorization: await createPermissiveAuthorization(),
         sessionId: "s1",
       }
     );
@@ -583,7 +597,7 @@ describe("tool-compiler — tagged tools", () => {
 });
 
 describe("tool-compiler — plain tool map", () => {
-  it("wraps a raw tool map and still fails closed absent an explicit grant or kind default", async () => {
+  it("wraps a raw tool map and still fails closed absent an explicit grant", async () => {
     const execute = vi.fn(() => "ran");
     const raw = {
       legacy: tool({
@@ -601,13 +615,9 @@ describe("tool-compiler — plain tool map", () => {
       tool: "legacy",
     });
 
-    const policy = createMemoryAgentAuthorizer({
-      policy: { global: "allow" },
-    }).authorizer;
-
     const compiled = compileRegistrations(registrations, {
       agentId: "a1",
-      policy,
+      authorization: createMemoryAuthorization(),
       sessionId: "s1",
     });
 
@@ -648,7 +658,7 @@ describe("tool-compiler — withToolCallRegistration", () => {
     };
     const compiled = compileRegistrations([registration], {
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
     const source = singleChunk<TextStreamPart<ToolSet>>({
@@ -689,7 +699,7 @@ describe("tool-compiler — withToolCallRegistration", () => {
     ]);
   });
 
-  it("registers runtime and host effects as the same call envelope", () => {
+  it("registers runtime and host effects as the same call envelope", async () => {
     const runtime = registrationFor(() => "ran");
     const host: HarnessToolRegistration = {
       capability: () => ({
@@ -707,7 +717,7 @@ describe("tool-compiler — withToolCallRegistration", () => {
     const compiled = compileRegistrations([runtime, host], {
       agentGeneration: 2,
       agentId: "a1",
-      policy: fakePolicy(() => ({ kind: "allow", source: "grant" })),
+      authorization: await createPermissiveAuthorization(),
       sessionId: "s1",
     });
 

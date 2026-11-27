@@ -3,25 +3,25 @@ import {
   type ProcessState,
   processState,
 } from "@foundry/lib/node/process-identity";
-import { readStoredObservers } from "~/database/changes";
+import type { GenerationRecord, GenerationState } from "~/database/generations";
 import {
-  type GenerationRecord,
-  type GenerationState,
+  readDatabase,
+  readLastRecovery,
   readLiveGenerations,
-} from "~/database/generations";
-import { readDatabase } from "~/database/open";
-import { readLastRecovery } from "~/database/recoveries";
+  readStoredObservers,
+  readStoredSchedules,
+  recordedWorkspaces,
+} from "~/database/open";
 import type { RunResource, Shown } from "~/database/resources";
 import { ResourceView } from "~/database/resources";
 import type { ScheduleSnapshot } from "~/database/triggers";
-import { readStoredSchedules } from "~/database/triggers";
-import { recordedWorkspaces } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { RecoveryReport } from "~/lib/crash-recovery";
 import type { ObserverState } from "~/lib/events/log";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import { runSteps } from "~/lib/run-trace";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
+import { insideState } from "~/lib/state/workspace";
 import type { ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
 
@@ -79,7 +79,6 @@ interface RunSummary {
   readonly createdAt: number;
   readonly id: string;
   readonly orphaned: boolean;
-  readonly sharedFrom?: string;
   readonly status: string;
   readonly step: string;
   readonly steps: readonly { readonly name: string; readonly status: string }[];
@@ -104,9 +103,10 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           const read = new Map<string, Shows>();
           for (const record of records) {
             const view = new ResourceView({
+              acceptWorkspace: (workspaceId) =>
+                insideState(stateRoot, workspaceId),
               database,
               scope: { workspace: record.id },
-              state: stateRoot,
             });
             read.set(record.id, {
               artifacts: (await view.artifacts()).length,
@@ -199,7 +199,7 @@ function readWorkspaceStatus(
     pid: host?.pid ?? null,
     recovery,
     root: record.root,
-    runs: runsStatus(record.id, shows.runs),
+    runs: runsStatus(shows.runs),
     schedules: schedules.map(scheduleStatus),
     sessions: shows.sessions,
   };
@@ -217,18 +217,14 @@ function scheduleStatus(stored: ScheduleSnapshot): ScheduleStatus {
   };
 }
 
-function runsStatus(
-  workspace: string,
-  shown: readonly Shown<RunResource>[]
-): RunsStatus {
+function runsStatus(shown: readonly Shown<RunResource>[]): RunsStatus {
   const runs = shown.map(
-    ({ ref, value: { owner, record } }): RunSummary => ({
+    ({ value: { owner, record } }): RunSummary => ({
       createdAt: record.timestamps.createdAt,
       id: record.id,
       orphaned:
         !TERMINAL_RUN_STATUSES.has(record.status) &&
         (owner === null || isGone(owner)),
-      ...(ref.owner === workspace ? {} : { sharedFrom: ref.owner }),
       status: record.status,
       step: record.step,
       steps: runSteps(record).map(({ name, status }) => ({ name, status })),

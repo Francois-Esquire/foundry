@@ -25,6 +25,7 @@ import type {
   FileInput,
   FileResolved,
 } from "@foundry/artifacts";
+import type { Authorization, GrantId } from "@foundry/authorization";
 import type {
   Container,
   ContainerSpecInput,
@@ -147,6 +148,7 @@ interface SharedSessionOptions {
 interface HostSessionOptions extends SharedSessionOptions {
   readonly apiKey?: never;
   readonly authority?: never;
+  readonly authorization?: Authorization;
   readonly cwd?: string;
   readonly maxTurns?: number;
   readonly oauthToken?: never;
@@ -158,7 +160,10 @@ interface HostSessionOptions extends SharedSessionOptions {
 export interface SandboxAgentOptions extends SharedSessionOptions {
   readonly apiKey?: string;
   readonly authority?: Partial<
-    Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
+    Pick<
+      HarnessAuthoritySettings,
+      "approve" | "authorization" | "onApprovalRequest" | "principalAttributes"
+    >
   >;
   readonly cwd?: never;
   readonly maxTurns?: never;
@@ -371,12 +376,14 @@ export interface Question {
 
 export interface ApprovalRequest {
   readonly body?: string;
+  readonly grantId?: GrantId;
   readonly key?: string;
   readonly title: string;
 }
 
 export interface Approval {
   readonly approved: boolean;
+  readonly grantId?: GrantId;
   readonly note?: string;
 }
 

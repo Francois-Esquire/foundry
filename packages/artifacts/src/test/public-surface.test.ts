@@ -1,5 +1,4 @@
 import { describe, expect, expectTypeOf, test } from "vitest";
-import manifest from "../../package.json" with { type: "json" };
 import type { ByteInput, ReferenceInput } from "../blob-repository";
 import { BlobRepository, isReferenceInput } from "../blob-repository";
 import type { BlobFiles, BlobStagingArea } from "../blob-staging";
@@ -70,24 +69,6 @@ describe("Artifact package public surface", () => {
       .toEqualTypeOf<ArtifactStoreWrite>();
     expectTypeOf<MemoryArtifactStore>().toExtend<ArtifactStore>();
     expectTypeOf<SqliteArtifactStore>().toExtend<ArtifactStore>();
-  });
-
-  test("declares each store and suite path explicitly without wildcards", () => {
-    const { exports } = manifest as { exports: Record<string, unknown> };
-    expect(exports).not.toHaveProperty("./*");
-    for (const [path, file] of [
-      ["./store", "store/index"],
-      ["./store/memory", "store/memory"],
-      ["./store/sqlite", "store/sqlite"],
-      ["./store/tables", "store/tables"],
-      ["./testing", "testing/index"],
-      ["./testing/store", "testing/store"],
-      ["./testing/artifacts", "testing/artifacts"],
-    ]) {
-      expect(exports[path as string]).toMatchObject({
-        import: `./src/${file}.ts`,
-      });
-    }
   });
 
   test("keeps what consumers import from the blob-repository and transaction subpaths", async () => {

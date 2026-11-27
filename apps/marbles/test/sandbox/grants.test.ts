@@ -1,354 +1,112 @@
-import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { promisify } from "node:util";
-import type {
-  AgentSubject,
-  Capability,
-  GrantInput,
-  GrantLifetime,
-} from "@foundry/agents/authorization";
+import { join } from "node:path";
 import {
-  agentAddressing,
-  agentSubject,
-  createAgentAuthorizer,
+  agentPrincipal,
+  agentPrincipalMatcher,
+  capabilityToAccessRequest,
+  capabilityToScope,
+  HOST_APPROVER,
 } from "@foundry/agents/authorization";
-import {
-  GrantClaimError,
-  GrantRevisionError,
-} from "@foundry/lib/authorization";
-import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, expect, it } from "vitest";
-import { DatabaseGrantStorage } from "~/database/grants";
-import type { MarblesDatabase } from "~/database/open";
-import { initializeDatabase } from "~/database/open";
-import { marblesAgentGrants } from "~/database/tables";
-import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
+import { Authorization } from "@foundry/authorization";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { initializeDatabase, type MarblesDatabase } from "~/database/open";
 
-let directory: string;
-let file: string;
+let root: string;
 let opened: MarblesDatabase;
-let now: number;
-const subject = agentSubject("helper", 3);
-const capability: Capability = { domain: "example.com", kind: "web.fetch" };
-const address = agentAddressing.addressOf(subject, capability);
-const execute = promisify(execFile);
 
-function repository(scope = "ws"): StoredAgentGrantRepository {
-  return new StoredAgentGrantRepository(
-    new DatabaseGrantStorage({ database: opened.database, scope }),
-    { now: () => now }
-  );
-}
-
-async function stored(): Promise<string | undefined> {
-  const [row] = await opened.database
-    .select({ grants: marblesAgentGrants.grants })
-    .from(marblesAgentGrants)
-    .where(eq(marblesAgentGrants.scope, "ws"));
-  return row?.grants;
-}
-
-async function replace(grants: string): Promise<void> {
-  await opened.database
-    .update(marblesAgentGrants)
-    .set({ grants })
-    .where(eq(marblesAgentGrants.scope, "ws"));
-}
-
-function input(
-  lifetime: GrantLifetime = { kind: "persistent" }
-): GrantInput<AgentSubject, Capability> {
-  return { address, capability, lifetime, provenance: "human" };
+function createAuth(scope = "ws"): Authorization {
+  return new Authorization({
+    store: new SqliteAuthorizationStore({ database: opened.database, scope }),
+  });
 }
 
 beforeEach(async () => {
-  directory = await mkdtemp(join(tmpdir(), "agent-grants-"));
-  file = join(directory, "marbles.db");
-  opened = await initializeDatabase(file);
-  now = 100;
+  root = mkdtempSync(join(tmpdir(), "marbles-auth-"));
+  opened = await initializeDatabase(join(root, "marbles.db"));
 });
 
-afterEach(async () => {
+afterEach(() => {
   opened.close();
-  await rm(directory, { force: true, recursive: true });
+  rmSync(root, { force: true, recursive: true });
 });
 
-it("preserves grant metadata, ordering and unique ids through reopen", async () => {
-  const issued = await repository().issue({
-    ...input({ kind: "session", scopeId: "conversation-1" }),
-    certificateId: "certificate-1",
-    expiresAt: 200,
-    provenance: "certificate",
-  });
-  now = 110;
-  const second = await repository().issue(input());
-  expect(await repository().find(address, now)).toEqual([issued, second]);
-  expect(issued).toMatchObject({ issuedAt: 100, revision: 1 });
-  expect(second).toMatchObject({ id: "grant_2", issuedAt: 110 });
-  expect(JSON.parse((await stored()) ?? "")).toMatchObject({
-    format: "agent-grants/1",
-    sequence: 2,
-  });
-  expect(await repository("another").find(address, now)).toEqual([]);
-});
-
-it("enforces the original session scope after reopening through the agent authorizer", async () => {
-  await repository().issue(
-    input({ kind: "session", scopeId: "conversation-1" })
-  );
-  const authorizer = createAgentAuthorizer({
-    grants: repository(),
-    now: () => now,
-  });
-  const request = { capability, invocationId: "call-1", subject };
-  expect(
-    await authorizer.decide({ ...request, scopeId: "conversation-1" })
-  ).toMatchObject({ kind: "allow", source: "grant" });
-  expect(
-    await authorizer.decide({ ...request, scopeId: "conversation-2" })
-  ).toEqual({ kind: "requires-approval" });
-  expect(await authorizer.decide(request)).toEqual({
-    kind: "requires-approval",
-  });
-});
-
-it("serializes concurrent issuances from distinct repository instances", async () => {
-  const issued = await Promise.all(
-    Array.from({ length: 12 }, () => repository().issue(input()))
-  );
-  expect(new Set(issued.map((grant) => grant.id)).size).toBe(12);
-  expect(await repository().find(address, now)).toHaveLength(12);
-});
-
-it("allows exactly one concurrent invocation and replays that claim after restart and expiry", async () => {
-  const grant = await repository().issue({
-    ...input({ kind: "once" }),
-    expiresAt: 200,
-  });
-  const claims = await Promise.allSettled(
-    Array.from({ length: 12 }, (_, index) =>
-      repository().claimOnce(grant.id, `invocation-${String(index)}`)
-    )
-  );
-  const accepted = claims.filter((result) => result.status === "fulfilled");
-  expect(accepted).toHaveLength(1);
-  expect(claims.filter((result) => result.status === "rejected")).toHaveLength(
-    11
-  );
-  const claim = accepted[0]?.value;
-  expect(claim).toBeDefined();
-  if (!claim) {
-    throw new Error("Expected a winning claim");
-  }
-  now = 300;
-  expect(await repository().find(address, now)).toEqual([]);
-  expect(await repository().claimOnce(grant.id, claim.invocationId)).toEqual({
-    ...claim,
-    revision: 2,
-  });
-  await expect(
-    repository().claimOnce(grant.id, "another-invocation")
-  ).rejects.toBeInstanceOf(GrantClaimError);
-  await expect(repository().revoke(grant.id, 1)).rejects.toBeInstanceOf(
-    GrantRevisionError
-  );
-  await repository().revoke(grant.id, 2);
-  expect(await repository().claimOnce(grant.id, claim.invocationId)).toEqual(
-    claim
-  );
-});
-
-it("serializes competing claims from separate host processes", async () => {
-  const grant = await repository().issue(input({ kind: "once" }));
-  const src = resolve(import.meta.dirname, "../../src");
-  const claim = (invocation: string) =>
-    execute(
-      "bun",
-      [
-        "--eval",
-        `
-    import { DatabaseGrantStorage } from ${JSON.stringify(join(src, "database/grants.ts"))};
-    import { writeDatabase } from ${JSON.stringify(join(src, "database/open.ts"))};
-    import { StoredAgentGrantRepository } from ${JSON.stringify(join(src, "lib/sandbox/grants.ts"))};
-    const claim = await writeDatabase(${JSON.stringify(file)}, (database) =>
-      new StoredAgentGrantRepository(new DatabaseGrantStorage({ database, scope: "ws" })).claimOnce(${JSON.stringify(grant.id)}, ${JSON.stringify(invocation)})
-    );
-    process.stdout.write(JSON.stringify(claim));
-  `,
-      ],
-      { cwd: resolve(import.meta.dirname, "../..") }
-    );
-  const results = await Promise.allSettled([
-    claim("process-1"),
-    claim("process-2"),
-  ]);
-  expect(
-    results.filter((result) => result.status === "fulfilled")
-  ).toHaveLength(1);
-  const rejected = results.filter((result) => result.status === "rejected");
-  expect(rejected).toHaveLength(1);
-  expect(rejected[0]?.reason).toMatchObject({
-    stderr: expect.stringContaining("already claimed by another invocation"),
-  });
-  expect(await repository().find(address, now)).toEqual([]);
-});
-
-it("keeps durable claims reusable and revocation revision-checked across restart", async () => {
-  const grant = await repository().issue(input());
-  expect(await repository().claimOnce(grant.id, "first")).toEqual({
-    grantId: grant.id,
-    invocationId: "first",
-    revision: 1,
-  });
-  expect(await repository().claimOnce(grant.id, "second")).toEqual({
-    grantId: grant.id,
-    invocationId: "second",
-    revision: 1,
-  });
-  await repository().revoke(grant.id, 1);
-  expect(await repository().find(address, now)).toEqual([]);
-  await expect(
-    repository().claimOnce(grant.id, "first")
-  ).rejects.toBeInstanceOf(GrantClaimError);
-  await expect(repository().revoke(grant.id, 1)).rejects.toMatchObject({
-    actual: 2,
-    expected: 1,
-  });
-  await repository().revoke(grant.id, 2);
-  await repository().revoke("never-issued", 99);
-  expect((await repository().issue(input())).id).toBe("grant_2");
-});
-
-it("rechecks expiry at the effect boundary and treats its exact deadline as expired", async () => {
-  const grant = await repository().issue({
-    ...input({ kind: "once" }),
-    expiresAt: 120,
-  });
-  expect(await repository().find(address, 119)).toEqual([grant]);
-  now = 120;
-  expect(await repository().find(address, now)).toEqual([]);
-  await expect(repository().claimOnce(grant.id, "late")).rejects.toThrow(
-    "revoked or expired"
-  );
-  await expect(repository().claimOnce("missing", "late")).rejects.toThrow(
-    "does not exist"
-  );
-});
-
-it("isolates authority by preset generation and capability constraints", async () => {
-  const read: Capability = {
-    kind: "fs.read",
-    projectId: "project",
-    root: "/workspace",
-  };
-  const scoped = agentAddressing.addressOf(subject, read);
-  const grant = await repository().issue({
-    ...input(),
-    address: scoped,
-    capability: read,
-  });
-  expect(await repository().find(scoped, now)).toEqual([grant]);
-  expect(
-    await repository().find(
-      agentAddressing.addressOf(agentSubject("helper", 4), read),
-      now
-    )
-  ).toEqual([]);
-  expect(
-    await repository().find(
-      agentAddressing.addressOf(subject, { ...read, root: "/other" }),
-      now
-    )
-  ).toEqual([]);
-});
-
-it.each<Capability>([
-  { domain: "example.com", kind: "web.fetch" },
-  { kind: "mcp.tool", serverId: "server", tool: "read" },
-  { kind: "fs.read", projectId: "project", root: "/workspace" },
-  {
-    command: { id: "update", version: 2 },
-    domain: "issues",
-    effect: "write",
-    kind: "domain.command",
-    target: { projectId: "project", scope: "issue" },
-  },
-  { kind: "tool.call", source: "harness", tool: "shell" },
-])(
-  "retains the exact $kind payload and address after reopen",
-  async (value) => {
-    const scoped = agentAddressing.addressOf(subject, value);
-    const grant = await repository().issue({
-      ...input(),
-      address: scoped,
-      capability: value,
+describe("SQLite-backed Authorization in Marbles", () => {
+  it("persists grants across reopened stores and isolates scopes", async () => {
+    const first = createAuth("ws-1");
+    const cap = {
+      kind: "tool.call" as const,
+      source: "harness" as const,
+      tool: "bash",
+    };
+    const grant = await first.grant({
+      holder: agentPrincipalMatcher("coder"),
+      issuer: HOST_APPROVER,
+      requestedBy: agentPrincipal("coder"),
+      scope: capabilityToScope(cap),
     });
-    expect(await repository().find(scoped, now)).toEqual([grant]);
-  }
-);
 
-it.each([
-  "{invalid json",
-  JSON.stringify({ format: "unknown", grants: [], sequence: 0 }),
-  JSON.stringify({ format: "agent-grants/1", grants: [], sequence: 1 }),
-  JSON.stringify({
-    credentials: "raw-secret",
-    format: "agent-grants/1",
-    grants: [],
-    sequence: 0,
-  }),
-])(
-  "fails closed for corrupt saved data without replacing it",
-  async (contents) => {
-    await repository().issue(input());
-    await replace(contents);
-    await expect(repository().find(address, now)).rejects.toThrow(
-      "refusing authorization"
-    );
-    await expect(repository().issue(input())).rejects.toThrow(
-      "refusing authorization"
-    );
-    await expect(repository().claimOnce("grant_1", "call")).rejects.toThrow(
-      "refusing authorization"
-    );
-    await expect(repository().revoke("grant_1")).rejects.toThrow(
-      "refusing authorization"
-    );
-    expect(await stored()).toBe(contents);
-  }
-);
+    const reopened = createAuth("ws-1");
+    expect(await reopened.getGrant(grant.id)).toMatchObject({
+      id: grant.id,
+      state: "active",
+    });
+    expect(
+      await reopened.check(
+        capabilityToAccessRequest({ agentId: "coder", capability: cap })
+      )
+    ).toMatchObject({ kind: "allow" });
 
-it("rejects an address inconsistent with the saved capability", async () => {
-  const grant = await repository().issue(input());
-  const inconsistent = {
-    ...grant,
-    capability: { domain: "attacker.example", kind: "web.fetch" },
-  };
-  await replace(
-    JSON.stringify({
-      format: "agent-grants/1",
-      grants: [{ grant: inconsistent, revoked: false }],
-      sequence: 1,
-    })
-  );
-  await expect(repository().find(address, now)).rejects.toThrow(
-    "refusing authorization"
-  );
-});
+    const otherScope = createAuth("ws-2");
+    expect(await otherScope.getGrant(grant.id)).toBeNull();
+  });
 
-it("rejects a consumed grant corrupted back to live authority", async () => {
-  const grant = await repository().issue(input({ kind: "once" }));
-  const claim = await repository().claimOnce(grant.id, "first");
-  await replace(
-    JSON.stringify({
-      format: "agent-grants/1",
-      grants: [{ claim, grant: { ...grant, revision: 2 }, revoked: false }],
-      sequence: 1,
-    })
-  );
-  await expect(repository().find(address, now)).rejects.toThrow(
-    "refusing authorization"
-  );
+  it("persists pending grants and consumes one-shot grants atomically", async () => {
+    const auth = createAuth();
+    const cap = {
+      kind: "tool.call" as const,
+      source: "harness" as const,
+      tool: "bash",
+    };
+    const request = capabilityToAccessRequest({
+      agentId: "coder",
+      capability: cap,
+      invocationId: "call-1",
+      sessionId: "sess-1",
+    });
+
+    const pending = await auth.authorize(request, "call-1");
+    expect(pending.kind).toBe("pending");
+    if (pending.kind !== "pending") {
+      throw new Error("expected pending");
+    }
+
+    const reopened = createAuth();
+    await reopened.approve(pending.grant.id, {
+      approver: HOST_APPROVER,
+      rootAuthority: true,
+      usesRemaining: 1,
+    });
+
+    const permitted = await reopened.authorize(request, "call-1", {
+      openPending: false,
+    });
+    expect(permitted.kind).toBe("permitted");
+    if (permitted.kind === "permitted") {
+      permitted.permit.release();
+    }
+
+    const second = await reopened.authorize(
+      capabilityToAccessRequest({
+        agentId: "coder",
+        capability: cap,
+        invocationId: "call-2",
+        sessionId: "sess-1",
+      }),
+      "call-2",
+      { openPending: false }
+    );
+    expect(second.kind).toBe("denied");
+  });
 });

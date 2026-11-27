@@ -21,7 +21,11 @@ import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import { workspaceAt, workspaceState } from "~/lib/state/workspace";
+import {
+  insideState,
+  workspaceAt,
+  workspaceState,
+} from "~/lib/state/workspace";
 import { openLoadSession, realPathOf } from "~/workspace/loader";
 import { initializeUsage } from "~/workspace/node-usage";
 import {
@@ -35,7 +39,6 @@ export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
   readonly directory?: string;
-  readonly dry: boolean;
   readonly spawned?: string;
   readonly state: string;
 }
@@ -114,12 +117,10 @@ async function loadSource(
   configPath: string,
   {
     catalog,
-    dry,
     read,
     workspaceId,
   }: {
     catalog: Catalog;
-    dry: boolean;
     read?: (file: string) => void;
     workspaceId: string;
   },
@@ -135,7 +136,7 @@ async function loadSource(
       created,
       locked,
       value: modules,
-    } = await runLoadScope({ dry, workspaceId }, async () => {
+    } = await runLoadScope({ workspaceId }, async () => {
       const loaded: ModuleSource[] = [];
       for (const file of files) {
         const real = realPathOf(file);
@@ -215,7 +216,10 @@ export async function recordedWorkspace(
 ): Promise<OpenedWorkspace | undefined> {
   const state = resolve(args.state);
   const record = await readDatabase(stateDatabase(state), (database) =>
-    new WorkspaceRegistry({ database, state }).read(id)
+    new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      database,
+    }).read(id)
   );
   if (record === undefined) {
     return;
@@ -255,7 +259,6 @@ export async function openWorkspace(
       at.configPath,
       {
         catalog,
-        dry: args.dry,
         ...(read === undefined ? {} : { read }),
         workspaceId: workspaceState(resolve(args.state), at.root).id,
       },
@@ -265,11 +268,7 @@ export async function openWorkspace(
   if (files !== false) {
     return opened(args, before, environment, { catalog, cwd, files });
   }
-  if (
-    args.dry ||
-    onMissing === undefined ||
-    !(await onMissing(before.configPath))
-  ) {
+  if (onMissing === undefined || !(await onMissing(before.configPath))) {
     return opened(args, before, environment, { catalog, cwd });
   }
   const created = placed(args);
@@ -318,7 +317,6 @@ function workspaceEngine(
     askable: options.askable,
     catalog,
     cwd,
-    dry: args.dry,
     environment,
     ...(options.log ? { log: options.log } : {}),
     print: options.print,
@@ -338,7 +336,6 @@ export function hostTriggers(
   { catalog, workspace }: OpenedWorkspace
 ): Triggers {
   return readTriggers(catalog, {
-    dry: args.dry,
     stateRoot: resolve(args.state),
     workspaceId: workspace.id,
   });
@@ -352,8 +349,8 @@ export async function touchWorkspace(
 ): Promise<void> {
   if (database !== undefined) {
     await new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(args.state, workspaceId),
       database: database.database,
-      state: args.state,
     }).touch(workspace, config, registers);
   }
 }
@@ -368,8 +365,8 @@ export async function asRegistered(
     return workspace;
   }
   const record = await new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(args.state, workspaceId),
     database: database.database,
-    state: args.state,
   }).read(workspace.workspace.id);
   return record === undefined ? workspace : { ...workspace, cwd: record.cwd };
 }

@@ -599,10 +599,17 @@ export abstract class Step<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Promise<void> {
     return runEffectPromise(
-      this.executable.resolveOccurrence(stepPath, name, occurrence, value)
+      this.executable.resolveOccurrence(
+        stepPath,
+        name,
+        occurrence,
+        value,
+        correlationId
+      )
     );
   }
 

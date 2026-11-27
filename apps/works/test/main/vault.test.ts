@@ -1,7 +1,12 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { AuthorizationDeniedError } from "@foundry/authorization";
 import { describe, expect, it, vi } from "vitest";
+import { openWorksAuthorization } from "~/main/authorization";
 import { EncryptionUnavailableError } from "~/main/vault/secure-store";
 import { type KeyValueStore, MemoryStore } from "~/main/vault/store";
-import { Vault } from "~/main/vault/vault";
+import { VAULT_CREDENTIAL_RELEASE_ACTION, Vault } from "~/main/vault/vault";
 
 function stores() {
   return { secure: new MemoryStore(), settings: new MemoryStore() };
@@ -183,5 +188,93 @@ describe("Vault", () => {
     await expect(vault.set("fal", "apiKey", "k")).rejects.toBeInstanceOf(
       EncryptionUnavailableError
     );
+  });
+
+  it("gates credential release through persistent SqliteAuthorizationStore", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "works-auth-"));
+    const dbFile = path.join(dir, "authorization.sqlite");
+    const principal = { id: "mod-1", kind: "module.installation" };
+    const host = { id: "host", kind: "works.host" };
+    try {
+      const tiers = stores();
+      const unguarded = await Vault.open(tiers, {
+        env: { ANTHROPIC_API_KEY: "sk-secret" },
+      });
+      await expect(
+        unguarded.release({
+          invocationId: "inv-unguarded",
+          key: "apiKey",
+          ownerId: "claude",
+          principal,
+        })
+      ).rejects.toBeInstanceOf(AuthorizationDeniedError);
+
+      const first = await openWorksAuthorization(dbFile);
+      const vault = await Vault.open(tiers, {
+        authorization: first.authorization,
+        env: { ANTHROPIC_API_KEY: "sk-secret" },
+      });
+
+      await expect(
+        vault.release({
+          invocationId: "inv-denied",
+          key: "apiKey",
+          ownerId: "claude",
+          principal,
+        })
+      ).rejects.toBeInstanceOf(AuthorizationDeniedError);
+
+      const grant = await first.authorization.grant({
+        holder: { kind: "exact", principal },
+        requestedBy: host,
+        scope: {
+          action: VAULT_CREDENTIAL_RELEASE_ACTION,
+          target: { kind: "exact", value: "claude:apiKey" },
+        },
+      });
+
+      await expect(
+        vault.release({
+          invocationId: "inv-1",
+          key: "apiKey",
+          ownerId: "claude",
+          principal,
+        })
+      ).resolves.toBe("sk-secret");
+      first.close();
+
+      const reopened = await openWorksAuthorization(dbFile);
+      try {
+        const reopenedVault = await Vault.open(tiers, {
+          authorization: reopened.authorization,
+          env: { ANTHROPIC_API_KEY: "sk-secret" },
+        });
+        await expect(
+          reopenedVault.release({
+            invocationId: "inv-2",
+            key: "apiKey",
+            ownerId: "claude",
+            principal,
+          })
+        ).resolves.toBe("sk-secret");
+
+        await reopened.authorization.revoke(
+          { grantId: grant.id, kind: "grant" },
+          "user revoked credential"
+        );
+        await expect(
+          reopenedVault.release({
+            invocationId: "inv-3",
+            key: "apiKey",
+            ownerId: "claude",
+            principal,
+          })
+        ).rejects.toBeInstanceOf(AuthorizationDeniedError);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 });

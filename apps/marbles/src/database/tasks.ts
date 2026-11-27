@@ -1,11 +1,9 @@
 import { sameProcess } from "@foundry/lib/process-identity";
 import type { TaskStore } from "@foundry/tasks";
-import { Tasks } from "@foundry/tasks";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { aroundCalls, busyError } from "~/database/busy";
 import { ChangeRecorder, DatabaseChangeLog } from "~/database/changes";
-import { readDatabase } from "~/database/open";
 import {
   CHANGED,
   claimJudged,
@@ -16,15 +14,13 @@ import {
 } from "~/database/owner";
 import { marblesDeliveryClaims } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import type { HostDatabaseOptions } from "~/database/workspaces";
-import { writeAsHost } from "~/database/workspaces";
-import { stateDatabase } from "~/layout";
+
 import type { ChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import { sourceKey, TASKS } from "~/lib/events/source";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 
 const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 
@@ -54,7 +50,7 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     const { database, scope } = options;
     this.#database = database;
     this.#scope = scope;
-    this.#liveness = options.liveness ?? NODE_OWNER_LIVENESS;
+    this.#liveness = options.liveness ?? PORTABLE_OWNER_LIVENESS;
     const changes = options.changes ?? new ChangeRecorder(scope);
     if (changes.scope !== scope) {
       throw new Error(
@@ -227,53 +223,4 @@ async function storing(commit: Promise<void>): Promise<void> {
 
 function storageError(error: unknown): Error | undefined {
   return busyError(error);
-}
-
-export async function readTasks<T>(
-  state: string,
-  scope: string,
-  work: (tasks: Tasks) => Promise<T>
-): Promise<T> {
-  const read = await busyAsMarbles(
-    readDatabase(stateDatabase(state), async (database) => ({
-      value: await work(tasksOver(database, scope)),
-    }))
-  );
-  return read === undefined ? work(new Tasks()) : read.value;
-}
-
-export function changeTasks<T>(
-  state: string,
-  scope: string,
-  work: (tasks: Tasks) => Promise<T>,
-  options: HostDatabaseOptions = {}
-): Promise<T> {
-  return busyAsMarbles(
-    writeAsHost(
-      state,
-      async (database) => {
-        const records = new DatabaseWorkspaceRecords({ database, scope });
-        try {
-          return await work(new Tasks({ store: records.taskStore }));
-        } finally {
-          await records.close();
-        }
-      },
-      options
-    )
-  );
-}
-
-async function busyAsMarbles<T>(opening: Promise<T>): Promise<T> {
-  try {
-    return await opening;
-  } catch (error) {
-    throw busyError(error) ?? error;
-  }
-}
-
-function tasksOver(database: StoreDatabase, scope: string): Tasks {
-  return new Tasks({
-    store: new DatabaseWorkspaceRecords({ database, scope }).taskStore,
-  });
 }

@@ -417,10 +417,8 @@ describe("onboarding", () => {
     await engine.run(SETUP_STEP, {
       configPath: join(root, "marbles.config.ts"),
       draft: {
-        harness: "auto",
         instructions: "",
         name: "summarize-codebase",
-        template: "product",
       },
       root,
     });

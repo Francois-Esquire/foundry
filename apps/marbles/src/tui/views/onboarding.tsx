@@ -5,7 +5,6 @@ import { ArgumentForm } from "~/components/blocks/argument-form";
 import { QuitDialog } from "~/components/blocks/quit-dialog";
 import { SetupFlow } from "~/components/layouts/setup-flow";
 import { Action } from "~/components/ui/action";
-import { Select } from "~/components/ui/select";
 import { Text } from "~/components/ui/text";
 import { theme } from "~/components/ui/theme";
 import {
@@ -20,8 +19,7 @@ import {
   DEFAULT_DRAFT,
   renderModule,
   type SetupDraft,
-  STARTERS,
-  starterFor,
+  STARTER_GUIDE,
 } from "~/workspace/templates";
 
 const SETTINGS: readonly InputField[] = [
@@ -30,15 +28,9 @@ const SETTINGS: readonly InputField[] = [
 ];
 const SETTINGS_PROBLEM = inputProblem(SETTINGS);
 const parseSettings = (values: InputValues) => parseInputs(SETTINGS, values);
-const CHOICES = STARTERS.map((item) => ({
-  label: `${item.label} · ${item.description}`,
-  value: item.id,
-}));
-
 const STAGES = {
-  review: { height: 30, title: "Review and create module" },
-  settings: { height: 25, title: "Configure your step" },
-  template: { height: 17, title: "Choose a starter" },
+  review: { height: 34, title: "Review and create module" },
+  settings: { height: 25, title: "Configure your first step" },
 } as const;
 
 export function OnboardingView({
@@ -55,14 +47,11 @@ export function OnboardingView({
   readonly onClose: () => void;
 }) {
   const [draft, setDraft] = useState<SetupDraft>(DEFAULT_DRAFT);
-  const [stage, setStage] = useState<"template" | "settings" | "review">(
-    "template"
-  );
+  const [stage, setStage] = useState<"settings" | "review">("settings");
   const [invalid, setInvalid] = useState<string>();
   const creation = useAsyncAction();
   const quit = useQuitGuard(onClose);
   const { quitting } = quit;
-  const starter = starterFor(draft.template);
   const create = useCallback(() => {
     if (!quitting) {
       creation.run(() => onCreate(draft));
@@ -74,34 +63,13 @@ export function OnboardingView({
     }
     setInvalid(undefined);
     creation.clear();
-    setStage(stage === "review" ? "settings" : "template");
-  }, [stage, quitting, creation.busy, creation.clear]);
-  const next = useCallback(() => {
-    if (!quitting) {
-      setStage("settings");
-    }
-  }, [quitting]);
+    setStage("settings");
+  }, [quitting, creation.busy, creation.clear]);
   const skip = useCallback(() => {
     if (!quitting) {
       onSkip();
     }
   }, [quitting, onSkip]);
-  const chooseTemplate = useCallback(
-    (value: string) => {
-      if (quitting) {
-        return;
-      }
-      const chosen = STARTERS.find((item) => item.id === value);
-      if (chosen) {
-        setDraft((previous) => ({
-          ...previous,
-          name: chosen.name,
-          template: chosen.id,
-        }));
-      }
-    },
-    [quitting]
-  );
   const review = useCallback(
     (values: InputValues) => {
       const configured: SetupDraft = {
@@ -120,7 +88,6 @@ export function OnboardingView({
     },
     [draft]
   );
-  const goBack = stage === "template" ? skip : back;
   useKeyboard((key) => {
     if (quit.handleKey(key) || creation.busy || stage === "settings") {
       return;
@@ -129,38 +96,17 @@ export function OnboardingView({
       quit.ask();
     }
     if (key.name === "escape") {
-      goBack();
+      back();
     }
     if (["return", "enter"].includes(key.name)) {
       key.preventDefault();
-      if (stage === "template") {
-        next();
-      } else {
-        create();
-      }
+      create();
     }
   });
   return (
     <SetupFlow
       footer={
         <box flexDirection="row" flexWrap="wrap" gap={2}>
-          {stage === "template" && (
-            <>
-              <Action
-                active
-                id="setup:next"
-                label="Enter · Configure step"
-                onAction={next}
-                value="next"
-              />
-              <Action
-                id="setup:skip"
-                label="Esc · Skip for now"
-                onAction={skip}
-                value="skip"
-              />
-            </>
-          )}
           {stage === "review" &&
             (creation.busy ? (
               <Text>Creating module…</Text>
@@ -197,17 +143,7 @@ export function OnboardingView({
         </text>
         <text fg={theme.colors.primary}>
           <strong>{STAGES[stage].title}</strong>
-          {stage === "review" ? "" : ` · ${starter.label}`}
         </text>
-        {stage === "template" && (
-          <Select
-            focused={!quitting}
-            id="setup:template"
-            onChange={chooseTemplate}
-            options={CHOICES}
-            value={draft.template}
-          />
-        )}
         {stage === "settings" && (
           <ArgumentForm
             active={!quitting}
@@ -217,8 +153,7 @@ export function OnboardingView({
               instructions: draft.instructions,
               name: draft.name,
             }}
-            key={draft.template}
-            onCancel={back}
+            onCancel={skip}
             onSubmit={review}
             parse={parseSettings}
             problem={SETTINGS_PROBLEM}
@@ -230,6 +165,9 @@ export function OnboardingView({
             <Text>{renderModule(draft)}</Text>
             <text fg={theme.colors.mutedForeground}>
               Creates one starter step. You can run it from the Catalog.
+            </text>
+            <text fg={theme.colors.mutedForeground} wrapMode="word">
+              {`Guide · ${STARTER_GUIDE}`}
             </text>
             {creation.error && (
               <text fg={theme.colors.error}>{creation.error}</text>

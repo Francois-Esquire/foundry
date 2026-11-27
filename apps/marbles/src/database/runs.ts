@@ -6,14 +6,13 @@ import { queueJobs } from "@foundry/queue/store/tables";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
-import { removeShares } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { removeAnnexes } from "~/database/executions";
 import { inList } from "~/database/lists";
 import { marblesWorkflowRuns } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import { causingRun, RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import { RUNS, sourceKey } from "~/lib/events/source";
 import { isTask } from "~/lib/execution-record";
 import type { RecordedScope } from "~/lib/run-scope";
@@ -67,7 +66,6 @@ export class DatabaseRunStore implements RunStore {
           runEventsOf(await this.#workflowEvents(transaction, write)),
           causes.get(write) ?? null
         );
-        await removeShares(transaction, "run", this.#scope, deleted);
         await removeAnnexes(transaction, this.#scope, deleted);
       },
       scope: this.#scope,
@@ -77,7 +75,7 @@ export class DatabaseRunStore implements RunStore {
       return Promise.resolve({
         ...gated,
         commit: (write: QueueWrite) => {
-          const cause = causingRun();
+          const cause = this.#changes.cause();
           return Effect.suspend(() => {
             const owned = ownedQueueWrite(write);
             causes.set(owned, cause);

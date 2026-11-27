@@ -6,16 +6,10 @@ import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createEngine } from "~/create";
 import type { Engine } from "~/lib/engine";
-import type * as Harnesses from "~/lib/harnesses";
 import { runSteps } from "~/lib/run-trace";
 import { rollSchedule } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { startEngine } from "./helpers/engine";
-
-vi.mock("~/lib/harnesses", async (importOriginal) => ({
-  ...(await importOriginal<typeof Harnesses>()),
-  detectHarnesses: () => ({ claudeCode: false, codex: null }),
-}));
 
 const print = () => undefined;
 const options = {
@@ -31,7 +25,6 @@ const textFields = [
 function engineIn(root: string, catalog: Catalog, stateDir?: string) {
   return createEngine({
     catalog,
-    dry: false,
     pools: { default: 1 },
     print,
     root,

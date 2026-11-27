@@ -118,7 +118,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     const engine = createEngine({
       askable: true,
       catalog: collected,
-      dry: false,
       print: () => undefined,
       providers:
         harness === "builtin"

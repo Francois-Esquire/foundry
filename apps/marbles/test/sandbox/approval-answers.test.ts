@@ -2,15 +2,13 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createAgentAuthorizer } from "@foundry/agents/authorization";
 import { createHarnessPermission } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
+import { Authorization } from "@foundry/authorization";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
 import { afterEach, expect, it } from "vitest";
-import { DatabaseDeferredApprovalStore } from "~/database/approvals";
-import { DatabaseGrantStorage } from "~/database/grants";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
-import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { recordSpawned } from "~/process/spawned";
 import { openFeed } from "../helpers/feed";
@@ -44,37 +42,19 @@ function host(dir: string, file: string, name: string, choice: string) {
   const at = (module: string) => JSON.stringify(join(SRC, module));
   return `
 import { existsSync, writeFileSync } from "node:fs";
-import { createAgentAuthorizer } from "@foundry/agents/authorization";
-import { DatabaseDeferredApprovalStore } from ${at("database/approvals.ts")};
-import { DatabaseGrantStorage } from ${at("database/grants.ts")};
+import { Authorization } from "@foundry/authorization";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
 import { openDatabase } from ${at("database/open.ts")};
 import { DatabaseSessionStore } from ${at("database/sessions.ts")};
-import { StoredAgentGrantRepository } from ${at("lib/sandbox/grants.ts")};
 import { HarnessInteractions } from ${at("lib/sandbox/interactions.ts")};
 const opened = await openDatabase(${JSON.stringify(file)});
 const kept = { database: opened.database, scope: "ws" };
-const base = createAgentAuthorizer({ grants: new StoredAgentGrantRepository(new DatabaseGrantStorage(kept)) });
-const arrived = (who) => ${JSON.stringify(dir)} + "/arrived-" + who;
-const policy = new Proxy(base, {
-  get(target, key) {
-    if (key === "resolveApproval") {
-      return async (...args) => {
-        writeFileSync(arrived(${JSON.stringify(name)}), "");
-        const deadline = Date.now() + 1500;
-        while (!existsSync(arrived(${JSON.stringify(name === "a" ? "b" : "a")})) && Date.now() < deadline) {
-          await new Promise((settle) => setTimeout(settle, 10));
-        }
-        return target.resolveApproval(...args);
-      };
-    }
-    const value = target[key];
-    return typeof value === "function" ? value.bind(target) : value;
-  },
-});
+const authorization = new Authorization({ store: new SqliteAuthorizationStore(kept) });
 let question;
 const feed = { publishInput: async (asked) => { question ??= asked.key; return asked.key; } };
-const interactions = new HarnessInteractions({ approvals: new DatabaseDeferredApprovalStore(kept), askable: true, feed, policy, sessions: new DatabaseSessionStore(kept) });
+const interactions = new HarnessInteractions({ askable: true, authorization, feed, sessions: new DatabaseSessionStore(kept) });
 await interactions.restore();
+writeFileSync(${JSON.stringify(dir)} + "/ready-" + ${JSON.stringify(name)}, "");
 while (!existsSync(${JSON.stringify(join(dir, "go"))})) {
   await new Promise((settle) => setTimeout(settle, 5));
 }
@@ -120,23 +100,16 @@ it("lets one of two hosts answering the same deferred approval at once win, and 
   const opened = await initializeDatabase(file);
   const kept = { database: opened.database, scope: "ws" };
   const sessions = new DatabaseSessionStore(kept);
-  const grants = () =>
-    createAgentAuthorizer({
-      grants: new StoredAgentGrantRepository(new DatabaseGrantStorage(kept)),
-    });
+  const auth = () =>
+    new Authorization({ store: new SqliteAuthorizationStore(kept) });
   try {
     const bridge = new HarnessInteractions({
-      approvals: new DatabaseDeferredApprovalStore(kept),
       askable: true,
+      authorization: auth(),
       feed: openFeed(undefined, { id: "ws", root: dir }).publisher,
-      policy: grants(),
       sessions,
     });
     await new Sessions({ store: sessions }).createSession({ id: "session" });
-    await bridge.registerSession(
-      { agentId: "coder", sessionId: "session", source },
-      bridge.authority(source)
-    );
     await createHarnessPermission({
       agentId: "coder",
       profile,
@@ -165,7 +138,7 @@ it("lets one of two hosts answering the same deferred approval at once win, and 
     await new Sessions({ store: sessions }).createSession({ id: "future" });
     const later = await createHarnessPermission({
       agentId: "coder",
-      policy: grants(),
+      authorization: auth(),
       profile,
       store: sessions,
     })({ ...call, sessionId: "future", toolCallId: "future" });

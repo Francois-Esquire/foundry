@@ -64,7 +64,6 @@ async function marbles() {
         artifacts: join(root, "artifacts"),
         config: root,
         directory: root,
-        dry: true,
         state: join(root, "state"),
       },
       {

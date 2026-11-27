@@ -14,7 +14,6 @@ import {
 
 export interface GlobalFlags extends HostOptions {
   readonly directory: string;
-  readonly dry: false;
   readonly json: boolean;
   readonly sourceExplicit?: boolean;
 }

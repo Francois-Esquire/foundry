@@ -3,7 +3,8 @@ import { basename, join } from "node:path";
 import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
-import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
+import type { Authorization } from "@foundry/authorization";
+import type { AuthorizationStore } from "@foundry/authorization/store";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type { Models } from "@foundry/models";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
@@ -31,6 +32,7 @@ import type { AnyDefinition } from "~/lib/definition";
 import { EngineDefinitions } from "~/lib/engine-definitions";
 import {
   agentsOf,
+  authorizationOf,
   bindingsOf,
   contextOf,
   interactionsOf,
@@ -86,7 +88,6 @@ import type { RunStore } from "~/lib/run-store";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
-import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import { type RunOutputSink, removeRunOutput } from "~/lib/state/output";
 import type { StepInput } from "~/lib/step-work";
@@ -108,10 +109,10 @@ export interface CatalogIdentity {
 
 export interface EngineOptions {
   readonly activityStore?: ActivityStore;
-  readonly approvals?: DeferredApprovalStore;
-  readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
   readonly artifacts: ArtifactSubstrate;
   readonly askable?: boolean;
+  readonly authorization?: Authorization;
+  readonly authorizationStore?: AuthorizationStore;
   readonly automationStore?: AutomationStore;
   readonly catalog?: CatalogIdentity;
   readonly changeRetention?: number;
@@ -121,11 +122,9 @@ export interface EngineOptions {
   readonly createMcpClient?: AgentsDeps["createMcpClient"];
   readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly cwd?: string;
-  readonly dry?: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly executionStore?: ExecutionStore;
   readonly git?: GitOptions;
-  readonly grants?: GrantDocumentStorage;
   readonly handlerTimeout?: number;
   readonly home?: string;
   readonly leaseTtlMs?: number;
@@ -161,6 +160,7 @@ export class Engine {
   readonly activities: HarnessActivities;
   readonly agents: AgentsManager;
   readonly artifacts: ArtifactsManager;
+  readonly authorization: Authorization;
   readonly automations: AutomationService;
   readonly bindings: Bindings;
   readonly context: ExecutionContext;
@@ -234,12 +234,10 @@ export class Engine {
     return join(state ?? join(tmpdir(), "marbles"), "worktrees");
   }
 
-  static persistence(
-    options: Pick<EngineOptions, "dry" | "spawned" | "state">
-  ): { readonly spawned?: string; readonly state?: string } {
-    if (options.dry === true) {
-      return {};
-    }
+  static persistence(options: Pick<EngineOptions, "spawned" | "state">): {
+    readonly spawned?: string;
+    readonly state?: string;
+  } {
     const { spawned, state } = options;
     return {
       ...(spawned === undefined ? {} : { spawned }),
@@ -365,7 +363,12 @@ export class Engine {
       registry: this.#definitions.registry,
       store: automations,
     });
-    this.interactions = interactionsOf(options, this.#publisher);
+    this.authorization = authorizationOf(options);
+    this.interactions = interactionsOf(
+      options,
+      this.#publisher,
+      this.authorization
+    );
     const sandboxes = new SandboxesManager({
       containers:
         typeof containers === "function"
@@ -380,6 +383,7 @@ export class Engine {
     this.agents = agentsOf(options, {
       activities: this.activities,
       agentIdOf: resolveAgentId,
+      authorization: this.authorization,
       automations: this.automations,
       context: this.context,
       executions: this.#executions,
@@ -389,7 +393,6 @@ export class Engine {
     });
     this.artifacts = new ArtifactsManager({
       artifacts: options.artifacts,
-      ...(options.artifactReads ? { readThrough: options.artifactReads } : {}),
       workspaceId,
     });
     this.workspaces = new WorkspacesManager({

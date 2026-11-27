@@ -4,8 +4,10 @@ import type { DriverRun, ReportTool } from "../harness/tool-report";
 import { executePiTool } from "./tools";
 
 interface PiEventOptions {
+  agentId: string;
   close(): void;
   finish(error?: Error): void;
+  nativeTools?: readonly string[];
   push(part: StreamPart): void;
   report: ReportTool;
   run: DriverRun;
@@ -13,6 +15,7 @@ interface PiEventOptions {
 }
 
 export function createPiEvents(options: PiEventOptions) {
+  const nativeTools = new Set(options.nativeTools ?? []);
   let turns = 0;
   let messageIndex = 0;
   let input = 0;
@@ -55,7 +58,12 @@ export function createPiEvents(options: PiEventOptions) {
     const result =
       event.title === "foundry.permission"
         ? await nativePermission(call)
-        : await executePiTool(options.run, options.report, call);
+        : await executePiTool(
+            options.run,
+            options.report,
+            call,
+            options.agentId
+          );
     await options.send({
       id: event.id,
       type: "extension_ui_response",
@@ -69,6 +77,14 @@ export function createPiEvents(options: PiEventOptions) {
   }) => {
     await options.report({ ...call, outcome: "started" });
     options.run.signal.throwIfAborted();
+    if (!nativeTools.has(call.toolName)) {
+      await options.report({
+        ...call,
+        outcome: "refused",
+        reason: "Unknown Pi tool",
+      });
+      return { success: false, text: "Unknown Pi tool" };
+    }
     const permission = await options.run.permission({
       ...call,
       sessionId: options.run.sessionId,

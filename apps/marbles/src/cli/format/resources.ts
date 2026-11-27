@@ -1,21 +1,54 @@
-import type { ResourceView, Shown } from "~/database/resources";
+import type { Artifact } from "@foundry/artifacts";
+import type { ContainerRow } from "@foundry/sandbox";
+import type { ArtifactFile, ResourceView } from "~/database/resources";
 import type { ResourceKind } from "~/lib/resources";
 import type { RunStep } from "~/lib/run-trace";
 import { runSteps } from "~/lib/run-trace";
-import type {
-  ArtifactResourceItem,
-  ResourceItem,
-  RunResourceItem,
-  SandboxResourceItem,
-  SessionResourceItem,
-} from "~/service/ports";
+import type { RunRecord } from "~/lib/workflow-runs";
+
+interface ResourceOwnership {
+  readonly id: string;
+  readonly owner: string;
+}
+
+interface ArtifactResourceItem extends ResourceOwnership {
+  readonly files?: readonly ArtifactFile[];
+  readonly name: string;
+  readonly status: Artifact["status"];
+  readonly type: Artifact["type"];
+  readonly updatedAt: string;
+}
+
+interface RunResourceItem extends ResourceOwnership {
+  readonly createdAt: string;
+  readonly status: RunRecord["status"];
+  readonly step: RunRecord["step"];
+  readonly steps: readonly RunStep[];
+}
+
+interface SandboxResourceItem extends ResourceOwnership {
+  readonly createdAt: string;
+  readonly status: ContainerRow["status"];
+}
+
+interface SessionResourceItem extends ResourceOwnership {
+  readonly messages: number;
+  readonly summarized: boolean;
+  readonly updatedAt: string;
+}
+
+export type ResourceItem =
+  | ArtifactResourceItem
+  | RunResourceItem
+  | SandboxResourceItem
+  | SessionResourceItem;
 
 export async function resourceLines(
   kind: ResourceKind,
   view: ResourceView,
   here: string
 ): Promise<string[]> {
-  return resourceItemLines(kind, await viewItems(kind, view), here);
+  return resourceItemLines(kind, await resourceItems(kind, view), here);
 }
 
 export function resourceItemLines(
@@ -99,15 +132,7 @@ export function resourceDetailLines(
   }
 }
 
-function ownership(shown: Shown<unknown>): {
-  readonly owner: string;
-  readonly sharedWith: readonly string[];
-} {
-  const [owner = "", ...sharedWith] = shown.workspaces;
-  return { owner, sharedWith };
-}
-
-async function viewItems(
+export async function resourceItems(
   kind: ResourceKind,
   view: ResourceView
 ): Promise<readonly ResourceItem[]> {
@@ -116,7 +141,7 @@ async function viewItems(
       return (await view.artifacts()).map((shown) => ({
         id: shown.ref.id,
         name: shown.value.name,
-        ...ownership(shown),
+        owner: shown.ref.owner,
         status: shown.value.status,
         type: shown.value.type,
         updatedAt: shown.value.updatedAt.toISOString(),
@@ -127,7 +152,7 @@ async function viewItems(
         return {
           createdAt: new Date(record.timestamps.createdAt).toISOString(),
           id: record.id,
-          ...ownership(shown),
+          owner: shown.ref.owner,
           status: record.status,
           step: record.step,
           steps: runSteps(record),
@@ -137,7 +162,7 @@ async function viewItems(
       return (await view.sandboxes()).map((shown) => ({
         createdAt: new Date(shown.value.createdAt).toISOString(),
         id: shown.ref.id,
-        ...ownership(shown),
+        owner: shown.ref.owner,
         status: shown.value.status,
       }));
     case "session": {
@@ -148,7 +173,7 @@ async function viewItems(
         return {
           id: shown.ref.id,
           messages: tally?.messages ?? 0,
-          ...ownership(shown),
+          owner: shown.ref.owner,
           summarized: Boolean(tally?.summarized),
           updatedAt: new Date(shown.value.updatedAt).toISOString(),
         };
@@ -159,6 +184,23 @@ async function viewItems(
   }
 }
 
+export async function resourceDetail(
+  kind: ResourceKind,
+  view: ResourceView,
+  id: string
+): Promise<ResourceItem | undefined> {
+  const found = (await resourceItems(kind, view)).find(
+    (item) => item.id === id
+  );
+  if (found === undefined || kind !== "artifact") {
+    return found;
+  }
+  return {
+    ...(found as ArtifactResourceItem),
+    files: await view.artifactFiles({ id, kind, owner: found.owner }),
+  };
+}
+
 function stepLines(steps: readonly RunStep[], indent: string): string[] {
   return steps.flatMap((step) => [
     `${indent}${step.name}  [${step.status}]`,
@@ -167,10 +209,8 @@ function stepLines(steps: readonly RunStep[], indent: string): string[] {
 }
 
 function belongingItem(
-  item: Pick<ResourceItem, "owner" | "sharedWith">,
+  item: Pick<ResourceItem, "owner">,
   here: string
 ): string {
-  const from = item.owner === here ? "" : `  from ${item.owner}`;
-  const others = item.sharedWith.filter((workspace) => workspace !== here);
-  return `${from}${others.length === 0 ? "" : `  shared with ${others.join(", ")}`}`;
+  return item.owner === here ? "" : `  from ${item.owner}`;
 }

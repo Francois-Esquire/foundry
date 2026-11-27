@@ -207,7 +207,6 @@ describe("an engine that does not record a source", () => {
     const engine = createEngine({
       artifacts: machine.root,
       catalog,
-      dry: true,
       print: (line) => lines.push(line),
       providers: [],
       root: machine.root,

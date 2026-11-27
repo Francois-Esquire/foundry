@@ -10,7 +10,7 @@ import { step, workflow } from "~/authoring/builder";
 import { agent, artifact, sandbox, workspace } from "~/authoring/resources";
 import { dispose, setDefaultRuntime, setHost } from "~/authoring/runtime";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import type { Reply } from "~/lib/models/echo";
+import type { Reply } from "../helpers/echo";
 import { startEngine, testEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
 import { seedRepository } from "../helpers/repository";

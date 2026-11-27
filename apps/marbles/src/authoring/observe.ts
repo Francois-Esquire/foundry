@@ -13,7 +13,6 @@ import { trackCreatedDeclaration } from "~/authoring/runtime";
 import type { Fact, Handler, Observable, Source } from "~/lib/events/source";
 import { SOURCE, sourceKey } from "~/lib/events/source";
 import { OBSERVER_META } from "~/lib/handles";
-import type { ArtifactShareEvent } from "~/lib/resources";
 import type { RunEvent } from "~/lib/workflow-runs";
 
 export interface ObserverMeta {
@@ -36,8 +35,8 @@ export function observe(
 ): Observer;
 export function observe(
   source: typeof artifact,
-  handler: Handler<ArtifactEvent | ArtifactShareEvent>,
-  options?: ObserveOptions<ArtifactEvent | ArtifactShareEvent>
+  handler: Handler<ArtifactEvent>,
+  options?: ObserveOptions<ArtifactEvent>
 ): Observer;
 export function observe(
   source: typeof sandbox,

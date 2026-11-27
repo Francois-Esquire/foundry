@@ -8,6 +8,7 @@ import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it } from "vitest";
 import { marblesDeliveryClaims } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
@@ -75,7 +76,11 @@ describe("a claim recorded by another engine", () => {
         ownerStarted: owner.started,
         scope,
       });
-      const records = new DatabaseWorkspaceRecords({ database: db, scope });
+      const records = new DatabaseWorkspaceRecords({
+        database: db,
+        liveness: NODE_OWNER_LIVENESS,
+        scope,
+      });
       const holder = await records.claimDelivery();
       expect([name, holder === undefined]).toEqual([name, !held]);
       if (holder === undefined) {

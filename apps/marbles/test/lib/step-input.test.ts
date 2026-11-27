@@ -154,7 +154,6 @@ describe("input to live work in a step", () => {
     const work = new StepWork("remote");
     const exec = commandRunner({
       cwd: () => root,
-      dry: false,
       print: () => undefined,
       signal: () => undefined,
       work,
@@ -178,21 +177,6 @@ describe("input to live work in a step", () => {
     finish();
     await expect(running).resolves.toMatchObject({ stdout: "done" });
     expect(work.list()).toEqual([]);
-  });
-
-  it("a dry run starts nothing, so nothing is live", async () => {
-    const exec = commandRunner({
-      cwd: () => root,
-      dry: true,
-      print: () => undefined,
-      signal: () => undefined,
-      work: {
-        begin: (started: unknown) => {
-          throw new Error(`registered ${JSON.stringify(started)}`);
-        },
-      } as unknown as StepWork,
-    });
-    await expect(exec(["make"])).resolves.toMatchObject({ exitCode: 0 });
   });
 
   it("an agent turn in a step is live work that a person can steer by its id", async () => {

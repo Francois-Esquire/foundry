@@ -11,7 +11,7 @@ interface EventOptions {
   onTurn: (params: Record<string, unknown>) => void;
   push: (part: StreamPart) => void;
   run: DriverRun;
-  stop: () => void;
+  stop: (error?: Error) => void;
   subscribeChild: (threadId: string) => Promise<void>;
 }
 
@@ -20,7 +20,36 @@ export function createCodexEvents(options: EventOptions) {
   const { push } = options;
   const activities = createNativeActivities(run, crypto.randomUUID());
   const tools = toolReporter(options.agentId, "codex", () => run);
+  const countedSteps = new Set<string>();
   let steps = 0;
+  let limitExceeded = false;
+  const recordStep = async (call: {
+    activityId?: string;
+    input: unknown;
+    toolCallId: string;
+    toolName: string;
+  }): Promise<boolean> => {
+    if (limitExceeded) {
+      return false;
+    }
+    if (call.toolCallId === "unknown" || !countedSteps.has(call.toolCallId)) {
+      if (call.toolCallId !== "unknown") {
+        countedSteps.add(call.toolCallId);
+      }
+      steps += 1;
+    }
+    if (steps > run.profile.maxSteps) {
+      limitExceeded = true;
+      await tools.report({
+        ...call,
+        outcome: "refused",
+        reason: "Harness tool step limit exceeded",
+      });
+      options.stop(new Error("Codex exceeded the harness tool step limit."));
+      return false;
+    }
+    return true;
+  };
   const activityId = (threadId: unknown) =>
     typeof threadId === "string" && !options.isParentThread(threadId)
       ? activities.id(threadId)
@@ -57,22 +86,8 @@ export function createCodexEvents(options: EventOptions) {
       });
       return;
     }
-    steps += 1;
     await tools.report({ ...report, outcome: "started" });
-    if (steps > run.profile.maxSteps) {
-      await tools.report({
-        input: item,
-        outcome: "refused",
-        reason: "Harness tool step limit exceeded",
-        toolCallId,
-        toolName: name,
-      });
-      push({
-        error: new Error("Codex exceeded the harness tool step limit."),
-        type: "error",
-      });
-      options.stop();
-    }
+    await recordStep(report);
   };
   return {
     activityId,
@@ -128,11 +143,14 @@ export function createCodexEvents(options: EventOptions) {
       };
       await handlers[method]?.();
     },
+    recordStep,
     report: tools.report,
     setRun(value: DriverRun) {
       run = value;
       activities.setRun(value);
       tools.reset();
+      countedSteps.clear();
+      limitExceeded = false;
       steps = 0;
     },
     stoppableNativeId: activities.taskId,

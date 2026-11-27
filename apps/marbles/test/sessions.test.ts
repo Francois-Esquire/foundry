@@ -7,11 +7,11 @@ import { z } from "zod";
 import { resourceLines } from "~/cli/format/resources";
 import { ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
-import { CLAUDE_CODE } from "~/lib/harnesses";
-
+import { insideState } from "~/lib/state/workspace";
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
 import { durableSessions } from "./helpers/durable-sessions";
+import { CLAUDE_CODE } from "./helpers/harnesses";
 import { launch } from "./helpers/launch";
 import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";
@@ -133,9 +133,9 @@ describe("the sessions a workspace shows", () => {
     });
 
     const view = new ResourceView({
+      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
       database,
       scope: { workspace: "ws" },
-      state: machine.root,
     });
     expect(await resourceLines("session", view, "ws")).toEqual([
       "newer  1 messages  2026-09-10T11:00:00.000Z  summary: no",

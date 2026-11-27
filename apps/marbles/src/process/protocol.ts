@@ -145,7 +145,6 @@ export type HelloResult = z.infer<typeof helloResultSchema>;
 const setupDraftSchema = z.object({
   instructions: z.string(),
   name: z.string(),
-  template: z.string(),
 });
 export type SetupDraftParams = z.infer<typeof setupDraftSchema>;
 

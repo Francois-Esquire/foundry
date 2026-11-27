@@ -17,7 +17,7 @@ export function workspaceLines(workspace: WorkspaceStatus): string[] {
     ...(workspace.schedules.length === 0 ? ["none recorded"] : []),
     `runs (${workspace.runs.total})`,
     ...workspace.runs.recent.flatMap((run) => [
-      `${run.step}  [${run.status}]${run.orphaned ? " orphaned (pid gone)" : ""}${run.sharedFrom === undefined ? "" : ` shared from ${run.sharedFrom}`}`,
+      `${run.step}  [${run.status}]${run.orphaned ? " orphaned (pid gone)" : ""}`,
       `  ${new Date(run.createdAt).toISOString()} · ${run.id}`,
       ...(run.steps.length === 0
         ? []

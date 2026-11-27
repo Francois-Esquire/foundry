@@ -1,4 +1,7 @@
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
+import { Authorization } from "@foundry/authorization";
+import type { AuthorizationStore } from "@foundry/authorization/store";
+import { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { type CommitEffects, runAfterCommit } from "@foundry/core/storage";
 import { canonicalizeJson } from "@foundry/lib/json";
@@ -16,6 +19,11 @@ import type {
 } from "./domain";
 import { createDisabledInstallation } from "./domain";
 import { ModuleStoreConflictError, ModuleStoreNotFoundError } from "./errors";
+import {
+  installationGrantsFrom,
+  MODULE_CAPABILITY_ACTION,
+  moduleInstallationPrincipal,
+} from "./grants";
 import type { ModuleManifest } from "./manifest";
 import { page } from "./page";
 import type {
@@ -23,7 +31,6 @@ import type {
   RetainedManifest,
   StoredInstallation,
 } from "./records";
-import { grantCapabilitiesProblem } from "./records";
 import type {
   ModuleStore,
   ModuleStoreDurability,
@@ -36,7 +43,10 @@ import { MemoryModuleStore } from "./store/memory";
 
 export type { InstallationGrant, RetainedManifest } from "./records";
 
-export type ModuleGatewayContext = StoredInstallation;
+export interface ModuleGatewayContext {
+  readonly grants: readonly InstallationGrant[];
+  readonly installation: Installation;
+}
 
 export interface RegisterModuleInput {
   readonly module: Module;
@@ -96,19 +106,6 @@ export interface DeleteInstallationInput {
   readonly installationId: InstallationId;
 }
 
-export interface ReplaceInstallationGrantsInput {
-  readonly expectedGeneration: number;
-  readonly grants: readonly Omit<InstallationGrant, "createdAt">[];
-  readonly installationId: InstallationId;
-  readonly now: Date;
-}
-
-export interface RevokeInstallationGrantInput {
-  readonly capability: string;
-  readonly expectedGeneration: number;
-  readonly installationId: InstallationId;
-}
-
 export interface DeleteModuleInput {
   readonly moduleId: ModuleId;
 }
@@ -117,6 +114,8 @@ export interface ModulesOptions {
   readonly artifactOfContent?: (
     contentId: ContentId
   ) => Promise<ArtifactId | null>;
+  readonly authorization?: Authorization;
+  readonly authorizationStore?: AuthorizationStore;
   readonly store?: ModuleStore;
 }
 
@@ -154,7 +153,9 @@ const BOUND = new WeakSet<Modules>();
 const STORE_PAGE_LIMIT = 500;
 
 export class Modules {
+  readonly authorization: Authorization;
   readonly durability: ModuleStoreDurability;
+  readonly #authorizationStore: AuthorizationStore | undefined;
   readonly #store: ModuleStore;
   readonly #artifactOfContent: ModulesOptions["artifactOfContent"];
   readonly #turns = new Turns(REENTRY);
@@ -163,14 +164,33 @@ export class Modules {
     this.#store = options.store ?? new MemoryModuleStore();
     this.#artifactOfContent = options.artifactOfContent;
     this.durability = this.#store.durability ?? "commit";
+    if (options.authorization !== undefined) {
+      this.authorization = options.authorization;
+      this.#authorizationStore = options.authorizationStore;
+    } else if (options.authorizationStore !== undefined) {
+      this.#authorizationStore = options.authorizationStore;
+      this.authorization = new Authorization({
+        store: options.authorizationStore,
+      });
+    } else if (this.#store.openAuthorizationStore === undefined) {
+      const authStore = new MemoryAuthorizationStore();
+      this.#authorizationStore = authStore;
+      this.authorization = new Authorization({ store: authStore });
+    } else {
+      const authStore = this.#store.openAuthorizationStore();
+      this.#authorizationStore = authStore;
+      this.authorization = new Authorization({ store: authStore });
+    }
   }
 
   static #boundTo(
     view: ModuleStore,
     durability: ModuleStoreDurability,
-    artifactOfContent: ModulesOptions["artifactOfContent"]
+    artifactOfContent: ModulesOptions["artifactOfContent"],
+    authorization: Authorization
   ): Modules {
     const registry = new Modules({
+      authorization,
       store: withoutTransaction(view, durability),
       ...(artifactOfContent === undefined ? {} : { artifactOfContent }),
     });
@@ -195,18 +215,56 @@ export class Modules {
       },
     };
     const rollsBack = this.#store.transaction !== undefined;
+    const txDurability = rollsBack ? "host" : this.durability;
     let result: T;
     try {
-      result = await this.#exclusive((store) =>
-        work(
+      result = await this.#exclusive(async (store) => {
+        if (store.openAuthorizationStore !== undefined) {
+          const txAuth = this.authorization.within(
+            store.openAuthorizationStore(),
+            effects
+          );
+          return await work(
+            Modules.#boundTo(
+              store,
+              txDurability,
+              this.#artifactOfContent,
+              txAuth
+            ),
+            effects
+          );
+        }
+        if (this.#authorizationStore?.transaction !== undefined) {
+          return await this.#authorizationStore.transaction(
+            async (txAuthStore) => {
+              const txAuth = this.authorization.within(txAuthStore, effects);
+              return await work(
+                Modules.#boundTo(
+                  store,
+                  txDurability,
+                  this.#artifactOfContent,
+                  txAuth
+                ),
+                effects
+              );
+            }
+          );
+        }
+        if (rollsBack) {
+          throw new TypeError(
+            "Modules.transaction() requires an authorizationStore (or store.openAuthorizationStore) to guarantee atomic rollback."
+          );
+        }
+        return await work(
           Modules.#boundTo(
             store,
-            rollsBack ? "host" : this.durability,
-            this.#artifactOfContent
+            txDurability,
+            this.#artifactOfContent,
+            this.authorization
           ),
           effects
-        )
-      );
+        );
+      });
     } catch (error) {
       open = false;
       if (!rollsBack) {
@@ -395,7 +453,6 @@ export class Modules {
       version: VERSION,
     });
     const created: StoredInstallation = {
-      grants: [],
       installation: createDisabledInstallation(owned),
     };
     await this.#assertContent(owned.version);
@@ -485,63 +542,26 @@ export class Modules {
 
   async deleteInstallation(input: DeleteInstallationInput): Promise<void> {
     const owned = ownedInput<DeleteInstallationInput>(input, TARGET);
-    return await this.#exclusive(async (store) => {
+    if (BOUND.has(this)) {
       atGeneration(
-        await store.getInstallation(owned.installationId),
+        await this.#store.getInstallation(owned.installationId),
         owned.installationId,
         owned.expectedGeneration
       );
-      await store.commit({ deleteInstallations: [owned.installationId] });
-    });
-  }
-
-  async replaceInstallationGrants(
-    input: ReplaceInstallationGrantsInput
-  ): Promise<readonly InstallationGrant[]> {
-    const owned = ownedInput<ReplaceInstallationGrantsInput>(input, {
-      ...TRANSITION,
-      grants: [
-        { capability: "value", constraintsDigest: "value", version: "value" },
-      ],
-    });
-    return await this.#change(owned, (stored) => {
-      const problem = grantCapabilitiesProblem(owned.grants);
-      if (problem !== null) {
-        throw new ModuleStoreConflictError(problem);
-      }
-      const grants = owned.grants
-        .map((grant) => copyGrant({ ...grant, createdAt: owned.now }))
-        .sort(byCodeUnit((grant) => grant.capability));
-      return {
-        next: { ...stored, grants },
-        result: Object.freeze(grants.map(copyGrant)),
-      };
-    });
-  }
-
-  async revokeInstallationGrant(
-    input: RevokeInstallationGrantInput
-  ): Promise<InstallationGrant> {
-    const owned = ownedInput<RevokeInstallationGrantInput>(input, {
-      ...TARGET,
-      capability: "value",
-    });
-    return await this.#change(owned, (stored) => {
-      const revoked = stored.grants.find(
-        (grant) => grant.capability === owned.capability
-      );
-      if (revoked === undefined) {
-        throw new ModuleStoreConflictError(
-          `Installation ${owned.installationId} has no grant for ${owned.capability}`
-        );
-      }
-      return {
-        next: {
-          ...stored,
-          grants: stored.grants.filter((grant) => grant !== revoked),
+      await this.authorization.revoke(
+        {
+          kind: "principal",
+          principal: moduleInstallationPrincipal(owned.installationId),
         },
-        result: copyGrant(revoked),
-      };
+        "Installation deleted"
+      );
+      await this.#store.commit({
+        deleteInstallations: [owned.installationId],
+      });
+      return;
+    }
+    await this.transaction(async (registry) => {
+      await registry.deleteInstallation(owned);
     });
   }
 
@@ -552,8 +572,13 @@ export class Modules {
     if (stored === null) {
       return null;
     }
+    const activeGrants = await this.authorization.listGrants({
+      action: MODULE_CAPABILITY_ACTION,
+      principal: moduleInstallationPrincipal(installationId),
+      state: "active",
+    });
     return Object.freeze({
-      grants: Object.freeze(stored.grants.map(copyGrant)),
+      grants: installationGrantsFrom(activeGrants),
       installation: copyInstallation(stored.installation),
     });
   }
@@ -836,14 +861,5 @@ function copyInstallation(value: Installation): Installation {
     startAttempts: value.startAttempts,
     status: value.status,
     updatedAt: new Date(value.updatedAt),
-  });
-}
-
-function copyGrant(value: InstallationGrant): InstallationGrant {
-  return Object.freeze({
-    capability: value.capability,
-    constraintsDigest: value.constraintsDigest,
-    createdAt: new Date(value.createdAt),
-    version: value.version,
   });
 }
