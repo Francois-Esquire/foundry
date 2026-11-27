@@ -24,6 +24,7 @@ import { marblesGenerations } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, layout, stateDatabase } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type {
   DispatchOptions,
   WorkspaceState,
@@ -111,7 +112,11 @@ async function daemonFor(machine: Layout, lines: string[] = []) {
 
 async function storedTasks(machine: Layout, id: string) {
   return await readDatabase(stateDatabase(machine.state), async (database) => {
-    const records = new DatabaseWorkspaceRecords({ database, scope: id });
+    const records = new DatabaseWorkspaceRecords({
+      database,
+      liveness: NODE_OWNER_LIVENESS,
+      scope: id,
+    });
     return {
       changes: (await records.log.read({ after: 0, source: "tasks" })).length,
       snapshot: await records.taskStore.snapshot(),

@@ -12,6 +12,7 @@ export type PackageTier = "primitives" | "tools" | "domains";
 export const PACKAGE_TIERS: Readonly<Record<string, PackageTier>> = {
   "@foundry/agents": "domains",
   "@foundry/artifacts": "domains",
+  "@foundry/authorization": "domains",
   "@foundry/core": "primitives",
   "@foundry/lib": "primitives",
   "@foundry/models": "tools",

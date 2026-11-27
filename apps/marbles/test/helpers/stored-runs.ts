@@ -5,8 +5,7 @@ import {
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { type Occurrence, occurrenceId } from "@foundry/scheduling";
 import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";
-import { openDatabase, readDatabase } from "~/database/open";
-import { readResourceView } from "~/database/resources";
+import { openDatabase, readDatabase, readResourceView } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { stateDatabase } from "~/layout";
 import { ownerOfRun } from "~/lib/execution-record";

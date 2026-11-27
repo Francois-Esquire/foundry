@@ -11,11 +11,16 @@ import { Tasks } from "@foundry/tasks";
 import { tasks as taskRows } from "@foundry/tasks/store/tables";
 import { afterEach, describe, expect, it } from "vitest";
 import { IncompatibleDatabaseError, MIGRATIONS } from "~/database/migrate";
-import { initializeDatabase, readDatabase } from "~/database/open";
+import {
+  initializeDatabase,
+  openHostDatabase,
+  readDatabase,
+} from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { openHostDatabase, WorkspaceRegistry } from "~/database/workspaces";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import { workspaceState } from "~/lib/state/workspace";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import { insideState, workspaceState } from "~/lib/state/workspace";
 
 const roots: string[] = [];
 
@@ -64,6 +69,7 @@ describe("a writer's handle kept open while a newer Marbles migrates", () => {
     try {
       const records = new DatabaseWorkspaceRecords({
         database: host.database,
+        liveness: NODE_OWNER_LIVENESS,
         scope: workspace.id,
       });
       const tasks = new Tasks({ store: records.taskStore });
@@ -88,10 +94,10 @@ describe("a writer's handle kept open while a newer Marbles migrates", () => {
             to: position + 1,
           }),
         () =>
-          new WorkspaceRegistry({ database: host.database, state }).touch(
-            workspace,
-            null
-          ),
+          new WorkspaceRegistry({
+            acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+            database: host.database,
+          }).touch(workspace, null),
       ]) {
         await expect(attempt()).rejects.toSatisfy(incompatible);
       }

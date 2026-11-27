@@ -3,6 +3,7 @@ import { initializeDatabase } from "~/database/open";
 import { resourceAssociations } from "~/database/resources";
 import { marblesMonitorStates } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import { insideState } from "~/lib/state/workspace";
 import { otherWorkspaces } from "~/workspace/others";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns, seedSchedules } from "./helpers/stored-runs";
@@ -54,10 +55,9 @@ describe("other workspaces on the dashboard", () => {
         pending: { input: null, workflow: "refresh" },
         scope: "ws2",
       });
-      await resourceAssociations(database, state).share(
-        { id: "rn-shared", kind: "run", owner: "ws2" },
-        "ws1"
-      );
+      await resourceAssociations(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      }).share({ id: "rn-shared", kind: "run", owner: "ws2" }, "ws1");
       const read = otherWorkspaces({ database, state, workspace: "ws1" });
       const { runs, triggers } = await read(Date.now());
       expect(runs.map((run) => run.id)).toEqual(["rn-shared", "rn-two"]);
@@ -107,10 +107,9 @@ describe("other workspaces on the dashboard", () => {
     const opened = await initializeDatabase(stateDatabase(state));
     try {
       const { database } = opened;
-      await resourceAssociations(database, state).share(
-        { id: "rn-two", kind: "run", owner: "ws2" },
-        "ws1"
-      );
+      await resourceAssociations(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      }).share({ id: "rn-two", kind: "run", owner: "ws2" }, "ws1");
       const { runs } = await otherWorkspaces({
         database,
         state,

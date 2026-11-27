@@ -10,12 +10,11 @@ import { inArray } from "drizzle-orm";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { resourceLines } from "~/cli/format/resources";
 import type { StoreDatabase } from "~/database/open";
-import { initializeDatabase } from "~/database/open";
+import { initializeDatabase, readResourceView } from "~/database/open";
 import {
   ALL_WORKSPACES,
   associationTransaction,
   ResourceView,
-  readResourceView,
   resourceAssociations,
 } from "~/database/resources";
 import { DatabaseRunStore } from "~/database/runs";
@@ -28,6 +27,7 @@ import {
   ResourceAssociationError,
   ResourceAssociations,
 } from "~/lib/resources";
+import { insideState } from "~/lib/state/workspace";
 import { runStoreEffect } from "~/lib/workflow-runs";
 import { putRun } from "./helpers/queue-runs";
 import { seedWorkspace } from "./helpers/registry";
@@ -100,7 +100,11 @@ async function withAssociations<T>(
 ): Promise<T> {
   const opened = await initializeDatabase(stateDatabase(state));
   try {
-    return await work(resourceAssociations(opened.database, state));
+    return await work(
+      resourceAssociations(opened.database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      })
+    );
   } finally {
     opened.close();
   }
@@ -325,7 +329,9 @@ describe("the resource views", () => {
     const opened = await initializeDatabase(stateDatabase(state));
     try {
       const { database } = opened;
-      const real = associationTransaction(database, state);
+      const real = associationTransaction(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      });
       let checked: () => void = () => undefined;
       let resume: () => void = () => undefined;
       const wasChecked = new Promise<void>((settle) => {
@@ -367,7 +373,9 @@ describe("the resource views", () => {
       resume();
       expect(await sharing).toBe(true);
       await deleting;
-      const associations = resourceAssociations(database, state);
+      const associations = resourceAssociations(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      });
       expect(await associations.sharedWith(artifact)).toEqual([]);
       await artifacts.create({
         entries: { "notes.md": { bytes: "# New\n", mime: "text/markdown" } },
@@ -393,7 +401,9 @@ describe("the resource views", () => {
         await sessions.createSession({ id: `many-${String(index)}` });
       }
       await seedRunsOn(database, "ws2", 20);
-      const associations = resourceAssociations(database, state);
+      const associations = resourceAssociations(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      });
       for (let index = 0; index < 20; index += 1) {
         await associations.share(
           { id: `rn-shared-${String(index)}`, kind: "run", owner: "ws2" },
@@ -411,9 +421,9 @@ describe("the resource views", () => {
         vi.restoreAllMocks();
       });
       const view = new ResourceView({
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
         database,
         scope: { workspace: "ws1" },
-        state,
       });
       const lines = await resourceLines("session", view, "ws1");
       expect(lines).toHaveLength(31);
@@ -444,7 +454,9 @@ describe("the resource views", () => {
           return typeof value === "function" ? value.bind(target) : value;
         },
       });
-      const associations = resourceAssociations(counted, state);
+      const associations = resourceAssociations(counted, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      });
       expect(await associations.sharedWith(artifact)).toEqual([]);
       expect(transactions).toBe(0);
       await associations.share(artifact, "ws2");
@@ -459,7 +471,9 @@ describe("the resource views", () => {
     const opened = await initializeDatabase(stateDatabase(state));
     try {
       const { database } = opened;
-      const associations = resourceAssociations(database, state);
+      const associations = resourceAssociations(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      });
       await associations.share(artifact, "ws2");
       await associations.unshare(artifact, "ws2");
       await associations.share(

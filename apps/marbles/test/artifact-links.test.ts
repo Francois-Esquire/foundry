@@ -20,13 +20,14 @@ import { keepingLinks } from "~/database/artifact-links";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { artifactPlace, linkName, rebuildLinks } from "~/database/links";
 import { artifactBlobs } from "~/database/local-artifacts";
-import { readResourceView, resourceAssociations } from "~/database/resources";
+import { readResourceView } from "~/database/open";
+import { resourceAssociations } from "~/database/resources";
 import { workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks, workspaceLinks } from "~/layout";
 import type { Engine } from "~/lib/engine";
 import { artifactIdFor } from "~/lib/managers/artifacts";
-import { workspaceState } from "~/lib/state/workspace";
+import { insideState, workspaceState } from "~/lib/state/workspace";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -52,8 +53,8 @@ async function arranged() {
   const home = await realpath(await mkdtemp(join(tmpdir(), "marbles-links-")));
   const artifacts = join(home, "artifacts");
   const registry = new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
     database: machine.database.database,
-    state: machine.root,
   });
   const workspace = async (name: string, linked: boolean) => {
     const root = join(home, name);
@@ -178,10 +179,9 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
         "plan.md"
       );
     await settled(() => expect(existsSync(linkIn(one))).toBe(true));
-    await resourceAssociations(database, machine.root).share(
-      { id, kind: "artifact", owner: one.id },
-      two.id
-    );
+    await resourceAssociations(database, {
+      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
+    }).share({ id, kind: "artifact", owner: one.id }, two.id);
     await kept.write({
       artifactId: id,
       changes: {
@@ -211,7 +211,9 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       type: "text/markdown",
     });
     const ref = { id, kind: "artifact", owner: one.id } as const;
-    await resourceAssociations(database, machine.root).share(ref, two.id);
+    await resourceAssociations(database, {
+      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
+    }).share(ref, two.id);
     const [broken, healthy] = [one, two].sort((a, b) => (a.id < b.id ? -1 : 1));
     if (broken === undefined || healthy === undefined) {
       throw new Error("two workspaces");
@@ -618,10 +620,10 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     const fourRoot = join(one.root, "..", "four");
     mkdirSync(workspaceLinks(fourRoot), { recursive: true });
     const four = workspaceState(machine.root, fourRoot);
-    await new WorkspaceRegistry({ database, state: machine.root }).touch(
-      four,
-      null
-    );
+    await new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
+      database,
+    }).touch(four, null);
     const plain = workspaceStores(database, one.id).artifacts;
     const id = artifactIdSchema.parse("artifact#plan");
     await new Artifacts({
@@ -634,7 +636,9 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       type: "text/markdown",
     });
     const ref = { id, kind: "artifact", owner: one.id } as const;
-    const associations = resourceAssociations(database, machine.root);
+    const associations = resourceAssociations(database, {
+      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
+    });
     await associations.share(ref, two.id);
     await associations.share(ref, four.id);
     const record = await plain.getArtifact(id);

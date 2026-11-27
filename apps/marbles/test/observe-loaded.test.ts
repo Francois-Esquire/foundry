@@ -59,7 +59,7 @@ export const write = step("write").do(async ({ run }) => {
   await writeFile(
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
-import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 const { promise: allObserved, resolve: observedAll } = Promise.withResolvers();
 let observed = 0;
 globalThis.observed = () => {

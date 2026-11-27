@@ -10,7 +10,6 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-
 import { holdsLock } from "@foundry/lib/node/file-lock";
 import {
   compareStarts,
@@ -30,6 +29,7 @@ import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import {
   insideState,
   type Workspace,
@@ -310,10 +310,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     throw error;
   }
   const registry = new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(layout.state, workspaceId),
     database: database.database,
-    state: layout.state,
   });
-  const records = new GenerationRecords({ database: database.database });
+  const records = new GenerationRecords({
+    database: database.database,
+    liveness: NODE_OWNER_LIVENESS,
+  });
   let hostsWritten: Promise<void> = Promise.resolve();
   const hostsDue = new Set<Generation>();
   const currentDue = new Set<Generation>();

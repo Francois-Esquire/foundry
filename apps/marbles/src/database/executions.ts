@@ -14,7 +14,7 @@ import {
   marblesExecutions,
 } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import type {
   ExecutionObservation,
   ExecutionRun,

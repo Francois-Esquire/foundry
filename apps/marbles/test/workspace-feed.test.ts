@@ -10,6 +10,7 @@ import { resourceAssociations } from "~/database/resources";
 import { stateDatabase } from "~/layout";
 import { feedPublisher } from "~/lib/feed/publish";
 import { feedReader } from "~/lib/feed/read";
+import { insideState } from "~/lib/state/workspace";
 import { ALL_WORKSPACES, scopedFeed } from "~/tui/state/feed-model";
 import { workspaceFeed } from "~/workspace/feed";
 import { seedWorkspace } from "./helpers/registry";
@@ -81,19 +82,17 @@ describe("the workspace feed", () => {
       expect(await titles("ws1")).toEqual(["mine"]);
       expect(await titles("ws2")).toEqual(["theirs"]);
 
-      await resourceAssociations(database, state).share(
-        { id: theirs, kind: "artifact", owner: "ws2" },
-        "ws1"
-      );
+      await resourceAssociations(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      }).share({ id: theirs, kind: "artifact", owner: "ws2" }, "ws1");
       expect(await titles("ws1")).toEqual(["mine", "theirs"]);
       expect(await titles(ALL_WORKSPACES)).toEqual(["mine", "theirs"]);
       const shared = (await feed(later())).find((entry) => entry.id === theirs);
       expect(shared?.workspace.id).toBe("ws2");
       expect(shared?.workspaces).toEqual(["ws2", "ws1"]);
-      await resourceAssociations(database, state).unshare(
-        { id: theirs, kind: "artifact", owner: "ws2" },
-        "ws1"
-      );
+      await resourceAssociations(database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      }).unshare({ id: theirs, kind: "artifact", owner: "ws2" }, "ws1");
       expect(
         (await feed(new Date(clock + 1000))).find(
           (entry) => entry.id === theirs

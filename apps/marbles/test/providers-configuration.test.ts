@@ -54,7 +54,7 @@ class TestStore implements ProviderStore {
     return { release: () => resolve(undefined) };
   }
 
-  identityKey(make: boolean): Promise<Buffer | undefined> {
+  identityKey(make: boolean): Promise<Uint8Array | undefined> {
     this.keyAsks += 1;
     const refusal = this.refusing.key.shift();
     if (refusal !== undefined) {

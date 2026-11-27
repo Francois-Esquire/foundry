@@ -9,6 +9,7 @@ import { WorkspaceRegistry } from "~/database/workspaces";
 import type { FeedEntrySnapshot, FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 import type { ResourceAssociation } from "~/lib/resources";
+import { insideState } from "~/lib/state/workspace";
 
 export interface WorkspaceFeedOptions {
   readonly artifacts: string;
@@ -22,7 +23,10 @@ const ELSEWHERE_MS = 2000;
 
 export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
   const { artifacts, database, own, state, workspace } = options;
-  const registry = new WorkspaceRegistry({ database, state });
+  const registry = new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+    database,
+  });
   const associations = new DatabaseAssociationStore({ database });
   const readers = new Map<string, FeedReader>();
   const readerOf = (owner: string): FeedReader => {

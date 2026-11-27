@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import { storableJson } from "~/lib/json-data";
 import type { RecordedUsageFact } from "~/lib/usage";
 
