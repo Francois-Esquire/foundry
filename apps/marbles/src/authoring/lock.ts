@@ -1,5 +1,5 @@
 import { enqueueDefinition, runDefinition } from "~/authoring/instances";
-import { captureScope } from "~/authoring/runtime";
+import { captureScope, trackLockedDeclaration } from "~/authoring/runtime";
 import type {
   AnyDefinition,
   LockedNode,
@@ -126,6 +126,7 @@ function lock(
       );
     }
   }
+  trackLockedDeclaration(definition);
   return {
     children: pairs,
     definition,

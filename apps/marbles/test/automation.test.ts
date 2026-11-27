@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
+import type { CollectInput } from "~/authoring/catalog";
 import { monitor } from "~/authoring/triggers";
 import { DatabaseAutomationStore } from "~/database/automations";
 import type { MarblesDatabase } from "~/database/open";
@@ -53,9 +53,12 @@ async function storeAt(state?: string): Promise<AutomationStore> {
   });
 }
 
-async function serviceAt(state?: string): Promise<AutomationService> {
+async function serviceAt(
+  state?: string,
+  declarations: CollectInput = []
+): Promise<AutomationService> {
   return new AutomationService({
-    registry: declared(),
+    registry: declared(declarations),
     store: await storeAt(state),
   });
 }
@@ -79,7 +82,6 @@ function loopEngine(
 }
 
 afterEach(() => {
-  catalog.reset();
   for (const opened of databases.values()) {
     opened.close();
   }
@@ -91,10 +93,10 @@ afterEach(() => {
 
 it("persists declarative records, keeps stable ids and restores enabled state", async () => {
   const state = temp();
-  step("target")
+  const target = step("target")
     .input(z.object({ value: z.number() }))
     .do(({ input }) => input.value);
-  const service = await serviceAt(state);
+  const service = await serviceAt(state, [target]);
   const spec = {
     at: "1h",
     input: { value: 2 },
@@ -104,9 +106,8 @@ it("persists declarative records, keeps stable ids and restores enabled state", 
   const record = await service.create(spec, owner);
   expect(await service.create(spec, owner)).toEqual(record);
   await service.setEnabled(record.id, false, owner);
-  catalog.reset();
-  step("target").do(() => 2);
-  const restored = await serviceAt(state);
+  const nextTarget = step("target").do(() => 2);
+  const restored = await serviceAt(state, [nextTarget]);
   expect(await restored.list()).toEqual([{ ...record, enabled: false }]);
   expect(await restored.schedules()).toHaveLength(0);
   await restored.setEnabled(record.id, true);
@@ -117,21 +118,21 @@ it("persists declarative records, keeps stable ids and restores enabled state", 
 
 it("lets two hosts creating one automation at once agree on one record", async () => {
   const state = temp();
-  step("target").do(() => 1);
+  const target = step("target").do(() => 1);
   const spec = { at: "1h", key: "k", workflow: "target" };
   const [first, second] = await Promise.all([
-    (await serviceAt(state)).create(spec, owner),
-    (await serviceAt(state)).create(spec, owner),
+    (await serviceAt(state, [target])).create(spec, owner),
+    (await serviceAt(state, [target])).create(spec, owner),
   ]);
   expect(second).toEqual(first);
-  expect(await (await serviceAt(state)).list()).toEqual([first]);
+  expect(await (await serviceAt(state, [target])).list()).toEqual([first]);
 });
 
 it("rejects changed idempotency keys, invalid target input and foreign mutation", async () => {
-  step("target")
+  const target = step("target")
     .input(z.object({ value: z.number() }))
     .do(() => 1);
-  const service = await serviceAt();
+  const service = await serviceAt(undefined, [target]);
   const spec = {
     at: "1m",
     input: { value: 1 },
@@ -151,8 +152,8 @@ it("rejects changed idempotency keys, invalid target input and foreign mutation"
 });
 
 it("rejects a cadence too long to schedule", async () => {
-  step("target").do(() => 1);
-  const service = await serviceAt();
+  const target = step("target").do(() => 1);
+  const service = await serviceAt(undefined, [target]);
   await expect(
     service.create(
       { at: "9007199254740993d", key: "job", workflow: "target" },
@@ -162,8 +163,8 @@ it("rejects a cadence too long to schedule", async () => {
 });
 
 it("constrains file sources and requires explicit HTTP permission", async () => {
-  step("target").do(() => 1);
-  const service = await serviceAt();
+  const target = step("target").do(() => 1);
+  const service = await serviceAt(undefined, [target]);
   const spec = { at: "1m", key: "job", workflow: "target" };
   await expect(
     service.create(
@@ -184,12 +185,17 @@ it("launches a dynamically created file monitor once per change through the exis
   const state = temp();
   writeFileSync(join(root, "watched.txt"), "first");
   let starts = 0;
-  step("target").do(() => {
+  const target = step("target").do(() => {
     starts += 1;
     return starts;
   });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine({ ...bound.instances, root, state });
+  const engine = await startEngine({
+    ...bound.instances,
+    collect: [target],
+    root,
+    state,
+  });
   const service = engine.automations;
   try {
     const record = await service.create(
@@ -251,12 +257,17 @@ it("does not relaunch an observed change after the started target fails", async 
   const state = temp();
   writeFileSync(join(root, "watched.txt"), "first");
   let starts = 0;
-  step("target").do(() => {
+  const target = step("target").do(() => {
     starts += 1;
     throw new Error("target failed");
   });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine({ ...bound.instances, root, state });
+  const engine = await startEngine({
+    ...bound.instances,
+    collect: [target],
+    root,
+    state,
+  });
   const service = engine.automations;
   try {
     await service.create(
@@ -285,9 +296,9 @@ it("does not relaunch an observed change after the started target fails", async 
 
 it("existing hosts observe persisted additions, pause, deletion and idempotent retries", async () => {
   const state = temp();
-  step("target").do(() => 1);
-  const first = await serviceAt(state);
-  const second = await serviceAt(state);
+  const target = step("target").do(() => 1);
+  const first = await serviceAt(state, [target]);
+  const second = await serviceAt(state, [target]);
   const spec = { at: "1s", key: "job", workflow: "target" };
   const record = await first.create(spec, owner);
   expect(await second.list()).toEqual([record]);
@@ -303,8 +314,8 @@ it("existing hosts observe persisted additions, pause, deletion and idempotent r
 
 it("fails closed on invalid persisted records while exposing a host-readable error", async () => {
   const state = temp();
-  step("target").do(() => 1);
-  const service = await serviceAt(state);
+  const target = step("target").do(() => 1);
+  const service = await serviceAt(state, [target]);
   await databases
     .get(state)
     ?.database.insert(marblesAutomations)
@@ -333,11 +344,16 @@ it("retries a pending monitor launch after restart when setup previously failed"
   const state = temp();
   writeFileSync(join(root, "watched.txt"), "first");
   let starts = 0;
-  step("target").do(() => {
+  const target = step("target").do(() => {
     starts += 1;
   });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine({ ...bound.instances, root, state });
+  const engine = await startEngine({
+    ...bound.instances,
+    collect: [target],
+    root,
+    state,
+  });
   const first = engine.automations;
   await first.create(
     {
@@ -366,6 +382,7 @@ it("retries a pending monitor launch after restart when setup previously failed"
   }
   const restarted = await startEngine({
     ...bound.instances,
+    collect: [target],
     print: () => undefined,
     root,
     state,
@@ -406,10 +423,16 @@ it("cancels a running monitor request when the schedule loop stops", async () =>
         );
       })
   );
-  step("target").do(() => 1);
-  monitor("https://example.com/status").do(() => undefined);
+  const target = step("target").do(() => 1);
+  const statusMonitor = monitor("https://example.com/status").do(
+    () => undefined
+  );
   const bound = bindMock(() => "", { state });
-  const engine = await startEngine({ ...bound.instances, state });
+  const engine = await startEngine({
+    ...bound.instances,
+    collect: [target, statusMonitor],
+    state,
+  });
   const service = engine.automations;
   try {
     await service.create(
@@ -440,13 +463,12 @@ it("cancels a running monitor request when the schedule loop stops", async () =>
 
 it("records a visible failed occurrence when a restored target was removed", async () => {
   const state = temp();
-  step("target").do(() => 1);
-  const first = await serviceAt(state);
+  const target = step("target").do(() => 1);
+  const first = await serviceAt(state, [target]);
   const record = await first.create(
     { at: "1s", key: "job", workflow: "target" },
     owner
   );
-  catalog.reset();
   const bound = bindMock(() => "", { state });
   const engine = await startEngine({ ...bound.instances, state });
   try {
@@ -476,15 +498,13 @@ it("records a visible failed occurrence when a restored target was removed", asy
 
 it("preserves the first deadline when restored before it was ever dispatched", async () => {
   const state = temp();
-  step("target").do(() => 1);
-  const first = await serviceAt(state);
+  const target = step("target").do(() => 1);
+  const first = await serviceAt(state, [target]);
   const record = await first.create(
     { at: "1s", key: "job", workflow: "target" },
     owner
   );
-  catalog.reset();
-  step("target").do(() => 1);
-  const restored = await serviceAt(state);
+  const restored = await serviceAt(state, [step("target").do(() => 1)]);
   expect((await restored.list())[0]?.createdAt).toBe(record.createdAt);
   expect((await restored.schedules())[0]?.registeredAt).toBe(
     Date.parse(record.createdAt)
@@ -507,14 +527,19 @@ it("isolates pending monitor launches and first deadlines when a deleted key is 
   const state = temp();
   writeFileSync(join(root, "watched.txt"), "first");
   const launched: string[] = [];
-  step("old-target").do(() => {
+  const oldTarget = step("old-target").do(() => {
     launched.push("old");
   });
-  step("new-target").do(() => {
+  const newTarget = step("new-target").do(() => {
     launched.push("new");
   });
   const bound = bindMock(() => "", { root, state });
-  const engine = await startEngine({ ...bound.instances, root, state });
+  const engine = await startEngine({
+    ...bound.instances,
+    collect: [oldTarget, newTarget],
+    root,
+    state,
+  });
   const service = engine.automations;
   try {
     const original = await service.create(
@@ -562,8 +587,8 @@ it("isolates pending monitor launches and first deadlines when a deleted key is 
 });
 
 it("does not dispatch an old trigger after its owner key was recreated", async () => {
-  step("target").do(() => 1);
-  const service = await serviceAt();
+  const target = step("target").do(() => 1);
+  const service = await serviceAt(undefined, [target]);
   const original = await service.create(
     { at: "1s", key: "job", workflow: "target" },
     owner

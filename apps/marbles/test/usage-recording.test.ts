@@ -11,7 +11,6 @@ import type { SQL } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase, openDatabase } from "~/database/open";
@@ -63,7 +62,6 @@ afterEach(async () => {
   for (const handle of handles.splice(0)) {
     handle.close();
   }
-  catalog.reset();
   await rm(state, { force: true, recursive: true });
 });
 
@@ -119,13 +117,13 @@ it("records one fact per turn, attributed to the run, its root definition, and t
     const session = await agents.session(reviewer);
     return (await session.generate("nested turn")).text;
   });
-  step("outer").do(async ({ agents }) => {
+  const outer = step("outer").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     await session.generate("first");
     await session.generate("second");
     return await nested.run();
   });
-  const engine = await started();
+  const engine = await started({ collect: [reviewer, nested, outer] });
   const launched = await engine.launch("outer", {});
   await launched.result;
 
@@ -183,7 +181,7 @@ it("a replayed one-turn call records nothing new; a turn run again records once 
   let gate = new Promise<void>(() => undefined);
   let release: () => void = () => undefined;
   let attempts = 0;
-  step("review").do(async ({ agents, signal }) => {
+  const review = step("review").do(async ({ agents, signal }) => {
     attempts += 1;
     await reviewer.generate("one-turn call");
     const session = await agents.session(reviewer);
@@ -198,7 +196,7 @@ it("a replayed one-turn call records nothing new; a turn run again records once 
     ]);
     return "done";
   });
-  const engine = await started();
+  const engine = await started({ collect: [reviewer, review] });
   const launched = await engine.launch<string>("review", {});
   await vi.waitFor(async () =>
     expect((await engine.usage.read()).facts).toHaveLength(2)
@@ -447,13 +445,14 @@ it("a second turn whose usage cannot be saved leaves a marker, so the first turn
   const usageStore = await failingUsage((write) => write === 2);
   const warnings: string[] = [];
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
-  step("two").do(async ({ agents }) => {
+  const two = step("two").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     await session.generate("first");
     await session.generate("second");
     return "done";
   });
   const engine = await started({
+    collect: [reviewer, two],
     print: (line) => warnings.push(line),
     usageStore,
   });
@@ -489,7 +488,7 @@ it("when the fact and its marker both fail, a new engine over the same disk find
   const sessions = state;
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
   let sessionId = "";
-  step("two").do(async ({ agents }) => {
+  const two = step("two").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     sessionId = session.ref.id;
     await session.generate("first");
@@ -497,6 +496,7 @@ it("when the fact and its marker both fail, a new engine over the same disk find
     return "done";
   });
   const first = await startEngine({
+    collect: [reviewer, two],
     print: () => undefined,
     sessions: durableSessions(sessions),
     state,
@@ -513,7 +513,6 @@ it("when the fact and its marker both fail, a new engine over the same disk find
   });
   await reportStored(launched.id);
 
-  catalog.reset();
   const second = await startEngine({
     print: () => undefined,
     sessions: durableSessions(sessions),
@@ -569,7 +568,6 @@ const NO_RECORDS = {
 };
 
 async function reader(sessions: SessionStore = durableSessions(state)) {
-  catalog.reset();
   const engine = await startEngine({
     print: () => undefined,
     sessions,
@@ -700,7 +698,7 @@ it("a transcript that failed to read is read again at the same stamp, keeps only
 it("an unreadable or missing transcript a settled run names is owned by nothing: its total, and every other, says it may be incomplete instead of restoring the surviving price as whole", async () => {
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
   let sessionId = "";
-  step("two").do(async ({ agents }) => {
+  const two = step("two").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     sessionId = session.ref.id;
     await session.generate("first");
@@ -708,6 +706,7 @@ it("an unreadable or missing transcript a settled run names is owned by nothing:
     return "done";
   });
   const writer = await startEngine({
+    collect: [reviewer, two],
     print: () => undefined,
     sessions: durableSessions(state),
     state,
@@ -802,7 +801,6 @@ it("a direct session none of whose usage was saved is found through the store's 
   );
   const elsewhere = await mkdtemp(join(tmpdir(), "marbles-usage-other-"));
   try {
-    catalog.reset();
     const other = await startEngine({
       print: () => undefined,
       sessions: durableSessions(elsewhere),
@@ -836,7 +834,6 @@ it("a direct session none of whose usage was saved is found through the database
     await kept.generate("saved two");
     await writer.dispose();
 
-    catalog.reset();
     const second = await startEngine({
       print: () => undefined,
       sessions: sessionsOf("test"),
@@ -849,7 +846,6 @@ it("a direct session none of whose usage was saved is found through the database
       records.facts.find((fact) => fact.sessionId === orphan.ref.id)
     ).toMatchObject({ agentId: UNATTRIBUTED, lost: RECOVERED });
     expect(records.unreadableAt.unowned).toBe(0);
-    catalog.reset();
     const other = await startEngine({
       print: () => undefined,
       sessions: sessionsOf("other"),
@@ -874,13 +870,14 @@ it("a direct turn in a session a workflow only continued is not claimed by the o
   const ready = new Promise<void>((resolve) => {
     opened = resolve;
   });
-  step("continues").do(async ({ agents }) => {
+  const continues = step("continues").do(async ({ agents }) => {
     await agents.session(helper, continued ? { session: continued } : {});
     opened();
     await gate;
     return "no compute";
   });
   const writer = await startEngine({
+    collect: [helper, continues],
     print: () => undefined,
     sessions: durableSessions(state),
     state,
@@ -929,19 +926,20 @@ it("a saved marker's own attribution goes to the recovered leaf, which replaces 
   const ready = new Promise<void>((resolve) => {
     opened = resolve;
   });
-  step("continues").do(async ({ agents }) => {
+  const continues = step("continues").do(async ({ agents }) => {
     await agents.session(helper, continued ? { session: continued } : {});
     opened();
     await gate;
     return "no compute";
   });
-  step("computes").do(async ({ agents }) => {
+  const computes = step("computes").do(async ({ agents }) => {
     const session = await agents.session(helper);
     await session.generate("only its marker saves");
     await session.generate("saved");
     return "done";
   });
   const writer = await startEngine({
+    collect: [helper, continues, computes],
     print: () => undefined,
     sessions: durableSessions(state),
     state,
@@ -1148,8 +1146,11 @@ function gated() {
 
 it("a one-turn call whose usage was lost is recovered for its own agent and its step, even one named with a dot", async () => {
   const writer = agent({ name: "writer", prompt: "Write." });
-  step("docs.v2").do(async () => (await writer.generate("one turn")).text);
+  const docs = step("docs.v2").do(
+    async () => (await writer.generate("one turn")).text
+  );
   const first = await startEngine({
+    collect: [writer, docs],
     print: () => undefined,
     sessions: durableSessions(state),
     state,
@@ -1173,7 +1174,7 @@ it("a turn the host takes directly in a session a run opened is not claimed by t
   const helper = agent({ name: "helper", prompt: "Help." });
   const wait = gated();
   let ref: SessionRef | undefined;
-  step("opens").do(async ({ agents }) => {
+  const opens = step("opens").do(async ({ agents }) => {
     const session = await agents.session(helper);
     ({ ref } = session);
     await session.generate("saved in the run");
@@ -1182,6 +1183,7 @@ it("a turn the host takes directly in a session a run opened is not claimed by t
     return "done";
   });
   const writer = await startEngine({
+    collect: [helper, opens],
     print: () => undefined,
     sessions: durableSessions(state),
     state,
@@ -1224,7 +1226,7 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
   const wait = gated();
   let ref: SessionRef | undefined;
   let failing = false;
-  step("creator").do(async ({ agents }) => {
+  const creator = step("creator").do(async ({ agents }) => {
     const session = await agents.session(helper);
     ({ ref } = session);
     await session.generate("saved");
@@ -1234,7 +1236,7 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
     await wait.gate;
     return "created";
   });
-  step("consumer").do(async ({ agents }) => {
+  const consumer = step("consumer").do(async ({ agents }) => {
     if (!ref) {
       throw new Error("no session to continue");
     }
@@ -1245,6 +1247,7 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
   const sessions = durableSessions(state);
   const usageStore = await failingUsage(() => failing);
   const first = await startEngine({
+    collect: [helper, creator, consumer],
     print: () => undefined,
     sessions,
     state,
@@ -1253,6 +1256,7 @@ it("a workflow continuing another workflow's session keeps its unrecorded turn: 
   const creating = await first.launch<string>("creator", {});
   await wait.ready;
   const other = await startEngine({
+    collect: [helper, creator, consumer],
     print: () => undefined,
     sessions,
     state,
@@ -1306,21 +1310,22 @@ it("a direct session a workflow continues in another engine, whose fact and mark
       }
       return "consumed";
     });
-  consumer();
   const sessions = durableSessions(state);
-  const host = await started({ sessions, state });
+  const host = await started({
+    collect: [helper, consumer()],
+    sessions,
+    state,
+  });
   const direct = await host.agents.session(helper);
   await direct.generate("saved direct turn");
   ({ ref } = direct);
   const transcript = transcriptOf(state, direct.ref.id);
-  const fresh = async () => {
-    catalog.reset();
-    consumer();
-    return await started({
+  const fresh = async () =>
+    await started({
+      collect: [helper, consumer()],
       sessions: durableSessions(state),
       state,
     });
-  };
   const labelOf = (
     snapshot: ReturnType<typeof snapshotOf>,
     id: string
@@ -1330,6 +1335,7 @@ it("a direct session a workflow continues in another engine, whose fact and mark
     );
   try {
     const workflowEngine = await started({
+      collect: [helper, consumer()],
       sessions,
       state,
       usageStore: await failingUsage(() => true),
@@ -1434,13 +1440,14 @@ it("a session one settled run names, which a workflow in another engine continue
   const helper = agent({ name: "helper", prompt: "Help." });
   const wait = gated();
   let ref: SessionRef | undefined;
-  const define = () => {
+  const define = () => [
+    helper,
     step("producer").do(async ({ agents }) => {
       const session = await agents.session(helper);
       ({ ref } = session);
       await session.generate("the producer's saved turn");
       return "produced";
-    });
+    }),
     step("consumer").do(async ({ agents }) => {
       if (ref) {
         const session = await agents.session(helper, { session: ref });
@@ -1451,27 +1458,25 @@ it("a session one settled run names, which a workflow in another engine continue
         await wait.gate;
       }
       return "consumed";
-    });
-  };
-  define();
+    }),
+  ];
   const sessions = durableSessions(state);
-  const host = await started({ sessions, state });
+  const host = await started({ collect: define(), sessions, state });
   const producing = await host.launch<string>("producer", {});
   await expect(producing.result).resolves.toBe("produced");
   if (!ref) {
     throw new Error("the producer opened no session");
   }
   const transcript = transcriptOf(state, ref.id);
-  const fresh = async () => {
-    catalog.reset();
-    define();
-    return await started({
+  const fresh = async () =>
+    await started({
+      collect: define(),
       sessions: durableSessions(state),
       state,
     });
-  };
   try {
     const workflowEngine = await started({
+      collect: define(),
       sessions,
       state,
       usageStore: await failingUsage(() => true),
@@ -1529,16 +1534,17 @@ it("a session one settled run names, which a workflow in another engine continue
 
 it("damaged stored facts stay with the owner they are filed under: a run's with that run, a direct session's outside runs, and an unrelated workflow stays empty", async () => {
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
-  const define = () => {
+  const define = () => [
+    reviewer,
     step("priced").do(async ({ agents }) => {
       const session = await agents.session(reviewer);
       await session.generate("one");
       return "done";
-    });
-    step("unrelated").do(() => "no compute");
-  };
-  define();
+    }),
+    step("unrelated").do(() => "no compute"),
+  ];
   const writer = await started({
+    collect: define(),
     sessions: durableSessions(state),
     state,
   });
@@ -1552,9 +1558,8 @@ it("damaged stored facts stay with the owner they are filed under: a run's with 
   });
   await putStoredFact(state, { runId: null, turnId: "gone", value: "{broken" });
 
-  catalog.reset();
-  define();
   const second = await started({
+    collect: define(),
     sessions: durableSessions(state),
     state,
   });
@@ -1660,8 +1665,9 @@ class ListingSessions implements ListedSessionStore {
 
 it("a listing that fails on a new reader's first read still reads the named sessions, and every total, even an empty workflow's, says it may be incomplete", async () => {
   const helper = agent({ name: "helper", prompt: "Help." });
-  step("idle").do(() => "no compute");
+  const idleStep = step("idle").do(() => "no compute");
   const writer = await startEngine({
+    collect: [helper, idleStep],
     print: () => undefined,
     sessions: durableSessions(state),
     state,
@@ -1674,9 +1680,8 @@ it("a listing that fails on a new reader's first read still reads the named sess
   await expect(idle.result).resolves.toBe("no compute");
   await writer.dispose();
 
-  catalog.reset();
-  step("idle").do(() => "no compute");
   const second = await startEngine({
+    collect: [step("idle").do(() => "no compute")],
     print: () => undefined,
     sessions: new ListingSessions(state, () => {
       throw new Error("EACCES: permission denied, scandir");
@@ -1732,8 +1737,9 @@ it("labels a priced total with a lost turn as partial, never as whole", async ()
 });
 
 it("a settled run's record that could not be read is read again, so a repair counts on the next read of the same engine", async () => {
-  step("settles").do(() => "done");
+  const settles = step("settles").do(() => "done");
   const writer = await started({
+    collect: [settles],
     sessions: durableSessions(state),
     state,
   });
@@ -1809,7 +1815,6 @@ it("a store that cannot list sessions and outlives the process says every total 
   });
   await writer.dispose();
 
-  catalog.reset();
   const restarted = await started({
     sessions: new UnlistedSessions(sessions),
     state,
@@ -1860,9 +1865,8 @@ it("a running run continuing a session recovers an earlier engine's lost turn im
   const { ref } = direct;
   await writer.dispose();
 
-  catalog.reset();
   const wait = gated();
-  step("continues").do(async ({ agents }) => {
+  const continues = step("continues").do(async ({ agents }) => {
     const session = await agents.session(helper, { session: ref });
     await session.generate("the run's own turn");
     wait.opened();
@@ -1870,6 +1874,7 @@ it("a running run continuing a session recovers an earlier engine's lost turn im
     return "done";
   });
   const second = await started({
+    collect: [helper, continues],
     sessions: durableSessions(sessions),
     state,
   });

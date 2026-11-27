@@ -4,7 +4,6 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import type { Bindings } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
 import { createLog } from "~/lib/log";
@@ -34,7 +33,6 @@ const bindings: Bindings = {
 let scopes = new RunScopes();
 
 afterEach(() => {
-  catalog.reset();
   lines.length = 0;
   scopes = new RunScopes();
 });

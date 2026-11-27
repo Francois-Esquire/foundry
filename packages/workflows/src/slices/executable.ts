@@ -147,6 +147,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
 
   readonly config: ExecutableConfig;
   readonly #controller: AbortController;
+  readonly #disarmScopeAbort: () => void;
   readonly #resolutions: Ref.Ref<HashMap.HashMap<string, unknown>>;
 
   private constructor(args: {
@@ -156,6 +157,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     context: X;
     config: ExecutableConfig;
     controller: AbortController;
+    disarmScopeAbort: () => void;
     resolutions: Ref.Ref<HashMap.HashMap<string, unknown>>;
   }) {
     this.input = args.input;
@@ -164,6 +166,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     this.context = args.context;
     this.config = args.config;
     this.#controller = args.controller;
+    this.#disarmScopeAbort = args.disarmScopeAbort;
     this.#resolutions = args.resolutions;
   }
 
@@ -175,9 +178,10 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
   }): Effect.Effect<Executable<Input, Context>, never, Scope.Scope> {
     return Effect.gen(function* () {
       const controller = new AbortController();
+      let abortOnClose = true;
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
-          if (!controller.signal.aborted) {
+          if (abortOnClose && !controller.signal.aborted) {
             controller.abort("scope-closed");
           }
         })
@@ -187,12 +191,20 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         config: { ...defaultConfig, ...args.config },
         context: { ...(args.seed ?? {}), name: args.name } as Context,
         controller,
+        disarmScopeAbort: () => {
+          abortOnClose = false;
+        },
         input: args.input,
         name: args.name,
         path: [args.name],
         resolutions,
       });
     });
+  }
+
+  /** @internal */
+  disarmScopeAbort(): void {
+    this.#disarmScopeAbort();
   }
 
   fork<NewI = unknown>(args: {
@@ -204,6 +216,7 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
       config: { blocking: false, maxAttempts: 1, ...args.config },
       context: { ...this.context, name: args.name },
       controller: this.#controller,
+      disarmScopeAbort: this.#disarmScopeAbort,
       input: resolveInput(args.input, this.input as unknown as NewI),
       name: args.name,
       path: [...this.path, args.name],
@@ -459,6 +472,13 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
         const persisted = persistedState.steps[step.path.join(".")];
         if (persisted?.status === "complete") {
           return persisted.output as O;
+        }
+      } else {
+        const seeded = witness.channels.snapshot.consumeSeeded(
+          self.path.join(".")
+        );
+        if (seeded.found) {
+          return seeded.output as O;
         }
       }
 

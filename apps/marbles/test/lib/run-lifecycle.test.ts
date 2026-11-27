@@ -2,7 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import type { TaskContext } from "~/lib/tasks";
 import { testEngine } from "../helpers/engine";
@@ -17,7 +16,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
   await rm(root, { force: true, recursive: true });
 });

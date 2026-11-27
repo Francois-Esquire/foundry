@@ -32,7 +32,10 @@ export const schedulingCursors = sqliteTable(
     scheduleId: text("schedule_id").$type<ScheduleId>().notNull(),
     scope: text("scope").notNull(),
   },
-  (table) => [primaryKey({ columns: [table.scope, table.scheduleId] })]
+  (table) => [
+    primaryKey({ columns: [table.scope, table.scheduleId] }),
+    index("scheduling_cursors_scope_next_due").on(table.scope, table.nextDueAt),
+  ]
 );
 
 export const schedulingOccurrences = sqliteTable(

@@ -17,18 +17,17 @@ versioned outputs. Marbles bundles these libraries.
 
 ## Install
 
-Requires Bun 1.3.14 or newer. Install the published package:
+Requires Node.js 22.18+ or Bun 1.3.14+ (the interactive TUI dashboard currently requires Bun; headless commands work natively on Node and Bun — note that Node's built-in type stripping supports erasable TypeScript syntax only, while Bun also supports `enum`, namespaces, and `.tsx`). Install the published package:
 
 ```sh
 bun add --global @foundry.sh/marbles@0.0.4
 marbles --help
 ```
 
-In your project, install the same package with TypeScript 6 for editor types
-and for names taken from a definition's `const`:
+In your project, install the same package for editor types:
 
 ```sh
-bun add --dev @foundry.sh/marbles@0.0.4 typescript@^6
+bun add --dev @foundry.sh/marbles@0.0.4
 ```
 
 The [installation guide](https://francois-esquire.github.io/foundry/marbles/get-started/installation/)
@@ -43,7 +42,7 @@ Save this as `.foundry/marbles/inventory.ts` in your project:
 ```ts
 import { step } from "@foundry.sh/marbles";
 
-step("inventory").do(async ({ workspaces, log }) => {
+export const inventory = step("inventory").do(async ({ workspaces, log }) => {
   const files = await workspaces.current.files();
   log(`Found ${files.length} files`);
   return { files: files.length };
@@ -72,11 +71,11 @@ reviews on Claude unless its weekly window is used up:
 ```ts
 import { agent, step, usage } from "@foundry.sh/marbles";
 
-const reviewer = agent({
+export const reviewer = agent({
   prompt: "Review the staged changes. Report findings without editing files.",
 });
 
-step("review").do(async ({ agents }) => {
+export const review = step("review").do(async ({ agents }) => {
   const claude = await usage.query("anthropic");
   const route = claude.weekly?.exhausted
     ? reviewer.extend({ provider: "codex" })
@@ -451,22 +450,20 @@ unless `FOUNDRY_ROOT` is set.
 
 ## Loading workspace source
 
-Marbles loads a workspace's source with `oxc-parser`, which finds the
-imports it points at that load's own copies. `oxc-parser` ships a native
-binding per platform as an optional dependency, installed with
-`@foundry.sh/marbles` on macOS, Linux and Windows. Installing with optional
-dependencies left out, or on a platform with no binding, leaves Marbles
-unable to load any workspace: the load fails with an error naming the
-platform and what to install. The WebAssembly binding,
-`@oxc-parser/binding-wasm32-wasi`, is used only once it is installed and
-`NAPI_RS_FORCE_WASI=1` is set. Commands that load no source, such as
-`status`, `tasks` and `mcp`, work without it.
+Marbles loads workspace ES modules natively on Node.js 22.18+ (via
+`module.registerHooks`) and Bun 1.3.14+ (via `Bun.plugin`), with no native
+parser binding or TypeScript compiler required at runtime. Export steps,
+workflows, agents, schedules, monitors, observers, and providers (`export const
+...`) so Marbles collects them into the workspace catalog. CommonJS workspace
+modules (`.cjs`) are refused; use ES modules (`.ts`, `.mts`, `.js`, `.mjs`).
+The interactive TUI dashboard currently requires Bun, while headless commands
+(`list`, `run`, `enqueue`, `watch`, `status`, `tasks`, `mcp`, `daemon`) run
+natively on both Node.js 22.18+ and Bun.
 
 Every load evaluates again each module and data file its source reaches
-by path. Bun cannot unload a module, so the copies an earlier load made
-stay in the process for as long as anything refers to them; the Marbles
+by path. Neither Node nor Bun unloads ESM modules from memory, so the Marbles
 process starts a new engine generation on a source edit, and the old one's
-exit gives them back.
+exit reclaims them.
 
 ## Documentation
 

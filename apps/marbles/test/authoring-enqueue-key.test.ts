@@ -10,7 +10,7 @@ import {
   vi,
 } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
+import type { CollectInput } from "~/authoring/catalog";
 import { releaseEngine, setHost } from "~/authoring/runtime";
 import { DatabaseRunStore } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
@@ -35,12 +35,12 @@ afterAll(() => {
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
 });
 
-function host(state = machine.workspace()): Engine {
+function host(state = machine.workspace(), collect?: CollectInput): Engine {
   const records = machine.records(state);
   const engine = testEngine({
+    collect,
     pools: { default: 4 },
     print: () => undefined,
     records,
@@ -67,7 +67,7 @@ describe(".enqueue(input, { key })", () => {
         await release.promise;
         return `built ${input.ref}`;
       });
-    const engine = host();
+    const engine = host(undefined, [build]);
     await engine.start();
 
     const first = await build.enqueue({ ref: "main" }, { key: "task-1" });
@@ -97,7 +97,7 @@ describe(".enqueue(input, { key })", () => {
       bodies += 1;
       throw new Error("broke");
     });
-    const engine = host();
+    const engine = host(undefined, [flaky]);
     await engine.start();
 
     const first = await flaky.enqueue({}, { key: "once" });
@@ -111,7 +111,7 @@ describe(".enqueue(input, { key })", () => {
   it("refuses a key on a definition the workspace does not declare by name, and a blank key", async () => {
     const leaf = step("keyed-leaf").do(() => "leaf");
     const anonymous = workflow(() => leaf());
-    const engine = host();
+    const engine = host(undefined, [leaf]);
     await engine.start();
 
     await expect(anonymous.enqueue({}, { key: "k" })).rejects.toThrow(NO_NAME);
@@ -134,7 +134,7 @@ describe(".enqueue(input, { key })", () => {
         return `reviewed ${input.title}`;
       });
     const launched: string[] = [];
-    observe(
+    const dispatcher = observe(
       tasks,
       async (event) => {
         for (const delta of event.tasks) {
@@ -155,7 +155,7 @@ describe(".enqueue(input, { key })", () => {
       },
       { name: "keyed-dispatcher" }
     );
-    const engine = host();
+    const engine = host(undefined, [review, dispatcher]);
     await engine.start();
 
     const created = await tasks.create({ title: "first" });
@@ -182,16 +182,15 @@ describe(".enqueue(input, { key })", () => {
         .do(({ input }) => `built ${input.ref}`);
     const state = machine.workspace();
     const before = definitions();
-    const first = host(state);
+    const first = host(state, [before]);
     await first.start();
     const launched = await before.enqueue({ ref: "a" }, { key: "k" });
     await expect(launched.result).resolves.toBe("built a");
     await first.dispose();
     releaseEngine(first);
-    catalog.reset();
 
     const after = definitions();
-    const second = host(state);
+    const second = host(state, [after]);
     await second.start();
     const again = await after.enqueue({ ref: "b" }, { key: "k" });
     expect(again.id).toBe(launched.id);
@@ -221,9 +220,10 @@ describe(".enqueue(input, { key })", () => {
       }),
     });
     const state = machine.workspace();
-    const open = () => {
+    const open = (collect: CollectInput) => {
       const records = machine.records(state);
       const engine = testEngine({
+        collect,
         pools: { default: 4 },
         print: () => undefined,
         records,
@@ -238,12 +238,11 @@ describe(".enqueue(input, { key })", () => {
       return engine;
     };
     const firstDefs = declare();
-    const first = open();
+    const first = open(Object.values(firstDefs));
     await first.start();
 
-    catalog.reset();
     const secondDefs = declare();
-    const second = open();
+    const second = open(Object.values(secondDefs));
     await second.start();
 
     const okOne = await first.enqueueDefinition<string>(
@@ -291,7 +290,7 @@ describe(".enqueue(input, { key })", () => {
       const two = await child.enqueue({}, { key: "shared" });
       return { same: one.id === two.id, value: await two.result };
     });
-    const engine = host();
+    const engine = host(undefined, [child, parent]);
     await engine.start();
 
     await expect(engine.execute(parent, {})).resolves.toEqual({
@@ -311,14 +310,14 @@ it.each(["stop", "dispose"] as const)(
       return "done";
     });
     const state = machine.workspace();
-    const owner = host(state);
+    const owner = host(state, [definition]);
     await owner.start();
     const launched = await owner.enqueueDefinition<string>(
       definition,
       {},
       { key: "close" }
     );
-    const observer = host(state);
+    const observer = host(state, [definition]);
     await observer.start();
     const remote = await observer.enqueueDefinition<string>(
       definition,
@@ -344,7 +343,7 @@ it("graceful stop lets a draining in-run parent finish awaiting a nonlocal keyed
     await release.promise;
     return "child-ok";
   });
-  const owner = host(state);
+  const owner = host(state, [childA]);
   await owner.start();
   const childRun = await owner.enqueueDefinition<string>(
     childA,
@@ -352,14 +351,13 @@ it("graceful stop lets a draining in-run parent finish awaiting a nonlocal keyed
     { key: "drain-key" }
   );
 
-  catalog.reset();
   const childB = step("remote-child").do(() => "unused");
   const parentB = step("draining-parent").do(async () => {
     const joined = await childB.enqueue({}, { key: "drain-key" });
     parentEntered.resolve();
     return `parent:${await joined.result}`;
   });
-  const peer = host(state);
+  const peer = host(state, [childB, parentB]);
   await peer.start();
   const parentRun = await peer.enqueueDefinition<string>(parentB, {});
   await parentEntered.promise;
@@ -374,7 +372,7 @@ it("graceful stop lets a draining in-run parent finish awaiting a nonlocal keyed
 it("stop() before start() does not poison later nonlocal result lookups", async () => {
   const state = machine.workspace();
   const childA = step("pre-stop-child").do(() => "ready");
-  const owner = host(state);
+  const owner = host(state, [childA]);
   await owner.start();
   await expect(
     owner
@@ -382,9 +380,8 @@ it("stop() before start() does not poison later nonlocal result lookups", async 
       .then((run) => run.result)
   ).resolves.toBe("ready");
 
-  catalog.reset();
   const childB = step("pre-stop-child").do(() => "unused");
-  const peer = host(state);
+  const peer = host(state, [childB]);
   await peer.stop();
   await peer.start();
   const joined = await peer.enqueueDefinition<string>(

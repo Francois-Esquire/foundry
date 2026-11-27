@@ -53,7 +53,6 @@
         "effect": "^3.22.1",
         "evlog": "^2.25.0",
         "ignore": "^7.0.6",
-        "oxc-parser": "^0.142.0",
         "react": "19.3.0",
         "zod": "^4.4.3",
       },
@@ -90,11 +89,9 @@
       },
       "peerDependencies": {
         "microsandbox": "0.6.18",
-        "typescript": "^6.0.0",
       },
       "optionalPeers": [
         "microsandbox",
-        "typescript",
       ],
     },
     "apps/spyglass": {

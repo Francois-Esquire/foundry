@@ -15,18 +15,19 @@ function host(home: TestHome, name: string, body: string): string {
   writeFileSync(
     script,
     `import { writeFileSync } from "node:fs";
-import { agent, step } from ${JSON.stringify(join(SRC, "authoring/index.ts"))};
+import { agent, Catalog, step } from ${JSON.stringify(join(SRC, "authoring/index.ts"))};
 import { openWorkspaceDatabase } from ${JSON.stringify(join(SRC, "database/managed.ts"))};
 import { testEngine } from ${JSON.stringify(join(HELPERS, "engine.ts"))};
 const state = ${JSON.stringify(state)};
 const reviewer = agent({ prompt: "Review." });
-step("talk").do(async ({ agents }) => {
+const talk = step("talk").do(async ({ agents }) => {
   const session = await agents.session(reviewer);
   writeFileSync(${JSON.stringify(join(home.path, "ref.json"))}, JSON.stringify(session.ref));
   return (await session.generate("count slowly")).text;
 });
 const kept = openWorkspaceDatabase({ state, workspaceId: "test" });
 const engine = testEngine({
+  catalog: Catalog.collect([talk]),
   hold: ({ prompt }) => prompt.endsWith("count slowly"),
   print: () => undefined,
   reply: ({ prompt }) => "reply to " + prompt.split("\\n").at(-1),

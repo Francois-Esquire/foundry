@@ -11,7 +11,6 @@ import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import { DatabaseGrantStorage } from "~/database/grants";
 import { initializeDatabase } from "~/database/open";
@@ -28,7 +27,6 @@ import { openFeed } from "../helpers/feed";
 const source = { definition: "coding", path: ["coding"], runId: "run-1" };
 const roots: string[] = [];
 afterEach(async () => {
-  catalog.reset();
   for (const root of roots.splice(0)) {
     await rm(root, { force: true, recursive: true });
   }
@@ -248,7 +246,7 @@ it("routes live answers through the real engine without suspending or replaying 
   const f = await fixture();
   let bodies = 0;
   let bridge: HarnessInteractions | undefined;
-  step("coding").do(async ({ run }) => {
+  const coding = step("coding").do(async ({ run }) => {
     bodies += 1;
     return bridge?.question(
       { ...source, runId: run.id },
@@ -264,6 +262,7 @@ it("routes live answers through the real engine without suspending or replaying 
   const engine = await startEngine({
     artifacts: f.feed.artifacts,
     askable: true,
+    collect: [coding],
     print: () => undefined,
     root: "/workspace",
     sessions: f.sessions,

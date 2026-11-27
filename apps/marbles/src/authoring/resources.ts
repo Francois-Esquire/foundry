@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { Output } from "ai";
 import type { AgentDeclaration, DefineAgent } from "~/authoring/instances";
@@ -10,7 +9,7 @@ import {
   sandboxInstance,
   workspaceInstance,
 } from "~/authoring/instances";
-import { declaringCatalog } from "~/authoring/runtime";
+import { trackCreatedDeclaration } from "~/authoring/runtime";
 import {
   ARTIFACTS,
   observable,
@@ -18,6 +17,8 @@ import {
   SESSIONS,
   WORKSPACES,
 } from "~/lib/events/source";
+import { sha256HexSync } from "~/lib/hash";
+import { jsonData } from "~/lib/json-data";
 import type {
   Agent,
   ArtifactInstance,
@@ -28,22 +29,6 @@ import type {
   SkillSet,
   WorkspaceInstance,
 } from "~/lib/types";
-
-import { bindingAt, callSite, originOf } from "./identity";
-
-function claimAgentId(
-  name: string | undefined,
-  digest: string,
-  define?: object
-): string {
-  const site = callSite();
-  const id =
-    name ??
-    (site === undefined ? undefined : bindingAt(site)) ??
-    `agent-${digest.slice(0, 16)}`;
-  declaringCatalog().claimAgent(id, digest, site && originOf(site), define);
-  return id;
-}
 
 function checkedName(name: string | undefined): string | undefined {
   if (name !== undefined && name.trim() === "") {
@@ -61,21 +46,21 @@ function agentFromFunction<OUTPUT extends Output.Output, INPUT>(
       `agent(${JSON.stringify(name)}): give it the function that defines it`
     );
   }
-  const digest = createHash("sha256")
-    .update(canonicalizeJson(["function", define.toString()]))
-    .digest("hex");
-  const id = claimAgentId(name, digest, define);
-  const definition = recipeInstance<OUTPUT, INPUT>({
-    define: define as unknown as DefineAgent<Output.Output, unknown>,
-    id,
-    route: {},
-    settings: [],
-  });
-  declaringCatalog().agents.set(
-    id,
-    definition as unknown as DeferredAgent<Output.Output, unknown>
+  const digest = sha256HexSync(
+    canonicalizeJson(["function", define.toString()])
   );
-  return definition;
+  const id = name ?? `agent-${digest.slice(0, 16)}`;
+  const created = recipeInstance<OUTPUT, INPUT>(
+    {
+      define: define as unknown as DefineAgent<Output.Output, unknown>,
+      id,
+      route: {},
+      settings: [],
+    },
+    { define, digest, explicit: name !== undefined }
+  );
+  trackCreatedDeclaration(created);
+  return created;
 }
 
 export function agent<OUTPUT extends Output.Output = never>(
@@ -104,32 +89,32 @@ export function agent<OUTPUT extends Output.Output = never, INPUT = undefined>(
     throw new Error("agent(): a prompt is required");
   }
   const name = checkedName(given);
-  const digest = createHash("sha256")
-    .update(
-      canonicalizeJson(
-        typeof prompt === "string" ? [prompt] : ["portable", prompt.key]
-      )
+  const digest = sha256HexSync(
+    canonicalizeJson(
+      typeof prompt === "string" ? [prompt] : ["portable", prompt.key]
     )
-    .digest("hex");
-  const id = claimAgentId(name, digest);
-  const definition = agentInstance<OUTPUT>({
-    id,
-    kind: "agent",
-    ...rest,
-    ...fields,
-  });
-  declaringCatalog().agents.set(id, definition as Agent<Output.Output>);
-  return definition;
+  );
+  const id = name ?? `agent-${digest.slice(0, 16)}`;
+  const created = agentInstance<OUTPUT>(
+    {
+      id,
+      kind: "agent",
+      ...rest,
+      ...fields,
+    },
+    { digest, explicit: name !== undefined }
+  );
+  trackCreatedDeclaration(created);
+  return created;
 }
 
 export function workspace(spec: { readonly path: string }): WorkspaceInstance {
   if (!spec.path.trim()) {
     throw new Error("workspace(): a path is required");
   }
-  const into = declaringCatalog();
-  into.workspaces.add(spec.path);
+  const id = `workspace#${sha256HexSync(canonicalizeJson({ path: spec.path })).slice(0, 16)}`;
   return workspaceInstance({
-    id: into.claimId("workspace"),
+    id,
     kind: "workspace",
     path: spec.path,
   });
@@ -139,8 +124,9 @@ export function sandbox(spec: SandboxSpec): SandboxInstance {
   if ("files" in spec && Object.keys(spec.files).length === 0) {
     throw new Error("sandbox({ files }): give it at least one file");
   }
+  const id = `sandbox#${sha256HexSync(canonicalizeJson(jsonData(spec))).slice(0, 16)}`;
   return sandboxInstance({
-    id: declaringCatalog().claimId("sandbox"),
+    id,
     kind: "sandbox",
     ...spec,
   });
@@ -153,8 +139,9 @@ export function artifact(spec: {
   if (!(spec.name.trim() && spec.type.trim())) {
     throw new Error("artifact(): a name and a type are required");
   }
+  const id = `artifact#${sha256HexSync(canonicalizeJson({ name: spec.name, type: spec.type })).slice(0, 16)}`;
   return artifactInstance({
-    id: declaringCatalog().claimId("artifact"),
+    id,
     kind: "artifact",
     ...spec,
   });

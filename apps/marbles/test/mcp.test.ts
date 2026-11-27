@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -80,13 +80,13 @@ it("dispatches workflows and agents through the MCP tools, over a workspace a dr
     source,
     `import { agent, observe, step, tasks, workflow } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(schemaLibrary)};
-agent({ name: "helper", prompt: "You help with tasks." });
-observe(tasks, () => undefined, { name: "triage", types: ["tasks.changed"] });
-const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => {
+export const helper = agent({ name: "helper", prompt: "You help with tasks." });
+export const triage = observe(tasks, () => undefined, { name: "triage", types: ["tasks.changed"] });
+export const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => {
   console.error("workflow diagnostic");
   return { greeting: "Hello " + input.name };
 });
-workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
+export const greeting = workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
@@ -349,6 +349,7 @@ Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });`,
 it("refuses to serve without the relay's protocol pipe", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-unrelayed-"));
   const home = testHome({ providers: false });
+  const nonPipe = openSync("/dev/null", "r");
   try {
     const result = spawnSync(
       "bun",
@@ -358,7 +359,7 @@ it("refuses to serve without the relay's protocol pipe", async () => {
         encoding: "utf8",
         env: { ...home.env, MARBLES_MCP_SERVER: "1" },
         input: "",
-        stdio: ["pipe", "pipe", "pipe", "ignore"],
+        stdio: ["pipe", "pipe", "pipe", nonPipe],
         timeout: 15_000,
       }
     );
@@ -369,6 +370,7 @@ it("refuses to serve without the relay's protocol pipe", async () => {
     );
     expect(existsSync(home.layout.state)).toBe(false);
   } finally {
+    closeSync(nonPipe);
     await rm(root, { force: true, recursive: true });
   }
 }, 20_000);
@@ -437,9 +439,9 @@ it("answers from stored state with no Marbles process, and starts nothing", asyn
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, schedule, step, tasks } from "@foundry.sh/marbles";
-observe(tasks, () => appendFileSync(${JSON.stringify(observed)}, "x"));
-const tick = step("tick").do(() => appendFileSync(${JSON.stringify(ticked)}, "x"));
-schedule(tick).every("1s");`
+export const watched = observe(tasks, () => appendFileSync(${JSON.stringify(observed)}, "x"));
+export const tick = step("tick").do(() => appendFileSync(${JSON.stringify(ticked)}, "x"));
+export const tickSchedule = schedule(tick).every("1s");`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
@@ -727,8 +729,8 @@ it("serves a workspace the Marbles process hosts, by default and by id", async (
     source,
     `import { step, workflow } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(schemaLibrary)};
-const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => ({ greeting: "Hello " + input.name }));
-workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
+export const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => ({ greeting: "Hello " + input.name }));
+export const greeting = workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],

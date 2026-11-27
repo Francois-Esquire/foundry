@@ -7,7 +7,7 @@ import { Output } from "ai";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { prompts, ref } from "~/authoring/index";
 import { agent, skills } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
@@ -102,7 +102,6 @@ const engines: Engine[] = [];
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
   await dispose();
-  catalog.reset();
   claudeWeekUsed = 40;
   readLimits.mockClear();
 });
@@ -365,8 +364,14 @@ describe("extend", () => {
     const reviewer = agent(() => ({ prompt: "Review." }));
     const extended = reviewer.extend({ provider: "codex" });
     expect(extended.id).toBe(reviewer.id);
-    expect(catalog.agents.get(reviewer.id)).toBe(reviewer);
-    expect(topLevelReviewer.id).toBe("topLevelReviewer");
+    const collected = Catalog.collect([reviewer]);
+    expect(collected.agents.get(reviewer.id)).toBe(reviewer);
+    const named = Catalog.collect({ topLevelReviewer });
+    expect(named.agents.get("topLevelReviewer")).toBe(topLevelReviewer);
+    expect(named.agentIdOf(topLevelReviewer)).toBe("topLevelReviewer");
+    expect(
+      named.agentIdOf(topLevelReviewer.extend({ provider: "codex" }))
+    ).toBe("topLevelReviewer");
   });
 });
 
@@ -529,9 +534,11 @@ describe("identity", () => {
 
   it("refuses a second agent from the same source rather than merging them", async () => {
     const forA = teamReviewer("A");
-    expect(() => teamReviewer("B")).toThrow(ANOTHER_FUNCTION);
-    expect(catalog.agents.get(forA.id)).toBe(forA);
-    expect(catalog.agents.size).toBe(1);
+    const forB = teamReviewer("B");
+    expect(() => Catalog.collect([forA, forB])).toThrow(ANOTHER_FUNCTION);
+    const collected = Catalog.collect([forA]);
+    expect(collected.agents.get(forA.id)).toBe(forA);
+    expect(collected.agents.size).toBe(1);
     await expect(buildDefinition(forA)).resolves.toMatchObject({
       prompt: "Review for A.",
     });
@@ -542,7 +549,7 @@ describe("identity", () => {
     const first = agent(define);
     const again = agent(define);
     expect(again.id).toBe(first.id);
-    expect(catalog.agents.size).toBe(1);
+    expect(Catalog.collect([first, again]).agents.size).toBe(1);
   });
 
   it("keeps static agents from one helper apart by their prompts", () => {
@@ -954,7 +961,7 @@ describe("an MCP dispatch", () => {
     const reviewer = agent({
       prompt: prompts.portable`Use ${ref.skill("inspections")}.`,
     });
-    const jobs = new BackgroundRuns(engine, catalog);
+    const jobs = new BackgroundRuns(engine, Catalog.collect([reviewer]));
     await engine.start();
     try {
       const started = await jobs.start({
@@ -981,7 +988,7 @@ describe("an MCP dispatch", () => {
     engines.push(engine);
     const seen: AgentRoute[] = [];
     const declared = usageRoutedReviewer(seen);
-    const jobs = new BackgroundRuns(engine, catalog);
+    const jobs = new BackgroundRuns(engine, Catalog.collect([declared]));
     await engine.start();
     const started = await jobs.start({
       agent: declared.id,
@@ -1014,7 +1021,7 @@ describe("an MCP dispatch", () => {
     const opened = await engine.agents.session(
       declared.extend({ input: { who: "alice" } })
     );
-    const jobs = new BackgroundRuns(engine, catalog);
+    const jobs = new BackgroundRuns(engine, Catalog.collect([declared]));
     await engine.start();
     const { session } = dispatchSchema.parse({
       agent: declared.id,
@@ -1060,7 +1067,7 @@ describe("an MCP dispatch", () => {
       }).success
     ).toBe(false);
 
-    const jobs = new BackgroundRuns(engine, catalog);
+    const jobs = new BackgroundRuns(engine, Catalog.collect([declared]));
     await engine.start();
     await expect(
       jobs.start({ agent: declared.id, prompt: "Continue", session: forged })

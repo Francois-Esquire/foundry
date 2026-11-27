@@ -731,7 +731,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       `
 import { step } from "@foundry.sh/marbles";
 
-step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.current.files()).map((file) => file.path) }));
+export const inventory = step("inventory").do(async ({ workspaces }) => ({ paths: (await workspaces.current.files()).map((file) => file.path) }));
 `
     );
     const standaloneHome = testHome();
@@ -806,8 +806,9 @@ import { defineProvider } from "@foundry.sh/marbles/providers";
 import { claudeCode } from "@foundry.sh/marbles/providers/claude-code";
 import { vercel } from "@foundry.sh/marbles/providers/vercel";
 
-defineProvider(claudeCode);
-if (defineProvider(vercel) !== vercel) throw new Error("defineProvider returns its provider");
+export const claudeProvider = defineProvider(claudeCode);
+export const vercelProvider = defineProvider(vercel);
+if (vercelProvider.id !== vercel.id) throw new Error("defineProvider returns its provider");
 `
       );
       run(cli, ["stop"], standalone, providersHome.env);
@@ -831,7 +832,7 @@ if (defineProvider(vercel) !== vercel) throw new Error("defineProvider returns i
       );
       writeFileSync(
         config,
-        'import { summarizeCodebase } from "@foundry.sh/marbles/prebuilt"; summarizeCodebase({ name: "packed-summary" });'
+        'import { summarizeCodebase } from "@foundry.sh/marbles/prebuilt"; export const packedSummary = summarizeCodebase({ name: "packed-summary" });'
       );
       expect(
         run(cli, ["list"], directory, listHome.env)

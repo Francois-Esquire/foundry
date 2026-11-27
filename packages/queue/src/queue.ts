@@ -51,6 +51,7 @@ import { makeSettlement } from "./settlement";
 import { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
 import {
+  availableAt,
   cancellation,
   removal,
   resolution,
@@ -138,6 +139,9 @@ const makeQueue = (options: QueueOptions) =>
     const { locked, mutate, nudge, releaseStaleSlots } = yield* makeDispatcher({
       capacity,
       handlers,
+      ...(options.leaseTtlMs === undefined
+        ? {}
+        : { leaseTtlMs: options.leaseTtlMs }),
       ledger,
       self,
       settlement,
@@ -393,6 +397,28 @@ const makeQueue = (options: QueueOptions) =>
         capacity.pools.set(pool.name, pool);
       });
 
+    const interruptActive = Effect.gen(function* () {
+      const remaining = yield* locked(
+        Effect.sync(() => [...capacity.slots.entries()])
+      );
+      yield* Fiber.interruptAll(remaining.map(([, slot]) => slot.fiber));
+      yield* mutate(
+        Effect.forEach(remaining, ([runId]) =>
+          Effect.gen(function* () {
+            capacity.slots.delete(runId);
+            const run = yield* requireRun(runId);
+            if (run.state.kind === "running") {
+              yield* settlement.interrupt(
+                yield* requireJob(run.jobId),
+                run,
+                "drained"
+              );
+            }
+          })
+        )
+      );
+    });
+
     const drain = (graceMs?: number) =>
       Effect.gen(function* () {
         const running = yield* locked(
@@ -413,23 +439,84 @@ const makeQueue = (options: QueueOptions) =>
         if (Option.isSome(drained)) {
           return;
         }
-        const remaining = yield* locked(
-          Effect.sync(() => [...capacity.slots.entries()])
+        yield* interruptActive;
+      });
+
+    const nextQueuedAt = mutate(
+      Effect.gen(function* () {
+        if (capacity.slots.size > 0) {
+          return "active" as const;
+        }
+        if (capacity.admission.paused) {
+          return "idle" as const;
+        }
+        const queued = (yield* store.listRuns({ state: "queued" })).filter(
+          (run) =>
+            capacity.owns(run) && capacity.poolOf(run.pool).state === "active"
         );
-        yield* Fiber.interruptAll(remaining.map(([, slot]) => slot.fiber));
-        yield* mutate(
-          Effect.forEach(remaining, ([runId]) =>
-            Effect.gen(function* () {
-              capacity.slots.delete(runId);
-              const run = yield* requireRun(runId);
-              yield* settlement.interrupt(
-                yield* requireJob(run.jobId),
-                run,
-                "drained"
-              );
-            })
+        let soonest: number | undefined;
+        for (const run of queued) {
+          const job = yield* store.getJob(run.jobId);
+          if (job === undefined || !handlers.has(job.handler.name)) {
+            continue;
+          }
+          const due = availableAt(run);
+          soonest = soonest === undefined ? due : Math.min(soonest, due);
+        }
+        return soonest ?? ("idle" as const);
+      })
+    );
+
+    const waitForNextQueued = (nextAt: number) =>
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const delay = Math.max(0, nextAt - now);
+        if (delay > 0) {
+          yield* Effect.sleep(Duration.millis(delay));
+          return;
+        }
+        const started = yield* locked(
+          Effect.sync(() => capacity.slots.size > 0)
+        );
+        if (!started) {
+          yield* Effect.sleep(Duration.millis(10));
+        }
+      });
+
+    const waitUntilIdle = Effect.gen(function* () {
+      for (;;) {
+        const running = yield* locked(
+          Effect.sync(() =>
+            [...capacity.slots.values()].map((slot) => slot.fiber)
           )
         );
+        if (running.length > 0) {
+          yield* Fiber.awaitAll(running);
+          continue;
+        }
+        const nextAt = yield* nextQueuedAt;
+        if (nextAt === "idle") {
+          return;
+        }
+        if (nextAt !== "active") {
+          yield* waitForNextQueued(nextAt);
+        }
+      }
+    });
+
+    const drainUntilIdle = (graceMs?: number) =>
+      Effect.gen(function* () {
+        if (graceMs === undefined) {
+          yield* waitUntilIdle;
+          return;
+        }
+        const finished = yield* Effect.timeoutOption(
+          waitUntilIdle,
+          Duration.millis(graceMs)
+        );
+        if (Option.isNone(finished)) {
+          yield* interruptActive;
+        }
       });
 
     const register = (name: string, handler: RunHandler) =>
@@ -449,6 +536,7 @@ const makeQueue = (options: QueueOptions) =>
         mutate(cancelSuspension(suspensionId, reason)),
       configurePool: (pool) => mutate(configurePool(pool)),
       drain,
+      drainUntilIdle,
       getJob: store.getJob,
       getRun: store.getRun,
       getSuspension: store.getSuspension,
@@ -461,7 +549,18 @@ const makeQueue = (options: QueueOptions) =>
         })
       ),
       pools: Effect.sync(() => capacity.stats()),
-      recover: (recoverOptions) => mutate(recovery.recover(recoverOptions)),
+      recover: (recoverOptions) =>
+        Effect.gen(function* () {
+          const recovered = yield* mutate(
+            Effect.gen(function* () {
+              const summary = yield* recovery.recover(recoverOptions);
+              const stale = yield* releaseStaleSlots;
+              return { stale, summary };
+            })
+          );
+          yield* Fiber.interruptAll(recovered.stale);
+          return recovered.summary;
+        }),
       register: (name, handler) =>
         Effect.zipLeft(locked(register(name, handler)), nudge),
       removeJob: (id) => mutate(removeJob(id)),

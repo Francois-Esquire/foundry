@@ -56,18 +56,26 @@ function isFileInput(
 
 function entriesOf(files: ArtifactFiles, fallbackMime?: string): FileInputs {
   return Object.fromEntries(
-    Object.entries(files).map(([path, content]) => [
-      path,
-      isFileInput(content)
-        ? content
-        : {
-            bytes:
-              typeof content === "string"
-                ? new TextEncoder().encode(content)
-                : content,
-            mime: classifyFile(path).mime ?? fallbackMime ?? null,
-          },
-    ])
+    Object.entries(files).map(([path, content]) => {
+      if (isFileInput(content)) {
+        if ("path" in content) {
+          throw new Error(
+            "artifact.write(): pre-staged external blob paths are not accepted from step code"
+          );
+        }
+        return [path, content];
+      }
+      return [
+        path,
+        {
+          bytes:
+            typeof content === "string"
+              ? new TextEncoder().encode(content)
+              : content,
+          mime: classifyFile(path).mime ?? fallbackMime ?? null,
+        },
+      ];
+    })
   );
 }
 

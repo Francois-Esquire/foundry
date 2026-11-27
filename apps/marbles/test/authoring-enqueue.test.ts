@@ -2,7 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { thisProcess } from "@foundry/lib/node/process-identity";
-import type { Enqueued, EnqueueOptions, RunView } from "@foundry.sh/marbles";
+import type {
+  CollectInput,
+  Enqueued,
+  EnqueueOptions,
+  RunView,
+} from "@foundry.sh/marbles";
 import { observe, runs, step, tasks, workflow } from "@foundry.sh/marbles";
 import {
   afterAll,
@@ -15,16 +20,16 @@ import {
   vi,
 } from "vitest";
 import { z } from "zod";
-import { libraryOfLoad } from "~/authoring/bound";
-import { Catalog, catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import {
-  expectHost,
-  loadInto,
+  captureScope,
   releaseEngine,
   setHost,
+  withLoadScope,
 } from "~/authoring/runtime";
 import { DatabaseRunStore } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
+import { inContext } from "~/lib/execution-context";
 import { DEFINITION_IDENTITY } from "~/lib/handles";
 import type { RunEvent } from "~/lib/workflow-runs";
 import { startEngine, testEngine } from "./helpers/engine";
@@ -33,16 +38,14 @@ import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
 const RUN_ID = /^rn-/;
+const LOAD_FIRST = /^load:definition#0:[0-9a-f]{16}$/;
+const LOAD_SECOND = /^load:definition#1:[0-9a-f]{16}$/;
+const CLOSURE_IDENTITY = /^closure:definition#\d+:[0-9a-f]{16}$/;
 const SCHEMA = /"typed-leaf" input/;
 const RELEASED = /no longer hosted in this process/;
 const DISPOSED_RUNS = /host that held these runs was disposed/;
-const LOADING_RUNS = /runs are not available while its source loads/;
 const RETIRING = /this engine is retiring/;
 const STOPPING = /engine is stopping/;
-const FIRST_CLAIM = /^catalog:.+#1$/;
-const SECOND_CLAIM = /^catalog:.+#2$/;
-
-const library = await import("~/authoring");
 
 const engines: Engine[] = [];
 let machine: TestMachine;
@@ -56,15 +59,22 @@ afterAll(() => {
 });
 
 afterEach(async () => {
-  await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
+  const disposed = engines.splice(0);
+  await Promise.all(disposed.map((engine) => engine.dispose()));
+  for (const engine of disposed) {
+    releaseEngine(engine);
+  }
 });
 
-function host(askable = false): Engine {
+function host(
+  options: boolean | { askable?: boolean; collect?: CollectInput } = false
+): Engine {
+  const opts = typeof options === "boolean" ? { askable: options } : options;
   const state = machine.workspace();
   const records = machine.records(state);
   const engine = testEngine({
-    askable,
+    askable: opts.askable ?? false,
+    ...(opts.collect === undefined ? {} : { collect: opts.collect }),
     print: () => undefined,
     records,
     runs: new DatabaseRunStore({
@@ -79,8 +89,15 @@ function host(askable = false): Engine {
   return engine;
 }
 
-function unhosted(askable = false): Engine {
-  const engine = testEngine({ askable, print: () => undefined });
+function unhosted(
+  options: boolean | { askable?: boolean; collect?: CollectInput } = false
+): Engine {
+  const opts = typeof options === "boolean" ? { askable: options } : options;
+  const engine = testEngine({
+    askable: opts.askable ?? false,
+    ...(opts.collect === undefined ? {} : { collect: opts.collect }),
+    print: () => undefined,
+  });
   engines.push(engine);
   return engine;
 }
@@ -127,7 +144,7 @@ describe(".enqueue()", () => {
         return `${input.title}: ${String(answer)}`;
       });
     const handed: string[] = [];
-    observe(
+    const dispatcher = observe(
       tasks,
       async (event) => {
         for (const delta of event.tasks) {
@@ -141,7 +158,7 @@ describe(".enqueue()", () => {
       },
       { name: "dispatcher" }
     );
-    const engine = host(true);
+    const engine = host({ askable: true, collect: [review, dispatcher] });
     await engine.start();
 
     const first = await tasks.create({ title: "first" });
@@ -236,7 +253,7 @@ describe(".enqueue()", () => {
       await ask.question({ title: "Continue?" });
       return { child: launched.id, value: await launched.result };
     });
-    const engine = unhosted(true);
+    const engine = unhosted({ askable: true, collect: [child, parent] });
     await engine.start();
     const running = engine.execute<{ child: string; value: string }>(
       parent,
@@ -265,14 +282,14 @@ describe("runs", () => {
   it("reads the run an observer of workflow is told of, by its id", async () => {
     const seen: (RunView | null)[] = [];
     const greet = step("greet-run").do(() => "hello");
-    observe(
+    const completions = observe(
       workflow,
       async (fact: RunEvent) => {
         seen.push(await runs.get(fact.runId));
       },
       { name: "completions", types: ["run.completed"] }
     );
-    const engine = host();
+    const engine = host({ collect: { completions, greet } });
     await engine.start();
     const { id } = await greet.enqueue();
 
@@ -312,14 +329,12 @@ describe("runs", () => {
     await expect(runs.get("")).rejects.toThrow(TypeError);
   });
 
-  it("refuses while a source loads and once its host is disposed, like tasks", async () => {
+  it("refuses once its host is disposed, like tasks", async () => {
     const engine = host();
     await engine.start();
     await engine.dispose();
     await expect(runs.get("rn-1")).rejects.toThrow(DISPOSED_RUNS);
     await expect(runs.list()).rejects.toThrow(DISPOSED_RUNS);
-    expectHost();
-    await expect(runs.get("rn-1")).rejects.toThrow(LOADING_RUNS);
   });
 
   it("reads under a dry engine too", async () => {
@@ -345,7 +360,10 @@ describe(".enqueue() at its edges", () => {
       await ask.question({ title: "Again?" });
       return launched.id;
     });
-    const engine = unhosted(true);
+    const engine = unhosted({
+      askable: true,
+      collect: [first, second, chooser],
+    });
     await engine.start();
     const running = engine.execute<string>(chooser, {});
     await answerOpen(engine);
@@ -361,12 +379,9 @@ describe(".enqueue() at its edges", () => {
     ).toEqual(["first-choice", "second-choice"]);
   });
 
-  it("distinguishes factory closures at the same replay place", async () => {
-    function make(value: string) {
-      return step().do(() => value);
-    }
-    const first = make("first");
-    const second = make("second");
+  it("distinguishes distinct anonymous definitions at the same replay place", async () => {
+    const first = step().do(() => "first");
+    const second = step().do(() => "second");
     let bodies = 0;
     const chooser = step("closure-chooser").do(async ({ ask }) => {
       bodies += 1;
@@ -374,7 +389,10 @@ describe(".enqueue() at its edges", () => {
       await ask.question({ title: "Again?" });
       return launched.id;
     });
-    const engine = unhosted(true);
+    const engine = unhosted({
+      askable: true,
+      collect: [first, second, chooser],
+    });
     await engine.start();
     const running = engine.execute<string>(chooser, {});
     await answerOpen(engine);
@@ -447,7 +465,7 @@ describe(".enqueue() at its edges", () => {
     const unhandled = vi.fn();
     process.on("unhandledRejection", unhandled);
     try {
-      const engine = host();
+      const engine = host({ collect: [typed, hold] });
       await engine.start();
       const wrong = { count: "many" } as unknown as { count: number };
       await expect(typed.enqueue(wrong)).rejects.toThrow(SCHEMA);
@@ -465,21 +483,8 @@ describe(".enqueue() at its edges", () => {
     }
   });
 
-  it("refuses a launch and a read from a load whose host was disposed", async () => {
+  it("refuses a launch and a read from a captured scope whose host was disposed", async () => {
     const into = new Catalog();
-    let leaf: { enqueue(): Promise<unknown> } | undefined;
-    let reads: typeof runs | undefined;
-    await loadInto(
-      "launch-released",
-      into,
-      (load) => {
-        const bound = libraryOfLoad(library, load) as typeof library;
-        leaf = bound.step("released-leaf").do(() => "never");
-        reads = bound.runs;
-        return Promise.resolve();
-      },
-      { dry: false }
-    );
     const engine = testEngine({
       print: () => undefined,
       workspaceId: "launch-released",
@@ -487,11 +492,13 @@ describe(".enqueue() at its edges", () => {
     engines.push(engine);
     setHost(engine, into);
     await engine.start();
+    const scope = inContext(engine.context, captureScope);
+    const leaf = step("released-leaf").do(() => "never");
     await engine.dispose();
     releaseEngine(engine);
 
-    await expect(leaf?.enqueue()).rejects.toThrow(RELEASED);
-    await expect(reads?.get("rn-1")).rejects.toThrow(RELEASED);
+    await expect(scope(() => leaf.enqueue())).rejects.toThrow(RELEASED);
+    await expect(scope(() => runs.get("rn-1"))).rejects.toThrow(RELEASED);
   });
 });
 
@@ -541,15 +548,17 @@ async function replayedEnqueue(
 }
 
 describe("an unnamed .enqueue() on replay", () => {
-  it("tells apart definitions a factory loop builds and reuses the same one", async () => {
+  it("tells apart distinct anonymous definitions from one factory and reuses the same one", async () => {
     const calls: string[] = [];
-    function make(value: string) {
-      return step().do(() => {
+    const make = (value: string) =>
+      step().do(() => {
         calls.push(value);
         return value;
       });
-    }
     const built = ["a", "b", "c"].map(make);
+    expect(new Set(built.map(identityOf)).size).toBe(3);
+    const [firstBuilt] = built;
+    expect(firstBuilt && identityOf(firstBuilt)).toMatch(CLOSURE_IDENTITY);
     await expect(
       replayedEnqueue(
         "loop-switch",
@@ -672,17 +681,16 @@ describe("an unnamed .enqueue() on replay", () => {
   });
 
   it("numbers each source load's definitions on its own, however loads interleave", async () => {
-    const build = (words: typeof library) => words.step().do(() => "loaded");
+    const build = () => step().do(() => "loaded");
     const ids = new Map<string, string[]>();
     const gate = Promise.withResolvers<void>();
     function loadOf(workspaceId: string, between?: Promise<void>) {
-      return loadInto(workspaceId, new Catalog(), async (load) => {
-        const words = libraryOfLoad(library, load) as typeof library;
+      return withLoadScope({ dry: false, workspaceId }, async () => {
         const own: string[] = [];
         ids.set(workspaceId, own);
-        own.push(identityOf(build(words)) ?? "");
+        own.push(identityOf(build()) ?? "");
         await between;
-        own.push(identityOf(build(words)) ?? "");
+        own.push(identityOf(build()) ?? "");
       });
     }
     const first = loadOf("interleave-a", gate.promise);
@@ -690,8 +698,8 @@ describe("an unnamed .enqueue() on replay", () => {
     gate.resolve();
     await first;
     const [one, two] = ids.get("interleave-a") ?? [];
-    expect(one).toMatch(FIRST_CLAIM);
-    expect(two).toMatch(SECOND_CLAIM);
+    expect(one).toMatch(LOAD_FIRST);
+    expect(two).toMatch(LOAD_SECOND);
     expect(ids.get("interleave-b")).toEqual([one, two]);
   });
 
@@ -703,25 +711,29 @@ describe("an unnamed .enqueue() on replay", () => {
       let childCalls = 0;
       let parentCalls = 0;
       function declare() {
-        const make = (value: number) =>
-          step().do(() => {
-            childCalls += 1;
-            return value;
+        return withLoadScope({ dry: false, workspaceId: "ws" }, () => {
+          const make = (value: number) =>
+            step().do(() => {
+              childCalls += 1;
+              return value;
+            });
+          const built = [make(1), make(2)];
+          const parent = step("restart-launcher").do(async ({ ask }) => {
+            parentCalls += 1;
+            const launched = await (built[1] as Enqueueable).enqueue();
+            await ask.approval({ title: "Keep the enqueued result?" });
+            return { id: launched.id, value: await launched.result };
           });
-        const built = [make(1), make(2)];
-        const parent = step("restart-launcher").do(async ({ ask }) => {
-          parentCalls += 1;
-          const launched = await (built[1] as Enqueueable).enqueue();
-          await ask.approval({ title: "Keep the enqueued result?" });
-          return { id: launched.id, value: await launched.result };
+          const flow = workflow("restart-launch", () => parent());
+          return Promise.resolve({ flow, parent });
         });
-        workflow("restart-launch", () => parent());
       }
-      declare();
+      const firstDeclared = await declare();
       const feedOne = openFeed(feedRoot, { id: "ws", root });
       const one = await startEngine({
         artifacts: feedOne.artifacts,
         askable: true,
+        collect: firstDeclared,
         print: () => undefined,
         root,
         state,
@@ -751,12 +763,12 @@ describe("an unnamed .enqueue() on replay", () => {
         parentCalls: 1,
       });
 
-      catalog.reset();
-      declare();
+      const secondDeclared = await declare();
       const feedTwo = openFeed(feedRoot, { id: "ws", root });
       const two = await startEngine({
         artifacts: feedTwo.artifacts,
         askable: true,
+        collect: secondDeclared,
         print: () => undefined,
         root,
         state,

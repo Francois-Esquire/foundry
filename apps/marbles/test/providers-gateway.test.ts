@@ -16,9 +16,8 @@ import {
   vi,
 } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { defineProvider } from "~/authoring/providers";
-import { dispose, instanceRuntime } from "~/authoring/runtime";
 import { createEngine } from "~/create";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
@@ -114,7 +113,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  catalog.reset();
   vi.unstubAllEnvs();
   opened.close();
   rmSync(state, { force: true, recursive: true });
@@ -338,7 +336,7 @@ it("picks up a changed list when the configuration reloads, and keeps the last l
 it("lists the gateway's models when the engine starts", async () => {
   await configure(baseURL);
   const engine = createEngine({
-    catalog,
+    catalog: new Catalog(),
     dry: false,
     environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
@@ -376,7 +374,7 @@ it("adds a gateway entry and serves what its server lists", async () => {
 
 function engineOver(print: (line: string) => void): Engine {
   return createEngine({
-    catalog,
+    catalog: new Catalog(),
     dry: false,
     environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
@@ -441,14 +439,19 @@ it("lists the gateway's models for definitions called outside a run", async () =
   }
   vi.stubEnv("FOUNDRY_ROOT", home);
   vi.stubEnv("GW_KEY", "secret");
-  defineProvider(gatewayPlugin);
+  const engine = createEngine({
+    catalog: Catalog.collect([defineProvider(gatewayPlugin)]),
+    dry: false,
+    print: () => undefined,
+    root: state,
+    stateRoot: join(home, "marbles"),
+    workspaceId: "ws",
+  });
   try {
-    const runtime = (await instanceRuntime()) as Engine;
-    expect(runtime.models.resolve("text", "gw/served/chat").provider).toBe(
-      "gw"
-    );
+    await engine.providers?.refresh();
+    expect(engine.models.resolve("text", "gw/served/chat").provider).toBe("gw");
   } finally {
-    await dispose();
+    await engine.dispose();
   }
 });
 

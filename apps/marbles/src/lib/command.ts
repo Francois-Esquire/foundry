@@ -2,27 +2,10 @@ import { execFile } from "node:child_process";
 import type { Writable } from "node:stream";
 import { recordChild } from "@foundry/lib/node/spawn-record";
 import { showArgv } from "./argv";
-
+import type { CommandResult, Exec, ExecOptions } from "./command-error";
+import { CommandError } from "./command-error";
 import { StepInputError, type StepWork } from "./step-work";
 import type { SandboxHandle, SandboxInstance } from "./types";
-
-export interface CommandResult {
-  readonly exitCode: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
-
-export interface ExecOptions {
-  readonly check?: boolean;
-  readonly cwd?: string;
-  readonly environment?: Readonly<Record<string, string>>;
-  readonly sandbox?: SandboxHandle | SandboxInstance;
-}
-
-export type Exec = (
-  argv: readonly string[],
-  options?: ExecOptions
-) => Promise<CommandResult>;
 
 export interface CommandSite {
   readonly cwd: () => string;
@@ -33,22 +16,6 @@ export interface CommandSite {
   readonly spawned?: string;
   readonly work?: StepWork;
   readonly write?: (value: unknown) => void;
-}
-
-export class CommandError extends Error {
-  override readonly name = "CommandError";
-  readonly result: CommandResult;
-
-  constructor(argv: readonly string[], result: CommandResult) {
-    const said = (result.stderr || result.stdout).trim().split("\n").slice(-5);
-    super(
-      [
-        `${showArgv(argv)} exited with ${String(result.exitCode)}`,
-        ...said,
-      ].join("\n")
-    );
-    this.result = result;
-  }
 }
 
 const MAX_BUFFER = 64 * 1024 * 1024;

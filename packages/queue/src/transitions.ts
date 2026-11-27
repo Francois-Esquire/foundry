@@ -5,6 +5,7 @@ import type {
   Instant,
   Job,
   JobId,
+  Lease,
   PoolName,
   QueueEvent,
   QueueOwner,
@@ -50,6 +51,22 @@ export const bump = (run: Run, state: Run["state"]): Run => ({
 
 export const availableAt = (run: Run) =>
   run.state.kind === "queued" ? run.state.availableAt : 0;
+
+export const heldBy = (
+  run: Run | undefined,
+  lease: Lease
+): run is Run & { readonly state: { readonly kind: "running" } } =>
+  run?.state.kind === "running" &&
+  run.state.lease.claimedAt === lease.claimedAt &&
+  sameInstance(run.state.lease.owner, lease.owner);
+
+export const leaseExpiry = (
+  now: Instant,
+  leaseTtlMs: number | undefined
+): Instant | undefined =>
+  leaseTtlMs !== undefined && Number.isFinite(leaseTtlMs) && leaseTtlMs > 0
+    ? now + leaseTtlMs
+    : undefined;
 
 export const queuedRun = (input: QueuedRunInput): Run => ({
   attempt: input.attempt,
@@ -284,11 +301,13 @@ export const suspensionCancellation = ({
 };
 
 export const starting = ({
+  expiresAt,
   job,
   now,
   owner,
   run,
 }: {
+  readonly expiresAt?: Instant;
   readonly job: Job;
   readonly now: Instant;
   readonly owner: QueueOwner;
@@ -298,9 +317,14 @@ export const starting = ({
   readonly change: Change;
   readonly running: Run;
 } => {
+  const lease: Lease = {
+    claimedAt: now,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+    owner,
+  };
   const running = bump(
     { ...run, startedAt: run.startedAt ?? now },
-    { kind: "running", lease: { claimedAt: now, owner } }
+    { kind: "running", lease }
   );
   const active: Job = {
     ...job,

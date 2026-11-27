@@ -76,3 +76,9 @@ export type {
   WriteFence,
   WriteInput,
 } from "./substrate";
+export type {
+  ArtifactTransactionOptions,
+  ArtifactTransactionResult,
+  OperationEffects,
+} from "./transaction";
+export { runArtifactTransaction } from "./transaction";

@@ -6,6 +6,7 @@ import type {
   JobId,
   QueueEvent,
   Run,
+  RunId,
 } from "@foundry/queue";
 import type {
   ExecutionAnnex,
@@ -28,6 +29,8 @@ import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import type { ExecutionStore } from "./execution-store";
 import { storedObservation, storedProgress } from "./execution-store";
 import type { RunQueue } from "./run-queue";
+import type { RunStore } from "./run-store";
+import { runStoreEffect } from "./workflow-runs";
 
 export type {
   ExecutionObservation,
@@ -550,5 +553,29 @@ function removedElsewhere(error: unknown): boolean {
     error !== null &&
     "_tag" in error &&
     error._tag === "JobNotFoundError"
+  );
+}
+
+export async function readExecutionFromStores(
+  runStore: Pick<RunStore, "open">,
+  executionStore: Pick<ExecutionStore, "get">,
+  id: string
+): Promise<ExecutionRun | null> {
+  const queue = await runStore.open(() => undefined);
+  const [run, stored] = await Promise.all([
+    runStoreEffect(queue.getRun(id as RunId)),
+    executionStore.get(id),
+  ]);
+  if (run === undefined) {
+    return null;
+  }
+  const job = await runStoreEffect(queue.getJob(run.jobId));
+  if (job === undefined) {
+    return null;
+  }
+  return executionOf(
+    job,
+    run,
+    stored === undefined ? undefined : annexOf(stored)
   );
 }

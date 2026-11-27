@@ -153,6 +153,7 @@ export const createQueueClient = (
       await runtime.dispose();
     },
     drain: (graceMs) => use((queue) => queue.drain(graceMs)),
+    drainUntilIdle: (graceMs) => use((queue) => queue.drainUntilIdle(graceMs)),
     getJob: (id) => use((queue) => queue.getJob(id)),
     getRun: (id) => use((queue) => queue.getRun(id)),
     getSuspension: (id) => use((queue) => queue.getSuspension(id)),

@@ -1,7 +1,16 @@
-import { instanceGone, sameInstance } from "@foundry/lib/instance-identity";
+import {
+  closeInstance,
+  instanceGone,
+  openInstance,
+  sameInstance,
+} from "@foundry/lib/instance-identity";
 import { canonicalizeJson } from "@foundry/lib/json";
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
-import { Effect } from "effect";
+import {
+  neverGone,
+  type ProcessIdentity,
+  portableProcess,
+} from "@foundry/lib/process-identity";
+import { Clock, Effect } from "effect";
 import { dueOccurrences, nextDue } from "./cadence";
 import type { ScheduleDispatchService } from "./dispatch";
 import {
@@ -45,6 +54,7 @@ export interface Evaluation {
 }
 
 export interface EvaluatorOptions {
+  readonly claimTtlMs?: number;
   readonly commit: Commit;
   readonly dispatch: ScheduleDispatchService;
   readonly isOwnerGone: (owner: ProcessIdentity) => boolean;
@@ -128,6 +138,7 @@ const afterSettle = (
     : cursor;
 
 export const makeEvaluator = ({
+  claimTtlMs,
   commit,
   dispatch,
   isOwnerGone,
@@ -202,13 +213,31 @@ export const makeEvaluator = ({
 
   type ClaimResult = "claimed" | "decided" | "held-by-peer";
 
-  const ownerGone = (owner: SchedulerOwner) =>
-    Effect.sync(() => instanceGone(owner, self, isOwnerGone));
+  const validClaimTtlMs =
+    claimTtlMs !== undefined && Number.isFinite(claimTtlMs) && claimTtlMs > 0
+      ? claimTtlMs
+      : undefined;
+
+  const claimExpired = (
+    lease: { readonly claimedAt: Instant; readonly owner: SchedulerOwner },
+    now: Instant
+  ) =>
+    validClaimTtlMs !== undefined && lease.claimedAt + validClaimTtlMs <= now;
+
+  const claimStale = (
+    lease: { readonly claimedAt: Instant; readonly owner: SchedulerOwner },
+    now: Instant
+  ) =>
+    Effect.sync(
+      () =>
+        claimExpired(lease, now) || instanceGone(lease.owner, self, isOwnerGone)
+    );
 
   const claimExisting = (
     occurrence: Occurrence,
     existing: Occurrence,
-    exclusive: boolean
+    exclusive: boolean,
+    now: Instant
   ): Effect.Effect<ClaimResult, ScheduleError> =>
     Effect.gen(function* () {
       if (existing.state.kind !== "claimed") {
@@ -218,7 +247,7 @@ export const makeEvaluator = ({
       if (sameInstance(owner, self)) {
         return "claimed";
       }
-      if (!(yield* ownerGone(owner))) {
+      if (!(yield* claimStale(existing.state.lease, now))) {
         return "held-by-peer";
       }
       return (yield* store.claim(occurrence, existing, exclusive))
@@ -227,7 +256,8 @@ export const makeEvaluator = ({
     });
 
   const claimAroundPeer = (
-    occurrence: Occurrence
+    occurrence: Occurrence,
+    now: Instant
   ): Effect.Effect<ClaimResult, ScheduleError> =>
     Effect.gen(function* () {
       const claimed = yield* store.listOccurrences({
@@ -239,7 +269,7 @@ export const makeEvaluator = ({
           continue;
         }
         const { owner } = other.state.lease;
-        if (!(yield* ownerGone(owner))) {
+        if (!(yield* claimStale(other.state.lease, now))) {
           return "held-by-peer";
         }
         yield* store.releaseClaim(other.id, owner);
@@ -251,7 +281,8 @@ export const makeEvaluator = ({
 
   const claim = (
     occurrence: Occurrence,
-    exclusive: boolean
+    exclusive: boolean,
+    now: Instant
   ): Effect.Effect<ClaimResult, ScheduleError> =>
     Effect.gen(function* () {
       if (yield* store.claim(occurrence, undefined, exclusive)) {
@@ -259,9 +290,11 @@ export const makeEvaluator = ({
       }
       const existing = yield* store.getOccurrence(occurrence.id);
       if (existing !== undefined) {
-        return yield* claimExisting(occurrence, existing, exclusive);
+        return yield* claimExisting(occurrence, existing, exclusive, now);
       }
-      return exclusive ? yield* claimAroundPeer(occurrence) : "held-by-peer";
+      return exclusive
+        ? yield* claimAroundPeer(occurrence, now)
+        : "held-by-peer";
     });
 
   const dispatchDue = (
@@ -269,7 +302,7 @@ export const makeEvaluator = ({
     progress: Progress,
     scheduledFor: Instant,
     now: Instant,
-    retryCursor?: ScheduleCursor
+    contendedBase?: Progress
   ) =>
     Effect.gen(function* () {
       const base = occurrenceAt(schedule.id, scheduledFor);
@@ -281,20 +314,15 @@ export const makeEvaluator = ({
           lease: { claimedAt: now, owner: self },
         },
       };
-      const exclusive = schedule.overlap !== "allow";
+      const exclusive: boolean = schedule.overlap !== "allow";
       const cursor = { ...progress.cursor, lastScheduledFor: scheduledFor };
-      const outcome = yield* claim(claimed, exclusive);
+      const outcome = yield* claim(claimed, exclusive, now);
       if (outcome !== "claimed") {
         const taken = skipped(base, "already-claimed", now);
         if (outcome === "held-by-peer") {
+          const kept = contendedBase ?? progress;
           return {
-            ...record(
-              progress,
-              retryCursor ?? progress.cursor,
-              taken,
-              [skippedFact(taken)],
-              false
-            ),
+            ...record(kept, kept.cursor, taken, [skippedFact(taken)], false),
             contended: true,
           };
         }
@@ -400,14 +428,7 @@ export const makeEvaluator = ({
     if (due.toDispatch === null) {
       return Effect.succeed(advanced);
     }
-    const pending: ScheduleCursor = {
-      ...progress.cursor,
-      ...(due.skipped.length > 0
-        ? { lastScheduledFor: due.skipped.at(-1) }
-        : {}),
-      nextDueAt: due.toDispatch,
-    };
-    return dispatchDue(schedule, advanced, due.toDispatch, now, pending);
+    return dispatchDue(schedule, advanced, due.toDispatch, now, progress);
   };
 
   const evaluateOnce = (schedule: Schedule, now: Instant) =>
@@ -462,3 +483,91 @@ export const makeEvaluator = ({
 
   return { evaluate, triggerNow };
 };
+
+const DEFAULT_MAX_OCCURRENCES = 100;
+const DEFAULT_SETTLE_POLL_MS = 5000;
+
+const earliest = (one: Instant | undefined, other: Instant | null) =>
+  other === null ? one : Math.min(one ?? other, other);
+
+export interface EvaluateDueSchedulesOptions {
+  readonly claimTtlMs?: number;
+  readonly dispatch: ScheduleDispatchService;
+  readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
+  readonly maxOccurrencesPerSchedule?: number;
+  readonly now?: Instant;
+  readonly owner?: SchedulerOwner;
+  readonly settlePollMs?: number;
+  readonly store: ScheduleStoreService;
+}
+
+export interface ScheduleEvaluationFailure {
+  readonly error: ScheduleError;
+  readonly scheduleId: ScheduleId;
+}
+
+export interface EvaluateDueSchedulesResult {
+  readonly decided: readonly Occurrence[];
+  readonly errors: readonly ScheduleEvaluationFailure[];
+  readonly soonest: Instant | undefined;
+}
+
+export const evaluateDueSchedules = (
+  options: EvaluateDueSchedulesOptions
+): Effect.Effect<EvaluateDueSchedulesResult, ScheduleError> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const self: SchedulerOwner =
+        options.owner ??
+        (yield* Effect.acquireRelease(
+          Effect.sync(() => openInstance(portableProcess())),
+          (instance) => Effect.sync(() => closeInstance(instance))
+        ));
+      const settlePollMs = options.settlePollMs ?? DEFAULT_SETTLE_POLL_MS;
+      const commit: Commit = (at, facts, write) =>
+        options.store.commit({
+          ...write,
+          events: facts.map(
+            (fact): ScheduleEvent => ({
+              ...fact,
+              at,
+              id: `ev-${crypto.randomUUID()}`,
+            })
+          ),
+        });
+      const { evaluate } = makeEvaluator({
+        ...(options.claimTtlMs === undefined
+          ? {}
+          : { claimTtlMs: options.claimTtlMs }),
+        commit,
+        dispatch: options.dispatch,
+        isOwnerGone: options.isOwnerGone ?? neverGone,
+        maxOccurrencesPerSchedule:
+          options.maxOccurrencesPerSchedule ?? DEFAULT_MAX_OCCURRENCES,
+        self,
+        store: options.store,
+      });
+      const now = options.now ?? (yield* Clock.currentTimeMillis);
+      const decided: Occurrence[] = [];
+      const errors: ScheduleEvaluationFailure[] = [];
+      let soonest: Instant | undefined;
+      for (const schedule of yield* options.store.listSchedules) {
+        const result = yield* evaluate(schedule, now).pipe(
+          Effect.catchAll((error) => {
+            errors.push({ error, scheduleId: schedule.id });
+            return Effect.succeed<Evaluation>({
+              decided: [],
+              nextDueAt: now + settlePollMs,
+              open: false,
+            });
+          })
+        );
+        decided.push(...result.decided);
+        soonest = earliest(soonest, result.nextDueAt);
+        if (result.open) {
+          soonest = earliest(soonest, now + settlePollMs);
+        }
+      }
+      return { decided, errors, soonest };
+    })
+  );

@@ -305,7 +305,7 @@ describe("the effective set", () => {
       codex: "disabled",
       literal: '"key" must name an environment variable, not hold a value',
       mystery:
-        'provider "@acme/unknown" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source',
+        'provider "@acme/unknown" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", and export it from the workspace\'s source',
     });
   });
 });
@@ -327,7 +327,7 @@ describe("providers no workspace defined", () => {
     });
     const { config } = configuration();
     const message =
-      'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; defineProvider(gateway);';
+      'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; export const gatewayProvider = defineProvider(gateway);';
     expect(await config.refresh()).toEqual([message]);
     expect(await config.refresh()).toEqual([message]);
     store.put("ws1", { order: ["codex"], providers: [] });

@@ -2,12 +2,10 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { testEngine } from "./helpers/engine";
 import { temporaryDirectory } from "./helpers/temporary";
 
 afterEach(() => {
-  catalog.reset();
   vi.unstubAllEnvs();
 });
 
@@ -15,7 +13,7 @@ it("records a command a step runs under the Foundry root, where the engine given
   const root = temporaryDirectory("marbles-root-");
   vi.stubEnv("FOUNDRY_ROOT", root);
   const spawned = join(root, "processes");
-  step("listing").do(async ({ exec }) => {
+  const listing = step("listing").do(async ({ exec }) => {
     const { stdout } = await exec([
       "sh",
       "-c",
@@ -24,7 +22,11 @@ it("records a command a step runs under the Foundry root, where the engine given
     ]);
     return stdout;
   });
-  const engine = testEngine({ print: () => undefined, spawned });
+  const engine = testEngine({
+    collect: [listing],
+    print: () => undefined,
+    spawned,
+  });
   await engine.start();
   try {
     const listed = String(await engine.run("listing", {})).split("\n");

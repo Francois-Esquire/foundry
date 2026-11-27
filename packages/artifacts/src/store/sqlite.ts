@@ -206,6 +206,25 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
+  findBlobByPath(path: string): Promise<Blob | null> {
+    return this.#run(async () => {
+      if (!storableText(path)) {
+        return null;
+      }
+      const [row] = await this.#database
+        .select(blobColumns)
+        .from(artifactBlobs)
+        .where(
+          and(
+            eq(artifactBlobs.scope, this.#scope),
+            eq(artifactBlobs.path, path)
+          )
+        )
+        .limit(1);
+      return row ? blobOf(this.#scope, row) : null;
+    });
+  }
+
   findBlobs(digest: string): Promise<readonly Blob[]> {
     return this.#run(async () => {
       if (!storableText(digest)) {

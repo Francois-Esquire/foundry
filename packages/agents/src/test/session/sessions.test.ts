@@ -59,6 +59,57 @@ describe("Sessions without a store", () => {
 
     await expect(sessions.getSession("s")).resolves.toEqual(session);
   });
+
+  it("supports injectable clock and id generators and falls back for stores without listMessagesPage", async () => {
+    let tick = 1000;
+    let seq = 0;
+    const memory = new MemorySessionStore();
+    const minimalStore: SessionStore = {
+      commit: (write) => memory.commit(write),
+      getMessage: (id) => memory.getMessage(id),
+      getSession: (id) => memory.getSession(id),
+      listMessages: (sessionId) => memory.listMessages(sessionId),
+    };
+    const sessions = new Sessions({
+      clock: () => {
+        tick += 10;
+        return tick;
+      },
+      id: () => {
+        seq += 1;
+        return `id-${seq}`;
+      },
+      store: minimalStore,
+    });
+
+    const created = await sessions.createSession({ title: "Deterministic" });
+    expect(created.id).toBe("id-1");
+    expect(created.createdAt).toBe(1010);
+
+    const first = await sessions.appendMessage({
+      parts: text("one"),
+      role: "user",
+      sessionId: created.id,
+    });
+    const second = await sessions.appendMessage({
+      parts: text("two"),
+      role: "assistant",
+      sessionId: created.id,
+    });
+    expect(first.createdAt).toBe(1020);
+    expect(second.createdAt).toBe(1030);
+
+    const page1 = await sessions.listMessagesPage(created.id, { limit: 1 });
+    expect(page1.items.map((m) => m.id)).toEqual([first.id]);
+    expect(page1.nextCursor).toBe(first.id);
+
+    const page2 = await sessions.listMessagesPage(created.id, {
+      cursor: page1.nextCursor,
+      limit: 1,
+    });
+    expect(page2.items.map((m) => m.id)).toEqual([second.id]);
+    expect(page2.nextCursor).toBeUndefined();
+  });
 });
 
 describe.each(sessionStoreKinds())("over %s", (_kind, open) => {

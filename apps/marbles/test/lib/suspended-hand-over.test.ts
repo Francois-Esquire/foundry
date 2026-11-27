@@ -5,7 +5,6 @@ import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
 import { bindMock } from "../helpers/bindings";
@@ -23,7 +22,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -48,15 +46,15 @@ it("a retiring engine finishes its running run untouched, and the next engine an
   const state = join(root, "state");
   const linger = Promise.withResolvers<void>();
   let lingered = 0;
-  step("release").do(
+  const release = step("release").do(
     async ({ ask }) => (await ask.approval({ title: "Ship?" })).approved
   );
-  step("linger").do(async () => {
+  const lingerStep = step("linger").do(async () => {
     lingered += 1;
     await linger.promise;
     return "lingered";
   });
-  const old = await generation();
+  const old = await generation({ collect: [release, lingerStep] });
   const suspended = await old.engine.launch<boolean>("release", {});
   suspended.result.catch(() => undefined);
   const running = await old.engine.launch<string>("linger", {});
@@ -65,7 +63,7 @@ it("a retiring engine finishes its running run untouched, and the next engine an
       expect((await storedRun(state, suspended.id))?.status).toBe("suspended"),
     ACROSS
   );
-  const next = await generation();
+  const next = await generation({ collect: [release, lingerStep] });
   const { ended } = await old.engine.retire(thisProcess());
 
   const question = (await next.engine.feed()).find(
@@ -105,7 +103,7 @@ it("a run paused on a retiring engine, resumed there, runs on the next one with 
   };
   const reviewer = agent({ prompt: "Review." });
   const sessionIds: string[] = [];
-  step("review").do(async ({ agents, signal }) => {
+  const review = step("review").do(async ({ agents, signal }) => {
     const session = await agents.session(reviewer);
     sessionIds.push(session.ref.id);
     const answer = await session.generate("look at the tests");
@@ -117,7 +115,10 @@ it("a run paused on a retiring engine, resumed there, runs on the next one with 
     return answer.text;
   });
   const first = bindMock(reply, { root, sessions });
-  const old = await generation(first.instances);
+  const old = await generation({
+    ...first.instances,
+    collect: [reviewer, review],
+  });
   const launched = await old.engine.launch<string>("review", {});
   launched.result.catch(() => undefined);
   await vi.waitFor(() => expect(prompts).toHaveLength(1));
@@ -128,7 +129,10 @@ it("a run paused on a retiring engine, resumed there, runs on the next one with 
     ACROSS
   );
   const second = bindMock(reply, { root, sessions });
-  const next = await generation(second.instances);
+  const next = await generation({
+    ...second.instances,
+    collect: [reviewer, review],
+  });
   await (await old.engine.retire(thisProcess())).ended;
 
   await old.engine.resume(launched.id, "review", "focus on flaky ones");
@@ -149,10 +153,10 @@ it("a run paused on a retiring engine, resumed there, runs on the next one with 
 
 it("cancels a suspended run, and closes its question, from an engine that never ran it", async () => {
   const state = join(root, "state");
-  step("release").do(
+  const release = step("release").do(
     async ({ ask }) => (await ask.approval({ title: "Ship?" })).approved
   );
-  const old = await generation();
+  const old = await generation({ collect: [release] });
   const launched = await old.engine.launch<boolean>("release", {});
   const outcome = launched.result.catch((error: unknown) => error);
   await vi.waitFor(
@@ -160,7 +164,7 @@ it("cancels a suspended run, and closes its question, from an engine that never 
       expect((await storedRun(state, launched.id))?.status).toBe("suspended"),
     ACROSS
   );
-  const next = await generation();
+  const next = await generation({ collect: [release] });
 
   const question = (await next.engine.feed()).find(
     (entry) => entry.input?.status === "open"

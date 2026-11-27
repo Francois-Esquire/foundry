@@ -44,4 +44,8 @@ export type {
 } from "./session/events";
 export type { SessionsOptions } from "./session/sessions";
 export { Sessions } from "./session/sessions";
-export type { SessionStore, SessionStoreWrite } from "./store";
+export type {
+  MessagePageQuery,
+  SessionStore,
+  SessionStoreWrite,
+} from "./store";

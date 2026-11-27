@@ -23,6 +23,7 @@ export type ContainerTransaction = SqliteTransaction;
 
 export interface SqliteContainerStoreOptions {
   readonly database: ContainerDatabase;
+  readonly identity?: string;
   readonly location?: string;
   readonly onCommit?: (
     transaction: ContainerTransaction,
@@ -56,13 +57,17 @@ export class SqliteContainerStore implements ContainerStore {
   #known: string | undefined;
 
   constructor(options: SqliteContainerStoreOptions) {
-    const { scope } = options;
+    const { identity, scope } = options;
     if (scope.length === 0 || !storableText(scope) || scope.includes(UNIT)) {
       throw new RangeError(
         "scope must be a nonempty string with no U+0000, no U+001F and no lone surrogate"
       );
     }
+    if (identity !== undefined && identity.length === 0) {
+      throw new RangeError("identity must be a nonempty string");
+    }
     this.#database = options.database;
+    this.#known = identity;
     this.#location = options.location;
     this.#onCommit = options.onCommit;
     this.#scope = scope;
@@ -139,29 +144,34 @@ export class SqliteContainerStore implements ContainerStore {
       return this.#known;
     }
     const scope = identityScope(this.#scope);
-    await this.#database
-      .insert(sandboxContainers)
-      .values({
-        createdAt: 0,
-        holder: null,
-        id: IDENTITY_ID,
-        nativeId: globalThis.crypto.randomUUID(),
-        position: 0,
-        scope,
-        spec: "{}",
-        status: "stopped",
-        updatedAt: 0,
-      })
-      .onConflictDoNothing();
-    const [row] = await this.#database
+    const whereIdentity = and(
+      eq(sandboxContainers.scope, scope),
+      eq(sandboxContainers.id, IDENTITY_ID)
+    );
+    let [row] = await this.#database
       .select({ nativeId: sandboxContainers.nativeId })
       .from(sandboxContainers)
-      .where(
-        and(
-          eq(sandboxContainers.scope, scope),
-          eq(sandboxContainers.id, IDENTITY_ID)
-        )
-      );
+      .where(whereIdentity);
+    if (row === undefined) {
+      await this.#database
+        .insert(sandboxContainers)
+        .values({
+          createdAt: 0,
+          holder: null,
+          id: IDENTITY_ID,
+          nativeId: globalThis.crypto.randomUUID(),
+          position: 0,
+          scope,
+          spec: "{}",
+          status: "stopped",
+          updatedAt: 0,
+        })
+        .onConflictDoNothing();
+      [row] = await this.#database
+        .select({ nativeId: sandboxContainers.nativeId })
+        .from(sandboxContainers)
+        .where(whereIdentity);
+    }
     if (typeof row?.nativeId !== "string" || row.nativeId === "") {
       throw new Error("the container store's identity could not be read");
     }

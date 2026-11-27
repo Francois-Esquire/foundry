@@ -8,39 +8,48 @@
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
-      "import": "./src/index.ts"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./providers/claude-code": {
       "types": "./dist/src/providers/claude-code.d.ts",
-      "import": "./src/providers/claude-code.ts"
+      "import": "./src/providers/claude-code.ts",
+      "default": "./src/providers/claude-code.ts"
     },
     "./providers/codex": {
       "types": "./dist/src/providers/codex.d.ts",
-      "import": "./src/providers/codex.ts"
+      "import": "./src/providers/codex.ts",
+      "default": "./src/providers/codex.ts"
     },
     "./providers/pi": {
       "types": "./dist/src/providers/pi.d.ts",
-      "import": "./src/providers/pi.ts"
+      "import": "./src/providers/pi.ts",
+      "default": "./src/providers/pi.ts"
     },
     "./providers/gateway": {
       "types": "./dist/src/providers/gateway.d.ts",
-      "import": "./src/providers/gateway.ts"
+      "import": "./src/providers/gateway.ts",
+      "default": "./src/providers/gateway.ts"
     },
     "./providers/vercel": {
       "types": "./dist/src/providers/vercel.d.ts",
-      "import": "./src/providers/vercel.ts"
+      "import": "./src/providers/vercel.ts",
+      "default": "./src/providers/vercel.ts"
     },
     "./cost": {
       "types": "./dist/src/cost.d.ts",
-      "import": "./src/cost.ts"
+      "import": "./src/cost.ts",
+      "default": "./src/cost.ts"
     },
     "./catalog/models-dev": {
       "types": "./dist/src/catalog/models-dev.d.ts",
-      "import": "./src/catalog/models-dev.ts"
+      "import": "./src/catalog/models-dev.ts",
+      "default": "./src/catalog/models-dev.ts"
     },
     "./catalog/models-dev-source": {
       "types": "./dist/src/catalog/models-dev-source.d.ts",
-      "import": "./src/catalog/models-dev-source.ts"
+      "import": "./src/catalog/models-dev-source.ts",
+      "default": "./src/catalog/models-dev-source.ts"
     }
   },
   "files": [

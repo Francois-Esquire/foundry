@@ -271,8 +271,9 @@ it("records an observation at the same cost however many its run has", async () 
 
 it("prunes only settled runs, records the gap first, and drops a workflow's Run and output", async () => {
   const state = join(fixture.root, "state");
-  step("flow").do(() => "ran");
+  const flowDef = step("flow").do(() => "ran");
   const engine = engineWith({ state });
+  engine.define(flowDef);
   const started: string[] = [];
   const gates = new Map<string, () => void>();
   blockingTask(engine, "hold", started, gates);
@@ -545,8 +546,9 @@ it("returns the run another engine sharing the store started for the same source
 
 it("keeps a run's record when its cleanup fails, so pruning it again retries", async () => {
   const state = join(fixture.root, "state");
-  step("flow").do(() => "ran");
+  const flowDef = step("flow").do(() => "ran");
   const engine = engineWith({ state });
+  engine.define(flowDef);
   await engine.start();
   const flow = await engine.launch<string>("flow", {});
   await flow.result;

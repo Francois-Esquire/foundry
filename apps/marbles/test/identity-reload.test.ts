@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -13,15 +13,11 @@ afterEach(async () => {
   );
 });
 
-it("names a definition from its source as it is now when the same process loads that workspace again after an edit", async () => {
+it("names a definition from its export as it is now when the same process loads that workspace again after an edit", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-identity-reload-"));
   roots.push(root);
   const dir = join(root, "ws");
-  await mkdir(join(dir, "node_modules"), { recursive: true });
-  await symlink(
-    resolve("../../node_modules/typescript"),
-    join(dir, "node_modules", "typescript")
-  );
+  await mkdir(dir, { recursive: true });
   const source = join(dir, "marbles.ts");
   const declare = (name: string) =>
     `import { step } from "@foundry.sh/marbles";\nexport const ${name} = step().do(() => 1);\n`;
@@ -40,7 +36,7 @@ process.stdout.write(JSON.stringify({ first, second }) + "\\n");
 process.exit(0);
 `
   );
-  const output = execFileSync("bun", [script], {
+  const output = execFileSync(process.execPath, [script], {
     cwd: resolve("."),
     encoding: "utf8",
     timeout: 60_000,

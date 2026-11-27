@@ -1,3 +1,4 @@
+import { generateId } from "@foundry/lib/id";
 import { Effect, Exit, Scope, Stream } from "effect";
 import type { LeafDefinitionPlan } from "./definition/plan";
 import {
@@ -158,7 +159,7 @@ export abstract class Step<
     }
     this.#runtime = {
       config: spec.config,
-      id: spec.id ?? `${spec.name}_${Math.random().toString(36).slice(2, 6)}`,
+      id: spec.id ?? generateId({ prefix: spec.name }),
       input: spec.input,
       name: spec.name,
       pendingChildren: [...(spec.children ?? [])],
@@ -191,10 +192,17 @@ export abstract class Step<
   create(context?: DefinitionContext<X>) {
     const source = this;
     return Object.freeze({
-      run(input: I, invocationContext?: DefinitionContext<X>): Promise<O> {
+      async run(
+        input: I,
+        invocationContext?: DefinitionContext<X>
+      ): Promise<O> {
         const binding = definitionBindingFor(context, invocationContext);
         const runtime = source.#materialize(input, binding);
-        return runtime.run(input, definitionRuntimeSeed(binding));
+        try {
+          return await runtime.run(input, definitionRuntimeSeed(binding));
+        } finally {
+          await runtime.dispose();
+        }
       },
     });
   }
@@ -357,9 +365,12 @@ export abstract class Step<
     });
   }
 
-  dispose(): Promise<void> {
+  dispose(options: { readonly abort?: boolean } = {}): Promise<void> {
     if (!this.#substrate) {
       return Promise.resolve();
+    }
+    if (options.abort === false) {
+      this.#substrate.executable.disarmScopeAbort();
     }
     return Effect.runPromise(Scope.close(this.#substrate.scope, Exit.void));
   }

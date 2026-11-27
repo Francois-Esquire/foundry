@@ -1,7 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
 import type { StepSnapshot } from "~/model/dashboard";
@@ -12,7 +11,6 @@ const engines: Engine[] = [];
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
 });
 
 function flatten(steps: readonly StepSnapshot[]): StepSnapshot[] {
@@ -37,8 +35,13 @@ it("a step named `a.b` keeps its own turns: its sibling `a`, and `a`'s dynamic c
   const join = step()
     .input(z.object({ a: z.unknown(), "a.b": z.unknown() }))
     .do(() => "joined");
-  workflow("flow").do(() => join({ a: own({}), "a.b": dotted({}) }));
-  const engine = await startEngine({ print: () => undefined });
+  const flow = workflow("flow").do(() =>
+    join({ a: own({}), "a.b": dotted({}) })
+  );
+  const engine = await startEngine({
+    collect: [reviewer, shared, own, dotted, flow],
+    print: () => undefined,
+  });
   engines.push(engine);
   const launched = await engine.launch("flow", {});
   await launched.result;

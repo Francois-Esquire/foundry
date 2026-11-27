@@ -96,31 +96,8 @@ export function replayedStream<OUTPUT extends Output.Output>(
   };
 }
 
-export function deferredStream<OUTPUT extends Output.Output>(
-  opening: Promise<SessionStream<OUTPUT>>
-): SessionStream<OUTPUT> {
-  const final = <T>(pick: (stream: SessionStream<OUTPUT>) => Promise<T>) => {
-    const value = opening.then(pick);
-    value.catch(() => undefined);
-    return value;
-  };
-  return {
-    async *[Symbol.asyncIterator]() {
-      yield* await opening;
-    },
-    message: final((stream) => stream.message),
-    outcome: final((stream) => stream.outcome),
-    output: final((stream) => stream.output),
-    partialOutputStream: {
-      async *[Symbol.asyncIterator]() {
-        yield* (await opening).partialOutputStream;
-      },
-    },
-    result: final((stream) => stream.result),
-    text: final((stream) => stream.text),
-    usage: final((stream) => stream.usage),
-  };
-}
+// biome-ignore lint/performance/noBarrelFile: Re-export portable stream helper for existing callers.
+export { deferredStream } from "../deferred-stream";
 
 export function wrapAgentSession<DEFAULT extends Output.Output = never>(
   harness: SessionHarness | HarnessSession,

@@ -4,7 +4,12 @@ import type { Step } from "../step";
 import type { Bail } from "../types";
 import { isBail, StepBailError } from "../types";
 import type { Channels } from "./channels";
-import type { Executable, ExecutableConfig, Witness } from "./executable";
+import {
+  type Executable,
+  type ExecutableConfig,
+  isSuspendSignal,
+  type Witness,
+} from "./executable";
 
 export interface BaseScope {
   readonly channels: Channels;
@@ -264,6 +269,12 @@ export class Composer<S extends BaseScope = BaseScope> {
   ): Effect.Effect<A, Error> {
     const wrapper = this.fork(name);
     return Effect.gen(function* () {
+      const seeded = wrapper.scope.channels.snapshot.consumeSeeded(
+        wrapper.path.join(".")
+      );
+      if (seeded.found) {
+        return seeded.output as A;
+      }
       wrapper.mount();
       return yield* body(wrapper).pipe(
         Effect.tap((value) =>
@@ -273,6 +284,9 @@ export class Composer<S extends BaseScope = BaseScope> {
         ),
         Effect.tapError((err) =>
           Effect.sync(() => {
+            if (isSuspendSignal(err)) {
+              return;
+            }
             wrapper.fail(err instanceof Error ? err : new Error(String(err)));
           })
         )

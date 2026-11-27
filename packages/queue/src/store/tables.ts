@@ -40,9 +40,11 @@ export const queueJobs = sqliteTable(
 export const queueRuns = sqliteTable(
   "queue_runs",
   {
+    availableAt: integer("available_at"),
     body: text("body", { mode: "json" }).$type<Run>().notNull(),
     id: text("id").$type<RunId>().notNull(),
     jobId: text("job_id").$type<JobId>().notNull(),
+    pool: text("pool"),
     scope: text("scope").notNull(),
     state: text("state").$type<RunState["kind"]>().notNull(),
   },
@@ -50,6 +52,16 @@ export const queueRuns = sqliteTable(
     primaryKey({ columns: [table.scope, table.id] }),
     index("queue_runs_scope_state").on(table.scope, table.state),
     index("queue_runs_scope_job").on(table.scope, table.jobId),
+    index("queue_runs_scope_state_available").on(
+      table.scope,
+      table.state,
+      table.availableAt
+    ),
+    index("queue_runs_scope_pool_state").on(
+      table.scope,
+      table.pool,
+      table.state
+    ),
   ]
 );
 

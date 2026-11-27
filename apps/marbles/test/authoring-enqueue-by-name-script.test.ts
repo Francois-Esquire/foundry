@@ -17,13 +17,14 @@ afterAll(async () => {
 
 describe("step.enqueue(name) in a script no workspace hosts", () => {
   it("launches what the script declared on the engine it starts, as the definition's own launch does", async () => {
+    const leaf = step("script-leaf").do(() => "leaf");
+    const flow = workflow("script-flow", () => leaf());
     const engine = testEngine({
+      collect: { flow, leaf },
       pools: { default: { limit: 4 } },
       print: () => undefined,
     });
     setDefaultRuntime(() => Promise.resolve(engine));
-    const leaf = step("script-leaf").do(() => "leaf");
-    workflow("script-flow", () => leaf());
 
     const launched = await step.enqueue<string>("script-leaf");
     await expect(launched.result).resolves.toBe("leaf");
@@ -31,17 +32,42 @@ describe("step.enqueue(name) in a script no workspace hosts", () => {
     await expect(flowed.result).resolves.toBe("leaf");
     expect(engine.executions.get(flowed.id)).toBeDefined();
     await expect(step.enqueue("script-flow")).rejects.toThrow(NOT_A_STEP);
-    await expect(step.enqueue("script-leaf", {}, { key: "k" })).rejects.toThrow(
-      NO_NAME
-    );
-    await expect(leaf.enqueue({}, { key: "k" })).rejects.toThrow(NO_NAME);
+    const keyed = await step.enqueue<string>("script-leaf", {}, { key: "k" });
+    await expect(keyed.result).resolves.toBe("leaf");
+    const same = await leaf.enqueue({}, { key: "k" });
+    expect(same.id).toBe(keyed.id);
+
+    const anonymous = step().do(() => "anon");
+    await expect(anonymous.enqueue({}, { key: "k" })).rejects.toThrow(NO_NAME);
+    const undeclared = step("undeclared-leaf").do(() => "nope");
+    await expect(undeclared.enqueue({}, { key: "k" })).rejects.toThrow(NO_NAME);
 
     const parent = step("script-parent").do(async () => {
       const child = await step.enqueue<string>("script-leaf");
-      const flow = await workflow.enqueue<string>("script-flow");
-      return `${await child.result} and ${await flow.result}`;
+      const flowRun = await workflow.enqueue<string>("script-flow");
+      return `${await child.result} and ${await flowRun.result}`;
     });
     await expect(parent.run()).resolves.toBe("leaf and leaf");
+  });
+
+  it("installs the default Node runtime when @foundry.sh/marbles/engine is imported in a standalone script", () => {
+    const top = temporaryDirectory("marbles-standalone-engine-");
+    const script = join(top, "standalone.ts");
+    writeFileSync(
+      script,
+      `import { step } from ${JSON.stringify(resolve("dist/index.js"))};
+import ${JSON.stringify(resolve("dist/engine.js"))};
+const answer = step("standalone-answer").do(() => 42);
+process.stdout.write(JSON.stringify(await answer.run()));
+process.exit(0);
+`
+    );
+    const output = execFileSync("node", [script], {
+      cwd: top,
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    expect(JSON.parse(output)).toBe(42);
   });
 });
 
