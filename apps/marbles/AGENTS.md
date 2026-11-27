@@ -501,7 +501,7 @@ The `@foundry.sh/marbles` surface is what authoring modules depend on; new
 engine API goes on `@foundry.sh/marbles/lib`, not there. That entry exports
 `Engine`, types, a few constants, and the package classes the constructor's
 instances are built from; do not add loose functions to it. Public entries:
-`@foundry.sh/marbles` (`authoring/index.ts`), `@foundry.sh/marbles/prebuilt`,
+`@foundry.sh/marbles` (`authoring/index.ts`),
 `@foundry.sh/marbles/lib` (`entries/lib.ts`: `lib/index.ts` with the
 published `Engine`),
 `@foundry.sh/marbles/engine` (`entries/embedded.ts`: `lib/embedded.ts` with

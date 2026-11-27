@@ -57,7 +57,7 @@ export const LongText = story({
     renderFrame(
       renderer,
       <EmptyState
-        description="Choose a starter during setup, or add a prebuilt step in .foundry/marbles, then save the file to load it."
+        description="Create the starter during setup, or add a step in .foundry/marbles, then save the file to load it."
         title="No workflows or steps in this workspace yet."
       />,
       { height: 10, width: 30 }

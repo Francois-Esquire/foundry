@@ -27,10 +27,6 @@ const SELF_URLS: ReadonlyMap<string, string> = new Map([
   ],
   ["@foundry.sh/marbles/lib", entryUrl("../entries/lib.ts", "lib.js")],
   [
-    "@foundry.sh/marbles/prebuilt",
-    entryUrl("../authoring/prebuilt.ts", "prebuilt.js"),
-  ],
-  [
     "@foundry.sh/marbles/process",
     entryUrl("../process/index.ts", "process.js"),
   ],
@@ -500,7 +496,6 @@ function ensureLoaderAdapter(): Promise<"node" | "bun"> {
     const bunPlugin = (globalThis as BunRuntimeGlobal).Bun?.plugin;
     const eagerSelf = [
       "@foundry.sh/marbles",
-      "@foundry.sh/marbles/prebuilt",
       "@foundry.sh/marbles/providers",
     ] as const;
     const loadedSelf = new Map<string, Record<string, unknown>>();

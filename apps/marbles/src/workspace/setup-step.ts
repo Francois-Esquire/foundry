@@ -4,7 +4,7 @@ import { Step } from "@foundry/workflows/step";
 
 import type { Engine } from "~/lib/engine";
 import { FEED_POST_EVENT, feedPayload } from "~/lib/feed/entry";
-import { type SetupDraft, STARTERS } from "~/workspace/templates";
+import { type SetupDraft, STARTER, STARTER_GUIDE } from "~/workspace/templates";
 
 export const SETUP_STEP = "marbles.workspace-setup";
 
@@ -49,13 +49,12 @@ export function registerSetupStep(engine: Engine): void {
 }
 
 function setupArticle({ configPath, draft, root }: SetupInput): string {
-  const starter = STARTERS.find((item) => item.id === draft.template);
   return [
     `Marbles now runs in \`${root}\`.`,
     "",
     `- **Source:** \`${basename(configPath)}\``,
-    `- **Starter:** ${starter ? `${starter.label}: ${starter.description}` : draft.template}`,
-    `- **First step:** \`${draft.name}\``,
+    `- **First step:** \`${draft.name}\` (${STARTER.description})`,
+    `- **Guide:** ${STARTER_GUIDE}`,
     "",
     `Launch \`${draft.name}\` from Marbles on the Dashboard tab. Steps that call \`report\` publish here.`,
   ].join("\n");

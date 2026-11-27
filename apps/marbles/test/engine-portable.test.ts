@@ -187,7 +187,6 @@ describe("import portability", () => {
     "database/resources",
     "database/migrate-core",
     "authoring/index",
-    "authoring/prebuilt",
     "authoring/providers",
     "lib/execution-statuses",
   ])(

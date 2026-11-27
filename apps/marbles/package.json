@@ -27,10 +27,6 @@
       "types": "./dist/lib.d.ts",
       "default": "./dist/lib.js"
     },
-    "./prebuilt": {
-      "types": "./dist/prebuilt.d.ts",
-      "default": "./dist/prebuilt.js"
-    },
     "./statuses": {
       "types": "./dist/statuses.d.ts",
       "default": "./dist/statuses.js"

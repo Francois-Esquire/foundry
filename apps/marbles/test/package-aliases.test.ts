@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { step as publishedStep } from "@foundry.sh/marbles";
 import { Engine as PublishedEngine } from "@foundry.sh/marbles/engine";
 import { DatabaseProviderStore as PublishedProviderStore } from "@foundry.sh/marbles/lib";
-import { codeReview as publishedCodeReview } from "@foundry.sh/marbles/prebuilt";
 import { startDaemon as publishedStartDaemon } from "@foundry.sh/marbles/process";
 import { defineProvider as publishedDefineProvider } from "@foundry.sh/marbles/providers";
 import { claudeCode as publishedClaudeCode } from "@foundry.sh/marbles/providers/claude-code";
@@ -17,7 +16,6 @@ import { createStarter as publishedCreateStarter } from "@foundry.sh/marbles/wor
 import { describe, expect, it } from "vitest";
 
 import { step } from "~/authoring/index";
-import { codeReview } from "~/authoring/prebuilt";
 import { defineProvider } from "~/authoring/providers";
 import { Engine } from "~/entries/engine";
 import { DatabaseProviderStore } from "~/entries/lib";
@@ -34,7 +32,6 @@ const subpaths: [string, unknown, unknown][] = [
   [".", publishedStep, step],
   ["./engine", PublishedEngine, Engine],
   ["./lib", PublishedProviderStore, DatabaseProviderStore],
-  ["./prebuilt", publishedCodeReview, codeReview],
   ["./process", publishedStartDaemon, startDaemon],
   ["./providers", publishedDefineProvider, defineProvider],
   ["./providers/claude-code", publishedClaudeCode, claudeCode],
