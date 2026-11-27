@@ -62,6 +62,7 @@ describe("Modules boundary", () => {
   it("allows Artifact, storage contracts, shared utilities, and local seams", () => {
     expect(MODULE_ALLOWED_PACKAGE_IMPORTS).toEqual([
       "@foundry/artifacts",
+      "@foundry/authorization",
       "@foundry/core/storage",
       "@foundry/core/pagination",
       "@foundry/lib/abort",

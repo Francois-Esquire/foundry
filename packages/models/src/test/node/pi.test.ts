@@ -1,3 +1,7 @@
+import type {
+  Capability,
+  HarnessPermissionRequest,
+} from "@foundry/core/agents";
 import { jsonSchema, tool } from "ai";
 import type { PiSettings } from "ai-sdk-provider-pi";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
@@ -7,8 +11,11 @@ import {
   createPiDriver,
   type PiDriverOptions,
 } from "../../providers/pi/driver";
+import { piExtension } from "../../providers/pi/tools";
 import { collect, runOptions } from "../helpers/fake-app-server";
 import { FakePi } from "../helpers/fake-pi";
+
+const TOOL_META = Symbol.for("foundry.tool-meta");
 
 function setup(options: Partial<PiDriverOptions> = {}) {
   const child = new FakePi();
@@ -303,5 +310,168 @@ describe("Pi native driver", () => {
       expect.objectContaining({ type: "abort" })
     );
     expect(child.killed).toBe(true);
+  });
+
+  it("forwards tool capability metadata on host tool permission requests", async () => {
+    const { child, driver } = setup();
+    const requests: HarnessPermissionRequest[] = [];
+    const capability: Capability = {
+      kind: "mcp.tool",
+      serverId: "linear",
+      tool: "list_issues",
+    };
+    const taggedTool = Object.assign(
+      tool({
+        execute: async () => "issues",
+        inputSchema: z.object({ team: z.string() }),
+      }),
+      {
+        [TOOL_META]: {
+          capability: () => capability,
+          source: "mcp" as const,
+        },
+      }
+    );
+    const source = await driver.run(
+      runOptions({
+        permission: async (request) => {
+          requests.push(request);
+          return { behavior: "allow" };
+        },
+        tools: { linear__list_issues: taggedTool },
+      })
+    );
+    const collected = collect(source);
+    child.send({
+      id: "tool-meta-1",
+      method: "input",
+      placeholder: JSON.stringify({
+        input: { team: "ENG" },
+        toolCallId: "call-meta-1",
+        toolName: "linear__list_issues",
+      }),
+      title: "foundry.execute",
+      type: "extension_ui_request",
+    });
+    child.send({ type: "agent_settled" });
+    await collected;
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      capability,
+      source: "mcp",
+      toolCallId: "call-meta-1",
+      toolName: "linear__list_issues",
+    });
+  });
+
+  it("fails closed on unknown tool names in piExtension and host permission handling", async () => {
+    const sourceCode = piExtension(
+      [{ description: "Host read", name: "host_read", parameters: {} }],
+      "anthropic",
+      undefined,
+      ["read"]
+    );
+    const factory = new Function(
+      `${sourceCode.replace("export default ", "return ")}`
+    )() as (pi: {
+      on: (
+        event: string,
+        handler: (
+          event: { input: unknown; toolCallId: string; toolName: string },
+          ctx: {
+            signal: AbortSignal;
+            ui: {
+              input: (title: string, placeholder: string) => Promise<string>;
+            };
+          }
+        ) => Promise<unknown>
+      ) => void;
+      registerProvider: () => void;
+      registerTool: () => void;
+    }) => void;
+    let onToolCall:
+      | ((
+          event: { input: unknown; toolCallId: string; toolName: string },
+          ctx: {
+            signal: AbortSignal;
+            ui: {
+              input: (title: string, placeholder: string) => Promise<string>;
+            };
+          }
+        ) => Promise<unknown>)
+      | undefined;
+    factory({
+      on(event, handler) {
+        if (event === "tool_call") {
+          onToolCall = handler;
+        }
+      },
+      registerProvider: vi.fn(),
+      registerTool: vi.fn(),
+    });
+    const uiInput = vi.fn(async () =>
+      JSON.stringify({ success: true, text: "ok" })
+    );
+    const ctx = {
+      signal: new AbortController().signal,
+      ui: { input: uiInput },
+    };
+
+    // Unknown tool fails closed without invoking UI permission.
+    expect(
+      await onToolCall?.(
+        { input: { cmd: "rm -rf /" }, toolCallId: "c1", toolName: "bash" },
+        ctx
+      )
+    ).toEqual({ block: true, reason: "Unknown Pi tool" });
+    expect(uiInput).not.toHaveBeenCalled();
+
+    // Registered host tool delegates to execute(), not native permission.
+    expect(
+      await onToolCall?.(
+        { input: {}, toolCallId: "c2", toolName: "host_read" },
+        ctx
+      )
+    ).toBeUndefined();
+    expect(uiInput).not.toHaveBeenCalled();
+
+    // Declared native tool routes through foundry.permission.
+    expect(
+      await onToolCall?.(
+        { input: { path: "README.md" }, toolCallId: "c3", toolName: "read" },
+        ctx
+      )
+    ).toBeUndefined();
+    expect(uiInput).toHaveBeenCalledWith(
+      "foundry.permission",
+      expect.stringContaining('"toolName":"read"'),
+      expect.any(Object)
+    );
+
+    // Host-side foundry.permission also refuses undeclared native tools.
+    const { child, driver } = setup({ nativeTools: ["read"] });
+    const permission = vi.fn(async () => ({ behavior: "allow" as const }));
+    const stream = await driver.run(runOptions({ permission }));
+    const collected = collect(stream);
+    child.send({
+      id: "perm-unknown",
+      method: "input",
+      placeholder: JSON.stringify({
+        input: { command: "id" },
+        toolCallId: "call-unknown",
+        toolName: "bash",
+      }),
+      title: "foundry.permission",
+      type: "extension_ui_request",
+    });
+    child.send({ type: "agent_settled" });
+    await collected;
+    expect(permission).not.toHaveBeenCalled();
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({
+        id: "perm-unknown",
+        value: JSON.stringify({ success: false, text: "Unknown Pi tool" }),
+      })
+    );
   });
 });

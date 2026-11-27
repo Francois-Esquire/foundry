@@ -4,7 +4,7 @@ import type {
   HarnessTurnDriver,
 } from "@foundry/core/agents";
 import { expect, it } from "vitest";
-import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import {
   createHarnessActivityRecorder,
   reduceHarnessActivities,
@@ -46,8 +46,8 @@ it("persists background activity across turns, rejects late progress, and recons
   };
   const config = {
     agentId: "coder",
+    authorization: createMemoryAuthorization(),
     model: { harness: "native", id: "model" },
-    policy: createMemoryAgentAuthorizer().authorizer,
     profile: {
       allowedTools: [],
       disallowedTools: [],
@@ -93,8 +93,8 @@ it("marks lost activity unknown and preserves native late terminal updates", asy
   const session = createDriverSession(
     {
       agentId: "coder",
+      authorization: createMemoryAuthorization(),
       model: { id: "model" },
-      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -172,12 +172,12 @@ it.each([undefined, "native-child"])(
     const session = createDriverSession(
       {
         agentId: "coder",
+        authorization: createMemoryAuthorization(),
         model: { id: "model" },
         onApprovalRequest: (request) => {
           requests.push(request.activityId);
         },
         parentActivityId: "managed-child",
-        policy: createMemoryAgentAuthorizer().authorizer,
         profile: {
           allowedTools: [],
           disallowedTools: [],
@@ -252,8 +252,8 @@ it("continues delivering idle native questions after the prior turn signal abort
   const session = createDriverSession(
     {
       agentId: "coder",
+      authorization: createMemoryAuthorization(),
       model: { id: "model" },
-      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -309,9 +309,9 @@ it("never makes the host delegation root its own parent when closing loaded hist
   const session = createDriverSession(
     {
       agentId: "coder",
+      authorization: createMemoryAuthorization(),
       model: { id: "model" },
       parentActivityId: "managed-child",
-      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -348,8 +348,8 @@ it("preserves external completion during close and rejects stale loss of one-sho
   const session = createDriverSession(
     {
       agentId: "coder",
+      authorization: createMemoryAuthorization(),
       model: { id: "model" },
-      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],
@@ -415,8 +415,8 @@ it("checks canonical activity state before native stop after external completion
   const session = createDriverSession(
     {
       agentId: "coder",
+      authorization: createMemoryAuthorization(),
       model: { id: "model" },
-      policy: createMemoryAgentAuthorizer().authorizer,
       profile: {
         allowedTools: [],
         disallowedTools: [],

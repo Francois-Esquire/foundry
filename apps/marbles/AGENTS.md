@@ -78,11 +78,10 @@ Source responsibilities and dependency boundaries:
   (`lib/execution-store.ts`), each write in the order it was made.
   Agent-created triggers are
   kept in an `AutomationStore` (`lib/automation/store.ts`) and usage facts
-  in a `UsageStore` (`lib/usage-store.ts`). Agent grants are one validated
-  document in a `GrantDocumentStorage` (`@foundry/lib`), deferred approvals
-  are kept in a `DeferredApprovalStore` (`lib/sandbox/deferred-approvals.ts`)
-  and harness activities in an `ActivityStore` (`lib/sandbox/activities.ts`),
-  each in memory without one. Which engine delivers a workspace's
+  in a `UsageStore` (`lib/usage-store.ts`). Agent grants, restrictions, and
+  pending approvals live in `@foundry/authorization` (`SqliteAuthorizationStore`
+  in `database/stores.ts`), and harness activities in an `ActivityStore`
+  (`lib/sandbox/activities.ts`), each in memory without one. Which engine delivers a workspace's
   changes is a claim its `records` grant (`claimDelivery`, the
   `DeliveryLease` seam); `lib/events/delivery.ts` hands each observer,
   known by workspace, source and name, the facts of its source from the

@@ -7,7 +7,7 @@ import {
   ModuleStoreConflictError,
   ModuleStoreNotFoundError,
 } from "../../errors";
-import type { InstallationGrant, Modules } from "../../modules";
+import type { Modules } from "../../modules";
 
 export interface ModulesHarness {
   readonly alternateVersion: ModuleVersion;
@@ -195,22 +195,6 @@ export function describeModules(
           inherited({ id, now, version: inherited({ ...version }) })
         );
         expect(created).toMatchObject({ id, moduleId: version.moduleId });
-        const grants = await harness.store.replaceInstallationGrants(
-          inherited({
-            expectedGeneration: 0,
-            grants: [inherited({ ...FETCH })],
-            installationId: id,
-            now: T(5),
-          })
-        );
-        expect(grants).toEqual([{ ...FETCH, createdAt: T(5) }]);
-        await harness.store.revokeInstallationGrant(
-          inherited({
-            capability: FETCH.capability,
-            expectedGeneration: 0,
-            installationId: id,
-          })
-        );
         await harness.store.deleteInstallation(
           inherited({ expectedGeneration: 0, installationId: id })
         );
@@ -303,28 +287,13 @@ export function describeModules(
           manifest: manifest as unknown as typeof version.manifest,
           module: { artifactId: version.artifactId, id: version.moduleId },
         });
-        const grants: Omit<InstallationGrant, "createdAt">[] = [{ ...FETCH }];
-        const now = new Date(T(5));
-        const replacing = harness.store.replaceInstallationGrants({
-          expectedGeneration: 0,
-          grants,
-          installationId: harness.installation.id,
-          now,
-        });
         manifest.views = { changed: { path: "/changed" } };
-        Object.assign(grants[0] as object, { capability: "changed" });
-        grants.push({ ...FILES });
-        now.setTime(0);
         release.resolve();
-        await Promise.all([holding, retaining, replacing]);
+        await Promise.all([holding, retaining]);
 
         expect(
           await harness.store.loadRetainedManifest(version.contentId)
         ).toEqual(version.manifest);
-        expect(
-          (await harness.store.loadGatewayContext(harness.installation.id))
-            ?.grants
-        ).toEqual([{ ...FETCH, createdAt: T(5) }]);
       } finally {
         await harness.dispose?.();
       }
@@ -646,80 +615,53 @@ export function describeModules(
       }
     });
 
-    it("replaces and revokes grants under the generation without bumping it", async () => {
+    it("projects active authorization grants into gateway context without bumping generation", async () => {
       const harness = await createHarness();
       try {
         const created = await harness.store.createInstallation(
           harness.installation
         );
-        await expect(
-          harness.store.replaceInstallationGrants({
-            expectedGeneration: 1,
-            grants: [FETCH],
-            installationId: created.id,
-            now: T(1),
-          })
-        ).rejects.toBeInstanceOf(ModuleStoreConflictError);
-        const granted = await harness.store.replaceInstallationGrants({
-          expectedGeneration: 0,
-          grants: [FILES, FETCH],
-          installationId: created.id,
-          now: T(1),
+        const principal = {
+          id: created.id,
+          kind: "module.installation",
+        };
+        const filesGrant = await harness.store.authorization.grant({
+          holder: { kind: "exact", principal },
+          requestedBy: { id: "host", kind: "module.host" },
+          scope: {
+            action: "module.capability",
+            constraintsDigest: FILES.constraintsDigest,
+            target: {
+              kind: "exact",
+              value: `${FILES.capability}@${FILES.version}`,
+            },
+          },
         });
-        expect(granted).toEqual([
-          { ...FILES, createdAt: T(1) },
-          { ...FETCH, createdAt: T(1) },
-        ]);
-        await expect(
-          harness.store.replaceInstallationGrants({
-            expectedGeneration: 0,
-            grants: [FETCH, { ...FETCH, constraintsDigest: "other" }],
-            installationId: created.id,
-            now: T(1),
-          })
-        ).rejects.toBeInstanceOf(ModuleStoreConflictError);
+        const fetchGrant = await harness.store.authorization.grant({
+          holder: { kind: "exact", principal },
+          requestedBy: { id: "host", kind: "module.host" },
+          scope: {
+            action: "module.capability",
+            constraintsDigest: FETCH.constraintsDigest,
+            target: {
+              kind: "exact",
+              value: `${FETCH.capability}@${FETCH.version}`,
+            },
+          },
+        });
 
         const context = await harness.store.loadGatewayContext(created.id);
         expect(context?.installation.generation).toBe(0);
-        expect(context?.grants).toEqual([
-          { ...FILES, createdAt: T(1) },
-          { ...FETCH, createdAt: T(1) },
-        ]);
+        expect(context?.grants).toMatchObject([FILES, FETCH]);
 
-        const replaced = await harness.store.replaceInstallationGrants({
-          expectedGeneration: 0,
-          grants: [{ ...FETCH, constraintsDigest: "digest-fetch-2" }],
-          installationId: created.id,
-          now: T(2),
-        });
-        expect(replaced).toEqual([
-          { ...FETCH, constraintsDigest: "digest-fetch-2", createdAt: T(2) },
-        ]);
-
-        await expect(
-          harness.store.revokeInstallationGrant({
-            capability: FILES.capability,
-            expectedGeneration: 0,
-            installationId: created.id,
-          })
-        ).rejects.toBeInstanceOf(ModuleStoreConflictError);
-        await expect(
-          harness.store.revokeInstallationGrant({
-            capability: FETCH.capability,
-            expectedGeneration: 1,
-            installationId: created.id,
-          })
-        ).rejects.toBeInstanceOf(ModuleStoreConflictError);
-        const revoked = await harness.store.revokeInstallationGrant({
-          capability: FETCH.capability,
-          expectedGeneration: 0,
-          installationId: created.id,
-        });
-        expect(revoked).toEqual({
-          ...FETCH,
-          constraintsDigest: "digest-fetch-2",
-          createdAt: T(2),
-        });
+        await harness.store.authorization.revoke(
+          { grantId: filesGrant.id, kind: "grant" },
+          "revoked"
+        );
+        await harness.store.authorization.revoke(
+          { grantId: fetchGrant.id, kind: "grant" },
+          "revoked"
+        );
 
         const reopened = await harness.reopen();
         await expect(
@@ -733,17 +675,26 @@ export function describeModules(
       }
     });
 
-    it("deletes an Installation with its grants under the generation", async () => {
+    it("deletes an Installation and revokes its grants under the generation", async () => {
       const harness = await createHarness();
       try {
         const created = await harness.store.createInstallation(
           harness.installation
         );
-        await harness.store.replaceInstallationGrants({
-          expectedGeneration: 0,
-          grants: [FETCH],
-          installationId: created.id,
-          now: T(1),
+        await harness.store.authorization.grant({
+          holder: {
+            kind: "exact",
+            principal: { id: created.id, kind: "module.installation" },
+          },
+          requestedBy: { id: "host", kind: "module.host" },
+          scope: {
+            action: "module.capability",
+            constraintsDigest: FETCH.constraintsDigest,
+            target: {
+              kind: "exact",
+              value: `${FETCH.capability}@${FETCH.version}`,
+            },
+          },
         });
         await expect(
           harness.store.deleteInstallation({
@@ -756,6 +707,12 @@ export function describeModules(
           installationId: created.id,
         });
         expect(await harness.store.loadGatewayContext(created.id)).toBeNull();
+        expect(
+          await harness.store.authorization.listGrants({
+            principal: { id: created.id, kind: "module.installation" },
+            state: "active",
+          })
+        ).toEqual([]);
         await expect(
           harness.store.deleteInstallation({
             expectedGeneration: 0,

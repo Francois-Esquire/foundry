@@ -8,7 +8,7 @@ import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
+import type { AuthorizationStore } from "@foundry/authorization/store";
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
@@ -68,7 +68,6 @@ import { Registry } from "~/lib/registry";
 import type { RunQueueOptions } from "~/lib/run-queue";
 import type { RunStore } from "~/lib/run-store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
-import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import { containerHolder } from "~/lib/sandbox/holders";
 import type { RunOutputSink } from "~/lib/state/output";
 import type { TriggerStore } from "~/lib/trigger-store";
@@ -79,12 +78,11 @@ export const DEFAULT_HOSTED_POOL_LIMIT = 4;
 
 export interface WorkspaceStoreBundle {
   readonly activities?: ActivityStore;
-  readonly approvals?: DeferredApprovalStore;
   readonly artifacts?: ArtifactStore;
+  readonly authorization?: AuthorizationStore;
   readonly automations?: AutomationStore;
   readonly containers?: ContainerStore;
   readonly executions?: ExecutionStore;
-  readonly grants?: GrantDocumentStorage;
   readonly providers?: ProviderStore;
   readonly records?: WorkspaceRecords;
   readonly runs?: RunStore;
@@ -332,16 +330,15 @@ function injectedRecords(injected: WorkspaceStoreBundle) {
     ...(injected.activities === undefined
       ? {}
       : { activityStore: injected.activities }),
-    ...(injected.approvals === undefined
+    ...(injected.authorization === undefined
       ? {}
-      : { approvals: injected.approvals }),
+      : { authorizationStore: injected.authorization }),
     ...(injected.automations === undefined
       ? {}
       : { automationStore: injected.automations }),
     ...(injected.executions === undefined
       ? {}
       : { executionStore: injected.executions }),
-    ...(injected.grants === undefined ? {} : { grants: injected.grants }),
     ...(injected.records === undefined ? {} : { records: injected.records }),
     ...(injected.runs === undefined ? {} : { runs: injected.runs }),
     ...(injected.sessions === undefined ? {} : { sessions: injected.sessions }),
@@ -358,10 +355,9 @@ function recordsFor(
 ): Pick<
   EngineOptions,
   | "activityStore"
-  | "approvals"
+  | "authorizationStore"
   | "automationStore"
   | "executionStore"
-  | "grants"
   | "records"
   | "recoveryLog"
   | "runs"
@@ -375,10 +371,9 @@ function recordsFor(
   if (assembled !== undefined) {
     return {
       activityStore: assembled.activities,
-      approvals: assembled.approvals,
+      authorizationStore: assembled.authorization,
       automationStore: assembled.automations,
       executionStore: assembled.executions,
-      grants: assembled.grants,
       records: assembled.records,
       recoveryLog: assembled.recoveryLog,
       runs: assembled.runs,
@@ -397,10 +392,9 @@ function recordsFor(
   const own = defaultWorkspaceDatabase(state, root, workspaceId);
   return {
     activityStore: own.activityStore,
-    approvals: own.approvals,
+    authorizationStore: own.authorizationStore,
     automationStore: own.automations,
     executionStore: own.executions,
-    grants: own.grants,
     own,
     records: own.records,
     recoveryLog: own.recoveryLog,

@@ -48,21 +48,29 @@ export const isSuspendSignal = (e: unknown): e is SuspendSignal =>
 export function suspensionOccurrenceKey(
   stepPath: readonly string[],
   name: string,
-  occurrence: number
+  occurrence: number,
+  correlationId?: string
 ): string {
-  return JSON.stringify([stepPath, name, occurrence]);
+  return correlationId === undefined
+    ? JSON.stringify([stepPath, name, occurrence])
+    : JSON.stringify([stepPath, name, occurrence, correlationId]);
 }
 
 export interface SuspensionOccurrence {
+  readonly correlationId?: string;
   readonly name: string;
   readonly occurrence: number;
   readonly stepPath: readonly string[];
 }
 
-const SuspensionOccurrenceKeySchema = z.tuple([
-  z.array(z.string()),
-  z.string(),
-  z.number().int().nonnegative(),
+const SuspensionOccurrenceKeySchema = z.union([
+  z.tuple([z.array(z.string()), z.string(), z.number().int().nonnegative()]),
+  z.tuple([
+    z.array(z.string()),
+    z.string(),
+    z.number().int().nonnegative(),
+    z.string(),
+  ]),
 ]);
 
 export function parseSuspensionOccurrenceKey(
@@ -78,8 +86,13 @@ export function parseSuspensionOccurrenceKey(
   if (!parsed.success) {
     return;
   }
-  const [stepPath, name, occurrence] = parsed.data;
-  return { name, occurrence, stepPath };
+  const [stepPath, name, occurrence, correlationId] = parsed.data;
+  return {
+    ...(correlationId === undefined ? {} : { correlationId }),
+    name,
+    occurrence,
+    stepPath,
+  };
 }
 
 export interface Witness {
@@ -287,29 +300,40 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
   suspend<T>(args: SuspensionRequest, occurrence = 0): Effect.Effect<T, Error> {
     const ref = this.#resolutions;
     const originPath = [...this.path];
-    const key = suspensionOccurrenceKey(originPath, args.name, occurrence);
+    const key = suspensionOccurrenceKey(
+      originPath,
+      args.name,
+      occurrence,
+      args.correlationId
+    );
     const request = args.request ?? args.meta ?? null;
     if (!isJsonValue(request)) {
       return Effect.fail(
         new Error("Suspension request must be a finite, acyclic JSON value")
       );
     }
+    const kind = args.kind ?? "external";
     return Effect.gen(function* () {
       const map = yield* Ref.get(ref);
       const exact = HashMap.get(map, key) as Option.Option<T>;
       if (Option.isSome(exact)) {
         return exact.value;
       }
-      const existing = HashMap.get(map, args.name) as Option.Option<T>;
-      if (Option.isSome(existing)) {
-        return existing.value;
+      if (kind !== "approval" && args.correlationId === undefined) {
+        const existing = HashMap.get(map, args.name) as Option.Option<T>;
+        if (Option.isSome(existing)) {
+          return existing.value;
+        }
       }
       const suspension: SuspensionState = {
-        name: args.name,
-        reason: args.reason,
+        ...(args.correlationId === undefined
+          ? {}
+          : { correlationId: args.correlationId }),
+        kind,
         ...(args.meta ? { meta: args.meta } : {}),
-        kind: args.kind ?? "external",
+        name: args.name,
         occurrence,
+        reason: args.reason,
         request,
         stepPath: originPath,
         suspendedAt: new Date().toISOString(),
@@ -326,11 +350,15 @@ export class Executable<I = unknown, X extends BaseContext = BaseContext> {
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Effect.Effect<void> {
     return Ref.update(
       this.#resolutions,
-      HashMap.set(suspensionOccurrenceKey(stepPath, name, occurrence), value)
+      HashMap.set(
+        suspensionOccurrenceKey(stepPath, name, occurrence, correlationId),
+        value
+      )
     );
   }
 

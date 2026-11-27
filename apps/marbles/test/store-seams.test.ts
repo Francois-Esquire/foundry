@@ -1,6 +1,6 @@
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
+import { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 import { DEFAULT_POOL, type JobId, type RunId } from "@foundry/queue";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { taskId } from "@foundry/tasks";
@@ -16,7 +16,6 @@ import { readExecutionFromStores } from "~/lib/executions";
 import { MemoryProviderStore } from "~/lib/providers/store";
 import { MemoryRunStore } from "~/lib/run-store";
 import type { ActivityRecord, ActivityStore } from "~/lib/sandbox/activities";
-import { MemoryDeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
 import { MemoryUsageStore } from "~/lib/usage-store";
 import { runStoreEffect } from "~/lib/workflow-runs";
@@ -28,19 +27,6 @@ function memoryActivityStore(): ActivityStore {
     put: (key, record) => {
       entries.set(key, record);
       return Promise.resolve();
-    },
-  };
-}
-
-function memoryGrantStorage(): GrantDocumentStorage {
-  let saved: string | undefined;
-  return {
-    transact: (apply) => {
-      const outcome = apply(saved);
-      if (outcome.next !== undefined) {
-        saved = outcome.next;
-      }
-      return Promise.resolve(outcome.result);
     },
   };
 }
@@ -118,12 +104,11 @@ describe("store seams", () => {
   test("createEngine accepts an injected WorkspaceStoreBundle without touching SQLite", async () => {
     const stores: WorkspaceStoreBundle = {
       activities: memoryActivityStore(),
-      approvals: new MemoryDeferredApprovalStore(),
       artifacts: new MemoryArtifactStore(),
+      authorization: new MemoryAuthorizationStore(),
       automations: new MemoryAutomationStore(),
       containers: new MemoryContainerStore(),
       executions: new MemoryExecutionStore(),
-      grants: memoryGrantStorage(),
       providers: new MemoryProviderStore(),
       records: new MemoryWorkspaceRecords(),
       runs: new MemoryRunStore(),

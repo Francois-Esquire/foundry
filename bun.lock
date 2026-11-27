@@ -59,6 +59,7 @@
       "devDependencies": {
         "@foundry/agents": "workspace:*",
         "@foundry/artifacts": "workspace:*",
+        "@foundry/authorization": "workspace:*",
         "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "@foundry/models": "workspace:*",
@@ -159,10 +160,12 @@
       "version": "0.1.0",
       "dependencies": {
         "@foundry/artifacts": "workspace:*",
+        "@foundry/authorization": "workspace:*",
         "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "@foundry/modules": "workspace:*",
         "@foundry/sandbox": "workspace:*",
+        "@libsql/client": "^0.18.0",
         "@orpc/client": "1.15.4",
         "@orpc/server": "1.15.4",
         "@orpc/tanstack-query": "1.15.4",
@@ -170,6 +173,7 @@
         "@pierre/trees": "1.0.0-beta.6",
         "@tanstack/react-query": "5.104.0",
         "class-variance-authority": "^0.7.1",
+        "drizzle-orm": "^0.45.4",
         "lucide-react": "^1.49.0",
         "microsandbox": "0.6.18",
         "radix-ui": "^1.6.7",
@@ -225,6 +229,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@ai-sdk/mcp": "2.0.29",
+        "@foundry/authorization": "workspace:*",
         "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "ai": "7.0.58",
@@ -328,17 +333,14 @@
         "drizzle-orm": "^0.45.4",
         "typescript": "^6.0.3",
         "vitest": "^4.1.9",
-        "zod": "^4.4.3",
       },
       "peerDependencies": {
         "drizzle-orm": "^0.45.4",
         "typescript": "^6.0.3",
-        "zod": "^4.4.3",
       },
       "optionalPeers": [
         "drizzle-orm",
         "typescript",
-        "zod",
       ],
     },
     "packages/models": {
@@ -372,6 +374,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@foundry/artifacts": "workspace:*",
+        "@foundry/authorization": "workspace:*",
         "@foundry/core": "workspace:*",
         "@foundry/lib": "workspace:*",
         "@foundry/sandbox": "workspace:*",

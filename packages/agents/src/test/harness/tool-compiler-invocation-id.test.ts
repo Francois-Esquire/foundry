@@ -1,20 +1,20 @@
+import type { AccessRequest } from "@foundry/authorization";
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { AgentAuthorizationRequest } from "../../authorization/authorization";
 import { compileTool } from "../../harness/tool-compiler";
 import type { HarnessToolRegistration } from "../../harness/tool-registration";
-import { fakeAuthorizer as fakePolicy } from "../helpers/authorizer";
+import { createPermissiveAuthorization } from "../helpers/authorizer";
 
-function recordingPolicy() {
-  const calls: AgentAuthorizationRequest[] = [];
-  return {
-    calls,
-    policy: fakePolicy((request) => {
-      calls.push(request);
-      return { kind: "allow", source: "grant" };
-    }),
-  };
+async function recordingAuthorization() {
+  const authorization = await createPermissiveAuthorization();
+  const calls: AccessRequest[] = [];
+  const originalCheck = authorization.check.bind(authorization);
+  vi.spyOn(authorization, "check").mockImplementation((request) => {
+    calls.push(request);
+    return originalCheck(request);
+  });
+  return { authorization, calls };
 }
 
 function registrationFor(
@@ -39,10 +39,10 @@ function registrationFor(
 describe("tool compiler invocation ID stability", () => {
   it("derives the same invocationId for a replayed continuation with the same toolCallId", async () => {
     const registration = registrationFor(({ x }) => x * 2);
-    const { policy, calls } = recordingPolicy();
+    const { authorization, calls } = await recordingAuthorization();
     const compiled = compileTool(registration, {
       agentId: "agent-1",
-      policy,
+      authorization,
       sessionId: "sess-1",
     });
 
@@ -62,16 +62,16 @@ describe("tool compiler invocation ID stability", () => {
   it("scopes invocationId by agent and session so the same toolCallId never collides across them", async () => {
     const execute = vi.fn(({ x }: { x: number }) => x * 2);
     const registration = registrationFor(execute);
-    const { policy, calls } = recordingPolicy();
+    const { authorization, calls } = await recordingAuthorization();
 
     const compiledA = compileTool(registration, {
       agentId: "agent-a",
-      policy,
+      authorization,
       sessionId: "sess-1",
     });
     const compiledB = compileTool(registration, {
       agentId: "agent-b",
-      policy,
+      authorization,
       sessionId: "sess-1",
     });
 

@@ -59,16 +59,6 @@ export const moduleInstallations = sqliteTable(
     contentId: text("content_id").$type<ContentId>().notNull(),
     createdAt: text("created_at").notNull(),
     generation: integer("generation").notNull(),
-    grants: text("grants", { mode: "json" })
-      .$type<
-        readonly {
-          readonly capability: string;
-          readonly constraintsDigest: string;
-          readonly createdAt: string;
-          readonly version: number;
-        }[]
-      >()
-      .notNull(),
     id: text("id").$type<InstallationId>().notNull(),
     moduleId: text("module_id").$type<ModuleId>().notNull(),
     position: integer("position").notNull(),

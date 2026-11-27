@@ -7,6 +7,7 @@ import {
 } from "@foundry/core/paths";
 import { app, BrowserWindow } from "electron";
 import { registerRpcTransport } from "./api/transport";
+import { openWorksAuthorization } from "./authorization";
 import { ModuleBuilds } from "./modules/builds/controller";
 import { createBuildRuntime } from "./modules/builds/runtime";
 import { openLocalModuleLibrary } from "./modules/local-library";
@@ -26,8 +27,13 @@ registerModuleScheme();
 app
   .whenReady()
   .then(async () => {
-    const vault = await openAppVault(app.getPath("userData"));
     const userData = app.getPath("userData");
+    const worksAuthorization = await openWorksAuthorization(
+      path.join(userData, "authorization.sqlite")
+    );
+    const vault = await openAppVault(userData, {
+      authorization: worksAuthorization.authorization,
+    });
     const { modules: moduleRoot } = resolveFoundryPaths(
       path.resolve(
         process.env[FOUNDRY_ROOT_ENV] || path.join(homedir(), FOUNDRY_ROOT_DIR)
@@ -44,14 +50,30 @@ app
     );
     const sessions = new ModuleSessions(
       modules,
-      await createModuleRuntime(moduleRoot, store)
+      await createModuleRuntime(moduleRoot, store, {
+        authorization: worksAuthorization.authorization,
+        authorizationStore: worksAuthorization.store,
+      })
     );
     registerModuleProtocol(sessions);
-    registerQuitCleanup(app, [builds, sessions], (reason) => {
-      process.stderr.write(
-        `Module runtime cleanup failed: ${String(reason)}\n`
-      );
-    });
+    registerQuitCleanup(
+      app,
+      [
+        builds,
+        sessions,
+        {
+          shutdown: () => {
+            worksAuthorization.close();
+            return Promise.resolve();
+          },
+        },
+      ],
+      (reason) => {
+        process.stderr.write(
+          `Module runtime cleanup failed: ${String(reason)}\n`
+        );
+      }
+    );
     await modules.list();
     registerRpcTransport({ builds, modules, sessions, vault });
     registerWindowIpc();

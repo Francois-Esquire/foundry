@@ -1,3 +1,4 @@
+import type { Authorization } from "@foundry/authorization";
 import type {
   AgentModel,
   HarnessPermissionCallback,
@@ -5,8 +6,7 @@ import type {
 } from "@foundry/core/agents";
 import { routeOf } from "@foundry/core/agents";
 import type { GenerateTextResult, Output, StreamTextResult, ToolSet } from "ai";
-import type { AgentAuthorizer } from "../authorization/authorization";
-import { createMemoryAgentAuthorizer } from "../authorization/authorization";
+import { createMemoryAuthorization } from "../authorization/authorization";
 import type {
   LoopAgentCallParameters,
   LoopAgentSettings,
@@ -19,16 +19,11 @@ import { compileTools, withToolCallRegistration } from "./tool-compiler";
 
 const DEFAULT_AGENT_ID = "agent";
 
-function defaultPermissiveAuthorizer(): AgentAuthorizer {
-  return createMemoryAgentAuthorizer({
-    policy: { byKind: { "tool.call": "allow" }, global: "allow" },
-  }).authorizer;
-}
-
 export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
   toolsContext?: Record<string, unknown>;
   agentId?: string;
-  policy?: AgentAuthorizer;
+  authoritySessionId?: string;
+  authorization?: Authorization;
   agentGeneration?: number;
   permission?: HarnessPermissionCallback;
   sessionId?: string;
@@ -43,7 +38,7 @@ export class AgentHarness {
   readonly agent: LoopAgent;
   readonly model: AgentModel;
   readonly route: ModelRoute;
-  readonly policy: AgentAuthorizer;
+  readonly authorization: Authorization;
   readonly agentId: string;
   readonly agentGeneration?: number;
   readonly sessionId: string;
@@ -53,7 +48,8 @@ export class AgentHarness {
   constructor(settings: AgentHarnessSettings, context?: TurnContext) {
     const {
       tools,
-      policy,
+      authorization,
+      authoritySessionId,
       agentId,
       agentGeneration,
       sessionId,
@@ -64,15 +60,16 @@ export class AgentHarness {
 
     this.model = settings.model;
     this.route = routeOf(settings.model);
-    this.policy = policy ?? defaultPermissiveAuthorizer();
+    this.authorization = authorization ?? createMemoryAuthorization();
     this.agentId = agentId ?? DEFAULT_AGENT_ID;
     this.agentGeneration = agentGeneration;
     this.sessionId = sessionId || context?.sessionId || crypto.randomUUID();
     const compiled = compileTools(tools ?? {}, {
       agentGeneration,
       agentId: this.agentId,
+      authoritySessionId,
+      authorization: this.authorization,
       permission,
-      policy: this.policy,
       sessionId: this.sessionId,
     });
     this.#registrationFor = compiled.registrationFor;

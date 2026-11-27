@@ -1,4 +1,8 @@
-import type { HarnessTurnDriver, StreamPart } from "@foundry/core/agents";
+import {
+  type HarnessTurnDriver,
+  type StreamPart,
+  validateHarnessProfile,
+} from "@foundry/core/agents";
 import type { CliProcess } from "../harness/cli-process";
 import { eventStream } from "../harness/event-stream";
 import { inputText, record } from "../harness/payload";
@@ -21,6 +25,7 @@ export interface CodexDriverOptions {
   env?: Readonly<Record<string, string>>;
   instructions?: string;
   modelId: string;
+  networkAccess?: boolean;
   refreshChatgptAuthTokens?: (request: {
     reason: string;
     previousAccountId?: string;
@@ -127,7 +132,11 @@ export function createCodexDriver(
             : signal,
         },
         (report) => liveEvents.report({ ...report, activityId }),
-        activityId
+        {
+          activityId,
+          agentId: options.agentId,
+          recordStep: (call) => liveEvents.recordStep({ ...call, activityId }),
+        }
       );
     } catch (error) {
       if (!childTurn?.abort.signal.aborted) {
@@ -178,7 +187,7 @@ export function createCodexDriver(
         }
       },
       run,
-      stop: () => connection?.close(),
+      stop: (error) => connection?.close(error),
       subscribeChild: async (threadId) => {
         if (threadId === parentThreadId || subscribedChildren.has(threadId)) {
           return;
@@ -248,6 +257,7 @@ export function createCodexDriver(
       connection?.close(new Error("Codex turn interrupted."));
     },
     async run(run) {
+      validateHarnessProfile(run.profile);
       if (running) {
         throw new Error("Codex driver already has an active turn.");
       }
@@ -304,7 +314,7 @@ export function createCodexDriver(
                 : {
                     excludeSlashTmp: true,
                     excludeTmpdirEnvVar: true,
-                    networkAccess: true,
+                    networkAccess: options.networkAccess ?? false,
                     type: "workspaceWrite",
                     writableRoots: [options.cwd],
                   },

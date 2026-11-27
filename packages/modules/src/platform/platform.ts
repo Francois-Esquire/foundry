@@ -1,4 +1,5 @@
 import type { ArtifactSubstrate } from "@foundry/artifacts";
+import type { Authorization } from "@foundry/authorization";
 import type { ContainerRuntime, Containers } from "@foundry/sandbox";
 
 import type { InstallationId } from "../domain";
@@ -19,6 +20,7 @@ import { createModuleRuntimeRecovery } from "./runtime-recovery";
 
 export interface CreateModulePlatformOptions {
   readonly artifacts: ArtifactSubstrate;
+  readonly authorization?: Authorization;
   readonly checkouts: ModuleCheckouts;
   /** @deprecated */
   readonly containerRuntime?: Pick<
@@ -47,6 +49,9 @@ export function createModulePlatform(options: CreateModulePlatformOptions) {
   };
   const versions = createModuleVersions({ artifacts, store });
   const invocations = createModuleGatewayRuntimeDispatcher({
+    ...(options.authorization === undefined
+      ? {}
+      : { authorization: options.authorization }),
     ...(options.observeInvocation === undefined
       ? {}
       : { observe: options.observeInvocation }),
@@ -62,6 +67,9 @@ export function createModulePlatform(options: CreateModulePlatformOptions) {
     gateway,
     removeContainer: (id) => ifRecorded(id, () => containers.remove(id)),
     runtime: createContainerModuleProgramRuntime({
+      ...(options.authorization === undefined
+        ? {}
+        : { authorization: options.authorization }),
       checkouts: options.checkouts,
       containers,
       store,
@@ -78,7 +86,12 @@ export function createModulePlatform(options: CreateModulePlatformOptions) {
   return Object.freeze({
     gateway,
     invocations,
-    modules: createModuleManagement({ artifacts, programs, store }),
+    modules: createModuleManagement({
+      artifacts,
+      programs,
+      providers: options.providers,
+      store,
+    }),
     programs,
     recovery: createModuleRuntimeRecovery({ store, supervisor: programs }),
   });
