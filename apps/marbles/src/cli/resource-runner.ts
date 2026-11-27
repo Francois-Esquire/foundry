@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { resourceDetailLines, resourceItemLines } from "~/cli/format/resources";
-import { recordedWorkspaces } from "~/database/workspaces";
+
+import { recordedWorkspaces } from "~/database/open";
 import type { ResourceKind } from "~/lib/resources";
 import { ResourceAssociationError } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";

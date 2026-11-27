@@ -19,6 +19,7 @@ import type {
   ResourceKind,
   ResourceRef,
 } from "~/lib/resources";
+import { insideState } from "~/lib/state/workspace";
 import { MemoryRunStreamStorage } from "~/storage/memory";
 import {
   type ArtifactFileSummary,
@@ -64,25 +65,25 @@ export class SqliteMarblesStorage implements MarblesStorage {
   readonly #location: string | undefined;
   readonly #registry: WorkspaceRegistry;
   readonly #scopes = new Map<string, Promise<WorkspaceStoresPort>>();
-  readonly #state: string | undefined;
   readonly #stores = new Map<string, SqliteWorkspaceStores>();
 
   constructor(options: SqliteMarblesStorageOptions) {
+    const { state } = options;
     this.#database = options.database;
-    this.#acceptWorkspace = options.acceptWorkspace;
+    this.#acceptWorkspace =
+      options.acceptWorkspace ??
+      (state === undefined ? undefined : (id) => insideState(state, id));
     this.#close = options.close;
     this.#liveness = options.liveness;
     this.#location = options.location;
-    this.#state = options.state;
     if (options.blobs !== undefined) {
       this.blobs = options.blobs;
     }
     this.output = options.output ?? new MemoryRunStreamStorage();
     const scopeOptions = {
-      ...(options.acceptWorkspace === undefined
+      ...(this.#acceptWorkspace === undefined
         ? {}
-        : { acceptWorkspace: options.acceptWorkspace }),
-      ...(options.state === undefined ? {} : { state: options.state }),
+        : { acceptWorkspace: this.#acceptWorkspace }),
     };
     this.#associations = resourceAssociations(options.database, scopeOptions);
     this.#registry = new WorkspaceRegistry({
@@ -217,7 +218,6 @@ export class SqliteMarblesStorage implements MarblesStorage {
         : { acceptWorkspace: this.#acceptWorkspace }),
       database: this.#database,
       scope: viewScopeOf(scope),
-      ...(this.#state === undefined ? {} : { state: this.#state }),
     });
   }
 }

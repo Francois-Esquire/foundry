@@ -5,6 +5,8 @@ import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
 import type { ScheduleSnapshot } from "~/database/triggers";
 import { storedSchedules } from "~/database/triggers";
 import { WorkspaceRegistry } from "~/database/workspaces";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import { insideState } from "~/lib/state/workspace";
 import type {
   OwnerWorkspace,
   RunSnapshot,
@@ -26,12 +28,19 @@ export function otherWorkspaces(
   options: OtherWorkspacesOptions
 ): (now: number) => Promise<OtherWorkspaces> {
   const { database, state, workspace } = options;
-  const registry = new WorkspaceRegistry({ database, state });
-  const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
+  const registry = new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+    database,
+  });
+  const view = new ResourceView({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+    database,
+    scope: ALL_WORKSPACES,
+  });
   const here = new ResourceView({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
     database,
     scope: { workspace },
-    state,
   });
   let last: { readonly at: number; readonly read: OtherWorkspaces } | undefined;
 
@@ -68,7 +77,11 @@ export function otherWorkspaces(
     const triggers: TriggerSnapshot[] = [];
     for (const owner of owners.values()) {
       if (owner.id !== workspace) {
-        for (const stored of await storedSchedules(database, owner.id)) {
+        for (const stored of await storedSchedules(
+          database,
+          owner.id,
+          NODE_OWNER_LIVENESS
+        )) {
           triggers.push(triggerSnapshot(stored, owner));
         }
       }

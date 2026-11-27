@@ -9,11 +9,9 @@ import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
-import { readDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { StoreDatabase } from "~/database/types";
-import { WorkspaceRegistry, workspaceAcceptance } from "~/database/workspaces";
-import { stateDatabase } from "~/layout";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import { ARTIFACTS, sourceKey } from "~/lib/events/source";
 import { ownerOfRun } from "~/lib/execution-record";
 import type {
@@ -50,7 +48,6 @@ export interface ResourceViewOptions {
   readonly acceptWorkspace?: (id: string) => boolean;
   readonly database: StoreDatabase;
   readonly scope: ViewScope;
-  readonly state?: string;
 }
 
 const PAGE = 200;
@@ -72,13 +69,12 @@ export class ResourceView {
     this.scope = options.scope;
     this.#database = options.database;
     this.#associations = new DatabaseAssociationStore(options);
-    const { acceptWorkspace, database, state } = options;
+    const { acceptWorkspace, database } = options;
     this.#registry = new WorkspaceRegistry({
       database,
-      ...(state === undefined ? {} : { state }),
       ...(acceptWorkspace === undefined ? {} : { acceptWorkspace }),
     });
-    this.#accepts = workspaceAcceptance(options);
+    this.#accepts = options.acceptWorkspace ?? (() => true);
   }
 
   async runs(limit?: number): Promise<readonly Shown<RunResource>[]> {
@@ -412,21 +408,17 @@ function newestOfEach<T>(
 
 export interface AssociationScopeOptions {
   readonly acceptWorkspace?: (id: string) => boolean;
-  readonly state?: string;
 }
 
 function associationScope(
-  scope?: string | AssociationScopeOptions
+  scope?: AssociationScopeOptions
 ): AssociationScopeOptions {
-  if (typeof scope === "string") {
-    return { state: scope };
-  }
   return scope ?? {};
 }
 
 export function resourceAssociations(
   database: StoreDatabase,
-  scope?: string | AssociationScopeOptions
+  scope?: AssociationScopeOptions
 ): ResourceAssociations {
   const options = associationScope(scope);
   return new ResourceAssociations({
@@ -437,7 +429,7 @@ export function resourceAssociations(
 
 export function associationTransaction(
   database: StoreDatabase,
-  scope?: string | AssociationScopeOptions
+  scope?: AssociationScopeOptions
 ): AssociationTransaction {
   const options = associationScope(scope);
   return (work) =>
@@ -454,7 +446,6 @@ function associationUnit(
     ...(options.acceptWorkspace === undefined
       ? {}
       : { acceptWorkspace: options.acceptWorkspace }),
-    ...(options.state === undefined ? {} : { state: options.state }),
   };
   const view = new ResourceView({
     database,
@@ -481,16 +472,6 @@ function associationUnit(
 }
 
 const ARTIFACTS_KEY = sourceKey(ARTIFACTS) ?? "artifacts";
-
-export function readResourceView<T>(
-  state: string,
-  scope: ViewScope,
-  work: (view: ResourceView) => Promise<T>
-): Promise<T | undefined> {
-  return readDatabase(stateDatabase(state), (database) =>
-    work(new ResourceView({ database, scope, state }))
-  );
-}
 
 async function holdersIn(
   runs: Pick<RunReads, "listRuns">

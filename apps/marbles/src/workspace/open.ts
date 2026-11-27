@@ -21,7 +21,11 @@ import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import { workspaceAt, workspaceState } from "~/lib/state/workspace";
+import {
+  insideState,
+  workspaceAt,
+  workspaceState,
+} from "~/lib/state/workspace";
 import { openLoadSession, realPathOf } from "~/workspace/loader";
 import { initializeUsage } from "~/workspace/node-usage";
 import {
@@ -215,7 +219,10 @@ export async function recordedWorkspace(
 ): Promise<OpenedWorkspace | undefined> {
   const state = resolve(args.state);
   const record = await readDatabase(stateDatabase(state), (database) =>
-    new WorkspaceRegistry({ database, state }).read(id)
+    new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      database,
+    }).read(id)
   );
   if (record === undefined) {
     return;
@@ -352,8 +359,8 @@ export async function touchWorkspace(
 ): Promise<void> {
   if (database !== undefined) {
     await new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(args.state, workspaceId),
       database: database.database,
-      state: args.state,
     }).touch(workspace, config, registers);
   }
 }
@@ -368,8 +375,8 @@ export async function asRegistered(
     return workspace;
   }
   const record = await new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(args.state, workspaceId),
     database: database.database,
-    state: args.state,
   }).read(workspace.workspace.id);
   return record === undefined ? workspace : { ...workspace, cwd: record.cwd };
 }

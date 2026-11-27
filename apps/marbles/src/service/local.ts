@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import type { GlobalFlags } from "~/cli/context";
-import { readDatabase } from "~/database/open";
-import { recordedWorkspaces } from "~/database/workspaces";
+import { readDatabase, recordedWorkspaces } from "~/database/open";
 import { stateDatabase } from "~/layout";
 import { ToolRefusal } from "~/mcp/errors";
 import type { McpServerOptions } from "~/mcp/resources";

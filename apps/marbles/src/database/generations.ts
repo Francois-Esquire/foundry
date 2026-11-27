@@ -1,12 +1,10 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { asBusy } from "~/database/busy";
-import { readDatabase } from "~/database/open";
 import { marblesGenerations } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import { stateDatabase } from "~/layout";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 
 export type GenerationState = (typeof marblesGenerations.$inferSelect)["state"];
 
@@ -31,7 +29,7 @@ export class GenerationRecords {
     readonly liveness?: OwnerLiveness;
   }) {
     this.#database = options.database;
-    this.#liveness = options.liveness ?? NODE_OWNER_LIVENESS;
+    this.#liveness = options.liveness ?? PORTABLE_OWNER_LIVENESS;
   }
 
   begin(fingerprint: string): Promise<number> {
@@ -133,27 +131,4 @@ export class GenerationRecords {
         .where(eq(marblesGenerations.number, number));
     });
   }
-}
-
-export async function readLiveGenerations(
-  state: string
-): Promise<readonly GenerationRecord[]> {
-  const rows = await asBusy(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      database
-        .select()
-        .from(marblesGenerations)
-        .where(inArray(marblesGenerations.state, [...LIVE]))
-        .orderBy(desc(marblesGenerations.number))
-    )
-  );
-  return (rows ?? []).map((row) => ({
-    error: row.error,
-    fingerprint: row.fingerprint,
-    number: row.number,
-    pid: row.pid,
-    started: row.started,
-    state: row.state,
-    workspaces: row.workspaces,
-  }));
 }

@@ -13,7 +13,8 @@ import { DatabaseAutomationStore } from "~/database/automations";
 import { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
-import type { MarblesDatabase } from "~/database/open";
+import type { HostDatabaseOptions, MarblesDatabase } from "~/database/open";
+import { openHostDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
@@ -21,8 +22,6 @@ import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
 import type { StoreDatabase } from "~/database/types";
 import { DatabaseUsageStore } from "~/database/usage";
-import type { HostDatabaseOptions } from "~/database/workspaces";
-import { openHostDatabase } from "~/database/workspaces";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type {
   AutomationStore,
@@ -33,7 +32,8 @@ import { storedAutomation } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import type { ChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
-import { RecordsGate } from "~/lib/events/records";
+import { causingRun } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import type {
   ExecutionObservation,
   RetentionGap,
@@ -42,6 +42,7 @@ import type {
 import type { ExecutionStore, Removal } from "~/lib/execution-store";
 import { storedObservation, storedProgress } from "~/lib/execution-store";
 import { inTurn } from "~/lib/in-turn";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { RecordedScope } from "~/lib/run-scope";
 import type { RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
@@ -64,7 +65,9 @@ export function openWorkspaceRecords(
   const database = new LazyDatabase(options);
   return new ManagedWorkspaceRecords(
     database,
-    new ChangeRecorder(options.workspaceId),
+    new ChangeRecorder(options.workspaceId, {
+      causingRun: () => causingRun() ?? undefined,
+    }),
     () => database.close()
   );
 }
@@ -84,7 +87,9 @@ export function openWorkspaceDatabase(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceDatabase {
   const database = new LazyDatabase(options);
-  const changes = new ChangeRecorder(options.workspaceId);
+  const changes = new ChangeRecorder(options.workspaceId, {
+    causingRun: () => causingRun() ?? undefined,
+  });
   const records = new ManagedWorkspaceRecords(database, changes, () =>
     Promise.resolve()
   );
@@ -170,8 +175,12 @@ export function defaultWorkspaceRuns(
     state: defaultStateRoot(state, root, workspaceId),
     workspaceId,
   });
-  return new ManagedRunStore(database, new ChangeRecorder(workspaceId), () =>
-    database.close()
+  return new ManagedRunStore(
+    database,
+    new ChangeRecorder(workspaceId, {
+      causingRun: () => causingRun() ?? undefined,
+    }),
+    () => database.close()
   );
 }
 
@@ -252,7 +261,9 @@ export function withWorkspaceDatabase(
     state: defaultStateRoot(state, root, workspaceId),
     workspaceId,
   });
-  const changes = new ChangeRecorder(workspaceId);
+  const changes = new ChangeRecorder(workspaceId, {
+    causingRun: () => causingRun() ?? undefined,
+  });
   const make: {
     readonly [K in keyof DatabaseKept]-?: (
       done: () => Promise<void>
@@ -417,6 +428,7 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
         new DatabaseWorkspaceRecords({
           changes,
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: changes.scope,
         })
     );

@@ -118,7 +118,7 @@ export class ProviderConfiguration {
   #built: readonly Built[] = [];
   #instances = new Map<string, ProviderInstance>();
   #identities = new Map<string, { digest?: string; material: unknown }>();
-  #key: Buffer | undefined;
+  #key: Uint8Array | undefined;
   readonly #owned = new ProviderInstances();
   readonly #listings = new Map<string, Listing>();
   readonly #listed = new Map<string, number>();

@@ -190,7 +190,7 @@ Source responsibilities and dependency boundaries:
   whoever holds the state root's process lock (the Marbles process for its
   lifetime, any other writer of a workspace's state only while it makes
   the database current, through `openHostDatabase` and `writeAsHost` in
-  `workspaces.ts`), creates it (WAL, busy timeout, foreign keys) and
+  `open.ts`), creates it (WAL, busy timeout, foreign keys) and
   migrates it; `openDatabase` (a handle kept open, as a host keeps one) and
   `writeDatabase` (one piece of work) write only to a file that is there
   and current; `readDatabase` reads through a read-only connection and never
@@ -218,8 +218,8 @@ Source responsibilities and dependency boundaries:
   stores sit beside the tables. `stores.ts` provides portable
   `assembleSqliteWorkspaceStores`; `local-artifacts.ts` provides
   `artifactBlobs` and `readArtifacts`. `WorkspaceRegistry` in `workspaces.ts`
-  and `ResourceView` accept optional `state` and `acceptWorkspace` options;
-  local hosts use these to exclude linked workspace directories.
+  and `ResourceView` accept an optional `acceptWorkspace` predicate;
+  local hosts pass `insideState` to exclude linked workspace directories.
   Other stores include `changes.ts`, a workspace's change log: every change
   fact any of its stores commits (`marbles_changes`), at the next
   position of the workspace's counter (`marbles_change_logs`, never
@@ -575,3 +575,11 @@ Source files configure pools with `export default defineConfig({ pools: { review
 Pool limits are positive integers or `Infinity`. Hosted and script engines use
 limit 4 in `default`; raw engines use 1. Awaiting a launched run holds the
 caller's place; use `.run()` inline or separate pools.
+
+The Drizzle stores in `src/database/` are import-portable over `StoreDatabase`.
+They and their transitive imports use no Node built-ins or `@libsql/client`.
+Local disk reads, database opening, and host locks live in `database/open.ts`.
+Local callers supply workspace acceptance, Node owner liveness, and the run
+cause resolver. Import portability does not establish D1 or Durable Objects
+SQLite runtime compatibility: these stores use asynchronous interactive
+transactions.

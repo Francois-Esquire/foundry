@@ -4,13 +4,23 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MarblesDatabase } from "~/database/open";
-import { initializeDatabase, readDatabase } from "~/database/open";
+import {
+  initializeDatabase,
+  providerStoreForState,
+  readDatabase,
+} from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { marblesProviderConfigurations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ProviderStore, ProvidersFile } from "~/lib/providers/store";
-import { MemoryProviderStore, readOnlyProviders } from "~/lib/providers/store";
+import {
+  identityKeyFrom,
+  MemoryProviderStore,
+  newIdentityKey,
+  readOnlyProviders,
+} from "~/lib/providers/store";
 
+const IDENTITY_KEY = /^[0-9a-f]{64}$/;
 const dirs: string[] = [];
 const handles: MarblesDatabase[] = [];
 
@@ -135,7 +145,7 @@ describeProviderStore("the database provider store", async () => {
 });
 describeProviderStore(
   "the provider store a process without a handle uses",
-  () => Promise.resolve(DatabaseProviderStore.forState(scratch()))
+  () => Promise.resolve(providerStoreForState(scratch()))
 );
 
 describe("provider configuration in the Marbles database", () => {
@@ -223,4 +233,20 @@ describe("provider configuration in the Marbles database", () => {
     expect(await dry.identityKey(true)).toBeUndefined();
     expect(await real.identityKey(false)).toBeUndefined();
   });
+});
+
+it("keeps identity keys as 32 bytes encoded in lowercase hex", () => {
+  const encoded = `00010a0f10ff${"00".repeat(26)}`;
+  expect([...identityKeyFrom(encoded)]).toEqual([
+    0,
+    1,
+    10,
+    15,
+    16,
+    255,
+    ...new Array(26).fill(0),
+  ]);
+  const generated = newIdentityKey();
+  expect(generated).toMatch(IDENTITY_KEY);
+  expect(identityKeyFrom(generated)).toHaveLength(32);
 });
