@@ -1,7 +1,7 @@
-import type { Hosted, TaskRunner } from "~/access/workspace";
 import type { CliContext, GlobalFlags } from "~/cli/context";
 import { UsageError } from "~/cli/errors";
 import type { Triggers } from "~/create";
+import type { Hosted, TaskRunner } from "~/process/access";
 import type { OpenedWorkspace } from "~/workspace/open";
 
 export type CommandGroup = "core" | "resources" | "system";

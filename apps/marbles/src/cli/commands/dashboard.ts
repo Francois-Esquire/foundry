@@ -1,6 +1,6 @@
-import type { Hosted } from "~/access/workspace";
 import { defineCommand, noPositionals } from "~/cli/command";
 import type { CliContext } from "~/cli/context";
+import type { Hosted } from "~/process/access";
 import { describeDisconnect } from "~/process/client";
 
 function interrupted(): { readonly done: Promise<void>; release(): void } {

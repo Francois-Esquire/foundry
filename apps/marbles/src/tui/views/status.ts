@@ -6,9 +6,9 @@ import {
   TextAttributes,
   TextRenderable,
 } from "@opentui/core";
-import { processLines, workspaceLines } from "~/cli/status/text";
+import { processLines, workspaceLines } from "~/cli/format/status";
 import { theme } from "~/components/ui/theme";
-import type { StatusReport } from "~/status/model";
+import type { StatusReport } from "~/process/status";
 
 export interface StatusProps {
   readonly here?: string;

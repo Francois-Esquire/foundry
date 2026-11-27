@@ -7,7 +7,7 @@ import { taskId } from "@foundry/tasks";
 import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
 import { describe, expect, test } from "vitest";
 import { Catalog } from "~/authoring/catalog";
-import { taskCommandText } from "~/cli/tasks/text";
+import { taskCommandText } from "~/cli/format/tasks";
 import { createEngine, type WorkspaceStoreBundle } from "~/create";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";

@@ -27,7 +27,7 @@ import {
   startDaemon,
 } from "~/process/daemon";
 import { startedAt } from "~/process/spawned";
-import { readStatus } from "~/status/model";
+import { readStatus } from "~/process/status";
 import { exitedPid, seedExecution, withExecutions } from "./helpers/executions";
 import {
   type GenerationFiles as Fixture,

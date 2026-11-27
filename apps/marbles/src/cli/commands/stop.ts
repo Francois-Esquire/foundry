@@ -1,10 +1,10 @@
-import { joinProcess } from "~/access/workspace";
 import { defineCommand } from "~/cli/command";
 import type { CliContext } from "~/cli/context";
 import { UsageError } from "~/cli/errors";
 import { writeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
+import { joinProcess } from "~/process/access";
 import { stopProcess } from "~/process/client";
 
 async function detachWorkspace(ctx: CliContext): Promise<void> {

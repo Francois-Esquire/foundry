@@ -14,7 +14,7 @@ import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
 import { writeJson } from "~/lib/state/json";
 import { startedAt } from "~/process/spawned";
-import { readStatus } from "~/status/model";
+import { readStatus } from "~/process/status";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns, seedSchedules } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";

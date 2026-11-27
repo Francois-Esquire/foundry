@@ -9,7 +9,7 @@ import {
 import { z } from "zod";
 import { defineCommand } from "~/cli/command";
 import { UsageError } from "~/cli/errors";
-import { taskCommandText } from "~/cli/tasks/text";
+import { taskCommandText } from "~/cli/format/tasks";
 import type { TaskCommand, TaskCommandResult } from "~/model/tasks";
 
 const TASK_STATUS_SCHEMA = z.enum(["open", "active", "completed", "cancelled"]);
