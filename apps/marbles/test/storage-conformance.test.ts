@@ -4,10 +4,14 @@ import { createClient } from "@libsql/client";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { readMigrationFiles } from "drizzle-orm/migrator";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { MIGRATIONS } from "~/database/migrate";
 import { applyMigrations, schemaState } from "~/database/migrate-core";
 import { BUNDLED_MIGRATIONS } from "~/database/migrations/bundled";
+import { marblesChanges } from "~/database/tables";
+import { asRun } from "~/lib/calling-run";
+import { causingRun } from "~/lib/events/records";
 import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 import { MemoryMarblesStorage } from "~/storage/memory";
 import { SqliteMarblesStorage } from "~/storage/sqlite";
@@ -123,4 +127,55 @@ describe("static bundled SQLite migrations", () => {
     expect(forbiddenImports).toEqual([]);
     expect(built.success).toBe(true);
   });
+});
+
+it("attributes SQLite adapter run events through the injected resolver after await", async () => {
+  const client = createClient({ url: ":memory:" });
+  const database = drizzle({ client });
+  const storage = new SqliteMarblesStorage({
+    causingRun: () => causingRun() ?? undefined,
+    database,
+  });
+  try {
+    await applyMigrations(database);
+    const stores = await storage.forWorkspace("workspace");
+    const commit = (id: string) =>
+      Effect.runPromise(
+        stores.queue.commit({
+          events: [
+            {
+              at: 0,
+              id,
+              run: {
+                attempt: 1,
+                id: "rn-child",
+                jobId: "jb-child",
+                pool: "default",
+                revision: 0,
+                state: { availableAt: 0, kind: "queued", queuedAt: 0 },
+              },
+              type: "run.queued",
+            },
+          ],
+        })
+      );
+    await asRun("rn-parent", async () => {
+      await Promise.resolve();
+      await commit("inside");
+    });
+    await commit("outside");
+    const rows = await database
+      .select({ id: marblesChanges.id, runId: marblesChanges.runId })
+      .from(marblesChanges);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: "inside", runId: "rn-parent" },
+        { id: "outside", runId: null },
+      ])
+    );
+    expect(rows).toHaveLength(2);
+  } finally {
+    await storage.close();
+    client.close();
+  }
 });

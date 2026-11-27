@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { GlobalFlags } from "~/cli/context";
 import { readDatabase, recordedWorkspaces } from "~/database/open";
 import { stateDatabase } from "~/layout";
+import { causingRun } from "~/lib/events/records";
 import { ToolRefusal } from "~/mcp/errors";
 import type { McpServerOptions } from "~/mcp/resources";
 import type { WorkspaceSummary } from "~/model/connection";
@@ -21,7 +22,11 @@ export function readLocalService<T>(
   return readDatabase(stateDatabase(state), (database) =>
     work(
       createMarblesService({
-        storage: new SqliteMarblesStorage({ database, state }),
+        storage: new SqliteMarblesStorage({
+          causingRun: () => causingRun() ?? undefined,
+          database,
+          state,
+        }),
       })
     )
   );

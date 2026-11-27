@@ -1,6 +1,7 @@
 import type { SessionRecord } from "@foundry/agents/session";
 import type { Artifact } from "@foundry/artifacts";
 import type { ContainerRow } from "@foundry/sandbox";
+import { ChangeRecorder } from "~/database/changes";
 import {
   ALL_WORKSPACES,
   ResourceView,
@@ -40,6 +41,7 @@ import {
 export interface SqliteMarblesStorageOptions {
   readonly acceptWorkspace?: (id: string) => boolean;
   readonly blobs?: BlobStorage;
+  readonly causingRun?: () => string | undefined;
   readonly close?: () => Promise<void> | void;
   readonly database: StoreDatabase;
   readonly liveness?: OwnerLiveness;
@@ -59,6 +61,7 @@ export class SqliteMarblesStorage implements MarblesStorage {
 
   readonly #acceptWorkspace: ((id: string) => boolean) | undefined;
   readonly #associations: ResourceAssociations;
+  readonly #causingRun: (() => string | undefined) | undefined;
   readonly #close: (() => Promise<void> | void) | undefined;
   readonly #database: StoreDatabase;
   readonly #liveness: OwnerLiveness | undefined;
@@ -73,6 +76,7 @@ export class SqliteMarblesStorage implements MarblesStorage {
     this.#acceptWorkspace =
       options.acceptWorkspace ??
       (state === undefined ? undefined : (id) => insideState(state, id));
+    this.#causingRun = options.causingRun;
     this.#close = options.close;
     this.#liveness = options.liveness;
     this.#location = options.location;
@@ -190,6 +194,11 @@ export class SqliteMarblesStorage implements MarblesStorage {
       this.#database,
       workspaceId,
       {
+        changes: new ChangeRecorder(workspaceId, {
+          ...(this.#causingRun === undefined
+            ? {}
+            : { causingRun: this.#causingRun }),
+        }),
         ...(this.blobs === undefined ? {} : { blobs: this.blobs }),
         ...(this.#liveness === undefined ? {} : { liveness: this.#liveness }),
         ...(this.#location === undefined ? {} : { location: this.#location }),
