@@ -1,6 +1,5 @@
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { DatabaseBusyError } from "~/database/busy";
-import { LinksPlacementError } from "~/database/links";
 import { IncompatibleDatabaseError } from "~/database/migrate";
 import { UnreadableDatabaseError } from "~/database/open";
 import { TaskStorageError } from "~/database/tasks";
@@ -29,7 +28,6 @@ export function isActionableError(error: unknown): error is Error {
     error instanceof DatabaseBusyError ||
     error instanceof IncompatibleDatabaseError ||
     error instanceof LaunchInputError ||
-    error instanceof LinksPlacementError ||
     error instanceof NoProcessError ||
     error instanceof NotHostedError ||
     error instanceof ProcessMismatchError ||

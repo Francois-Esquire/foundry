@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { relinkArtifact } from "~/database/links";
 import {
   FileDigests,
   fingerprintOf,
@@ -116,48 +115,6 @@ describe("sourceDigests", () => {
       writeFileSync(join(root, name, "file.js"), "changed\n");
     }
     expect(sourceDigests(records, new Map()).get("w")).toBe(before);
-  });
-});
-
-describe("a workspace's links", () => {
-  it("never change its fingerprint as they are made, replaced, pruned and locked", async () => {
-    const home = temporaryDirectory("marbles-fingerprint-");
-    const root = join(home, "project");
-    mkdirSync(root);
-    const config = join(root, "marbles.config.ts");
-    writeFileSync(config, "export {};\n");
-    const artifacts = join(home, "artifacts");
-    const blobs = join(artifacts, "workspaces", "w", "blobs");
-    mkdirSync(blobs, { recursive: true });
-    writeFileSync(join(blobs, "old"), "old\n");
-    writeFileSync(join(blobs, "new"), "new\n");
-    const records = [{ config, id: "w", root }];
-    const digest = () => sourceDigests(records, new Map()).get("w");
-    const before = digest();
-    const ref = { id: "notes", kind: "artifact", owner: "w" } as const;
-    mkdirSync(join(root, ".marbles"));
-    await relinkArtifact({
-      artifacts,
-      files: [{ blob: "old", path: "a.md" }],
-      ref,
-      root,
-    });
-    expect(
-      existsSync(join(root, ".marbles", "artifacts", "notes", "a.md"))
-    ).toBe(true);
-    expect(digest()).toBe(before);
-    await relinkArtifact({
-      artifacts,
-      files: [{ blob: "new", path: "a.md" }],
-      ref,
-      root,
-    });
-    expect(digest()).toBe(before);
-    await relinkArtifact({ artifacts, files: [], ref, root });
-    expect(existsSync(join(root, ".marbles", "artifacts", "notes"))).toBe(
-      false
-    );
-    expect(digest()).toBe(before);
   });
 });
 

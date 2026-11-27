@@ -24,8 +24,6 @@ import {
   setDefaultRoot,
   setDefaultRuntime,
 } from "~/authoring/runtime";
-import type { LinksKept } from "~/database/artifact-links";
-import { keepingLinks } from "~/database/artifact-links";
 import { ChangeRecorder } from "~/database/changes";
 import { artifactBlobs } from "~/database/local-artifacts";
 import type { WorkspaceDatabase } from "~/database/managed";
@@ -189,9 +187,7 @@ function artifactsFor(
   stores: WorkspaceStores | undefined,
   injected: ArtifactStore | undefined,
   options: CreateEngineOptions
-): Pick<EngineOptions, "artifacts"> & {
-  readonly links?: LinksKept;
-} {
+): Pick<EngineOptions, "artifacts"> {
   const { artifacts: dir, workspaceId } = options;
   if (injected !== undefined) {
     return {
@@ -206,25 +202,13 @@ function artifactsFor(
   if (stores === undefined) {
     return { artifacts: artifactsInMemory() };
   }
-  const { database, print } = options;
-  const kept =
-    dir === undefined || database === undefined
-      ? undefined
-      : keepingLinks(stores.artifacts, {
-          artifacts: dir,
-          database,
-          owner: workspaceId,
-          report: print,
-          state: options.stateRoot ?? layout().state,
-        });
   return {
     artifacts: new Artifacts({
       ...(dir === undefined
         ? {}
         : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
-      store: kept ?? stores.artifacts,
+      store: stores.artifacts,
     }),
-    ...(kept === undefined ? {} : { links: kept }),
   };
 }
 
@@ -382,42 +366,15 @@ function recordsFor(
   };
 }
 
-const LINK_DRAIN_MS = 5000;
-
 function engineOver(
   options: EngineOptions,
   own: WorkspaceDatabase | undefined,
-  links: LinksKept | undefined,
   useDirectEngine: boolean
 ): Engine {
   if (own !== undefined) {
     return new OwnDatabaseEngine(options, own);
   }
-  if (links !== undefined) {
-    return new LinkKeepingEngine(options, links);
-  }
   return useDirectEngine ? new Engine(options) : new PublishedEngine(options);
-}
-
-class LinkKeepingEngine extends PublishedEngine {
-  readonly #links: LinksKept;
-  #disposed: Promise<void> | undefined;
-
-  constructor(options: EngineOptions, links: LinksKept) {
-    super(options);
-    this.#links = links;
-  }
-
-  override dispose(): Promise<void> {
-    this.#disposed ??= (async () => {
-      try {
-        await super.dispose();
-      } finally {
-        await this.#links.drainLinks(LINK_DRAIN_MS);
-      }
-    })();
-    return this.#disposed;
-  }
 }
 
 class OwnDatabaseEngine extends PublishedEngine {
@@ -512,11 +469,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
         };
   const containerStore = injected?.containers ?? dbStores?.containers;
   const workspaceStore = injected?.workspaces ?? dbStores?.workspaces;
-  const { links, ...artifacts } = artifactsFor(
-    dbStores,
-    injected?.artifacts,
-    options
-  );
+  const artifacts = artifactsFor(dbStores, injected?.artifacts, options);
   const engineOptions: EngineOptions = {
     pools: {
       [DEFAULT_POOL]: DEFAULT_HOSTED_POOL_LIMIT,
@@ -550,7 +503,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const engine = engineOver(
     engineOptions,
     own,
-    links,
     injected !== undefined && database === undefined && state === undefined
   );
   declareCatalog(engine, catalog);

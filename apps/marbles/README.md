@@ -343,8 +343,6 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_ROOT`, else
                               stops what an engine that is gone left behind
   artifacts/
     workspaces/<workspace-id>/blobs/   each artifact's bytes
-<workspace root>/
-  .marbles/artifacts/<id>/<path>       links to its own artifacts' files
 ```
 
 The database holds the rest, for every workspace: its record, tasks and
@@ -376,37 +374,6 @@ every workspace (`tasks` also supports `create` and `update`). The dashboard's
 run and trigger lists show this workspace's own (live),
 and `g` shows every workspace's; another workspace's runs and triggers are read
 only there, as are its Feed questions.
-
-`<workspace root>/.marbles/` holds links into the database's files for the
-resources a workspace shows: for now, one link per artifact file whose
-bytes a blob file holds, its own artifacts' under `artifacts/<id>/`, each
-name encoded so no two collide, case-insensitively too. Nothing reads them back.
-`marbles artifacts relink [--all]` makes them match the database: it removes the
-links Marbles made that no longer should be there and makes the missing
-ones, leaving anything else (a file, a link of your own) and reporting it.
-Before each change, the directory it is made in or removed from is checked
-to be a real directory inside the real `.marbles`; one that is a link, a
-file or elsewhere refuses that link, reported, and what was just made
-through a directory that moved meanwhile is removed again. A process that
-can write in your workspace can still swap a directory in the moment
-between a check and the change after it; nothing in the runtime closes
-that window. Once a workspace has links, they follow each of its artifact
-writes after it lands; a link that cannot be made is reported, never failing the write,
-and `marbles artifacts relink` repairs it. A closing engine takes no new link work and
-waits for the updates its writes queued; after five seconds it gives up
-those still waiting for a `.marbles/.lock` or their turn, reporting them
-for `relink`, and lets the one under way reach its next step, so it
-leaves links as they were or made, never half made. The five seconds are
-no deadline: a read of the database under way is waited for however long
-it takes, and only a generation's stop timeout bounds the close. A write
-that lands once the close has begun has its links left for `relink`,
-reported once. Every update, in any process, holds
-`.marbles/.lock` and reads what each link should be from the database
-under it, so concurrent ones converge on what the database holds. A file
-the database holds inline (or in chunks), or whose name is too long for
-the file system, has no link. `.marbles/.gitignore` keeps the directory
-out of git. An artifact store inside a transaction the host owns cannot
-keep links (`HostBoundStoreError`).
 
 ## Embedding and execution
 

@@ -238,19 +238,7 @@ Source responsibilities and dependency boundaries:
   the recorder's hook alone; each
   container row names its holder itself, which Marbles makes its process
   identity (`lib/sandbox/holders.ts`), so a start takes back the rows a
-  gone process left. `artifact-links.ts` (`keepingLinks`, over
-  `followingCommits`) follows the engine's artifact commits, after they
-  land, nested transactions included, to keep the owning workspace's
-  links (`links.ts`) current, and the engine `createEngine` builds over it
-  drains those updates (`drainLinks`, giving up after a bound only what
-  waits: updates not begun, or waiting for a links lock) once disposed,
-  before its host closes the database; `links.ts` is the routine an update runs,
-  which reconciles an artifact's links with the database under
-  `.marbles/.lock`, reading the database there, and checks each directory
-  (`lstat` and `realpath` inside `.marbles`) right before each change and
-  again after each creation; a writer in the workspace can still win the
-  window between a check and a call. `keepingLinks` refuses a host-bound
-  store. Artifact blob files stay on disk, under
+  gone process left. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`. `runs.ts` is a workspace's run queue: `@foundry/queue`'s
   `SqliteQueueStore` scoped by the workspace id, whose `onCommit` hook
   files beside each workflow Run it puts Marbles' row in
