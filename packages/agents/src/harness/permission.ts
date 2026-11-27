@@ -186,7 +186,7 @@ export function createHarnessPermission(
       const outcome = await settings.authorization.authorize(
         accessRequest,
         invocationId,
-        { openPending: false, signal: request.signal }
+        { idempotent: true, openPending: false, signal: request.signal }
       );
       if (outcome.kind === "permitted") {
         outcome.permit.release();
@@ -291,7 +291,7 @@ async function resolveLiveHarnessApproval(
   const retry = await settings.authorization.authorize(
     accessRequest,
     invocationId,
-    { openPending: false, signal: request.signal }
+    { idempotent: true, openPending: false, signal: request.signal }
   );
   if (retry.kind === "permitted") {
     retry.permit.release();

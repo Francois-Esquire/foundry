@@ -92,6 +92,7 @@ async function openContainer(
   let networkPermit: Permit | undefined;
   let destinations: NonNullable<typeof network>["destinations"] | null = null;
   if (network !== null) {
+    input.signal?.throwIfAborted();
     const outcome = await authorization.authorize(
       moduleCapabilityAccessRequest({
         capability: network.capability,
@@ -100,10 +101,7 @@ async function openContainer(
         version: network.version,
       }),
       `network:${input.installationId}:${input.generation}:${crypto.randomUUID()}`,
-      {
-        openPending: false,
-        ...(input.signal === undefined ? {} : { signal: input.signal }),
-      }
+      { openPending: false }
     );
     if (outcome.kind === "permitted") {
       networkPermit = outcome.permit;

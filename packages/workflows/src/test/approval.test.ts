@@ -156,13 +156,11 @@ describe("suspendForApproval", () => {
       stepPath: ["wf", "stepA"],
     });
 
-    // Bare-name resolution must not resolve an approval suspension.
     await wf.resume("approval", { approved: true });
     await wf.run().catch(() => undefined);
     expect(wf.status).toBe("suspended");
     expect(wf.state.suspension?.stepPath).toEqual(["wf", "stepA"]);
 
-    // Wrong correlationId must not resolve step A.
     await wf.resumeOccurrence(
       ["wf", "stepA"],
       "approval",
@@ -174,7 +172,6 @@ describe("suspendForApproval", () => {
     expect(wf.status).toBe("suspended");
     expect(wf.state.suspension?.stepPath).toEqual(["wf", "stepA"]);
 
-    // Resolving step A advances to step B, which still suspends independently.
     await wf.resumeOccurrence(
       ["wf", "stepA"],
       "approval",
@@ -191,7 +188,6 @@ describe("suspendForApproval", () => {
       stepPath: ["wf", "stepB"],
     });
 
-    // Resolving step B completes the workflow.
     await wf.resumeOccurrence(
       ["wf", "stepB"],
       "approval",

@@ -117,6 +117,77 @@ export function compileHarnessProfile(
   return { grants, restrictions };
 }
 
+async function reconcileProfileRestrictions(
+  authorization: Authorization,
+  restrictions: readonly AddRestrictionInput[],
+  denyPrefix: string
+): Promise<readonly RestrictionId[]> {
+  const desired = new Set(
+    restrictions.flatMap((item) => (item.id === undefined ? [] : [item.id]))
+  );
+  const existing = await authorization.listRestrictions();
+  const existingIds = new Set(existing.map((item) => item.id));
+  for (const restriction of existing) {
+    if (restriction.id.startsWith(denyPrefix) && !desired.has(restriction.id)) {
+      await authorization.liftRestriction(restriction.id);
+    }
+  }
+  const restrictionIds: RestrictionId[] = [];
+  for (const input of restrictions) {
+    if (input.id !== undefined) {
+      restrictionIds.push(input.id);
+      if (existingIds.has(input.id)) {
+        continue;
+      }
+    }
+    await authorization.restrict(input);
+  }
+  return restrictionIds;
+}
+
+async function reconcileProfileGrants(
+  authorization: Authorization,
+  grants: readonly IssueGrantInput[],
+  sessionId: string,
+  allowPrefix: string,
+  includeGrants: boolean
+): Promise<void> {
+  const desired = new Set(
+    includeGrants
+      ? grants.flatMap((item) =>
+          item.issuanceKey === undefined ? [] : [item.issuanceKey]
+        )
+      : []
+  );
+  const existing = await authorization.listGrants({
+    sessionId,
+    state: "active",
+  });
+  for (const grant of existing) {
+    if (
+      grant.issuanceKey?.startsWith(allowPrefix) &&
+      !desired.has(grant.issuanceKey)
+    ) {
+      await authorization.revoke(
+        { grantId: grant.id, kind: "grant" },
+        "Harness profile updated."
+      );
+    }
+  }
+  if (!includeGrants) {
+    return;
+  }
+  for (const input of grants) {
+    try {
+      await authorization.grant(input);
+    } catch (error) {
+      if (!(error instanceof AuthorizationDeniedError)) {
+        throw error;
+      }
+    }
+  }
+}
+
 export async function applyHarnessProfile(
   authorization: Authorization,
   profile: HarnessPermissionProfile,
@@ -125,29 +196,18 @@ export async function applyHarnessProfile(
   readonly restrictionIds: readonly RestrictionId[];
 }> {
   const compiled = compileHarnessProfile(profile, options);
-  const existing = new Set(
-    (await authorization.listRestrictions()).map((item) => item.id)
+  const keyPrefix = `harness-profile:${options.sessionId}:${options.agentId}:${options.agentGeneration ?? ""}`;
+  const restrictionIds = await reconcileProfileRestrictions(
+    authorization,
+    compiled.restrictions,
+    `${keyPrefix}:deny:`
   );
-  const restrictionIds: RestrictionId[] = [];
-  for (const input of compiled.restrictions) {
-    if (input.id !== undefined) {
-      restrictionIds.push(input.id);
-      if (existing.has(input.id)) {
-        continue;
-      }
-    }
-    await authorization.restrict(input);
-  }
-  if (options.includeGrants !== false) {
-    for (const input of compiled.grants) {
-      try {
-        await authorization.grant(input);
-      } catch (error) {
-        if (!(error instanceof AuthorizationDeniedError)) {
-          throw error;
-        }
-      }
-    }
-  }
+  await reconcileProfileGrants(
+    authorization,
+    compiled.grants,
+    options.sessionId,
+    `${keyPrefix}:allow:`,
+    options.includeGrants !== false
+  );
   return { restrictionIds };
 }

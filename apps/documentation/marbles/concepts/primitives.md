@@ -24,8 +24,9 @@ run's replay, cancellation, output, and cleanup.
 | [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md) | Keeps named outputs, content versions, stored bytes, and Feed entries. |
 | [Tasks](https://github.com/Francois-Esquire/foundry/blob/main/packages/tasks/README.md) | Keeps the workspace backlog behind `tasks`. |
 | [Usage](https://github.com/Francois-Esquire/foundry/blob/main/packages/usage/README.md) | Reads subscription limits and consumption for `usage`. |
+| [Authorization](https://github.com/Francois-Esquire/foundry/blob/main/packages/authorization/CONTEXT.md) | Decides access requests, tracks delegated grants and guardrails, and issues revocable permits. |
 | [Core](https://github.com/Francois-Esquire/foundry/tree/main/packages/core/src) | Defines shared storage and pagination contracts. |
-| [Lib](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/README.md) | Supplies configuration, authorization, paths, digests, and local file coordination. |
+| [Lib](https://github.com/Francois-Esquire/foundry/blob/main/packages/lib/README.md) | Supplies configuration, paths, digests, and local file coordination. |
 
 ## What Marbles adds
 

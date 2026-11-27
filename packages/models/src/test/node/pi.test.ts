@@ -417,7 +417,6 @@ describe("Pi native driver", () => {
       ui: { input: uiInput },
     };
 
-    // Unknown tool fails closed without invoking UI permission.
     expect(
       await onToolCall?.(
         { input: { cmd: "rm -rf /" }, toolCallId: "c1", toolName: "bash" },
@@ -426,7 +425,6 @@ describe("Pi native driver", () => {
     ).toEqual({ block: true, reason: "Unknown Pi tool" });
     expect(uiInput).not.toHaveBeenCalled();
 
-    // Registered host tool delegates to execute(), not native permission.
     expect(
       await onToolCall?.(
         { input: {}, toolCallId: "c2", toolName: "host_read" },
@@ -435,7 +433,6 @@ describe("Pi native driver", () => {
     ).toBeUndefined();
     expect(uiInput).not.toHaveBeenCalled();
 
-    // Declared native tool routes through foundry.permission.
     expect(
       await onToolCall?.(
         { input: { path: "README.md" }, toolCallId: "c3", toolName: "read" },
@@ -448,7 +445,6 @@ describe("Pi native driver", () => {
       expect.any(Object)
     );
 
-    // Host-side foundry.permission also refuses undeclared native tools.
     const { child, driver } = setup({ nativeTools: ["read"] });
     const permission = vi.fn(async () => ({ behavior: "allow" as const }));
     const stream = await driver.run(runOptions({ permission }));

@@ -10,6 +10,7 @@ import {
 import { Sessions } from "@foundry/agents/session";
 import {
   AuthorizationDeniedError,
+  AuthorizationStateError,
   type GrantId,
   matchesPrincipal,
 } from "@foundry/authorization";
@@ -92,7 +93,12 @@ async function delegateParentGrants(
       });
       delegatedIds.push(issued.id);
     } catch (error) {
-      if (!(error instanceof AuthorizationDeniedError)) {
+      if (
+        !(
+          error instanceof AuthorizationDeniedError ||
+          error instanceof AuthorizationStateError
+        )
+      ) {
         throw error;
       }
     }
