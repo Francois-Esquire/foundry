@@ -104,14 +104,14 @@ describe("sourceDigests", () => {
 
   it("leaves out dependencies, history, Marbles' own and builds", () => {
     const root = join(temporaryDirectory("marbles-fingerprint-"), "project");
-    for (const name of ["node_modules", ".git", ".marbles", "dist"]) {
+    for (const name of ["node_modules", ".git", "dist"]) {
       mkdirSync(join(root, name), { recursive: true });
     }
     const config = join(root, "marbles.config.ts");
     writeFileSync(config, "export {};\n");
     const records = [{ config, id: "w", root }];
     const before = sourceDigests(records, new Map()).get("w");
-    for (const name of ["node_modules", ".git", ".marbles", "dist"]) {
+    for (const name of ["node_modules", ".git", "dist"]) {
       writeFileSync(join(root, name, "file.js"), "changed\n");
     }
     expect(sourceDigests(records, new Map()).get("w")).toBe(before);

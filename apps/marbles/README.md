@@ -315,7 +315,7 @@ and each task change is handled by one generation only. A generation that dies
 is replaced after a pause that doubles from 1 second up to 30 while
 replacements keep failing, and the next one's start puts its runs right.
 What counts as a change is any file under a workspace's root (but
-`node_modules`, `.git`, `.marbles` and build output), whether a load read
+`node_modules`, `.git` and build output), whether a load read
 it or not, and any file a load or a run read outside it, as it was before
 the generation loaded or when it read it. An answer is applied only by the
 generation that holds its run at that moment; one that reaches another is
