@@ -17,6 +17,14 @@ const ALLOWED_DRIZZLE_FILES: Readonly<Record<string, readonly string[]>> = {
 };
 const DEFAULT_ALLOWED_DRIZZLE_FILES = ["store/sqlite.ts", "store/tables.ts"];
 
+const CANONICAL_STORE_SUBPATHS = [
+  "./store",
+  "./store/memory",
+  "./store/sqlite",
+  "./store/tables",
+  "./testing/store",
+] as const;
+
 const ALL_PACKAGES = packageDirs().map((dir) => ({
   dir,
   manifest: readManifest(dir),
@@ -58,7 +66,11 @@ describe("SQLite / Drizzle store isolation", () => {
       expect(drizzleViolations).toEqual([]);
       expect(libsqlViolations).toEqual([]);
 
-      if (manifest.exports?.["./store/sqlite"] !== undefined) {
+      const exports = manifest.exports ?? {};
+      if (
+        exports["./store/sqlite"] !== undefined ||
+        exports["./store/tables"] !== undefined
+      ) {
         expect(manifest.peerDependencies?.["drizzle-orm"]).toBeDefined();
         expect(manifest.peerDependenciesMeta?.["drizzle-orm"]?.optional).toBe(
           true
@@ -66,4 +78,40 @@ describe("SQLite / Drizzle store isolation", () => {
       }
     }
   );
+
+  it("keeps canonical Domain store subpaths symmetric and wired to ./testing/store", () => {
+    const violations: string[] = [];
+    for (const { dir, manifest, name } of ALL_PACKAGES) {
+      const exports = manifest.exports ?? {};
+      if (exports["./store"] === undefined) {
+        continue;
+      }
+
+      for (const subpath of CANONICAL_STORE_SUBPATHS) {
+        if (exports[subpath] === undefined) {
+          violations.push(
+            `packages/${name}: missing store subpath "${subpath}"`
+          );
+        }
+      }
+
+      const testDir = join(dir, "src/test");
+      const exercisesSuite =
+        existsSync(testDir) &&
+        sourceFiles(testDir, { extensions: [".ts", ".tsx"] }).some((file) =>
+          parseModuleImports(file).some(
+            ({ specifier }) =>
+              specifier === "../testing/store" ||
+              specifier === "../../testing/store" ||
+              specifier === `${manifest.name}/testing/store`
+          )
+        );
+      if (!exercisesSuite) {
+        violations.push(
+          `packages/${name}: src/test/ does not import ./testing/store conformance suite`
+        );
+      }
+    }
+    expect(violations).toEqual([]);
+  });
 });

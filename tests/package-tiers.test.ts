@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   APPS_DIR,
@@ -11,6 +11,7 @@ import {
   REPO_ROOT,
   readManifest,
   sourceFiles,
+  workspaceDirs,
 } from "./helpers/scan";
 
 type PackageTier = "primitives" | "tools" | "domains";
@@ -63,7 +64,8 @@ function allDependencyNames(manifest: PackageManifest): string[] {
 function foundryDependencies(manifest: PackageManifest): string[] {
   return allDependencyNames(manifest).filter(
     (name) =>
-      name.startsWith("@foundry/") && !UNTIERED_WORKSPACE_PACKAGES.has(name)
+      (name.startsWith("@foundry/") || name.startsWith("@foundry.sh/")) &&
+      !UNTIERED_WORKSPACE_PACKAGES.has(name)
   );
 }
 
@@ -294,5 +296,79 @@ describe("package tiers and dependency graph", () => {
         });
     });
     expect(violations).toEqual([]);
+  });
+
+  it("keeps @foundry/lib dependent only on @foundry/core within the workspace", () => {
+    const manifest = readManifest(join(PACKAGES_DIR, "lib"));
+    expect(manifest.dependencies).toEqual({ "@foundry/core": "workspace:*" });
+    expect(
+      Object.keys(manifest.peerDependencies ?? {}).filter((name) =>
+        name.startsWith("@foundry/")
+      )
+    ).toEqual([]);
+  });
+
+  it("keeps @foundry/workflows dependent on @foundry/queue with no drizzle-orm dependency", () => {
+    const manifest = readManifest(join(PACKAGES_DIR, "workflows"));
+    expect(manifest.dependencies?.["@foundry/queue"]).toBe("workspace:*");
+    expect(allDependencyNames(manifest)).not.toContain("drizzle-orm");
+  });
+
+  it("forbids relative imports that escape a workspace directory", () => {
+    const violations: string[] = [];
+    for (const dir of workspaceDirs()) {
+      const prefix = `${dir}${sep}`;
+      for (const file of sourceFiles(dir, {
+        extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs"],
+        skipDirs: [...SKIP_DIRS, "fixtures"],
+      })) {
+        for (const { line, specifier } of parseModuleImports(file)) {
+          if (!specifier.startsWith(".")) {
+            continue;
+          }
+          const target = resolve(dirname(file), specifier);
+          if (target !== dir && !target.startsWith(prefix)) {
+            violations.push(
+              `${relative(REPO_ROOT, file)}:${line} escapes workspace via "${specifier}"`
+            );
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("confines @foundry/lib/async-scope usage to approved best-effort diagnostic/guard sites", () => {
+    const allowlist = new Set([
+      "packages/artifacts/src/artifacts.ts",
+      "packages/lib/src/turns.ts",
+      "packages/workspaces/src/workspaces.ts",
+    ]);
+    const found = new Set<string>();
+    for (const dir of packageDirs()) {
+      const srcDir = join(dir, "src");
+      for (const file of sourceFiles(srcDir, {
+        extensions: [".ts", ".tsx"],
+        skipDirs: [...SKIP_DIRS, "test", "testing"],
+      })) {
+        const rel = relative(REPO_ROOT, file).replaceAll("\\", "/");
+        if (rel === "packages/lib/src/node/async-scope.ts") {
+          continue;
+        }
+        const importsAsyncScope = parseModuleImports(file).some(
+          ({ specifier, typeOnly }) =>
+            !typeOnly &&
+            (specifier === "@foundry/lib/async-scope" ||
+              (file.startsWith(join(PACKAGES_DIR, "lib/src")) &&
+                (specifier === "./async-scope" ||
+                  specifier === "../async-scope" ||
+                  specifier === "./node/async-scope")))
+        );
+        if (importsAsyncScope) {
+          found.add(rel);
+        }
+      }
+    }
+    expect([...found].sort()).toEqual([...allowlist].sort());
   });
 });

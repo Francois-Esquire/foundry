@@ -24,6 +24,7 @@ export interface PackageManifest {
     string,
     { readonly optional?: boolean }
   >;
+  readonly scripts?: Record<string, string>;
 }
 
 const SOURCE_EXTENSIONS = [
@@ -61,6 +62,14 @@ export function packageDirs(root = PACKAGES_DIR): string[] {
         existsSync(join(root, entry.name, "package.json"))
     )
     .map((entry) => join(root, entry.name))
+    .sort();
+}
+
+export function workspaceDirs(): string[] {
+  return ["apps", "examples", "packages", "tooling"]
+    .map((group) => join(REPO_ROOT, group))
+    .filter((dir) => existsSync(dir))
+    .flatMap((dir) => packageDirs(dir))
     .sort();
 }
 

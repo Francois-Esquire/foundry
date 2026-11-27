@@ -29,6 +29,24 @@ const EXTRA_WEB_STANDARD_SUBPATHS: Readonly<Record<string, readonly string[]>> =
     models: ["./providers/gateway", "./providers/vercel"],
   };
 
+const ALLOWED_PORTABLE_EXTERNAL_PACKAGES = new Set([
+  "@ai-sdk/mcp",
+  "@ai-sdk/openai-compatible",
+  "@ai-sdk/provider",
+  "@ai-sdk/provider-utils",
+  "@ai-sdk/vercel",
+  "@noble/hashes",
+  "ai",
+  "croner",
+  "drizzle-orm",
+  "effect",
+  "evlog",
+  "ignore",
+  "just-bash",
+  "vitest",
+  "zod",
+]);
+
 function isOptInSubpath(subpath: string): boolean {
   if (subpath === "./testing/store") {
     return false;
@@ -406,6 +424,13 @@ function auditWebStandard(
         } else {
           violations.push(
             `${label}: unresolved workspace import "${specifier}"`
+          );
+        }
+      } else {
+        const externalName = splitSpecifier(specifier).name;
+        if (!ALLOWED_PORTABLE_EXTERNAL_PACKAGES.has(externalName)) {
+          violations.push(
+            `${label}: unreviewed external package "${externalName}" in portable subpath`
           );
         }
       }

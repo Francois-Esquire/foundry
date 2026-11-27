@@ -30,15 +30,6 @@ const PUBLIC_VALUES = [
   "resolvePolicy",
 ];
 
-const FORBIDDEN_IMPORTS = [
-  "@foundry/agents",
-  "@foundry/modules",
-  "@foundry/workflows",
-  "@foundry/models",
-  "@foundry/sandbox",
-  "../policy",
-];
-
 function sourceFiles(): string[] {
   return readdirSync(AUTHORIZATION_DIR)
     .filter((entry) => entry.endsWith(".ts"))
@@ -67,50 +58,6 @@ describe("@foundry/lib/authorization public surface", () => {
 
   it("is reachable as its own subpath", () => {
     expect(packageJson.exports).toHaveProperty("./authorization");
-    expect(packageJson.exports["./authorization"].import).toBe(
-      "./src/authorization/index.ts"
-    );
-  });
-});
-
-describe("@foundry/lib/authorization boundaries", () => {
-  it("knows no host vocabulary, substrate, or predecessor", () => {
-    const offenders: string[] = [];
-
-    for (const file of sourceFiles()) {
-      const source = readFileSync(file, "utf8");
-      for (const forbidden of FORBIDDEN_IMPORTS) {
-        if (source.includes(`from "${forbidden}`)) {
-          offenders.push(`${file} imports ${forbidden}`);
-        }
-      }
-    }
-
-    expect(offenders).toEqual([]);
-  });
-
-  it("depends only on Core contracts, never consuming packages", () => {
-    expect(packageJson.dependencies).toEqual({
-      "@foundry/core": "workspace:*",
-    });
-    expect(
-      Object.keys(packageJson.peerDependencies).filter((name) =>
-        name.startsWith("@foundry/")
-      )
-    ).toEqual([]);
-  });
-
-  it("stays renderer-importable — no node builtin in any authorization module", () => {
-    const offenders = sourceFiles().filter((file) =>
-      readFileSync(file, "utf8").includes('from "node:')
-    );
-
-    expect(offenders).toEqual([]);
-  });
-
-  it("keeps node-bound modules off the barrel", () => {
-    const barrel = readFileSync(join(AUTHORIZATION_DIR, "index.ts"), "utf8");
-    expect(barrel).not.toContain("../node/");
   });
 
   it("owns no suspend port — authorization decides, execution waits", () => {
