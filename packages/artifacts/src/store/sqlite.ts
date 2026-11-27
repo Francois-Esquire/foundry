@@ -1,3 +1,5 @@
+import type { Page } from "@foundry/core/pagination";
+import { pageFromRows } from "@foundry/lib/pagination";
 import {
   assertScope,
   batches,
@@ -16,8 +18,11 @@ import {
   count,
   eq,
   getTableColumns,
+  gt,
   inArray,
   is,
+  isNotNull,
+  isNull,
   ne,
   or,
   sql,
@@ -25,8 +30,17 @@ import {
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
-import type { ArtifactCursor } from "../listing";
-import { ownedListQuery } from "../listing";
+import type {
+  ArtifactCursor,
+  NormalizedBlobPageQuery,
+  NormalizedContentPageQuery,
+} from "../listing";
+import {
+  compareCreated,
+  ownedBlobPageQuery,
+  ownedContentPageQuery,
+  ownedListQuery,
+} from "../listing";
 import type { Artifact, Blob, Content } from "../schema";
 import type {
   ArtifactListing,
@@ -35,7 +49,10 @@ import type {
   ArtifactStoreDurability,
   ArtifactStoreWrite,
   BlobListing,
+  BlobPageQuery,
   BlobReferences,
+  ContentLookup,
+  ContentPageQuery,
 } from "./index";
 import { ownedWrite } from "./owned";
 import {
@@ -206,6 +223,25 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
+  findBlobByPath(path: string): Promise<Blob | null> {
+    return this.#run(async () => {
+      if (!storableText(path)) {
+        return null;
+      }
+      const [row] = await this.#database
+        .select(blobColumns)
+        .from(artifactBlobs)
+        .where(
+          and(
+            eq(artifactBlobs.scope, this.#scope),
+            eq(artifactBlobs.path, path)
+          )
+        )
+        .limit(1);
+      return row ? blobOf(this.#scope, row) : null;
+    });
+  }
+
   findBlobs(digest: string): Promise<readonly Blob[]> {
     return this.#run(async () => {
       if (!storableText(digest)) {
@@ -221,6 +257,80 @@ export class SqliteArtifactStore implements ArtifactStore {
           )
         );
       return rows.map((row) => blobOf(this.#scope, row));
+    });
+  }
+
+  findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    const { messageId, sessionId } = by;
+    return this.#run(async () => {
+      if (
+        !storableText(artifactId) ||
+        typeof sessionId !== "string" ||
+        typeof messageId !== "string"
+      ) {
+        return null;
+      }
+      if (!(storableText(sessionId) && storableText(messageId))) {
+        const rows = await this.#database
+          .select(contentColumns)
+          .from(artifactContents)
+          .where(
+            and(
+              eq(artifactContents.scope, this.#scope),
+              eq(artifactContents.artifactId, artifactId)
+            )
+          );
+        return (
+          rows
+            .filter(
+              (row) =>
+                row.metadata.sessionId === sessionId &&
+                row.metadata.messageId === messageId
+            )
+            .sort(compareCreated)
+            .at(-1) ?? null
+        );
+      }
+      const rows = await this.#database
+        .select(contentColumns)
+        .from(artifactContents)
+        .where(
+          and(
+            eq(artifactContents.scope, this.#scope),
+            eq(artifactContents.artifactId, artifactId),
+            sql`json_type(${artifactContents.metadata}, '$.sessionId') = 'text'`,
+            sql`json_extract(${artifactContents.metadata}, '$.sessionId') = ${sessionId}`,
+            sql`json_type(${artifactContents.metadata}, '$.messageId') = 'text'`,
+            sql`json_extract(${artifactContents.metadata}, '$.messageId') = ${messageId}`
+          )
+        );
+      return rows.sort(compareCreated).at(-1) ?? null;
+    });
+  }
+
+  findContentByTag(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null> {
+    return this.#run(async () => {
+      if (!(storableText(artifactId) && storableText(tag))) {
+        return null;
+      }
+      const [row] = await this.#database
+        .select(contentColumns)
+        .from(artifactContents)
+        .where(
+          and(
+            eq(artifactContents.scope, this.#scope),
+            eq(artifactContents.artifactId, artifactId),
+            eq(artifactContents.tag, tag)
+          )
+        )
+        .limit(1);
+      return row ?? null;
     });
   }
 
@@ -316,6 +426,41 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
+  listBlobsPage(query?: BlobPageQuery): Promise<Page<BlobListing, BlobId>> {
+    let owned: NormalizedBlobPageQuery;
+    try {
+      owned = ownedBlobPageQuery(query);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run(async () => {
+      if (owned.cursor !== undefined && !storableText(owned.cursor)) {
+        return { items: [] };
+      }
+      const rows = await this.#database
+        .select({ id: artifactBlobs.id, path: artifactBlobs.path })
+        .from(artifactBlobs)
+        .where(
+          and(
+            eq(artifactBlobs.scope, this.#scope),
+            owned.cursor === undefined
+              ? undefined
+              : gt(artifactBlobs.id, owned.cursor)
+          )
+        )
+        .orderBy(asc(artifactBlobs.id))
+        .limit(owned.limit + 1);
+      return pageFromRows(
+        rows.map((row) =>
+          row.path === null ? { id: row.id } : { id: row.id, path: row.path }
+        ),
+        owned.limit,
+        undefined,
+        (blob) => blob.id
+      );
+    });
+  }
+
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return this.#run(() => {
       if (artifactId !== undefined && !storableText(artifactId)) {
@@ -332,6 +477,51 @@ export class SqliteArtifactStore implements ArtifactStore {
               : eq(artifactContents.artifactId, artifactId)
           )
         );
+    });
+  }
+
+  listContentsPage(
+    query?: ContentPageQuery
+  ): Promise<Page<Content, ContentId>> {
+    let owned: NormalizedContentPageQuery;
+    try {
+      owned = ownedContentPageQuery(query);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run(async () => {
+      if (
+        (owned.artifactId !== undefined && !storableText(owned.artifactId)) ||
+        (owned.cursor !== undefined && !storableText(owned.cursor))
+      ) {
+        return { items: [] };
+      }
+      const states = owned.states?.filter(storableText);
+      if (owned.states !== undefined && (states?.length ?? 0) === 0) {
+        return { items: [] };
+      }
+      const rows = await this.#database
+        .select(contentColumns)
+        .from(artifactContents)
+        .where(
+          and(
+            eq(artifactContents.scope, this.#scope),
+            owned.artifactId === undefined
+              ? undefined
+              : eq(artifactContents.artifactId, owned.artifactId),
+            states === undefined
+              ? undefined
+              : inArray(artifactContents.state, states),
+            owned.tagged === true ? isNotNull(artifactContents.tag) : undefined,
+            owned.tagged === false ? isNull(artifactContents.tag) : undefined,
+            owned.cursor === undefined
+              ? undefined
+              : gt(artifactContents.id, owned.cursor)
+          )
+        )
+        .orderBy(asc(artifactContents.id))
+        .limit(owned.limit + 1);
+      return pageFromRows(rows, owned.limit, undefined, (row) => row.id);
     });
   }
 

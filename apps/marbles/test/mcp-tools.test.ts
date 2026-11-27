@@ -1,6 +1,5 @@
 import { Tasks } from "@foundry/tasks";
 import { afterEach, expect, it } from "vitest";
-import { NotReadyError } from "~/access/workspace";
 import type {
   DispatchInfo,
   RunInfo,
@@ -10,6 +9,7 @@ import type {
   WorkspaceConnection,
   WorkspaceSummary,
 } from "~/model/connection";
+import { NotReadyError } from "~/model/errors";
 import { RemoteError } from "~/process/protocol";
 import { runTaskCommand } from "~/workspace/tasks";
 import {
@@ -553,7 +553,7 @@ it("tells the caller to restart a Marbles process that predates listRuns, withou
   const answer = refused(await connected.call("list", { resource: "runs" }));
   expect(answer.code).toBe("daemon_outdated");
   expect(answer.message).toContain("listRuns");
-  expect(answer.message).toContain("marbles daemon stop");
+  expect(answer.message).toContain("marbles stop");
   const unrelated = refused(
     await connected.call("get", { id: "rn-2", resource: "run" })
   );

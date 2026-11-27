@@ -5,6 +5,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type { ArtifactMetadata, ContentMetadata, ContentTree } from "../schema";
@@ -67,7 +68,16 @@ export const artifactContents = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),
-    index("artifact_contents_scope_artifact").on(table.scope, table.artifactId),
+    index("artifact_contents_scope_artifact").on(
+      table.scope,
+      table.artifactId,
+      table.id
+    ),
+    index("artifact_contents_scope_artifact_tag").on(
+      table.scope,
+      table.artifactId,
+      table.tag
+    ),
   ]
 );
 
@@ -86,6 +96,7 @@ export const artifactBlobs = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),
     index("artifact_blobs_scope_digest").on(table.scope, table.digest),
+    uniqueIndex("artifact_blobs_scope_path").on(table.scope, table.path),
   ]
 );
 

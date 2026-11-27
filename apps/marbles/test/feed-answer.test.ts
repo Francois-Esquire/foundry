@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { answerView, inputState } from "~/cli/state/feed-answer";
-import type { AnswerState } from "~/cli/state/use-feed";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
+import { answerView, inputState } from "~/tui/state/feed-answer";
+import type { AnswerState } from "~/tui/state/use-feed";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const [question] = dashboardSnapshot.feed;

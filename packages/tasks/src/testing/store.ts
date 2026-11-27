@@ -1,13 +1,58 @@
 import { describe, expect, test } from "vitest";
-import type { Task, TaskDependency, TaskEvent, TaskId } from "../schema";
+import type {
+  Task,
+  TaskDependency,
+  TaskEvent,
+  TaskId,
+  TaskSnapshot,
+} from "../schema";
 import type { TaskStore } from "../store/index";
 
 export type ScopedTaskStores = (scope: string) => TaskStore;
 
+export interface TaskStoreCapabilities {
+  readonly insertionOrder?: boolean;
+}
+
 export function describeTaskStore(
   name: string,
-  open: () => ScopedTaskStores | Promise<ScopedTaskStores>
+  open: () => ScopedTaskStores | Promise<ScopedTaskStores>,
+  capabilities: TaskStoreCapabilities = {}
 ): void {
+  const insertionOrder = capabilities.insertionOrder ?? true;
+  const normalizeTasks = (items: readonly Task[]): readonly Task[] =>
+    insertionOrder
+      ? items
+      : [...items].sort((a, b) => {
+          if (a.createdAt !== b.createdAt) {
+            return a.createdAt < b.createdAt ? -1 : 1;
+          }
+          if (a.id === b.id) {
+            return 0;
+          }
+          return a.id < b.id ? -1 : 1;
+        });
+  const normalizeEdges = (
+    items: readonly TaskDependency[]
+  ): readonly TaskDependency[] =>
+    insertionOrder
+      ? items
+      : [...items].sort((a, b) => {
+          if (a.taskId !== b.taskId) {
+            return a.taskId < b.taskId ? -1 : 1;
+          }
+          if (a.dependsOnId === b.dependsOnId) {
+            return 0;
+          }
+          return a.dependsOnId < b.dependsOnId ? -1 : 1;
+        });
+  const normalizeSnapshot = (snapshot: TaskSnapshot): TaskSnapshot =>
+    insertionOrder
+      ? snapshot
+      : {
+          dependencies: normalizeEdges(snapshot.dependencies),
+          tasks: normalizeTasks(snapshot.tasks),
+        };
   async function store(scope = "scope-a"): Promise<TaskStore> {
     return (await open())(scope);
   }
@@ -35,10 +80,12 @@ export function describeTaskStore(
 
       expect(await target.get(root.id)).toEqual(root);
       expect(await target.get(child.id)).toEqual(child);
-      expect(await target.snapshot()).toEqual({
-        dependencies: [edge],
-        tasks: [root, child],
-      });
+      expect(normalizeSnapshot(await target.snapshot())).toEqual(
+        normalizeSnapshot({
+          dependencies: [edge],
+          tasks: [root, child],
+        })
+      );
     });
 
     test("reads list records in the order first put; a put over one keeps its place", async () => {
@@ -55,12 +102,11 @@ export function describeTaskStore(
         putTasks: [renamed],
       });
 
-      const snapshot = await target.snapshot();
-      expect(snapshot.tasks).toEqual([renamed, a, c]);
-      expect(snapshot.dependencies).toEqual([
-        dependency(b, a),
-        dependency(a, c),
-      ]);
+      const snapshot = normalizeSnapshot(await target.snapshot());
+      expect(snapshot.tasks).toEqual(normalizeTasks([renamed, a, c]));
+      expect(snapshot.dependencies).toEqual(
+        normalizeEdges([dependency(b, a), dependency(a, c)])
+      );
     });
 
     test("deletes apply before puts, so a record deleted and put again moves last", async () => {
@@ -78,10 +124,12 @@ export function describeTaskStore(
         putTasks: [again],
       });
 
-      expect(await target.snapshot()).toEqual({
-        dependencies: [dependency(b, c), dependency(a, b)],
-        tasks: [b, c, again],
-      });
+      expect(normalizeSnapshot(await target.snapshot())).toEqual(
+        normalizeSnapshot({
+          dependencies: [dependency(b, c), dependency(a, b)],
+          tasks: [b, c, again],
+        })
+      );
     });
 
     test("a record put after the last one was deleted lists after every survivor", async () => {
@@ -101,10 +149,12 @@ export function describeTaskStore(
       });
       await target.commit({ putTasks: [{ ...a, title: "a again" }] });
 
-      expect(await target.snapshot()).toEqual({
-        dependencies: [dependency(a, b), dependency(d, a), dependency(b, c)],
-        tasks: [{ ...a, title: "a again" }, b, d, c],
-      });
+      expect(normalizeSnapshot(await target.snapshot())).toEqual(
+        normalizeSnapshot({
+          dependencies: [dependency(a, b), dependency(d, a), dependency(b, c)],
+          tasks: [{ ...a, title: "a again" }, b, d, c],
+        })
+      );
     });
 
     test("deletes remove only what they name, and missing records are no-ops", async () => {
@@ -252,7 +302,9 @@ export function describeTaskStore(
       scramble(write, kept);
       await landing;
 
-      expect(await target.snapshot()).toEqual(expected);
+      expect(normalizeSnapshot(await target.snapshot())).toEqual(
+        normalizeSnapshot(expected)
+      );
     });
 
     test("takes a write as it stands when commit is called, though it waits behind a transaction", async () => {
@@ -274,7 +326,9 @@ export function describeTaskStore(
       held.resolve();
       await Promise.all([running, landing]);
 
-      expect(await target.snapshot()).toEqual(expected);
+      expect(normalizeSnapshot(await target.snapshot())).toEqual(
+        normalizeSnapshot(expected)
+      );
     });
 
     test("takes a write through a transaction's view as it stands when commit is called", async () => {
@@ -288,10 +342,14 @@ export function describeTaskStore(
         const committed = view.commit(write);
         scramble(write, kept);
         await committed;
-        expect(await view.snapshot()).toEqual(expected);
+        expect(normalizeSnapshot(await view.snapshot())).toEqual(
+          normalizeSnapshot(expected)
+        );
       });
 
-      expect(await target.snapshot()).toEqual(expected);
+      expect(normalizeSnapshot(await target.snapshot())).toEqual(
+        normalizeSnapshot(expected)
+      );
     });
 
     test("two scopes on one storage never see each other", async () => {
@@ -415,10 +473,59 @@ export function describeTaskStore(
         expect(outcome).toMatch(REFUSAL);
       }
       await later;
-      expect((await target.snapshot()).tasks.map((t) => t.id)).toEqual([
-        "b",
-        "a",
-      ]);
+      const ids = (await target.snapshot()).tasks.map((t) => t.id);
+      expect(insertionOrder ? ids : [...ids].sort()).toEqual(
+        insertionOrder ? ["b", "a"] : ["a", "b"]
+      );
+    });
+
+    test("optional indexed reads filter by status, parent, and dependency endpoints", async () => {
+      const target = await store();
+      const root = task("root", { status: "active" });
+      const childA = task("child-a", { parentId: root.id, status: "open" });
+      const childB = task("child-b", {
+        parentId: root.id,
+        status: "completed",
+      });
+      const other = task("other", { status: "open" });
+      const edgeA = dependency(childA, root);
+      const edgeB = dependency(other, childA);
+      await target.commit({
+        putDependencies: [edgeA, edgeB],
+        putTasks: [root, childA, childB, other],
+      });
+
+      if (target.list !== undefined) {
+        expect(normalizeTasks(await target.list())).toEqual(
+          normalizeTasks([root, childA, childB, other])
+        );
+        expect(normalizeTasks(await target.list({ status: "open" }))).toEqual(
+          normalizeTasks([childA, other])
+        );
+        expect(normalizeTasks(await target.list({ parentId: null }))).toEqual(
+          normalizeTasks([root, other])
+        );
+        expect(
+          normalizeTasks(
+            await target.list({ parentId: root.id, status: "completed" })
+          )
+        ).toEqual([childB]);
+      }
+      if (target.children !== undefined) {
+        expect(normalizeTasks(await target.children(root.id))).toEqual(
+          normalizeTasks([childA, childB])
+        );
+        expect(await target.children(other.id)).toEqual([]);
+      }
+      if (target.dependenciesOf !== undefined) {
+        expect(
+          normalizeEdges(await target.dependenciesOf([childA.id]))
+        ).toEqual(normalizeEdges([edgeA, edgeB]));
+        expect(normalizeEdges(await target.dependenciesOf([root.id]))).toEqual([
+          edgeA,
+        ]);
+        expect(await target.dependenciesOf([])).toEqual([]);
+      }
     });
   });
 }

@@ -1,7 +1,7 @@
 import type { Log } from "~/lib/log";
 import type { TriggerStore } from "~/lib/trigger-store";
 
-import type { Exec } from "./command";
+import type { Exec } from "./command-error";
 import type { ExecutionContext } from "./execution-context";
 import type { AgentTurns } from "./managers/agents";
 import type { Runs } from "./managers/runs";

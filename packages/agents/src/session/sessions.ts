@@ -1,4 +1,6 @@
-import { generateId } from "ai";
+import type { Page } from "@foundry/core/pagination";
+import { generateId } from "@foundry/lib/id";
+import { pageAfter } from "@foundry/lib/pagination";
 import type {
   MessageMetadata,
   MessageStatus,
@@ -9,7 +11,7 @@ import type {
   SessionRole,
   SessionStatus,
 } from "../schema";
-import type { SessionStore } from "../store";
+import type { MessagePageQuery, SessionStore } from "../store";
 import { MemorySessionStore } from "../store/memory";
 import { metadataFault, partsFault } from "../store/message-shape";
 import { keptValue } from "./serialize";
@@ -59,14 +61,20 @@ export interface SummarizeResult {
 }
 
 export interface SessionsOptions {
+  readonly clock?: () => number;
+  readonly id?: () => string;
   readonly store?: SessionStore;
 }
 
 export class Sessions {
+  readonly #clock: () => number;
+  readonly #id: () => string;
   readonly #store: SessionStore;
   #tail: Promise<unknown> = Promise.resolve();
 
   constructor(options: SessionsOptions = {}) {
+    this.#clock = options.clock ?? Date.now;
+    this.#id = options.id ?? generateId;
     this.#store = options.store ?? new MemorySessionStore();
   }
 
@@ -78,13 +86,44 @@ export class Sessions {
     return this.#store.listMessages(sessionId);
   }
 
+  async listMessagesPage(
+    sessionId: string,
+    query: MessagePageQuery = {}
+  ): Promise<Page<SessionMessage, string>> {
+    if (this.#store.listMessagesPage !== undefined) {
+      return this.#store.listMessagesPage(sessionId, query);
+    }
+    const messages = (await this.#store.listMessages(sessionId)).filter(
+      (message) => {
+        if (query.role !== undefined && message.role !== query.role) {
+          return false;
+        }
+        if (
+          query.summarized !== undefined &&
+          Boolean(message.summarized) !== query.summarized
+        ) {
+          return false;
+        }
+        return true;
+      }
+    );
+    return pageAfter(messages, query, (message) => message.id);
+  }
+
   async activeMessages(sessionId: string): Promise<SessionMessage[]> {
     return activeView(await this.#store.listMessages(sessionId));
   }
 
   createSession(input: CreateSessionInput = {}): Promise<SessionRecord> {
-    const record = keptSession(newSessionRecord(input));
-    const created = changeEvent("session.created", record.id, record.createdAt);
+    const record = keptSession(
+      newSessionRecord(input, this.#clock(), this.#id)
+    );
+    const created = changeEvent(
+      "session.created",
+      record.id,
+      record.createdAt,
+      this.#id()
+    );
     return this.#mutation(async (store) => {
       const existing = await store.getSession(record.id);
       if (existing) {
@@ -103,13 +142,15 @@ export class Sessions {
       ...(patch.status === undefined ? {} : { status: patch.status }),
       ...(patch.title === undefined ? {} : { title: patch.title }),
     };
-    const eventId = generateId();
+    const eventId = this.#id();
     return this.#mutation(async (store) => {
       const current = await store.getSession(id);
       if (!current) {
         return null;
       }
-      const next = keptSession(patchSessionRecord(current, taken));
+      const next = keptSession(
+        patchSessionRecord(current, taken, this.#clock())
+      );
       const changed =
         next.title !== current.title || next.status !== current.status;
       await store.commit({
@@ -129,11 +170,11 @@ export class Sessions {
   appendMessage(input: CreateMessageInput): Promise<SessionMessage> {
     let message: SessionMessage;
     try {
-      message = keptMessage(newSessionMessage(input));
+      message = keptMessage(newSessionMessage(input, this.#clock(), this.#id));
     } catch (error) {
       return Promise.reject(error);
     }
-    const appended = messagesAppended(message);
+    const appended = messagesAppended(message, this.#id());
     return this.#mutation(async (store) => {
       const session = await store.getSession(message.sessionId);
       if (!session) {
@@ -154,11 +195,11 @@ export class Sessions {
   ): Promise<SessionMessage | undefined> {
     let message: SessionMessage;
     try {
-      message = keptMessage(newSessionMessage(input));
+      message = keptMessage(newSessionMessage(input, this.#clock(), this.#id));
     } catch (error) {
       return Promise.reject(error);
     }
-    const appended = messagesAppended(message);
+    const appended = messagesAppended(message, this.#id());
     return this.#mutation(async (store) => {
       const session = await store.getSession(message.sessionId);
       if (!session) {
@@ -191,10 +232,13 @@ export class Sessions {
       if (!current) {
         return null;
       }
-      const next = keptMessage(patchSessionMessage(current, taken), {
-        metadata: taken.metadata !== undefined,
-        parts: taken.parts !== undefined,
-      });
+      const next = keptMessage(
+        patchSessionMessage(current, taken, this.#clock()),
+        {
+          metadata: taken.metadata !== undefined,
+          parts: taken.parts !== undefined,
+        }
+      );
       await store.commit({ putMessages: [next] });
       return next;
     });
@@ -205,19 +249,23 @@ export class Sessions {
     let summary: SessionMessage;
     try {
       summary = keptMessage(
-        newSessionMessage({
-          metadata: input.summary.metadata,
-          parts: input.summary.parts,
-          role: "summary",
-          sessionId,
-          status: input.summary.status,
-          summarized: false,
-        })
+        newSessionMessage(
+          {
+            metadata: input.summary.metadata,
+            parts: input.summary.parts,
+            role: "summary",
+            sessionId,
+            status: input.summary.status,
+            summarized: false,
+          },
+          this.#clock(),
+          this.#id
+        )
       );
     } catch (error) {
       return Promise.reject(error);
     }
-    const appended = messagesAppended(summary);
+    const appended = messagesAppended(summary, this.#id());
     return this.#mutation(async (store) => {
       const session = await store.getSession(sessionId);
       const messages = await store.listMessages(sessionId);
@@ -225,8 +273,9 @@ export class Sessions {
       if (!session || fold.length === 0) {
         return null;
       }
+      const now = this.#clock();
       const folded = fold.map((m) =>
-        keptMessage(patchSessionMessage(m, { summarized: true }), {
+        keptMessage(patchSessionMessage(m, { summarized: true }, now), {
           metadata: false,
           parts: false,
         })
@@ -270,10 +319,13 @@ function changeEvent(
   return { at: new Date(at).toISOString(), id, sessionId, type };
 }
 
-function messagesAppended(message: SessionMessage): SessionChangeEvent {
+function messagesAppended(
+  message: SessionMessage,
+  id: string = generateId()
+): SessionChangeEvent {
   return {
     at: new Date(message.createdAt).toISOString(),
-    id: generateId(),
+    id,
     messageIds: [message.id],
     sessionId: message.sessionId,
     type: "session.messages.appended",
@@ -410,11 +462,12 @@ export function foldSet(
 
 export function newSessionRecord(
   input: CreateSessionInput = {},
-  now: number = Date.now()
+  now: number = Date.now(),
+  id: () => string = generateId
 ): SessionRecord {
   return {
     createdAt: now,
-    id: input.id ?? generateId(),
+    id: input.id ?? id(),
     parentMessageId: input.parentMessageId ?? null,
     parentSessionId: input.parentSessionId ?? null,
     ...(input.recursionDepth === undefined
@@ -441,11 +494,12 @@ export function patchSessionRecord(
 
 export function newSessionMessage(
   input: CreateMessageInput,
-  now: number = Date.now()
+  now: number = Date.now(),
+  id: () => string = generateId
 ): SessionMessage {
   return {
     createdAt: now,
-    id: generateId(),
+    id: id(),
     ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
     parts: input.parts,
     role: input.role,

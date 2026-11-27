@@ -60,38 +60,79 @@ const internalPaths = Object.fromEntries([
   ...INTERNAL.flatMap(exportPaths),
 ]);
 
-export default defineConfig({
-  clean: true,
-  dts: {
-    banner: '/// <reference types="node" />',
-    compilerOptions: { ignoreDeprecations: "6.0", paths: internalPaths },
-    resolve: true,
-  },
-  entry: {
-    cli: "src/cli.ts",
-    engine: "src/entries/embedded.ts",
-    generation: "src/process/generation.ts",
-    index: "src/authoring/index.ts",
-    initialize: "src/process/initialize.ts",
-    lib: "src/entries/lib.ts",
-    prebuilt: "src/authoring/prebuilt.ts",
-    process: "src/process/index.ts",
-    providers: "src/authoring/providers.ts",
-    ...providerEntries,
-    statuses: "src/lib/execution-statuses.ts",
-    workspace: "src/workspace/index.ts",
-  },
-  esbuildOptions(options) {
-    options.alias = selfImports;
-  },
+const SHARED = {
   external: [/^(?!@foundry(?:\.sh)?\/)[^./~]/],
-  format: ["esm"],
+  format: ["esm"] as ["esm"],
   noExternal: [/^@foundry(?:\.sh)?\//],
-  onSuccess: async () => {
-    cpSync("src/database/migrations", "dist/migrations", { recursive: true });
-  },
-  platform: "node",
   sourcemap: true,
   splitting: true,
-  target: "esnext",
-});
+  target: "esnext" as const,
+};
+
+export default defineConfig([
+  {
+    ...SHARED,
+    clean: false,
+    dts: false,
+    entry: {
+      index: "src/authoring/index.ts",
+      prebuilt: "src/authoring/prebuilt.ts",
+      providers: "src/authoring/providers.ts",
+      statuses: "src/lib/execution-statuses.ts",
+    },
+    esbuildOptions(options) {
+      options.alias = selfImports;
+      options.chunkNames = "portable-[hash]";
+    },
+    platform: "neutral",
+  },
+  {
+    ...SHARED,
+    clean: false,
+    dts: false,
+    entry: {
+      cli: "src/cli.ts",
+      daemon: "src/process/daemon-entry.ts",
+      engine: "src/entries/embedded.ts",
+      generation: "src/process/generation.ts",
+      initialize: "src/process/initialize.ts",
+      lib: "src/entries/lib.ts",
+      process: "src/process/index.ts",
+      ...providerEntries,
+      workspace: "src/workspace/index.ts",
+    },
+    esbuildOptions(options) {
+      options.alias = selfImports;
+      options.chunkNames = "node-[hash]";
+    },
+    onSuccess: async () => {
+      cpSync("src/database/migrations", "dist/migrations", { recursive: true });
+    },
+    platform: "node",
+  },
+  {
+    ...SHARED,
+    clean: false,
+    dts: {
+      banner: '/// <reference types="node" />',
+      compilerOptions: { ignoreDeprecations: "6.0", paths: internalPaths },
+      only: true,
+      resolve: true,
+    },
+    entry: {
+      cli: "src/cli.ts",
+      daemon: "src/process/daemon-entry.ts",
+      engine: "src/entries/embedded.ts",
+      generation: "src/process/generation.ts",
+      index: "src/authoring/index.ts",
+      initialize: "src/process/initialize.ts",
+      lib: "src/entries/lib.ts",
+      prebuilt: "src/authoring/prebuilt.ts",
+      process: "src/process/index.ts",
+      providers: "src/authoring/providers.ts",
+      ...providerEntries,
+      statuses: "src/lib/execution-statuses.ts",
+      workspace: "src/workspace/index.ts",
+    },
+  },
+]);

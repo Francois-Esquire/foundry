@@ -11,7 +11,7 @@ import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { workspaces as createWorkspaces } from "@foundry/workspaces/node";
 import { git } from "@foundry/workspaces/node/git";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { skills } from "~/authoring/resources";
 import { echoGit } from "~/create";
 import { workspaceStores } from "~/database/stores";
@@ -762,5 +762,63 @@ describe("sandboxes", () => {
     } finally {
       machine.close();
     }
+  });
+});
+
+describe("a sandbox whose cleanup fails", () => {
+  const removalFailure = new Error("VM removal failed");
+
+  function failing(copyFailure?: Error) {
+    const runtime = createFakeContainerRuntime();
+    const create = runtime.create.bind(runtime);
+    runtime.create = async (spec) => {
+      const instance = await create(spec);
+      vi.spyOn(instance, "remove").mockRejectedValueOnce(removalFailure);
+      if (copyFailure) {
+        vi.spyOn(instance, "writeFile").mockRejectedValue(copyFailure);
+      }
+      return instance;
+    };
+    const containers = createContainers({
+      instanceLabel: "test",
+      runtime,
+      store: new MemoryContainerStore(),
+    });
+    const manager = new SandboxesManager({
+      containers: () => Promise.resolve(containers),
+      root: tmp,
+    });
+    return { containers, manager, runtime };
+  }
+
+  it("keeps both the seeding error and the cleanup error", async () => {
+    const copyFailure = new Error("copy failed");
+    const { containers, manager } = failing(copyFailure);
+
+    const failure: unknown = await manager
+      .start({ files: { "a.txt": "x" }, image: "img:1" })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    const { cause, errors, message } = failure as AggregateError;
+    expect(cause).toBe(copyFailure);
+    expect(errors).toEqual([copyFailure, removalFailure]);
+    expect(message).toContain("copy failed");
+    expect(message).toContain("VM removal failed");
+    await containers.shutdown();
+  });
+
+  it("reports the cleanup error of a sandbox that started, and retries it", async () => {
+    const { containers, manager, runtime } = failing();
+    const sandbox = await manager.start({
+      files: { "a.txt": "x" },
+      image: "img:1",
+    });
+
+    await expect(sandbox.close()).rejects.toBe(removalFailure);
+    await sandbox.close();
+
+    expect(runtime.instances[0]?.removed).toBe(true);
+    await containers.shutdown();
   });
 });

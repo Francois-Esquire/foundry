@@ -16,9 +16,8 @@ import {
   vi,
 } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { defineProvider } from "~/authoring/providers";
-import { dispose, instanceRuntime } from "~/authoring/runtime";
 import { createEngine } from "~/create";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
@@ -114,7 +113,6 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
-  catalog.reset();
   vi.unstubAllEnvs();
   opened.close();
   rmSync(state, { force: true, recursive: true });
@@ -145,7 +143,6 @@ const other: ProviderPlugin<Record<string, never>> = {
       id,
       languageModel: () => ({}) as never,
       models,
-      offline: false,
     };
     return { provider };
   },
@@ -336,41 +333,10 @@ it("picks up a changed list when the configuration reloads, and keeps the last l
   }
 });
 
-it("asks no server while Airplane Mode is on, and asks again when it is off", async () => {
-  await configure(baseURL);
-  const engine = createEngine({
-    catalog,
-    dry: false,
-    environment: ENV,
-    plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
-    print: () => undefined,
-    root: state,
-    stateRoot: state,
-    workspaceId: "ws",
-  });
-  try {
-    engine.airplane.set(true);
-    await engine.start();
-    expect(asked).toBe(0);
-    expect(
-      engine.providers?.list().find((each) => each.id === "gw")
-    ).toMatchObject({ state: "unavailable" });
-
-    engine.airplane.set(false);
-    await expect
-      .poll(() => engine.models.providers.map((provider) => provider.id))
-      .toEqual(["gw", "other"]);
-    expect(asked).toBe(1);
-    expect(engine.models.resolve("text", "gw/served/chat").provider).toBe("gw");
-  } finally {
-    await engine.dispose();
-  }
-});
-
 it("lists the gateway's models when the engine starts", async () => {
   await configure(baseURL);
   const engine = createEngine({
-    catalog,
+    catalog: new Catalog(),
     dry: false,
     environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
@@ -408,7 +374,7 @@ it("adds a gateway entry and serves what its server lists", async () => {
 
 function engineOver(print: (line: string) => void): Engine {
   return createEngine({
-    catalog,
+    catalog: new Catalog(),
     dry: false,
     environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
@@ -473,42 +439,19 @@ it("lists the gateway's models for definitions called outside a run", async () =
   }
   vi.stubEnv("FOUNDRY_ROOT", home);
   vi.stubEnv("GW_KEY", "secret");
-  defineProvider(gatewayPlugin);
+  const engine = createEngine({
+    catalog: Catalog.collect([defineProvider(gatewayPlugin)]),
+    dry: false,
+    print: () => undefined,
+    root: state,
+    stateRoot: join(home, "marbles"),
+    workspaceId: "ws",
+  });
   try {
-    const runtime = (await instanceRuntime()) as Engine;
-    expect(runtime.models.resolve("text", "gw/served/chat").provider).toBe(
-      "gw"
-    );
+    await engine.providers?.refresh();
+    expect(engine.models.resolve("text", "gw/served/chat").provider).toBe("gw");
   } finally {
-    await dispose();
-  }
-});
-
-it("drops a list still in flight when Airplane Mode turns on", async () => {
-  await configureOnly("slow", "other");
-  let answer: (
-    models: { id: string; kind: "text"; modelId: string }[]
-  ) => void = () => undefined;
-  let signal: AbortSignal | undefined;
-  const { configuration: configured, models } = configuration([
-    lister(({ signal: given }) => {
-      signal = given;
-      return new Promise((resolve) => {
-        answer = resolve;
-      });
-    }),
-  ]);
-  try {
-    const refreshed = configured.refresh();
-    await expect.poll(() => signal).toBeDefined();
-    configured.setOffline(true);
-    expect(signal?.aborted).toBe(true);
-    answer([{ id: "late", kind: "text", modelId: "late" }]);
-    expect(await refreshed).toEqual([]);
-    expect(entry(configured, "slow")?.state).toBe("unavailable");
-    expect(models.providers.map((provider) => provider.id)).toEqual(["other"]);
-  } finally {
-    await configured.dispose();
+    await engine.dispose();
   }
 });
 

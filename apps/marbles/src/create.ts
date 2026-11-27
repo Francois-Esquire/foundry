@@ -1,11 +1,14 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
+import type { ArtifactStore } from "@foundry/artifacts/store";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
@@ -15,7 +18,14 @@ import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import type { GitRun } from "@foundry/workspaces/node/git";
-import { Catalog, catalog as unhosted } from "~/authoring/catalog";
+import type { WorkspaceStore } from "@foundry/workspaces/store";
+import { Catalog } from "~/authoring/catalog";
+import {
+  dispose,
+  hasDefaultRuntime,
+  setDefaultRoot,
+  setDefaultRuntime,
+} from "~/authoring/runtime";
 import { DatabaseActivityStore } from "~/database/activities";
 import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import type { LinksKept } from "~/database/artifact-links";
@@ -27,6 +37,7 @@ import {
 import type { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
+import { artifactBlobs, readArtifacts } from "~/database/local-artifacts";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
@@ -35,11 +46,7 @@ import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
-import {
-  artifactBlobs,
-  readArtifacts,
-  workspaceStores,
-} from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
 import { DatabaseUsageStore } from "~/database/usage";
@@ -48,36 +55,72 @@ import { layout } from "~/layout";
 import { showArgv } from "~/lib/argv";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
+import type { AutomationStore } from "~/lib/automation/store";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
+import type { WorkspaceRecords } from "~/lib/events/records";
 import { sourceKey } from "~/lib/events/source";
 import type { PoolConfig } from "~/lib/execution-record";
+import type { ExecutionStore } from "~/lib/execution-store";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localWorkspaces } from "~/lib/managers/workspaces";
 import { echoInstance } from "~/lib/models/echo";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
+import type { ProviderStore } from "~/lib/providers/store";
+import { MemoryProviderStore } from "~/lib/providers/store";
 import { Registry } from "~/lib/registry";
+import type { RunQueueOptions } from "~/lib/run-queue";
+import type { RunStore } from "~/lib/run-store";
+import type { ActivityStore } from "~/lib/sandbox/activities";
+import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import { containerHolder } from "~/lib/sandbox/holders";
+import type { RunOutputSink } from "~/lib/state/output";
+import type { TriggerStore } from "~/lib/trigger-store";
+import type { UsageStore } from "~/lib/usage-store";
+import { initializeUsage } from "~/workspace/node-usage";
 
 export const DEFAULT_HOSTED_POOL_LIMIT = 4;
+
+export interface WorkspaceStoreBundle {
+  readonly activities?: ActivityStore;
+  readonly approvals?: DeferredApprovalStore;
+  readonly artifacts?: ArtifactStore;
+  readonly automations?: AutomationStore;
+  readonly containers?: ContainerStore;
+  readonly executions?: ExecutionStore;
+  readonly grants?: GrantDocumentStorage;
+  readonly providers?: ProviderStore;
+  readonly records?: WorkspaceRecords;
+  readonly runs?: RunStore;
+  readonly sessions?: SessionStore;
+  readonly triggers?: TriggerStore;
+  readonly usage?: UsageStore;
+  readonly workspaces?: WorkspaceStore;
+}
 
 export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
+  readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly cwd?: string;
   readonly database?: StoreDatabase;
   readonly databaseFile?: string;
   readonly dry: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly home?: string;
+  readonly leaseTtlMs?: number;
+  readonly liveness?: OwnerLiveness;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
+  readonly outputSink?: RunOutputSink;
   readonly plugins?: readonly ProviderPlugin[];
   readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print: (line: string) => void;
@@ -86,24 +129,47 @@ export interface CreateEngineOptions {
   readonly spawned?: string;
   readonly stateDir?: string;
   readonly stateRoot?: string;
+  readonly stores?: WorkspaceStoreBundle;
   readonly workspaceId: string;
 }
 
-type Declarable = Pick<Engine, "define" | "monitor" | "schedule"> &
-  Partial<Pick<Engine, "observe">>;
-
-export function declareCatalog(target: Declarable, catalog: Catalog): void {
-  for (const definition of catalog.definitions.values()) {
-    target.define(definition, catalog.poolFor(definition.origin));
+function declareDefinitions(target: Engine | Registry, catalog: Catalog): void {
+  if (target instanceof Registry) {
+    for (const [name, definition] of catalog.definitions) {
+      const origin = catalog.originOf(name);
+      target.define(definition, {
+        name,
+        ...(origin === undefined ? {} : { origin }),
+      });
+    }
+    return;
   }
+  target.bindCatalog(catalog);
+  for (const [name, definition] of catalog.definitions) {
+    const origin = catalog.originOf(name);
+    target.define(definition, catalog.poolForDefinition(name), {
+      name,
+      ...(origin === undefined ? {} : { origin }),
+    });
+  }
+}
+
+export function declareCatalog(
+  target: Engine | Registry,
+  catalog: Catalog
+): void {
+  declareDefinitions(target, catalog);
   for (const record of catalog.schedules.values()) {
     target.schedule(record);
   }
   for (const record of catalog.monitors.values()) {
     target.monitor(record);
   }
+  if (target instanceof Registry) {
+    return;
+  }
   for (const { handler, name, source, timeout, types } of catalog.observers) {
-    target.observe?.(source, handler, {
+    target.observe(source, handler, {
       name,
       ...(timeout === undefined ? {} : { timeout }),
       ...(types === undefined ? {} : { types }),
@@ -142,6 +208,7 @@ function artifactsInMemory(): ArtifactSubstrate {
 
 function artifactsFor(
   stores: WorkspaceStores | undefined,
+  injected: ArtifactStore | undefined,
   options: CreateEngineOptions
 ): Pick<EngineOptions, "artifactReads" | "artifacts"> & {
   readonly links?: LinksKept;
@@ -159,6 +226,16 @@ function artifactsFor(
               workspaceId
             ),
           }),
+    };
+  }
+  if (injected !== undefined) {
+    return {
+      artifacts: new Artifacts({
+        ...(dir === undefined
+          ? {}
+          : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
+        store: injected,
+      }),
     };
   }
   if (stores === undefined) {
@@ -203,6 +280,25 @@ function pluginsFor({
   return [...chosen.values()];
 }
 
+function providerStoreFor(options: CreateEngineOptions): ProviderStore {
+  if (!options.dry && options.stores?.providers !== undefined) {
+    return options.stores.providers;
+  }
+  if (
+    !options.dry &&
+    options.stores !== undefined &&
+    options.database === undefined &&
+    options.stateRoot === undefined &&
+    options.stateDir === undefined
+  ) {
+    return new MemoryProviderStore();
+  }
+  if (options.database === undefined || options.dry) {
+    return DatabaseProviderStore.forState(options.stateRoot ?? layout().state);
+  }
+  return new DatabaseProviderStore({ database: options.database });
+}
+
 function modelsFor(options: CreateEngineOptions): {
   readonly models: Models;
   readonly providers: ProviderConfiguration;
@@ -220,10 +316,7 @@ function modelsFor(options: CreateEngineOptions): {
     models,
     ...(options.dry ? { readOnly: true } : {}),
     plugins: pluginsFor(options),
-    store:
-      options.database === undefined || options.dry
-        ? DatabaseProviderStore.forState(options.stateRoot ?? layout().state)
-        : new DatabaseProviderStore({ database: options.database }),
+    store: providerStoreFor(options),
     ...(options.stateDir
       ? {
           workspace: {
@@ -240,9 +333,33 @@ function modelsFor(options: CreateEngineOptions): {
   return { models, providers };
 }
 
+function injectedRecords(injected: WorkspaceStoreBundle) {
+  return {
+    ...(injected.activities === undefined
+      ? {}
+      : { activityStore: injected.activities }),
+    ...(injected.approvals === undefined
+      ? {}
+      : { approvals: injected.approvals }),
+    ...(injected.automations === undefined
+      ? {}
+      : { automationStore: injected.automations }),
+    ...(injected.executions === undefined
+      ? {}
+      : { executionStore: injected.executions }),
+    ...(injected.grants === undefined ? {} : { grants: injected.grants }),
+    ...(injected.records === undefined ? {} : { records: injected.records }),
+    ...(injected.runs === undefined ? {} : { runs: injected.runs }),
+    ...(injected.sessions === undefined ? {} : { sessions: injected.sessions }),
+    ...(injected.triggers === undefined ? {} : { triggers: injected.triggers }),
+    ...(injected.usage === undefined ? {} : { usageStore: injected.usage }),
+  };
+}
+
 function recordsFor(
   state: string | undefined,
   database: StoreDatabase | undefined,
+  injected: WorkspaceStoreBundle | undefined,
   { root, workspaceId }: CreateEngineOptions
 ): Pick<
   EngineOptions,
@@ -261,6 +378,7 @@ function recordsFor(
   readonly changes?: ChangeRecorder;
   readonly own?: WorkspaceDatabase;
 } {
+  const overrides = injected === undefined ? {} : injectedRecords(injected);
   if (database !== undefined) {
     const scope = workspaceId;
     const records = new DatabaseWorkspaceRecords({ database, scope });
@@ -278,7 +396,11 @@ function recordsFor(
       sessions: new DatabaseSessionStore({ changes, database, scope }),
       triggers: new DatabaseTriggerStore({ database, scope }),
       usageStore: new DatabaseUsageStore({ database, scope }),
+      ...overrides,
     };
+  }
+  if (injected !== undefined && state === undefined) {
+    return { sessions: new MemorySessionStore(), ...overrides };
   }
   if (state === undefined) {
     return { sessions: new MemorySessionStore() };
@@ -297,6 +419,7 @@ function recordsFor(
     sessions: own.sessions,
     triggers: own.triggers,
     usageStore: own.usage,
+    ...overrides,
   };
 }
 
@@ -305,14 +428,16 @@ const LINK_DRAIN_MS = 5000;
 function engineOver(
   options: EngineOptions,
   own: WorkspaceDatabase | undefined,
-  links: LinksKept | undefined
-): PublishedEngine {
+  links: LinksKept | undefined,
+  useDirectEngine: boolean
+): Engine {
   if (own !== undefined) {
     return new OwnDatabaseEngine(options, own);
   }
-  return links === undefined
-    ? new PublishedEngine(options)
-    : new LinkKeepingEngine(options, links);
+  if (links !== undefined) {
+    return new LinkKeepingEngine(options, links);
+  }
+  return useDirectEngine ? new Engine(options) : new PublishedEngine(options);
 }
 
 class LinkKeepingEngine extends PublishedEngine {
@@ -354,7 +479,7 @@ class OwnDatabaseEngine extends PublishedEngine {
 }
 
 function containersFor(
-  { catalog, dry, print, root, workspaceId }: CreateEngineOptions,
+  { catalog, dry, liveness, print, root, workspaceId }: CreateEngineOptions,
   worktreeHome: string,
   store: ContainerStore | undefined
 ): () => Promise<Containers> {
@@ -369,7 +494,7 @@ function containersFor(
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
-      holder: containerHolder(),
+      holder: containerHolder(liveness),
       instanceLabel: `marbles-${workspaceId}`,
       report: (line) => print(`[sandbox] ${line}`),
       runtime: await runtime(),
@@ -389,6 +514,26 @@ function realPath(file: string | undefined): string | undefined {
   }
 }
 
+function hostRuntimeOptions(
+  options: CreateEngineOptions
+): Pick<
+  EngineOptions,
+  "createQueueClient" | "leaseTtlMs" | "liveness" | "outputSink"
+> {
+  return {
+    ...(options.createQueueClient === undefined
+      ? {}
+      : { createQueueClient: options.createQueueClient }),
+    ...(options.leaseTtlMs === undefined
+      ? {}
+      : { leaseTtlMs: options.leaseTtlMs }),
+    liveness: options.liveness ?? NODE_OWNER_LIVENESS,
+    ...(options.outputSink === undefined
+      ? {}
+      : { outputSink: options.outputSink }),
+  };
+}
+
 export function createEngine(options: CreateEngineOptions): Engine {
   const { catalog, dry, print, root, workspaceId } = options;
   const home = options.home ?? homedir();
@@ -399,16 +544,28 @@ export function createEngine(options: CreateEngineOptions): Engine {
   });
   const worktrees = Engine.worktreesFor(state);
   const database = dry ? undefined : options.database;
-  const { changes, own, ...kept } = recordsFor(state, database, options);
-  const stores =
+  const injected = dry ? undefined : options.stores;
+  const { changes, own, ...kept } = recordsFor(
+    state,
+    database,
+    injected,
+    options
+  );
+  const dbStores =
     database === undefined
       ? undefined
       : workspaceStores(database, workspaceId, {
           changes,
           location: realPath(options.databaseFile),
         });
+  const containerStore = injected?.containers ?? dbStores?.containers;
+  const workspaceStore = injected?.workspaces ?? dbStores?.workspaces;
   const git = dry ? { run: echoGit(print) } : {};
-  const { links, ...artifacts } = artifactsFor(stores, options);
+  const { links, ...artifacts } = artifactsFor(
+    dbStores,
+    injected?.artifacts,
+    options
+  );
   const engineOptions: EngineOptions = {
     pools: {
       [DEFAULT_POOL]: DEFAULT_HOSTED_POOL_LIMIT,
@@ -417,11 +574,13 @@ export function createEngine(options: CreateEngineOptions): Engine {
     },
     ...artifacts,
     askable: options.askable,
-    ...(stores === undefined ? {} : { containerRows: stores.containers }),
-    containers: containersFor(options, worktrees, stores?.containers),
+    catalog,
+    ...(containerStore === undefined ? {} : { containerRows: containerStore }),
+    containers: containersFor(options, worktrees, containerStore),
     dry,
     git,
     home,
+    ...hostRuntimeOptions(options),
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options),
     print,
@@ -434,22 +593,32 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(spawned === undefined ? {} : { spawned }),
     state,
     workspaceId,
-    ...(stores === undefined
+    ...(workspaceStore === undefined
       ? {}
-      : { workspaces: localWorkspaces(git, stores.workspaces) }),
+      : { workspaces: localWorkspaces(git, workspaceStore) }),
     worktrees,
   };
-  const engine = engineOver(engineOptions, own, links);
+  const engine = engineOver(
+    engineOptions,
+    own,
+    links,
+    injected !== undefined && database === undefined && state === undefined
+  );
   declareCatalog(engine, catalog);
-  unrecordedObservers(catalog, recordedSources(database, state), print);
+  unrecordedObservers(
+    catalog,
+    recordedSources(database, state, injected),
+    print
+  );
   return engine;
 }
 
 function recordedSources(
   database: StoreDatabase | undefined,
-  state: string | undefined
+  state: string | undefined,
+  injected: WorkspaceStoreBundle | undefined
 ): ReadonlySet<string> | "all" {
-  if (database !== undefined) {
+  if (database !== undefined || injected !== undefined) {
     return "all";
   }
   return new Set(
@@ -475,18 +644,14 @@ function unrecordedObservers(
   }
 }
 
-export function createDefaultEngine({
-  dry,
-}: {
-  readonly dry: boolean;
-}): Engine {
+function createDefaultEngine({ dry }: { readonly dry: boolean }): Engine {
   const machine = layout();
   const { id, root } = machine.workspace(process.cwd());
   return createEngine({
     artifacts: machine.artifacts,
     catalog: new Catalog(),
     dry,
-    plugins: [...DEFAULT_PROVIDERS, ...unhosted.providers.values()],
+    plugins: [...DEFAULT_PROVIDERS],
     print: (line) => {
       process.stderr.write(`${line}\n`);
     },
@@ -495,6 +660,32 @@ export function createDefaultEngine({
     workspaceId: id,
   });
 }
+
+export function installDefaultRuntime(): void {
+  setDefaultRoot(() => process.cwd());
+  if (hasDefaultRuntime()) {
+    return;
+  }
+  setDefaultRuntime(async ({ dry }) => {
+    const [engine] = await Promise.all([
+      Promise.resolve(createDefaultEngine({ dry })),
+      initializeUsage(),
+    ]);
+    const problems =
+      (await engine.providers
+        ?.refresh()
+        .catch((error: unknown) => [String(error)])) ?? [];
+    for (const problem of problems) {
+      process.stderr.write(`[providers] ${problem}\n`);
+    }
+    process.once("beforeExit", () => {
+      dispose().catch(() => undefined);
+    });
+    return engine;
+  });
+}
+
+installDefaultRuntime();
 
 function echoExec(print: (line: string) => void): (
   command: readonly string[]

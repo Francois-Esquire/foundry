@@ -10,15 +10,18 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
+import { readMigrationFiles } from "drizzle-orm/migrator";
+
 const ROOT = import.meta.dirname;
 const MIGRATIONS = join(ROOT, "src/database/migrations");
+const BUNDLED_FILE = join(ROOT, "src/database/bundled-migrations.ts");
 const NAME = "init";
 const SQL = `0000_${NAME}.sql`;
 const JOURNAL = join("meta", "_journal.json");
 const UNRELEASED = 0;
 
 interface Journal {
-  entries: { when: number }[];
+  entries: { tag: string; when: number }[];
 }
 
 export function generateMigrations(): void {
@@ -55,6 +58,13 @@ export function generateMigrations(): void {
       entry.when = UNRELEASED;
     }
     writeFileSync(join(staged, JOURNAL), JSON.stringify(journal, null, 2));
+    const bundledSource = bundled(staged, journal);
+    if (
+      !existsSync(BUNDLED_FILE) ||
+      readFileSync(BUNDLED_FILE, "utf8") !== bundledSource
+    ) {
+      writeFileSync(BUNDLED_FILE, bundledSource);
+    }
     if (sameMigrations(staged)) {
       return;
     }
@@ -63,6 +73,25 @@ export function generateMigrations(): void {
   } finally {
     rmSync(staged, { force: true, recursive: true });
   }
+}
+
+function bundled(staged: string, journal: Journal): string {
+  const migrations = readMigrationFiles({ migrationsFolder: staged }).map(
+    (migration, index) =>
+      [
+        "  {",
+        `    hash: ${JSON.stringify(migration.hash)},`,
+        "    sql: [",
+        ...migration.sql.map(
+          (statement) => `      ${JSON.stringify(statement)},`
+        ),
+        "    ],",
+        `    tag: ${JSON.stringify(journal.entries[index]?.tag ?? String(index))},`,
+        `    when: ${String(migration.folderMillis)},`,
+        "  },",
+      ].join("\n")
+  );
+  return `export const BUNDLED_MIGRATIONS = [\n${migrations.join("\n")}\n] as const;\n`;
 }
 
 function sameMigrations(staged: string): boolean {

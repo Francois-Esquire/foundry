@@ -1,8 +1,7 @@
-import { schedule, step, workflow } from "@foundry.sh/marbles";
+import { Catalog, schedule, step, workflow } from "@foundry.sh/marbles";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import { describeTrigger, nextDue, parseEvery } from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
@@ -25,20 +24,17 @@ function bindLog(lines: string[]) {
   bindLaunch(testEngine({ print: (line) => lines.push(line) }).bindings);
 }
 
-afterEach(() => {
-  catalog.reset();
-});
-
 describe("definitions", () => {
   it("register by name and list in the catalog with their kind", () => {
     const shout = step("shout")
       .input(text)
       .do(({ input }) => input.text.toUpperCase());
-    expect(catalog.definitions.get("shout")).toBe(shout);
+    const loud = workflow("loud", shout({}, { text: "hi" }));
+    const collected = Catalog.collect([shout, loud]);
+    expect(collected.definitions.get("shout")).toBe(shout);
     expect(shout.name).toBe("shout");
-    workflow("loud", shout({}, { text: "hi" }));
     expect(
-      declared()
+      declared(collected)
         .entries()
         .map((entry) => [entry.kind, entry.name])
     ).toEqual([
@@ -58,12 +54,12 @@ describe("definitions", () => {
         version: 1,
       },
     };
-    step("opaque")
+    const opaqueStep = step("opaque")
       .input(opaque)
       .do(({ input }) => input.n);
-    step("bare").do(() => 1);
+    const bare = step("bare").do(() => 1);
     expect(
-      declared()
+      declared([opaqueStep, bare])
         .entries()
         .map((entry) => [entry.name, entry.input.fields])
     ).toEqual([
@@ -73,8 +69,9 @@ describe("definitions", () => {
   });
 
   it("refuse a duplicate name across steps and workflows", () => {
-    step("x").do(() => null);
-    expect(() => workflow("x", step().do(() => 1)({}))).toThrow(
+    const first = step("x").do(() => null);
+    const second = workflow("x", step().do(() => 1)({}));
+    expect(() => Catalog.collect([first, second])).toThrow(
       ALREADY_REGISTERED_PATTERN
     );
   });
@@ -119,17 +116,18 @@ describe("definitions", () => {
     const shout = step("shout")
       .input(text)
       .do(({ input }) => input.text);
-    schedule(shout({}, { text: "a" })).every("6h");
-    schedule(shout({}, { text: "a" })).every("30m");
-    schedule(shout({}, { text: "b" })).every("1h");
-    const keys = [...catalog.schedules.keys()];
+    const s1 = schedule(shout({}, { text: "a" })).every("6h");
+    const s2 = schedule(shout({}, { text: "a" })).every("30m");
+    const s3 = schedule(shout({}, { text: "b" })).every("1h");
+    const collected = Catalog.collect([shout, s1, s2, s3]);
+    const keys = [...collected.schedules.keys()];
     expect(keys).toHaveLength(3);
     const [first, second, third] = keys as [string, string, string];
     expect(first).toMatch(SHOUT_KEY_PATTERN);
     expect(second).toBe(`${first}-2`);
     expect(third).toMatch(SHOUT_KEY_PATTERN);
     expect(third).not.toBe(first);
-    expect(catalog.schedules.get(first)).toEqual({
+    expect(collected.schedules.get(first)).toEqual({
       input: { text: "a" },
       key: first,
       kind: "schedule",
@@ -141,8 +139,9 @@ describe("definitions", () => {
 
   it("a bare target has the target's name as its key", () => {
     const wave = step("wave").do(() => 1);
-    schedule(wave).every("1h");
-    expect(catalog.schedules.get("wave")).toMatchObject({
+    const scheduled = schedule(wave).every("1h");
+    const collected = Catalog.collect([wave, scheduled]);
+    expect(collected.schedules.get("wave")).toMatchObject({
       input: null,
       key: "wave",
       label: "wave",
@@ -156,13 +155,15 @@ describe("definitions", () => {
       .do(({ input }) => input.text);
     const say = step("say").do(() => "x");
     expect(() => schedule(shout({ text: say({}) }))).toThrow(WRAP_PATTERN);
-    expect(() => schedule(step().do(() => 1))).toThrow(NO_NAME_PATTERN);
+    const unnamed = schedule(step().do(() => 1)).every("1h");
+    expect(() => Catalog.collect([unnamed])).toThrow(NO_NAME_PATTERN);
   });
 
   it("schedule a calendar slot, minute defaulting to 0", () => {
     const w = step("w").do(() => 1);
-    schedule(w).at({ hour: 9, weekday: "mon" });
-    expect(catalog.schedules.get("w")?.trigger).toEqual({
+    const scheduled = schedule(w).at({ hour: 9, weekday: "mon" });
+    const collected = Catalog.collect([w, scheduled]);
+    expect(collected.schedules.get("w")?.trigger).toEqual({
       kind: "calendar",
       slot: { hour: 9, minute: 0, weekday: "mon" },
     });

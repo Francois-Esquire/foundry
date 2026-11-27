@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
+import type { SessionMessage, SessionRecord } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
@@ -13,12 +13,13 @@ import { DatabaseAutomationStore } from "~/database/automations";
 import { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
-import type { MarblesDatabase, StoreDatabase } from "~/database/open";
+import type { MarblesDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
+import type { StoreDatabase } from "~/database/types";
 import { DatabaseUsageStore } from "~/database/usage";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { openHostDatabase } from "~/database/workspaces";
@@ -436,6 +437,15 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     };
     const store = async () => (await this.#records.get()).taskStore;
     this.taskStore = {
+      children: (parentId) =>
+        this.#gate.run(async () => {
+          const inner = await store();
+          return inner.children === undefined
+            ? (await inner.snapshot()).tasks.filter(
+                (task) => task.parentId === parentId
+              )
+            : inner.children(parentId);
+        }),
       commit: (write) => {
         let owned: TaskStoreWrite;
         try {
@@ -445,7 +455,31 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
         }
         return this.#gate.run(async () => (await store()).commit(owned));
       },
+      dependenciesOf: (ids) =>
+        this.#gate.run(async () => {
+          const inner = await store();
+          if (inner.dependenciesOf !== undefined) {
+            return inner.dependenciesOf(ids);
+          }
+          const wanted = new Set(ids);
+          return (await inner.snapshot()).dependencies.filter(
+            (edge) => wanted.has(edge.taskId) || wanted.has(edge.dependsOnId)
+          );
+        }),
       get: (id) => this.#gate.run(async () => (await store()).get(id)),
+      list: (query) =>
+        this.#gate.run(async () => {
+          const inner = await store();
+          if (inner.list !== undefined) {
+            return inner.list(query);
+          }
+          return (await inner.snapshot()).tasks.filter(
+            (task) =>
+              (query?.status === undefined || task.status === query.status) &&
+              (query?.parentId === undefined ||
+                task.parentId === query.parentId)
+          );
+        }),
       snapshot: () => this.#gate.run(async () => (await store()).snapshot()),
       transaction: (work) =>
         this.#gate.run(async () => {

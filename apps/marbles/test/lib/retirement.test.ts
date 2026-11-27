@@ -2,7 +2,6 @@ import { thisProcess } from "@foundry/lib/node/process-identity";
 import { Tasks } from "@foundry/tasks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
@@ -11,7 +10,6 @@ import { testEngine } from "../helpers/engine";
 const engines: Engine[] = [];
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
 });
 

@@ -1,14 +1,9 @@
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
-import { agent, schedule, step } from "@foundry.sh/marbles";
-import { afterEach, expect, it } from "vitest";
+import { agent, Catalog, schedule, step } from "@foundry.sh/marbles";
+import { expect, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import { jsonData } from "~/lib/state/json";
-
-afterEach(() => {
-  catalog.reset();
-});
 
 const literal = {
   a: undefined,
@@ -30,8 +25,9 @@ it("keeps the schedule key of an input holding undefined and a Date", () => {
   const shout = step("shout")
     .input(z.record(z.string(), z.unknown()))
     .do(() => 1);
-  schedule(shout({}, literal)).every("1h");
-  expect([...catalog.schedules.keys()]).toEqual(["shout-09e13586"]);
+  const scheduled = schedule(shout({}, literal)).every("1h");
+  const collected = Catalog.collect([shout, scheduled]);
+  expect([...collected.schedules.keys()]).toEqual(["shout-09e13586"]);
 });
 
 it("keeps a nameless agent's id", () => {

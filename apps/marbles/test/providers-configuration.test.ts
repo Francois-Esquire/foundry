@@ -139,7 +139,6 @@ function plugin(
         id: setup.id,
         languageModel: () => ({}) as never,
         models: setup.models,
-        offline: false,
       };
       return { provider };
     },
@@ -306,7 +305,7 @@ describe("the effective set", () => {
       codex: "disabled",
       literal: '"key" must name an environment variable, not hold a value',
       mystery:
-        'provider "@acme/unknown" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source',
+        'provider "@acme/unknown" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", and export it from the workspace\'s source',
     });
   });
 });
@@ -328,7 +327,7 @@ describe("providers no workspace defined", () => {
     });
     const { config } = configuration();
     const message =
-      'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; defineProvider(gateway);';
+      'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; export const gatewayProvider = defineProvider(gateway);';
     expect(await config.refresh()).toEqual([message]);
     expect(await config.refresh()).toEqual([message]);
     store.put("ws1", { order: ["codex"], providers: [] });
@@ -1312,7 +1311,6 @@ it("refuses an entry with a host-supplied provider's id, and keeps its state whe
     id: "work",
     languageModel: () => ({}) as never,
     models: [{ id: "m", kind: "text", modelId: "m" }],
-    offline: false,
   } as unknown as Provider;
   const models = new Models();
   const config = new ProviderConfiguration({
@@ -1359,7 +1357,7 @@ it("builds stand-ins with the same id and catalog for a dry run", async () => {
   store.put(MACHINE_SCOPE, {
     providers: [{ enabled: true, id: "codex", plugin: "codex" }],
   });
-  const echo = vi.fn((provider: Provider) => ({ ...provider, offline: false }));
+  const echo = vi.fn((provider: Provider) => ({ ...provider }));
   const { config, models } = configuration(undefined, { echo });
   await loaded(config);
   expect(echo).toHaveBeenCalledTimes(1);
@@ -1404,7 +1402,6 @@ describe("instance ownership", () => {
             id: setup.settings.key === "MISNAMED" ? "other" : setup.id,
             languageModel: () => ({}) as never,
             models: setup.models,
-            offline: false,
           };
           built.push(provider);
           return { provider };
@@ -1518,7 +1515,6 @@ describe("instance ownership", () => {
         id: real.id,
         languageModel: () => ({}) as never,
         models: real.models,
-        offline: false,
       }),
       plugins: OWNED,
     });
@@ -1587,7 +1583,6 @@ describe("an instance that reads the process environment", () => {
                 supportedUrls: {},
               }) as never,
             models: setup.models,
-            offline: false,
           },
         }),
       })

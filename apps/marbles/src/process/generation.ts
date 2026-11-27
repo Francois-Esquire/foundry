@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 

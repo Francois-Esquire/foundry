@@ -3,10 +3,6 @@ import { useRenderer } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useLayoutEffect } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { DashboardView } from "../src/cli/views/dashboard";
-import { OnboardingView } from "../src/cli/views/onboarding";
-import { WorkspaceWelcome } from "../src/cli/views/onboarding-intro";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
 import {
   type InputField,
@@ -14,6 +10,10 @@ import {
   inputDefaults,
   parseInputs,
 } from "../src/lib/inputs";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { DashboardView } from "../src/tui/views/dashboard";
+import { OnboardingView } from "../src/tui/views/onboarding";
+import { WorkspaceWelcome } from "../src/tui/views/onboarding-intro";
 import type { SetupDraft } from "../src/workspace/templates";
 
 let ui: Awaited<ReturnType<typeof testRender>>;

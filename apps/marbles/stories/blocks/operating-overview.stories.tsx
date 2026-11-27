@@ -1,9 +1,5 @@
 import { useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import type { DashboardSelection } from "~/cli/state/dashboard-model";
-import { latestRows } from "~/cli/state/dashboard-rows";
-import { latestActivity } from "~/cli/state/operating-model";
-import { usageBreakdown } from "~/cli/state/usage-format";
 import {
   LatestBlock,
   type LatestRow,
@@ -13,6 +9,10 @@ import {
 } from "~/components/blocks/operating-overview";
 import { Panel } from "~/components/ui/panel";
 import { Text } from "~/components/ui/text";
+import type { DashboardSelection } from "~/tui/state/dashboard-model";
+import { latestRows } from "~/tui/state/dashboard-rows";
+import { latestActivity } from "~/tui/state/operating-model";
+import { usageBreakdown } from "~/tui/state/usage-format";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { ignore, renderFrame } from "../frame";
 

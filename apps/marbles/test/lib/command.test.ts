@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
+import type { CollectInput } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { startEngine } from "../helpers/engine";
 
@@ -25,12 +25,12 @@ afterEach(async () => {
   await engine?.stop();
   engine = undefined;
   lines.length = 0;
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
-async function start(dry = false) {
+async function start(collect: CollectInput, dry = false) {
   engine = await startEngine({
+    collect,
     dry,
     print: (line) => lines.push(line),
     root,
@@ -40,11 +40,11 @@ async function start(dry = false) {
 
 describe("command steps", () => {
   it("fills each placeholder into one argument and runs in the step's directory", async () => {
-    step("greet")
+    const greet = step("greet")
       .input(z.object({ extra: z.array(z.string()), who: z.string() }))
       .exec("printf '%s|' $who $extra");
-    step("where").exec("pwd");
-    const host = await start();
+    const where = step("where").exec("pwd");
+    const host = await start([greet, where]);
     await expect(
       host.run("greet", { extra: ["a b", "c"], who: "x; echo pwned" })
     ).resolves.toEqual({
@@ -58,9 +58,9 @@ describe("command steps", () => {
   });
 
   it("fails on a non-zero exit unless told not to check", async () => {
-    step("fails").exec("sh -c 'exit 3'");
-    step("reports").exec("sh -c 'exit 3'", { check: false });
-    const host = await start();
+    const fails = step("fails").exec("sh -c 'exit 3'");
+    const reports = step("reports").exec("sh -c 'exit 3'", { check: false });
+    const host = await start([fails, reports]);
     await expect(host.run("fails", {})).rejects.toThrow(EXITED);
     await expect(host.run("reports", {})).resolves.toMatchObject({
       exitCode: 3,
@@ -68,20 +68,20 @@ describe("command steps", () => {
   });
 
   it("takes argv from a function", async () => {
-    step("listed")
+    const listed = step("listed")
       .input(z.object({ words: z.array(z.string()) }))
       .exec(({ input }) => ["echo", ...input.words]);
-    const host = await start();
+    const host = await start([listed]);
     await expect(
       host.run("listed", { words: ["one", "two"] })
     ).resolves.toMatchObject({ stdout: "one two\n" });
   });
 
   it("prints instead of running under a dry run", async () => {
-    step("install")
+    const install = step("install")
       .input(z.object({ pkg: z.string() }))
       .exec("npm i $pkg");
-    const host = await start(true);
+    const host = await start([install], true);
     await expect(host.run("install", { pkg: "left pad" })).resolves.toEqual({
       exitCode: 0,
       stderr: "",
@@ -107,11 +107,11 @@ describe("command steps", () => {
 
 describe("a body's exec", () => {
   it("runs a command from a body with the same rules", async () => {
-    step("body").do(async ({ exec }) => {
+    const body = step("body").do(async ({ exec }) => {
       const { stdout } = await exec(["echo", "$HOME is not expanded"]);
       return stdout.trim();
     });
-    const host = await start();
+    const host = await start([body]);
     await expect(host.run("body", {})).resolves.toBe("$HOME is not expanded");
   });
 });

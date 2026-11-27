@@ -56,9 +56,23 @@ beforeEach(() => {
 });
 
 describe("gatewayProvider", () => {
-  it("available requires both a baseURL and an API key", () => {
+  it("available requires both a non-empty baseURL and a non-empty API key", () => {
     expect(
       gatewayProvider({ config: { baseURL: "http://gw" }, models }).available
+    ).toBe(false);
+    expect(
+      gatewayProvider({ config: { apiKey: "", baseURL: "http://gw" }, models })
+        .available
+    ).toBe(false);
+    expect(
+      gatewayProvider({
+        config: { apiKey: "   ", baseURL: "http://gw" },
+        models,
+      }).available
+    ).toBe(false);
+    expect(
+      gatewayProvider({ config: { apiKey: "k", baseURL: "   " }, models })
+        .available
     ).toBe(false);
     expect(
       gatewayProvider({ config: { apiKey: "k", baseURL: "http://gw" }, models })

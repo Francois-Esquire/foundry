@@ -1,9 +1,9 @@
 import { act, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { feedKey } from "../src/cli/state/feed-model";
-import { DashboardView } from "../src/cli/views/dashboard";
 import type { FeedAnswer } from "../src/lib/feed/entry";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { feedKey } from "../src/tui/state/feed-model";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import {
   click,

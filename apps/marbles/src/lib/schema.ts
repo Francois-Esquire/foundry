@@ -4,7 +4,7 @@ import type {
 } from "@standard-schema/spec";
 
 import type { InputField } from "~/lib/inputs";
-import { isRecord } from "~/lib/state/json";
+import { isRecord } from "~/lib/json-data";
 
 export type Output<S extends StandardSchemaV1> =
   StandardSchemaV1.InferOutput<S>;

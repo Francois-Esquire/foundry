@@ -1,12 +1,12 @@
 import { eq, max } from "drizzle-orm";
 import { DrizzleQueryError } from "drizzle-orm/errors";
-import { busyError } from "~/database/client";
-import type { StoreDatabase } from "~/database/open";
+import { busyError } from "~/database/busy";
 import { readDatabase } from "~/database/open";
 import {
   marblesIdentityKeys,
   marblesProviderConfigurations,
 } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { writeAsHost } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type {

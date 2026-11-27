@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import type {
@@ -10,12 +9,8 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-import {
-  isGone,
-  type ProcessIdentity,
-  thisProcess,
-} from "@foundry/lib/node/process-identity";
 import { collectPages } from "@foundry/lib/pagination";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { z } from "zod";
 import {
   ASK_MODES,
@@ -30,6 +25,9 @@ import {
   INPUT_STATUSES,
   type InputStatus,
 } from "~/lib/feed/entry";
+import { sha256HexSync } from "~/lib/hash";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 
 const PAGE_SIZE = 100;
 
@@ -125,11 +123,18 @@ export function feedPublisher(
   artifacts: Pick<ArtifactSubstrate, "create" | "get" | "list" | "write">,
   workspace: FeedWorkspace,
   options: {
+    readonly liveness?: OwnerLiveness;
+    readonly readMedia?: (path: string) => Promise<Uint8Array>;
     readonly owner?: ProcessIdentity;
     readonly gone?: (owner: ProcessIdentity) => boolean;
   } = {}
 ): FeedPublisher {
-  const { gone = isGone, owner = thisProcess() } = options;
+  const owner =
+    options.owner ??
+    options.liveness?.identity() ??
+    NODE_OWNER_LIVENESS.identity();
+  const gone =
+    options.gone ?? options.liveness?.isGone ?? NODE_OWNER_LIVENESS.isGone;
   let queue: Promise<unknown> = Promise.resolve();
   function serialized<T>(write: () => Promise<T>): Promise<T> {
     const next = queue.then(write);
@@ -146,7 +151,10 @@ export function feedPublisher(
         const name = basename(path);
         return [
           `${FEED_MEDIA_DIR}/${name}`,
-          { bytes: await readFile(path), mime: classifyFile(name).mime },
+          {
+            bytes: await (options.readMedia ?? readFile)(path),
+            mime: classifyFile(name).mime,
+          },
         ] as const;
       })
     );
@@ -265,10 +273,9 @@ function entryId(
   source: FeedSource,
   key: string
 ): ArtifactId {
-  const digest = createHash("sha256")
-    .update([workspace, source.runId, ...source.path, key].join("\0"))
-    .digest("hex")
-    .slice(0, 24);
+  const digest = sha256HexSync(
+    [workspace, source.runId, ...source.path, key].join("\0")
+  ).slice(0, 24);
   return artifactIdSchema.parse(`feed-${digest}`);
 }
 

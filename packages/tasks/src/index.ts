@@ -48,5 +48,10 @@ export type {
   TaskStatus,
 } from "./schema";
 export { TASK_STATUSES, taskId, taskSchema } from "./schema";
-export type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store/index";
+export type {
+  TaskSnapshot,
+  TaskStore,
+  TaskStoreListQuery,
+  TaskStoreWrite,
+} from "./store/index";
 export { type CreateOptions, Tasks, type TasksOptions } from "./tasks";

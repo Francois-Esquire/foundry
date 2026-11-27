@@ -1,7 +1,7 @@
 export function environmentOverlay<R extends string | undefined>(
   target: Readonly<Record<string, string>>,
   removed: R,
-  ambient: NodeJS.ProcessEnv = process.env
+  ambient: NodeJS.ProcessEnv = typeof process === "undefined" ? {} : process.env
 ): Record<string, string | R> {
   const overlay: Record<string, string | R> = {};
   for (const [name, value] of Object.entries(ambient)) {

@@ -11,13 +11,7 @@ export const CONTAINER_MANAGED_BY_LABEL = "com.foundry.environment.managed-by";
 
 export const CONTAINER_MANAGED_BY_VALUE = "foundry-sandbox";
 
-export const CONTAINER_RUNTIME_SCOPE_LABEL = "com.foundry.environment.scope-id";
-
 export const CONTAINER_ENVIRONMENT_ID_LABEL = "com.foundry.environment.id";
-
-export const CONTAINER_OWNER_KIND_LABEL = "com.foundry.environment.owner-kind";
-
-export const CONTAINER_OWNER_ID_LABEL = "com.foundry.environment.owner-id";
 
 export const CONTAINER_INSTANCE_LABEL = "com.foundry.container.instance";
 

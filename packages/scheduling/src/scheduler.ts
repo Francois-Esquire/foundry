@@ -36,6 +36,7 @@ import {
 import { ScheduleStore } from "./store/index";
 
 export interface SchedulerOptions {
+  readonly claimTtlMs?: number;
   readonly identity?: ProcessIdentity;
   readonly instanceId?: string;
   readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
@@ -44,6 +45,11 @@ export interface SchedulerOptions {
   readonly retryDelayMs?: number;
   readonly settlePollMs?: number;
   readonly syncIntervalMs?: number;
+}
+
+export interface TickResult {
+  readonly decided: readonly Occurrence[];
+  readonly soonest: Instant | undefined;
 }
 
 export interface SchedulerService {
@@ -68,6 +74,7 @@ export interface SchedulerService {
     Scope.Scope
   >;
   readonly tick: Effect.Effect<readonly Occurrence[], ScheduleError>;
+  readonly tickWithNext: Effect.Effect<TickResult, ScheduleError>;
   readonly triggerNow: (
     id: ScheduleId
   ) => Effect.Effect<Occurrence, ScheduleError>;
@@ -127,6 +134,9 @@ const makeScheduler = (options: SchedulerOptions) =>
       }).pipe(Effect.uninterruptible);
 
     const { evaluate, triggerNow: fireNow } = makeEvaluator({
+      ...(options.claimTtlMs === undefined
+        ? {}
+        : { claimTtlMs: options.claimTtlMs }),
       commit,
       dispatch,
       isOwnerGone: options.isOwnerGone ?? neverGone,
@@ -327,6 +337,10 @@ const makeScheduler = (options: SchedulerOptions) =>
         });
       });
 
+    const tickWithNext = changed(
+      evaluateAll((error) => Effect.fail(error), false)
+    );
+
     return Scheduler.of({
       cursor: store.getCursor,
       get: store.getSchedule,
@@ -336,12 +350,8 @@ const makeScheduler = (options: SchedulerOptions) =>
       register: (input) => changed(register(input)),
       resume: (id) => setState(id, "active"),
       subscribe: Stream.fromPubSub(hub, { scoped: true }),
-      tick: changed(
-        Effect.map(
-          evaluateAll((error) => Effect.fail(error), false),
-          (result) => result.decided
-        )
-      ),
+      tick: Effect.map(tickWithNext, (result) => result.decided),
+      tickWithNext,
       triggerNow: (id) => changed(triggerNow(id)),
       unregister: (id) => changed(unregister(id)),
     });

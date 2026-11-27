@@ -2,7 +2,6 @@ import { ownedEvents } from "@foundry/lib/plain-json";
 import { and, asc, eq, gt, gte, lte, min, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { batches, inList } from "~/database/lists";
-import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
   marblesChangeLogs,
@@ -10,6 +9,7 @@ import {
   marblesDeliveryClaims,
   marblesObservers,
 } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { stateDatabase } from "~/layout";
 import type {
   ChangeLog,

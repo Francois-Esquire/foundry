@@ -613,6 +613,123 @@ function describeReads(open: Open): void {
       expect(secondPage.total).toBe(3);
       expect(secondPage.nextCursor).toBeUndefined();
     });
+
+    test("paginate and count entries when listEntriesPage and countEntries are implemented", async () => {
+      const store = (await open())(SCOPE);
+      const workspace = hostWorkspace({ path: newRoot("entries-page") });
+      const absent = newWorkspaceId();
+      const docs = directoryRecord(workspace.id, "docs");
+      const alpha = fileRecord(workspace.id, { path: "alpha.md" });
+      const guide = fileRecord(workspace.id, { path: "docs/guide.md" });
+      const zebra = fileRecord(workspace.id, { path: "zebra.md" });
+      const link = {
+        ...directoryRecord(workspace.id, "latest"),
+        target: "docs/guide.md",
+        type: "symlink",
+      } as const;
+      await seed(store, workspace, [zebra, link, docs, guide, alpha]);
+      const ordered = [alpha, docs, guide, link, zebra];
+
+      if (store.countEntries !== undefined) {
+        expect(await store.countEntries(absent)).toBe(0);
+        expect(await store.countEntries(workspace.id)).toBe(5);
+        expect(await store.countEntries(workspace.id, { type: "file" })).toBe(
+          3
+        );
+        expect(
+          await store.countEntries(workspace.id, { type: "directory" })
+        ).toBe(1);
+        expect(
+          await store.countEntries(workspace.id, { type: "symlink" })
+        ).toBe(1);
+        expect(await store.countEntries(workspace.id, { type: "pipe" })).toBe(
+          0
+        );
+      }
+
+      if (store.listEntriesPage !== undefined) {
+        const expectEntryPage = (
+          page: {
+            readonly items: readonly WorkspaceEntry[];
+            readonly nextCursor?: number;
+            readonly total?: number;
+          },
+          expected: {
+            readonly items: readonly WorkspaceEntry[];
+            readonly nextCursor?: number;
+            readonly total: number;
+          }
+        ) => {
+          expect(page.items).toEqual(expected.items);
+          expect(page.nextCursor).toBe(expected.nextCursor);
+          if (page.total !== undefined) {
+            expect(page.total).toBe(expected.total);
+          }
+        };
+        expectEntryPage(await store.listEntriesPage(absent), {
+          items: [],
+          total: 0,
+        });
+        const first = await store.listEntriesPage(workspace.id, { limit: 2 });
+        expectEntryPage(first, {
+          items: ordered.slice(0, 2),
+          nextCursor: 2,
+          total: 5,
+        });
+        const second = await store.listEntriesPage(workspace.id, {
+          cursor: first.nextCursor,
+          limit: 2,
+        });
+        expectEntryPage(second, {
+          items: ordered.slice(2, 4),
+          nextCursor: 4,
+          total: 5,
+        });
+        const third = await store.listEntriesPage(workspace.id, {
+          cursor: second.nextCursor,
+          limit: 2,
+        });
+        expectEntryPage(third, {
+          items: ordered.slice(4),
+          total: 5,
+        });
+        expectEntryPage(
+          await store.listEntriesPage(workspace.id, { cursor: 10 }),
+          {
+            items: [],
+            total: 5,
+          }
+        );
+        const filesPage = await store.listEntriesPage(workspace.id, {
+          limit: 2,
+          type: "file",
+        });
+        expectEntryPage(filesPage, {
+          items: [alpha, guide],
+          nextCursor: 2,
+          total: 3,
+        });
+        const nextFiles = await store.listEntriesPage(workspace.id, {
+          cursor: filesPage.nextCursor,
+          limit: 2,
+          type: "file",
+        });
+        expectEntryPage(nextFiles, {
+          items: [zebra],
+          total: 3,
+        });
+        for (const input of [
+          { limit: 0 },
+          { limit: 1.5 },
+          { cursor: -1 },
+          { cursor: 1.5 },
+        ]) {
+          await expect(
+            store.listEntriesPage(workspace.id, input)
+          ).rejects.toThrow(RangeError);
+        }
+      }
+    });
   });
 }
 
@@ -1223,11 +1340,24 @@ function describeReentry(open: Open): void {
       const readme = fileRecord(workspace.id, { path: "README.md" });
       const calls: Record<string, () => Promise<unknown>> = {
         commit: () => seed(store, workspace),
+        ...(store.countEntries === undefined
+          ? {}
+          : {
+              countEntries: () =>
+                store.countEntries?.(workspace.id) ?? Promise.resolve(0),
+            }),
         findWorkspaceByPath: () => store.findWorkspaceByPath("/x"),
         findWorkspaceBySourceId: () => store.findWorkspaceBySourceId("x"),
         getEntry: () => store.getEntry(workspace.id, readme.id),
         getWorkspace: () => store.getWorkspace(workspace.id),
         listEntries: () => store.listEntries(workspace.id),
+        ...(store.listEntriesPage === undefined
+          ? {}
+          : {
+              listEntriesPage: () =>
+                store.listEntriesPage?.(workspace.id) ??
+                Promise.resolve({ items: [] }),
+            }),
         listWorkspaces: () => store.listWorkspaces(),
         transaction: () => transaction(() => Promise.resolve()),
       };
@@ -1247,7 +1377,7 @@ function describeReentry(open: Open): void {
       });
       end();
 
-      expect(Object.keys(refusals)).toHaveLength(8);
+      expect(Object.keys(refusals)).toEqual(Object.keys(calls));
       for (const outcome of Object.values(refusals)) {
         expect(outcome).toMatch(REFUSAL);
       }

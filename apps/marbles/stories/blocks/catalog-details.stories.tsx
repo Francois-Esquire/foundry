@@ -1,12 +1,12 @@
 import { useCallback, useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { catalogConfiguration } from "~/cli/state/inspector";
 import {
   CatalogDetails,
   type CatalogDetailsView,
 } from "~/components/blocks/catalog-details";
 import { Text } from "~/components/ui/text";
 import { statusDisplay } from "~/model/run-status";
+import { catalogConfiguration } from "~/tui/state/inspector";
 import { ignore, renderFrame } from "../frame";
 
 const size = { height: 22, width: 64 };

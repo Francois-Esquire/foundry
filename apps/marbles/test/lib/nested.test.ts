@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { startEngine } from "../helpers/engine";
 
@@ -12,7 +11,6 @@ const engines: Engine[] = [];
 const CHILD_PATH = /^outer\.\$run-1-\d+$/;
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
 });
 
 async function question(engine: Engine) {
@@ -58,12 +56,15 @@ it("nested calls share run identity, reporting, streaming, and suspension", asyn
         run: run.id,
       };
     });
-  step("outer").do(async () => {
+  const outer = step("outer").do(async () => {
     const first = await once.run();
     const result = await child.run({ value: "hello" });
     return { child: result, first };
   });
-  const engine = await startEngine({ askable: true });
+  const engine = await startEngine({
+    askable: true,
+    collect: [once, child, outer],
+  });
   engines.push(engine);
   const launched = await engine.launch<{
     first: number;
@@ -104,10 +105,10 @@ it("a parent timeout aborts and settles a nested body", async () => {
         );
       })
   );
-  step("timed-parent")
+  const timedParent = step("timed-parent")
     .config({ timeout: 30 })
     .do(() => child.run());
-  const engine = await startEngine();
+  const engine = await startEngine({ collect: [child, timedParent] });
   engines.push(engine);
   await expect(engine.run("timed-parent", {})).rejects.toThrow("timed out");
   expect(stopped).toBe(true);
@@ -120,14 +121,22 @@ it("nested questions recover in the parent run after a restart", async () => {
     const child = step("recover-child").do(({ ask }) =>
       ask.question({ title: "Recover child?" })
     );
-    step("recover-parent").do(() => child.run());
-    const first = await startEngine({ askable: true, state });
+    const parent = step("recover-parent").do(() => child.run());
+    const first = await startEngine({
+      askable: true,
+      collect: [child, parent],
+      state,
+    });
     engines.push(first);
     const launched = await first.launch("recover-parent", {});
     const pending = await question(first);
     await first.stop({ cancel: true });
     await first.dispose();
-    const second = await startEngine({ askable: true, state });
+    const second = await startEngine({
+      askable: true,
+      collect: [child, parent],
+      state,
+    });
     engines.push(second);
     const restored = await question(second);
     expect(restored.id).toBe(pending.id);
@@ -157,8 +166,13 @@ it("parallel nested calls resume from the checkpoint, running again a sibling th
   const asks = step("asking-nested").do(({ ask }) =>
     ask.question({ title: "Parallel child?" })
   );
-  step("parallel-parent").do(() => Promise.all([slow.run(), asks.run()]));
-  const engine = await startEngine({ askable: true });
+  const parent = step("parallel-parent").do(() =>
+    Promise.all([slow.run(), asks.run()])
+  );
+  const engine = await startEngine({
+    askable: true,
+    collect: [slow, asks, parent],
+  });
   engines.push(engine);
   try {
     const launched = await engine.launch("parallel-parent", {});
@@ -196,8 +210,10 @@ it("a failing nested sibling stops the others before returning the failure", asy
     await ready;
     throw new Error("nested failure");
   });
-  step("failing-parent").do(() => Promise.all([slow.run(), fails.run()]));
-  const engine = await startEngine();
+  const parent = step("failing-parent").do(() =>
+    Promise.all([slow.run(), fails.run()])
+  );
+  const engine = await startEngine({ collect: [slow, fails, parent] });
   engines.push(engine);
   await expect(engine.run("failing-parent", {})).rejects.toThrow(
     "nested failure"
@@ -210,13 +226,16 @@ it("answers parallel child questions at their own step paths", async () => {
   const asks = step("parallel-question")
     .input(z.object({ title: z.string() }))
     .do(({ ask, input }) => ask.question({ title: input.title }));
-  step("two-questions").do(() =>
+  const twoQuestions = step("two-questions").do(() =>
     Promise.all([
       asks.run({ title: "First child?" }),
       asks.run({ title: "Second child?" }),
     ])
   );
-  const engine = await startEngine({ askable: true });
+  const engine = await startEngine({
+    askable: true,
+    collect: [asks, twoQuestions],
+  });
   engines.push(engine);
   const launched = await engine.launch("two-questions", {});
   const first = await question(engine);
@@ -245,8 +264,8 @@ it("pauses and resumes a parent while a dynamic child is running", async () => {
     }
     return "resumed";
   });
-  step("pausable-parent").do(() => child.run());
-  const engine = await startEngine();
+  const parent = step("pausable-parent").do(() => child.run());
+  const engine = await startEngine({ collect: [child, parent] });
   engines.push(engine);
   const launched = await engine.launch("pausable-parent", {});
   await vi.waitFor(() => expect(calls).toBe(1));

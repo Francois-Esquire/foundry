@@ -4,12 +4,12 @@ import { queueJobs, queueRuns } from "@foundry/queue/store/tables";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { inList } from "~/database/lists";
-import type { StoreDatabase } from "~/database/open";
 import {
   marblesExecutionGaps,
   marblesExecutionObservations,
   marblesExecutions,
 } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { RecordsGate } from "~/lib/events/records";
 import type {
   ExecutionObservation,

@@ -159,22 +159,14 @@ describe("available", () => {
     await models.dispose();
   });
 
-  it("uses current availability and policy, preserving qualified and bare selection rules", () => {
+  it("uses current availability, preserving qualified and bare selection rules", () => {
     const { codex, models, vercel } = codexBeforeVercel();
     codex.available = false;
     expect(models.available("codex/gpt-5.5")).toBe(false);
     expect(models.available("gpt-5.5")).toBe(true);
-
-    codex.available = true;
-    const lift = models.restrict({
-      admit: (provider) => provider !== codex || "Codex is disabled",
-      id: "test",
-    });
-    expect(models.available("codex/gpt-5.5")).toBe(false);
-    expect(models.available("gpt-5.5")).toBe(true);
     vercel.available = false;
     expect(models.available("gpt-5.5")).toBe(false);
-    lift();
+    codex.available = true;
     expect(models.available("codex/gpt-5.5")).toBe(true);
   });
 
@@ -189,15 +181,14 @@ describe("available", () => {
     expect(models.available({ model: "openai/gpt-5-mini" })).toBe(true);
   });
 
-  it("propagates unexpected errors from a provider or policy", () => {
-    const { models } = codexBeforeVercel();
-    models.restrict({
-      admit: () => {
-        throw new Error("broken policy");
+  it("propagates unexpected errors from a provider", () => {
+    const { codex, models } = codexBeforeVercel();
+    Object.defineProperty(codex, "available", {
+      get: () => {
+        throw new Error("broken provider");
       },
-      id: "test",
     });
-    expect(() => models.available("gpt-5.5")).toThrow("broken policy");
+    expect(() => models.available("gpt-5.5")).toThrow("broken provider");
   });
 });
 
@@ -270,39 +261,17 @@ describe("open, leases, and disposal", () => {
 
 describe("open per kind", () => {
   it("builds each kind on its row's wire id", () => {
-    const media = fakeProvider("media", {
+    const every = fakeProvider("every", {
       defaults: {},
-      kinds: [
-        "embedding",
-        "image",
-        "speech",
-        "transcription",
-        "video",
-        "media",
-      ],
       models: [
         { id: "e", kind: "embedding", modelId: "wire-e" },
         { id: "i", kind: "image", modelId: "wire-i" },
-        { id: "s", kind: "speech", modelId: "wire-s" },
-        { id: "t", kind: "transcription", modelId: "wire-t" },
-        { id: "v", kind: "video", modelId: "wire-v" },
-        { id: "m", kind: "music", modelId: "wire-m" },
       ],
     });
-    const models = new Models({ providers: [media] });
+    const models = new Models({ providers: [every] });
     models.resolve("embedding", "e").open();
     models.resolve("image", "i").open();
-    models.resolve("speech", "s").open();
-    models.resolve("transcription", "t").open();
-    models.resolve("video", "v").open();
-    models.resolve("music", "m").open();
-    expect(media.calls).toEqual([
-      "embedding:wire-e",
-      "image:wire-i",
-      "speech:wire-s",
-      "transcription:wire-t",
-      "video:wire-v",
-    ]);
+    expect(every.calls).toEqual(["embedding:wire-e", "image:wire-i"]);
   });
 
   it("refuses a kind the instance cannot build, and takes no lease for it", async () => {
@@ -375,21 +344,20 @@ describe("review regressions", () => {
   it("finds the row of the asked kind when one id is listed under two kinds", () => {
     const both = fakeProvider("a", {
       defaults: {},
-      kinds: ["image", "video"],
       models: [
         { id: "x", kind: "image", modelId: "x-image" },
-        { id: "x", kind: "video", modelId: "x-video" },
+        { id: "x", kind: "embedding", modelId: "x-embedding" },
       ],
     });
     const models = new Models({ providers: [both] });
     for (const selection of ["x", "a/x", { model: "x", provider: "a" }]) {
-      expect(models.resolve("video", selection).definition.modelId).toBe(
-        "x-video"
+      expect(models.resolve("embedding", selection).definition.modelId).toBe(
+        "x-embedding"
       );
     }
   });
 
-  it("hands out guarded views that go straight back into setProviders", () => {
+  it("hands out instances that go straight back into setProviders", () => {
     const { codex, models } = codexBeforeVercel();
     models.setProviders(models.providers);
     expect(codex.disposed).toBe(0);

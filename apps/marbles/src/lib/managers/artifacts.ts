@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   ArtifactId,
   ArtifactOperations,
@@ -9,6 +8,7 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema, contentIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
+import { sha256HexSync } from "~/lib/hash";
 
 import type { ManagerArgs } from "../bindings";
 import type {
@@ -41,10 +41,7 @@ const CREATE_KIND = "artifacts.create";
 const ID_LENGTH = 24;
 
 export function artifactIdFor(workspaceId: string, name: string): ArtifactId {
-  const digest = createHash("sha256")
-    .update(`${workspaceId}\0${name}`)
-    .digest("hex")
-    .slice(0, ID_LENGTH);
+  const digest = sha256HexSync(`${workspaceId}\0${name}`).slice(0, ID_LENGTH);
   return artifactIdSchema.parse(`artifact-${digest}`);
 }
 
@@ -56,18 +53,26 @@ function isFileInput(
 
 function entriesOf(files: ArtifactFiles, fallbackMime?: string): FileInputs {
   return Object.fromEntries(
-    Object.entries(files).map(([path, content]) => [
-      path,
-      isFileInput(content)
-        ? content
-        : {
-            bytes:
-              typeof content === "string"
-                ? new TextEncoder().encode(content)
-                : content,
-            mime: classifyFile(path).mime ?? fallbackMime ?? null,
-          },
-    ])
+    Object.entries(files).map(([path, content]) => {
+      if (isFileInput(content)) {
+        if ("path" in content) {
+          throw new Error(
+            "artifact.write(): pre-staged external blob paths are not accepted from step code"
+          );
+        }
+        return [path, content];
+      }
+      return [
+        path,
+        {
+          bytes:
+            typeof content === "string"
+              ? new TextEncoder().encode(content)
+              : content,
+          mime: classifyFile(path).mime ?? fallbackMime ?? null,
+        },
+      ];
+    })
   );
 }
 

@@ -39,18 +39,26 @@ const MAX_RUN_PAGE = 200;
 
 async function dispatched(
   declared: AgentLike<Output.Output>,
+  agentId: string,
   route: AgentRoute,
   overlay: (
     definition: AgentDefinition<Output.Output>
   ) => AgentDefinition<Output.Output>
 ): Promise<AgentLike<Output.Output>> {
   if (!Reflect.has(declared, AGENT_DEFINITION)) {
-    return overlay(await buildDefinition(declared, route));
+    return overlay(await buildDefinition(declared, route, undefined, agentId));
   }
-  const agent = { id: declared.id, kind: "agent" as const, ...route };
+  const agent = { id: agentId, kind: "agent" as const, ...route };
   Object.defineProperty(agent, AGENT_DEFINITION, {
-    value: async (kept: AgentRoute, input: unknown) =>
-      overlay(await buildDefinition(declared, { ...kept, ...route }, input)),
+    value: async (kept: AgentRoute, input: unknown, resolvedId?: string) =>
+      overlay(
+        await buildDefinition(
+          declared,
+          { ...kept, ...route },
+          input,
+          resolvedId ?? agentId
+        )
+      ),
   });
   return agent as unknown as AgentLike<Output.Output>;
 }
@@ -321,8 +329,12 @@ export class BackgroundRuns {
         prompt: append(declared ? base.prompt : undefined),
       };
     };
+    const declaredId =
+      declared === undefined
+        ? undefined
+        : (options.agent ?? this.#catalog.agentIdOf(declared) ?? declared.id);
     return declared
-      ? await dispatched(declared, route, overlay)
+      ? await dispatched(declared, declaredId ?? declared.id, route, overlay)
       : overlay({
           id: id ?? `agent-${crypto.randomUUID()}`,
           kind: "agent",

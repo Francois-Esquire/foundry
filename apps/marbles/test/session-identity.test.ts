@@ -7,7 +7,7 @@ import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { DatabaseProviderStore } from "~/database/providers";
 import { marblesIdentityKeys } from "~/database/tables";
@@ -48,7 +48,6 @@ const cli = pluginOf({
       id,
       languageModel: () => replying(),
       models,
-      offline: false,
     } satisfies Provider,
   }),
   id: "cli",
@@ -90,7 +89,7 @@ async function engine(environment: Record<string, string> = {}) {
 
 function build(environment: Record<string, string>) {
   return createEngine({
-    catalog,
+    catalog: new Catalog(),
     dry: false,
     environment: { ACCOUNT_HOME: "/accounts/personal", ...environment },
     plugins: [cli],

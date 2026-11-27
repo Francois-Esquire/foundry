@@ -1,9 +1,9 @@
 import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { settingsView } from "~/cli/theme";
 import { SettingsBlock } from "~/components/blocks/settings-panel";
 import type { ThemeName } from "~/model/settings";
+import { settingsView } from "~/tui/theme";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { ignore, renderFrame } from "../frame";
 

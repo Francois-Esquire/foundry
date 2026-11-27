@@ -42,7 +42,7 @@ Private workspace packages. Marbles bundles the ones it uses.
 | [tasks](packages/tasks) | The backlog: what there is to do, what is ready, what is done. Tasks with dependencies and parents, derived availability, and one atomic batch command. Execution stays in workflows. In memory by default; a `TaskStore` persists it. |
 | [prompts](packages/prompts) | Prompt dialects for Claude Code, Codex, and Pi: what a prompt references (skills, agents, files), checked against what a host has, and written in each harness's notation. |
 | [usage](packages/usage) | Usage per AI provider account as it is now: limits and consumption across allowance, metered, prepaid, and credit billing. Marbles reads it to route an agent. |
-| [models](packages/models) | One registry over hosted gateways, on-device weights, and the coding-agent CLI harnesses, plus the catalog of what each model costs and can do. |
+| [models](packages/models) | One registry over hosted gateways and the coding-agent CLI harnesses, plus the catalog of what each model costs and can do. |
 | [workspaces](packages/workspaces) | Durable registration of a source directory: identity, inclusion, and the last reconciled inventory of its files. |
 | [artifacts](packages/artifacts) | Versioned content with stable identity, blob storage, and delivery to the filesystem. |
 | [sandbox](packages/sandbox) | One `Sandbox` interface over a microVM container or an in-memory filesystem, with one set of agent tools bound to either. |

@@ -1,12 +1,12 @@
 import { expect, it } from "vitest";
+import type { Money, UsageTotal, WorkspaceUsage } from "~/model/usage";
 import {
   costCell,
   costLabel,
   costView,
   tokensLabel,
   usageBreakdown,
-} from "~/cli/state/usage-format";
-import type { Money, UsageTotal, WorkspaceUsage } from "~/model/usage";
+} from "~/tui/state/usage-format";
 
 function priced(money: Money, basis: "estimated" | "reported"): UsageTotal {
   return {

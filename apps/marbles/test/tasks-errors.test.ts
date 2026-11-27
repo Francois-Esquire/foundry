@@ -108,7 +108,13 @@ function toolError(value: unknown): string {
 
 async function mcp(home: TestHome): Promise<Client> {
   const transport = new RecordedStdioTransport({
-    args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
+    args: [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      join(home.path, "marbles.ts"),
+    ],
     command: "bun",
     cwd: home.path,
     env: home.env,
@@ -124,25 +130,39 @@ function change(client: Client, title: string) {
   return client.callTool({ arguments: creating(title), name: "change_tasks" });
 }
 
+function marblesRaw(home: TestHome, ...argv: readonly string[]) {
+  return spawnSync(
+    "bun",
+    [
+      "--no-env-file",
+      "-e",
+      `import { runCli } from ${JSON.stringify(join(SRC, "cli/index.ts"))};
+await runCli(${JSON.stringify(argv)});`,
+    ],
+    {
+      cwd: home.path,
+      encoding: "utf8",
+      env: home.env,
+      timeout: 30_000,
+    }
+  );
+}
+
 describe("a task command the database refuses", { timeout: 60_000 }, () => {
   it("names the field holding text it cannot store, in one line", async () => {
     const home = testHome();
     for (const title of ["a\u0000b", "lone \ud800"]) {
-      const refused = marbles(
-        home,
-        "tasks",
-        "change",
-        "--input",
-        JSON.stringify(creating(title))
-      );
+      const refused = marblesRaw(home, "tasks", "create", title);
       expect(refused.status).toBe(1);
       expect(refused.stdout).toBe("");
       expect(refused.stderr).toMatch(UNSTORABLE);
     }
     const client = await mcp(home);
-    expect(toolError(await change(client, "a\u0000b"))).toMatch(
-      "cannot be stored in the Marbles database"
-    );
+    for (const title of ["a\u0000b", "lone \ud800"]) {
+      expect(toolError(await change(client, title))).toMatch(
+        "cannot be stored in the Marbles database"
+      );
+    }
     expect(marbles(home, "tasks", "list", "--json").stdout).toContain(
       '"total": 0'
     );
@@ -152,14 +172,13 @@ describe("a task command the database refuses", { timeout: 60_000 }, () => {
     const home = testHome();
     const source = join(home.path, "marbles.ts");
     writeFileSync(source, 'import "@foundry.sh/marbles";\n');
-    const attached = marbles(home, "daemon", "attach", "--source", source);
+    const attached = marbles(home, "start", "--source", source);
     expect(attached.status, attached.stderr).toBe(0);
-    const refused = marbles(
+    const refused = marblesRaw(
       home,
       "tasks",
-      "change",
-      "--input",
-      JSON.stringify(creating("a\u0000b")),
+      "create",
+      "a\u0000b",
       "--source",
       source
     );

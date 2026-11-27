@@ -26,24 +26,24 @@ function workspace(source: string) {
   return { file, root };
 }
 
-describe("marbles enqueue", { timeout: 120_000 }, () => {
+describe("marbles trigger --async", { timeout: 120_000 }, () => {
   it("prints only the run's ID on stdout and exits while it waits, and watch follows it from the queue to its end", async () => {
     const home = testHome();
     const gate = join(temporaryDirectory("marbles-gate-"), "open");
     const { file, root } = workspace(`import { existsSync } from "node:fs";
 import { defineConfig, step } from "@foundry.sh/marbles";
 export default defineConfig({ pools: { default: 1 } });
-step("blocker").do(async () => {
+export const blocker = step("blocker").do(async () => {
   while (!existsSync(${JSON.stringify(gate)})) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   return "unblocked";
 });
-step("echo").do(({ input }) => input);
+export const echo = step("echo").do(({ input }) => input);
 `);
     const marbles = marblesIn(home, root, file);
 
-    const blocker = marbles("enqueue", "blocker");
+    const blocker = marbles("trigger", "blocker", "--async");
     expect(blocker.status, blocker.stderr).toBe(0);
     expect(blocker.stdout.trim()).toMatch(RUN_ID);
     expect(blocker.stdout.split("\n").filter(Boolean)).toHaveLength(1);
@@ -51,7 +51,13 @@ step("echo").do(({ input }) => input);
       `marbles watch ${blocker.stdout.trim()} follows it`
     );
 
-    const queued = marbles("enqueue", "echo", "--input", '{"word":"hi"}');
+    const queued = marbles(
+      "trigger",
+      "echo",
+      "--async",
+      "--input",
+      '{"word":"hi"}'
+    );
     expect(queued.status, queued.stderr).toBe(0);
     const id = queued.stdout.trim();
     expect(id).toMatch(RUN_ID);
@@ -86,68 +92,71 @@ step("echo").do(({ input }) => input);
     const home = testHome();
     const { file, root } =
       workspace(`import { step } from "@foundry.sh/marbles";
-step("keyed").do(() => "keyed done");
-step("dispatcher").do(async () => {
+export const keyed = step("keyed").do(() => "keyed done");
+export const dispatcher = step("dispatcher").do(async () => {
   const run = await step.enqueue("keyed", {}, { key: "shared" });
   return run.id;
 });
 `);
     const marbles = marblesIn(home, root, file);
 
-    const first = marbles("enqueue", "keyed", "--key", "shared");
+    const first = marbles("trigger", "keyed", "--async", "--key", "shared");
     expect(first.status, first.stderr).toBe(0);
     const id = first.stdout.trim();
     expect(id).toMatch(RUN_ID);
-    expect(marbles("enqueue", "--key", "shared", "keyed").stdout.trim()).toBe(
-      id
-    );
-    const fromSource = marbles("run", "dispatcher");
+    expect(
+      marbles("trigger", "--async", "--key", "shared", "keyed").stdout.trim()
+    ).toBe(id);
+    const fromSource = marbles("trigger", "dispatcher");
     expect(fromSource.status, fromSource.stderr).toBe(0);
     expect(fromSource.stdout).toContain(JSON.stringify(id));
-    const other = marbles("enqueue", "keyed", "--key", "other");
+    const other = marbles("trigger", "keyed", "--async", "--key", "other");
     expect(other.stdout.trim()).toMatch(RUN_ID);
     expect(other.stdout.trim()).not.toBe(id);
-    const unkeyed = marbles("enqueue", "keyed");
+    const unkeyed = marbles("trigger", "keyed", "--async");
     expect(unkeyed.stdout.trim()).not.toBe(id);
   });
 
-  it("refuses a name the workspace does not declare, a blank key, and --dry-run, leaving stdout empty", () => {
+  it("refuses a name the workspace does not declare and a blank key, and supports --json", () => {
     const home = testHome();
     const { file, root } =
       workspace(`import { step } from "@foundry.sh/marbles";
-step("keyed").do(() => "keyed done");
+export const keyed = step("keyed").do(() => "keyed done");
 `);
     const marbles = marblesIn(home, root, file);
-    const missing = marbles("enqueue", "nothing-here");
+    const missing = marbles("trigger", "nothing-here", "--async");
     expect(missing.status).toBe(1);
     expect(missing.stdout).toBe("");
     expect(missing.stderr).toContain(
       'no workflow or step named "nothing-here"'
     );
-    const blank = marbles("enqueue", "keyed", "--key", "");
+    const blank = marbles("trigger", "keyed", "--async", "--key", "");
     expect(blank.status).toBe(1);
     expect(blank.stdout).toBe("");
     expect(blank.stderr).toContain(
-      "enqueue: --key takes a key that is not blank"
+      "trigger: --key takes a key that is not blank"
     );
-    const dry = marbles("enqueue", "keyed", "--dry-run");
-    expect(dry.status).toBe(1);
-    expect(dry.stdout).toBe("");
-    expect(dry.stderr).toContain("enqueue leaves a run on the Marbles process");
-    expect(dry.stderr).toContain("it takes no --dry-run");
+    const json = marbles("trigger", "keyed", "--async", "--json");
+    expect(json.status, json.stderr).toBe(0);
+    expect(json.stderr).toBe("");
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      name: "keyed",
+      runId: expect.stringMatching(RUN_ID),
+    });
   });
 });
 
-describe("marbles run <name>", { timeout: 120_000 }, () => {
+describe("marbles trigger <name>", { timeout: 120_000 }, () => {
   it("runs a step, a workflow, a schedule and a monitor by name, waiting for each", () => {
     const home = testHome();
     const marker = join(temporaryDirectory("marbles-monitor-"), "ran");
     const { file, root } = workspace(`import { writeFileSync } from "node:fs";
 import { monitor, schedule, step, workflow } from "@foundry.sh/marbles";
-const leaf = step("leaf").do(() => ({ kind: "step" }));
-workflow("flow").do(() => leaf({}));
-schedule(step("nightly").do(() => ({ kind: "schedule" }))).every("1h");
-monitor("watched/**").name("watcher").every("1h").do(() => {
+export const leaf = step("leaf").do(() => ({ kind: "step" }));
+export const flow = workflow("flow").do(() => leaf({}));
+export const nightly = step("nightly").do(() => ({ kind: "schedule" }));
+export const nightlySchedule = schedule(nightly).every("1h");
+export const watcher = monitor("watched/**").name("watcher").every("1h").do(() => {
   writeFileSync(${JSON.stringify(marker)}, "ran");
 });
 `);
@@ -159,15 +168,21 @@ monitor("watched/**").name("watcher").every("1h").do(() => {
       ["flow", '"kind": "step"'],
       ["nightly", '"kind": "schedule"'],
     ] as const) {
-      const ran = marbles("run", name, "--dry-run");
+      const ran = marbles("trigger", name);
       expect(ran.status, `${name}: ${ran.stderr}`).toBe(0);
       expect(ran.stdout, name).toContain(said);
     }
-    const watched = marbles("run", "watcher", "--dry-run");
+    const json = marbles("trigger", "leaf", "--json");
+    expect(json.status, json.stderr).toBe(0);
+    expect(JSON.parse(json.stdout)).toMatchObject({
+      name: "leaf",
+      value: { kind: "step" },
+    });
+    const watched = marbles("trigger", "watcher");
     expect(watched.status, watched.stderr).toBe(0);
     expect(watched.stdout).toContain('"changed": true');
     expect(existsSync(marker)).toBe(true);
-    const missing = marbles("run", "nothing-here", "--dry-run");
+    const missing = marbles("trigger", "nothing-here");
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain(
       'no step, workflow, schedule, or monitor named "nothing-here"'

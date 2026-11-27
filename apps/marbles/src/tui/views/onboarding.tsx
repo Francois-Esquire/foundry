@@ -1,0 +1,242 @@
+import { dirname } from "node:path";
+import { useKeyboard } from "@opentui/react";
+import { useCallback, useState } from "react";
+import { ArgumentForm } from "~/components/blocks/argument-form";
+import { QuitDialog } from "~/components/blocks/quit-dialog";
+import { SetupFlow } from "~/components/layouts/setup-flow";
+import { Action } from "~/components/ui/action";
+import { Select } from "~/components/ui/select";
+import { Text } from "~/components/ui/text";
+import { theme } from "~/components/ui/theme";
+import {
+  type InputField,
+  type InputValues,
+  inputProblem,
+  parseInputs,
+} from "~/lib/inputs";
+import { errorMessage, useAsyncAction } from "~/tui/hooks/use-async-action";
+import { useQuitGuard } from "~/tui/hooks/use-quit-guard";
+import {
+  DEFAULT_DRAFT,
+  renderModule,
+  type SetupDraft,
+  STARTERS,
+  starterFor,
+} from "~/workspace/templates";
+
+const SETTINGS: readonly InputField[] = [
+  { label: "Step name", name: "name", required: true, type: "text" },
+  { label: "Additional instructions", name: "instructions", type: "multiline" },
+];
+const SETTINGS_PROBLEM = inputProblem(SETTINGS);
+const parseSettings = (values: InputValues) => parseInputs(SETTINGS, values);
+const CHOICES = STARTERS.map((item) => ({
+  label: `${item.label} · ${item.description}`,
+  value: item.id,
+}));
+
+const STAGES = {
+  review: { height: 30, title: "Review and create module" },
+  settings: { height: 25, title: "Configure your step" },
+  template: { height: 17, title: "Choose a starter" },
+} as const;
+
+export function OnboardingView({
+  path,
+  workspace = dirname(path),
+  onCreate,
+  onSkip,
+  onClose,
+}: {
+  readonly path: string;
+  readonly workspace?: string;
+  readonly onCreate: (draft: SetupDraft) => Promise<void>;
+  readonly onSkip: () => void;
+  readonly onClose: () => void;
+}) {
+  const [draft, setDraft] = useState<SetupDraft>(DEFAULT_DRAFT);
+  const [stage, setStage] = useState<"template" | "settings" | "review">(
+    "template"
+  );
+  const [invalid, setInvalid] = useState<string>();
+  const creation = useAsyncAction();
+  const quit = useQuitGuard(onClose);
+  const { quitting } = quit;
+  const starter = starterFor(draft.template);
+  const create = useCallback(() => {
+    if (!quitting) {
+      creation.run(() => onCreate(draft));
+    }
+  }, [draft, onCreate, quitting, creation.run]);
+  const back = useCallback(() => {
+    if (quitting || creation.busy) {
+      return;
+    }
+    setInvalid(undefined);
+    creation.clear();
+    setStage(stage === "review" ? "settings" : "template");
+  }, [stage, quitting, creation.busy, creation.clear]);
+  const next = useCallback(() => {
+    if (!quitting) {
+      setStage("settings");
+    }
+  }, [quitting]);
+  const skip = useCallback(() => {
+    if (!quitting) {
+      onSkip();
+    }
+  }, [quitting, onSkip]);
+  const chooseTemplate = useCallback(
+    (value: string) => {
+      if (quitting) {
+        return;
+      }
+      const chosen = STARTERS.find((item) => item.id === value);
+      if (chosen) {
+        setDraft((previous) => ({
+          ...previous,
+          name: chosen.name,
+          template: chosen.id,
+        }));
+      }
+    },
+    [quitting]
+  );
+  const review = useCallback(
+    (values: InputValues) => {
+      const configured: SetupDraft = {
+        ...draft,
+        instructions: String(values.instructions ?? ""),
+        name: String(values.name ?? ""),
+      };
+      try {
+        renderModule(configured);
+        setDraft(configured);
+        setInvalid(undefined);
+        setStage("review");
+      } catch (failure) {
+        setInvalid(errorMessage(failure));
+      }
+    },
+    [draft]
+  );
+  const goBack = stage === "template" ? skip : back;
+  useKeyboard((key) => {
+    if (quit.handleKey(key) || creation.busy || stage === "settings") {
+      return;
+    }
+    if (key.name === "q") {
+      quit.ask();
+    }
+    if (key.name === "escape") {
+      goBack();
+    }
+    if (["return", "enter"].includes(key.name)) {
+      key.preventDefault();
+      if (stage === "template") {
+        next();
+      } else {
+        create();
+      }
+    }
+  });
+  return (
+    <SetupFlow
+      footer={
+        <box flexDirection="row" flexWrap="wrap" gap={2}>
+          {stage === "template" && (
+            <>
+              <Action
+                active
+                id="setup:next"
+                label="Enter · Configure step"
+                onAction={next}
+                value="next"
+              />
+              <Action
+                id="setup:skip"
+                label="Esc · Skip for now"
+                onAction={skip}
+                value="skip"
+              />
+            </>
+          )}
+          {stage === "review" &&
+            (creation.busy ? (
+              <Text>Creating module…</Text>
+            ) : (
+              <>
+                <Action
+                  active
+                  id="setup:create"
+                  label="Enter · Create module"
+                  onAction={create}
+                  value="create"
+                />
+                <Action
+                  id="setup:back"
+                  label="Esc · Back"
+                  onAction={back}
+                  value="back"
+                />
+              </>
+            ))}
+        </box>
+      }
+      maxHeight={STAGES[stage].height}
+      overlay={
+        quitting && <QuitDialog onCancel={quit.cancel} onConfirm={onClose} />
+      }
+      title="Set up your workspace"
+    >
+      <box flexDirection="column" gap={1} marginTop={1}>
+        <text fg={theme.colors.mutedForeground} wrapMode="word">
+          {stage === "review"
+            ? `Starter location · ${path}`
+            : `Workspace · ${workspace}`}
+        </text>
+        <text fg={theme.colors.primary}>
+          <strong>{STAGES[stage].title}</strong>
+          {stage === "review" ? "" : ` · ${starter.label}`}
+        </text>
+        {stage === "template" && (
+          <Select
+            focused={!quitting}
+            id="setup:template"
+            onChange={chooseTemplate}
+            options={CHOICES}
+            value={draft.template}
+          />
+        )}
+        {stage === "settings" && (
+          <ArgumentForm
+            active={!quitting}
+            error={invalid}
+            fields={SETTINGS}
+            initialValues={{
+              instructions: draft.instructions,
+              name: draft.name,
+            }}
+            key={draft.template}
+            onCancel={back}
+            onSubmit={review}
+            parse={parseSettings}
+            problem={SETTINGS_PROBLEM}
+            submitLabel="Review module"
+          />
+        )}
+        {stage === "review" && (
+          <box flexDirection="column" gap={1}>
+            <Text>{renderModule(draft)}</Text>
+            <text fg={theme.colors.mutedForeground}>
+              Creates one starter step. You can run it from the Catalog.
+            </text>
+            {creation.error && (
+              <text fg={theme.colors.error}>{creation.error}</text>
+            )}
+          </box>
+        )}
+      </box>
+    </SetupFlow>
+  );
+}

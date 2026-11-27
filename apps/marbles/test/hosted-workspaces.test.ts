@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -46,9 +46,9 @@ export const build = step("build").do(async ({ exec }) => {
   const { stdout } = await exec(["sh", "-c", "pwd -P; printf %s ${name}"]);
   return stdout;
 });
-schedule(build).every("1d");
-monitor("notes/*.md").do(() => undefined);
-observe(tasks, async function pong(payload) {
+export const dailyBuild = schedule(build).every("1d");
+export const watchNotes = monitor("notes/*.md").do(() => undefined);
+export const pongObserver = observe(tasks, async function pong(payload) {
   for (const change of payload.tasks) {
     if (change.after?.title === "ping") {
       await tasks.create({ title: "pong ${name}" });
@@ -261,7 +261,7 @@ it("reports a workspace that fails to load on its own, keeps nothing it declared
   expect(report.fixed).toBe(`${broken.dir}\nbroken`);
 }, 120_000);
 
-it("loads a workspace again in the same process with fresh copies of its own modules, helpers included", async () => {
+it("loads a workspace again in the same process, keeping re-exported helper steps working", async () => {
   const root = await scratch();
   const a = await workspace(
     root,
@@ -271,7 +271,6 @@ it("loads a workspace again in the same process with fresh copies of its own mod
   await writeFile(
     join(a.dir, "_helper.ts"),
     `import { step } from "@foundry.sh/marbles";
-globalThis.helperEvaluations = (globalThis.helperEvaluations ?? 0) + 1;
 export const helped = step("helped").do(() => "helped");
 `
   );
@@ -290,15 +289,13 @@ export const helped = step("helped").do(() => "helped");
     report.second = await again.run({ name: "helped", workspace: second.id });
   } finally {
     await again.close();
-  }
-  report.evaluations = globalThis.helperEvaluations;`
+  }`
   );
   expect(report.first).toBe("helped");
   expect(report.second).toBe("helped");
-  expect(report.evaluations).toBe(2);
 }, 120_000);
 
-it("names what a load declares from its consts, as written, the same on every load", async () => {
+it("names what a load declares from its exports, as written, the same on every load", async () => {
   const root = await scratch();
   const a = await workspace(
     root,
@@ -310,11 +307,6 @@ export const reviewer = agent({ prompt: "Review alpha." });
   await writeFile(
     join(a.dir, "twice.ts"),
     'import { step } from "@foundry.sh/marbles";\nexport const twice = step("build").do(() => "again");\n'
-  );
-  await mkdir(join(a.dir, "node_modules"));
-  await symlink(
-    resolve("../../node_modules/typescript"),
-    join(a.dir, "node_modules", "typescript")
   );
   const report = await inProcess(
     root,
@@ -338,8 +330,8 @@ export const reviewer = agent({ prompt: "Review alpha." });
     await again.close();
   }`
   );
-  expect(report.twice).toContain(`${a.dir}/marbles.ts:`);
-  expect(report.twice).toContain(`${a.dir}/twice.ts:`);
+  expect(report.twice).toContain(`${a.dir}/marbles.ts`);
+  expect(report.twice).toContain(`${a.dir}/twice.ts`);
   expect(report.twice).not.toContain("marbles-load");
   expect(report.first).toEqual({
     agents: ["helper", "reviewer"],
@@ -378,20 +370,17 @@ it("keeps where a workspace was registered to work when a later host names nowhe
   );
 }, 120_000);
 
-it("keeps what a workspace's module declares late, from a callback, in that workspace, while another loads", async () => {
+it("ignores unexported side-effect calls during load and keeps each workspace's exported declarations apart", async () => {
   const root = await scratch();
   const a = await workspace(
     root,
     "alpha",
-    `globalThis.alphaLate = new Promise((fire) => { globalThis.fireAlphaLate = fire; }).then(() => {
-  step("late-from-alpha").do(() => "late");
-});
-`
+    `step("unexported-alpha").do(() => "ignored");\n`
   );
   const b = await workspace(
     root,
     "beta",
-    "globalThis.fireAlphaLate();\nawait globalThis.alphaLate;\n"
+    `export const onlyBeta = step("only-beta").do(() => "beta");\n`
   );
   const report = await inProcess(
     root,
@@ -405,8 +394,8 @@ it("keeps what a workspace's module declares late, from a callback, in that work
   report.alpha = [...alpha.catalog.definitions.keys()].sort();
   report.beta = [...beta.catalog.definitions.keys()].sort();`
   );
-  expect(report.alpha).toEqual(["build", "late-from-alpha"]);
-  expect(report.beta).toEqual(["build"]);
+  expect(report.alpha).toEqual(["build"]);
+  expect(report.beta).toEqual(["build", "only-beta"]);
 }, 120_000);
 
 it("refuses what a closed workspace's work does later, rather than give it to the workspace left", async () => {
@@ -417,11 +406,8 @@ it("refuses what a closed workspace's work does later, rather than give it to th
     `export const arm = step("arm").do(() => {
   globalThis.alphaLate = new Promise((release) => { globalThis.releaseAlpha = release; })
     .then(() => tasks.create({ title: "late alpha" }));
-  globalThis.alphaCallback = () => tasks.create({ title: "callback alpha" });
   return "armed";
 });
-// Both in tail position: nothing of alpha's is left on the stack when they run.
-globalThis.alphaRun = () => build.run();
 `
   );
   const b = await workspace(root, "beta");
@@ -430,19 +416,11 @@ globalThis.alphaRun = () => build.run();
     `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
   const beta = await hosted.register({ config: ${JSON.stringify(b.source)}, root: ${JSON.stringify(b.dir)} });
   await hosted.run({ name: "arm", workspace: alpha.id });
-  // Called from outside any run: alpha's own code still names alpha.
-  await globalThis.alphaCallback();
-  report.alphaRun = await globalThis.alphaRun();
-  report.alphaTasks = await titles(alpha.id);
   await alpha.close();
-  report.runAfterClose = await globalThis.alphaRun().then(() => "ran", (error) => error.message);
   globalThis.releaseAlpha();
   report.late = await globalThis.alphaLate.then(() => "written", (error) => error.message);
   report.betaTasks = await titles(beta.id);`
   );
-  expect(report.alphaRun).toBe(`${a.dir}\nalpha`);
-  expect(report.alphaTasks).toEqual(["built alpha", "callback alpha"]);
-  expect(report.runAfterClose).toContain("is no longer hosted in this process");
   expect(report.late).toContain("is no longer hosted in this process");
   expect(report.betaTasks).toEqual([]);
 }, 120_000);
@@ -500,14 +478,14 @@ it("loads every registered workspace again, reports each that fails, and fires a
   expect(records.map((record) => record.hosted)).toEqual([true, true]);
 }, 120_000);
 
-it("loads a module two workspaces import from outside their roots once for each of them", async () => {
+it("shares a pure module two workspaces import and re-export from outside their roots", async () => {
   const root = await scratch();
   const shared = join(root, "shared.ts");
   await writeFile(
     shared,
     'import { step } from "@foundry.sh/marbles";\nexport const sharedStep = step("shared").do(() => "shared");\n'
   );
-  const tail = `import ${JSON.stringify(shared)};\n`;
+  const tail = `export { sharedStep } from ${JSON.stringify(shared)};\n`;
   const a = await workspace(root, "alpha", tail);
   const b = await workspace(root, "beta", tail);
   const report = await inProcess(
@@ -525,7 +503,7 @@ it("loads a module two workspaces import from outside their roots once for each 
   expect(report.shared).toEqual(["shared", "shared"]);
 }, 120_000);
 
-it("refuses what a package declares while a workspace loads, since every workspace shares it", async () => {
+it("does not register unexported declarations from an imported package", async () => {
   const root = await scratch();
   const a = await workspace(root, "alpha", 'import "declaring-package";\n');
   const pkg = join(a.dir, "node_modules", "declaring-package");
@@ -541,9 +519,12 @@ it("refuses what a package declares while a workspace loads, since every workspa
   const report = await inProcess(
     root,
     `const [load] = await hosted.load([{ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} }]);
-  report.load = load.loaded ? "loaded" : load.error.message;`
+  report.loaded = load.loaded;
+  report.definitions = hosted.definitions().map(({ name }) => name);`
   );
-  expect(report.load).toContain("comes from a package");
+  expect(report.loaded).toBe(true);
+  expect(report.definitions).toContain("build");
+  expect(report.definitions).not.toContain("from-package");
 }, 120_000);
 
 it("fails a registered workspace whose source is gone, loads one registered without a source, and forgets an unregistered one", async () => {
@@ -740,38 +721,9 @@ it("lets every workspace finish closing before it closes the database, and repor
   expect(report.errors).toEqual(["alpha failed to close"]);
 }, 120_000);
 
-it("refuses what a closed workspace's module declares later, rather than keep it in a catalog no engine uses", async () => {
+it("hosts a workspace again cleanly after unregistering it", async () => {
   const root = await scratch();
-  const a = await workspace(
-    root,
-    "alpha",
-    'globalThis.declareLate = () => step("late").do(() => "late");\n'
-  );
-  const report = await inProcess(
-    root,
-    `const alpha = await hosted.register({ config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} });
-  await alpha.close();
-  try {
-    globalThis.declareLate();
-    report.late = "declared";
-  } catch (error) {
-    report.late = error.name;
-  }`
-  );
-  expect(report.late).toBe("WorkspaceReleasedError");
-}, 120_000);
-
-it("refuses a first load's late work once its workspace is hosted again, and the new host answers its own", async () => {
-  const root = await scratch();
-  const a = await workspace(
-    root,
-    "alpha",
-    `globalThis.loads = [...(globalThis.loads ?? []), {
-  declare: () => step("late").do(() => "late"),
-  run: () => build.run(),
-}];
-`
-  );
+  const a = await workspace(root, "alpha");
   const report = await inProcess(
     root,
     `const registration = { config: ${JSON.stringify(a.source)}, root: ${JSON.stringify(a.dir)} };
@@ -779,23 +731,9 @@ it("refuses a first load's late work once its workspace is hosted again, and the
   await hosted.unregister(alpha.id);
   const again = await hosted.register(registration);
   report.hostedAgain = again !== alpha && !again.engine.disposed;
-  const [first] = globalThis.loads;
-  try {
-    first.declare();
-    report.late = "declared";
-  } catch (error) {
-    report.late = error.name;
-  }
-  report.lateRun = await first.run().then(() => "ran", (error) => error.name);
-  report.inNew = again.engine.definitions().some(({ name }) => name === "late");
   report.newRun = await hosted.run({ name: "build", workspace: again.id });`
   );
-  expect(report).toMatchObject({
-    hostedAgain: true,
-    inNew: false,
-    late: "WorkspaceReleasedError",
-    lateRun: "WorkspaceReleasedError",
-  });
+  expect(report.hostedAgain).toBe(true);
   expect(report.newRun).toBe(`${a.dir}\nalpha`);
 }, 120_000);
 

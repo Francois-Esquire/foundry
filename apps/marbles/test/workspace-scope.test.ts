@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
 import {
   resolveSelection,
   runSelection,
   selectionKey,
   triggerSelection,
-} from "../src/cli/state/dashboard-model";
-import { scopedRuns } from "../src/cli/state/dashboard-tree";
-import { showsOthers, workspaceScoped } from "../src/cli/state/workspace-scope";
+} from "../src/tui/state/dashboard-model";
+import { scopedRuns } from "../src/tui/state/dashboard-tree";
+import { showsOthers, workspaceScoped } from "../src/tui/state/workspace-scope";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 const [first, second] = dashboardSnapshot.runs;

@@ -177,7 +177,6 @@ export function claudeCodeProvider(
       );
     },
     models: options.models ?? [],
-    offline: false,
     turnLimit: "native",
   };
 }

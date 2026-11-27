@@ -5,7 +5,6 @@ import {
 } from "ai";
 import type { ModelKind, ProviderModelDefinition } from "../model-definition";
 import type { Provider } from "../provider";
-import { vendorClient } from "../provider";
 import { parseVercelRest } from "./vercel/listing";
 
 export interface VercelProviderConfig {
@@ -30,7 +29,9 @@ export async function vercelModels(
   const url = new URL(config.baseURL ?? VERCEL_GATEWAY_BASE_URL);
   url.pathname = `${url.pathname.replace(TRAILING_SLASHES, "")}/models`;
   const response = await fetch(url.toString(), {
-    headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+    headers: config.apiKey?.trim()
+      ? { Authorization: `Bearer ${config.apiKey}` }
+      : {},
     ...(signal ? { signal } : {}),
   });
   if (!response.ok) {
@@ -46,23 +47,23 @@ export async function vercelModels(
 }
 
 export function vercelProvider(options: VercelProviderOptions = {}): Provider {
-  const vendor = vendorClient(options.config ?? {}, build);
+  const config = options.config ?? {};
+  const client = build(config);
 
   return {
     get available() {
-      return vendor.config.apiKey !== undefined;
+      return Boolean(config.apiKey?.trim());
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
-    embeddingModel: (modelId) => vendor.client.embeddingModel(modelId),
+    embeddingModel: (modelId) => client.embeddingModel(modelId),
     id: options.id ?? "vercel",
-    imageModel: (modelId) => vendor.client.imageModel(modelId),
+    imageModel: (modelId) => client.imageModel(modelId),
     languageModel: (modelId) =>
       wrapLanguageModel({
         middleware: extractReasoningMiddleware({ tagName: "think" }),
-        model: vendor.client.languageModel(modelId),
+        model: client.languageModel(modelId),
       }),
     models: options.models ?? [],
-    offline: false,
   };
 }
 

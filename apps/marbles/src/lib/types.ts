@@ -40,7 +40,7 @@ import type {
   StreamTextResult,
   ToolSet,
 } from "ai";
-import type { Exec } from "~/lib/command";
+import type { Exec } from "~/lib/command-error";
 import type { AGENT_PROMPT } from "~/lib/handles";
 import type { Log } from "~/lib/log";
 

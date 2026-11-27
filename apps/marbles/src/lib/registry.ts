@@ -6,8 +6,8 @@ import type {
   MonitorSpec,
 } from "~/lib/monitor";
 import { detector, handlerResponse } from "~/lib/monitor";
-import type { AnyDefinition, NamedDefinition } from "./definition";
-import { isNamed, quoteOrigin } from "./definition";
+import type { AnyDefinition } from "./definition";
+import { quoteOrigin } from "./definition";
 import { fieldsFromJsonSchema, JSON_INPUT_FIELD, jsonSchemaOf } from "./schema";
 import type { Schedule, Trigger } from "./triggers";
 
@@ -18,6 +18,11 @@ export interface MonitorRecord {
   readonly request?: MonitorRequest;
   readonly source: MonitorSpec;
   readonly trigger: Trigger;
+}
+
+export interface DefinitionRegistration {
+  readonly name?: string;
+  readonly origin?: string;
 }
 
 export interface DefinitionEntry {
@@ -32,11 +37,12 @@ export interface DefinitionEntry {
 export const AUTOMATION_MONITOR = "__automation_monitor";
 
 export class Registry {
-  readonly #definitions = new Map<string, NamedDefinition>();
+  readonly #definitions = new Map<string, AnyDefinition>();
+  readonly #origins = new Map<string, string | undefined>();
   readonly #monitors = new Map<string, MonitorRecord>();
   readonly #schedules = new Map<string, Schedule>();
 
-  get definitions(): ReadonlyMap<string, NamedDefinition> {
+  get definitions(): ReadonlyMap<string, AnyDefinition> {
     return this.#definitions;
   }
 
@@ -48,17 +54,25 @@ export class Registry {
     return this.#schedules;
   }
 
-  define(definition: AnyDefinition): void {
-    if (!isNamed(definition)) {
+  define(
+    definition: AnyDefinition,
+    registration?: DefinitionRegistration
+  ): void {
+    const name = registration?.name ?? definition.name;
+    if (name === undefined) {
       return;
     }
-    const taken = this.#definitions.get(definition.name);
+    const origin = registration?.origin ?? definition.origin;
+    const taken = this.#definitions.get(name);
     if (taken) {
       throw new Error(
-        `"${definition.name}" already registered${quoteOrigin(taken.origin)}; second registration${quoteOrigin(definition.origin)}`
+        `"${name}" already registered${quoteOrigin(this.#origins.get(name) ?? taken.origin)}; second registration${quoteOrigin(origin)}`
       );
     }
-    this.#definitions.set(definition.name, definition);
+    this.#definitions.set(name, definition);
+    if (origin !== undefined) {
+      this.#origins.set(name, origin);
+    }
   }
 
   schedule(record: Schedule): void {
@@ -95,7 +109,7 @@ export class Registry {
     this.#monitors.set(key, record);
   }
 
-  launchable(name: string): NamedDefinition | undefined {
+  launchable(name: string): AnyDefinition | undefined {
     return this.#declared(name) ? this.#definitions.get(name) : undefined;
   }
 
@@ -104,11 +118,12 @@ export class Registry {
   }
 
   entries(): readonly DefinitionEntry[] {
-    return [...this.#definitions.values()]
-      .filter((definition) => this.#declared(definition.name))
-      .map((definition) => {
+    return [...this.#definitions.entries()]
+      .filter(([name]) => this.#declared(name))
+      .map(([name, definition]) => {
         const schema = definition.input;
         const inputSchema = schema ? jsonSchemaOf(schema) : undefined;
+        const origin = this.#origins.get(name) ?? definition.origin;
         return {
           ...(definition.description === undefined
             ? {}
@@ -116,10 +131,8 @@ export class Registry {
           input: { fields: formFields(schema, inputSchema) },
           ...(inputSchema === undefined ? {} : { inputSchema }),
           kind: definition.kind,
-          name: definition.name,
-          ...(definition.origin === undefined
-            ? {}
-            : { origin: definition.origin }),
+          name,
+          ...(origin === undefined ? {} : { origin }),
         };
       });
   }

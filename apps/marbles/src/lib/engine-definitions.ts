@@ -3,7 +3,7 @@ import type { Bindings } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
 import type { Launcher } from "~/lib/launcher";
 import type { QueuedWorkflows } from "~/lib/queued-workflows";
-import type { MonitorRecord } from "~/lib/registry";
+import type { DefinitionRegistration, MonitorRecord } from "~/lib/registry";
 import { Registry } from "~/lib/registry";
 import type { Factory } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
@@ -19,6 +19,7 @@ export interface EngineDefinitionsOptions {
 
 export class EngineDefinitions {
   readonly registry = new Registry();
+  readonly #declaredNames = new WeakMap<AnyDefinition, string | null>();
   readonly #pools = new Map<string, string>();
   readonly #direct = new Map<string, AnyDefinition>();
   readonly #directNames = new WeakMap<AnyDefinition, string>();
@@ -29,18 +30,28 @@ export class EngineDefinitions {
     this.#options = options;
   }
 
-  define(definition: AnyDefinition, pool?: string): void {
-    if (definition.name !== undefined) {
-      this.#claim(definition.name, { definitions: false, label: "define" });
+  define(
+    definition: AnyDefinition,
+    pool?: string,
+    registration?: DefinitionRegistration
+  ): void {
+    const name = registration?.name ?? definition.name;
+    if (name !== undefined) {
+      this.#claim(name, { definitions: false, label: "define" });
     }
-    this.registry.define(definition);
-    if (definition.name !== undefined) {
+    this.registry.define(definition, registration);
+    if (name !== undefined) {
       if (pool === undefined) {
-        this.#pools.delete(definition.name);
+        this.#pools.delete(name);
       } else {
-        this.#pools.set(definition.name, pool);
+        this.#pools.set(name, pool);
       }
-      this.#registerOnQueue(definition.name);
+      this.#registerOnQueue(name);
+      const previous = this.#declaredNames.get(definition);
+      this.#declaredNames.set(
+        definition,
+        previous === undefined || previous === name ? name : null
+      );
     }
   }
 
@@ -75,7 +86,7 @@ export class EngineDefinitions {
 
   registerAll(running: QueuedWorkflows): void {
     for (const [name, definition] of this.registry.definitions) {
-      running.register(name, this.#factory(definition));
+      running.register(name, this.#factory(definition, name));
     }
     for (const register of this.#extra.values()) {
       register(running);
@@ -87,10 +98,17 @@ export class EngineDefinitions {
   }
 
   declaredName(definition: AnyDefinition): string | undefined {
-    return definition.name !== undefined &&
+    const mapped = this.#declaredNames.get(definition);
+    if (mapped !== undefined) {
+      return mapped === null ? undefined : mapped;
+    }
+    if (
+      definition.name !== undefined &&
       this.registry.definitions.get(definition.name) === definition
-      ? definition.name
-      : undefined;
+    ) {
+      return definition.name;
+    }
+    return undefined;
   }
 
   directName(definition: AnyDefinition, running: QueuedWorkflows): string {
@@ -98,12 +116,7 @@ export class EngineDefinitions {
     if (known !== undefined) {
       return known;
     }
-    const declared = definition.name;
-    const registered =
-      declared !== undefined &&
-      this.registry.definitions.get(declared) === definition
-        ? declared
-        : undefined;
+    const registered = this.declaredName(definition);
     const name = registered ?? `direct-${crypto.randomUUID()}`;
     if (registered === undefined) {
       const register = (target: QueuedWorkflows) =>
@@ -127,7 +140,7 @@ export class EngineDefinitions {
     const definition = this.registry.definitions.get(name);
     const running = this.#options.running();
     if (definition && running) {
-      running.register(name, this.#factory(definition));
+      running.register(name, this.#factory(definition, name));
     }
   }
 

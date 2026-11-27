@@ -2,9 +2,9 @@ import { expect, it } from "vitest";
 import type {
   HarnessActivitySnapshot,
   RunSnapshot,
-} from "~/cli/state/dashboard-model";
-import { selectionKey } from "~/cli/state/dashboard-model";
-import { expandedRun, matchingRuns, runRows } from "~/cli/state/dashboard-tree";
+} from "~/tui/state/dashboard-model";
+import { selectionKey } from "~/tui/state/dashboard-model";
+import { expandedRun, matchingRuns, runRows } from "~/tui/state/dashboard-tree";
 
 function activity(
   id: string,

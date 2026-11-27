@@ -32,6 +32,7 @@ export {
   CODING_INSTRUCTIONS,
   createBuiltinCodingHarness,
 } from "./builtin-coding";
+export { composeTools } from "./compose-tools";
 export { createDriverSession } from "./driver-session";
 export type {
   DriverSessionSettings,
@@ -77,11 +78,9 @@ export type {
   AgentInvocationContext,
   RegisteredToolCall,
   ToolEffectLocation,
-  ToolEffectPort,
   ToolMeta,
 } from "./tool-registration";
 export {
-  directToolEffectPort,
   metaOf,
   TOOL_META,
   tagTool,

@@ -19,8 +19,9 @@ import { createEngine } from "~/create";
 import { keepingLinks } from "~/database/artifact-links";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { artifactPlace, linkName, rebuildLinks } from "~/database/links";
+import { artifactBlobs } from "~/database/local-artifacts";
 import { readResourceView, resourceAssociations } from "~/database/resources";
-import { artifactBlobs, workspaceStores } from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks, workspaceLinks } from "~/layout";
 import type { Engine } from "~/lib/engine";
@@ -74,7 +75,7 @@ function holdLinks(root: string): Promise<() => Promise<void>> {
   return acquireFileLock(join(workspaceLinks(root), ".lock"));
 }
 
-const REPAIRS = /marbles artifacts relink repairs it/;
+const REPAIRS = /\[links\] could not update/;
 
 function temporaries(root: string): string[] {
   return readdirSync(workspaceLinks(root), { recursive: true })

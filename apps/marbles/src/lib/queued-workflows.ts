@@ -11,21 +11,32 @@ import type { FeedRouter } from "~/lib/feed/route";
 import { feedRouter } from "~/lib/feed/route";
 import { FollowedRuns } from "~/lib/followed-runs";
 import type { DispatchedRun } from "~/lib/launcher";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { RunListing } from "~/lib/run-listing";
-import type { QueuedRun, RunFactory, SubmitOptions } from "~/lib/run-queue";
+import type {
+  QueuedRun,
+  RunFactory,
+  RunQueueOptions,
+  SubmitOptions,
+} from "~/lib/run-queue";
 import { RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
 import { PAUSE_KIND } from "~/lib/run-scope";
+import type { RunOutputSink } from "~/lib/state/output";
 import type { RunRecord } from "~/lib/workflow-runs";
 import { readRun, readRuns } from "~/lib/workflow-runs";
 
 export interface QueuedWorkflowsOptions {
   readonly askable: boolean;
+  readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly durable: boolean;
   readonly executions: Pick<Executions, "progress">;
   readonly feed: FeedPublisher;
   readonly feedEntries: Pick<ArtifactSubstrate, "get">;
   readonly follow: (runId: string, dispatched: DispatchedRun) => void;
+  readonly leaseTtlMs?: number;
+  readonly liveness?: OwnerLiveness;
+  readonly outputSink?: RunOutputSink;
   readonly pools: readonly ConcurrencyPool[];
   readonly print: (line: string) => void;
   readonly registered: (name: string) => boolean;
@@ -55,8 +66,20 @@ export class QueuedWorkflows {
   }
 
   private constructor(options: QueuedWorkflowsOptions) {
-    const { askable, durable, executions, feed, print, scopes, state, store } =
-      options;
+    const {
+      askable,
+      createQueueClient,
+      durable,
+      executions,
+      feed,
+      leaseTtlMs,
+      liveness,
+      outputSink,
+      print,
+      scopes,
+      state,
+      store,
+    } = options;
     this.#options = options;
     this.store = store;
     this.queue = new RunQueue(store, {
@@ -64,6 +87,11 @@ export class QueuedWorkflows {
         prepare: (name, runId) => this.#followStarted(name, runId),
         started: (runId, workflow) => this.#followed.attach(runId, workflow),
       },
+      ...(createQueueClient === undefined
+        ? {}
+        : { createClient: createQueueClient }),
+      ...(leaseTtlMs === undefined ? {} : { leaseTtlMs }),
+      ...(liveness === undefined ? {} : { liveness }),
       pools: options.pools,
     });
     this.#router = feedRouter({
@@ -76,6 +104,8 @@ export class QueuedWorkflows {
     });
     this.#followed = new FollowedRuns({
       executions,
+      ...(liveness === undefined ? {} : { liveness }),
+      ...(outputSink === undefined ? {} : { outputSink }),
       print,
       queue: this.queue,
       router: this.#router,

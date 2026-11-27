@@ -1,12 +1,10 @@
-import { createHash } from "node:crypto";
-
 import { globToRegExp } from "@foundry/lib/glob";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
-
 import type { HostBindings } from "~/lib/bindings";
 import type { StepFn } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
+import { sha256HexSync } from "~/lib/hash";
 import type { Launch } from "~/lib/launch";
 import { launchTarget } from "~/lib/launch";
 import type { LocalWorkspaces } from "~/lib/managers/workspaces";
@@ -63,14 +61,12 @@ export interface Detection {
   readonly launch?: Launch;
 }
 
-export const DEFAULT_EVERY = "60s";
-
 export function describeMonitor(spec: MonitorSpec): string {
   return spec.kind === "files" ? `files ${spec.glob}` : `http ${spec.url}`;
 }
 
 function sha256(text: string | Uint8Array): string {
-  return createHash("sha256").update(text).digest("hex");
+  return sha256HexSync(text);
 }
 
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>;

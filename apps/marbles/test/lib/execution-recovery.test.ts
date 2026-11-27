@@ -107,7 +107,7 @@ it("keeps queued work across a stop and admits it in the next process's order", 
 it("re-admits a gone process's queued workflow under its recorded id", async () => {
   const state = join(fixture.root, "state");
   const calls: string[] = [];
-  step("flow").do(() => {
+  const flowDef = step("flow").do(() => {
     calls.push("flow");
     return "ran";
   });
@@ -122,6 +122,7 @@ it("re-admits a gone process's queued workflow under its recorded id", async () 
   ]);
 
   const engine = engineWith({ state });
+  engine.define(flowDef);
   await engine.start();
   await until(
     () => engine.executions.get("rn-flow-queued")?.status === "complete"

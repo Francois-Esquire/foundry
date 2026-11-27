@@ -1,14 +1,14 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { daemonAlive } from "~/process/client";
 import { cliArgs } from "./helpers/cli";
 import { testHome } from "./helpers/home";
 import { temporaryDirectory } from "./helpers/temporary";
 
-it("starts, attaches, detaches and stops the Marbles process under marbles daemon", async () => {
+it("starts, unhosts with --workspace, and stops the Marbles process under marbles start/stop", async () => {
   const home = testHome();
   const root = await realpath(temporaryDirectory("marbles-daemon-cli-"));
   const source = join(root, "marbles.ts");
@@ -22,42 +22,32 @@ it("starts, attaches, detaches and stops the Marbles process under marbles daemo
       timeout: 60_000,
     });
 
-  const foreground = spawn("bun", cliArgs("daemon", "start"), {
-    cwd: root,
-    env: home.env,
-  });
-  home.track(foreground.pid, false);
-  const exited = new Promise<number | null>((settle) =>
-    foreground.on("exit", settle)
-  );
-  await vi.waitFor(() => expect(daemonAlive(home.layout)).toBe(true), {
-    interval: 100,
-    timeout: 30_000,
-  });
+  const started = marbles("start");
+  expect(started.status, started.stderr).toBe(0);
+  expect(started.stdout).toContain(`hosts ${root}`);
+  expect(daemonAlive(home.layout)).toBe(true);
+  expect(marbles("workspaces").stdout).toContain(root);
 
-  const attached = marbles("daemon", "attach");
-  expect(attached.status, attached.stderr).toBe(0);
-  expect(attached.stdout).toContain(`hosts ${root}`);
-  expect(marbles("status").stdout).toContain(root);
-
-  const detached = marbles("daemon", "detach");
+  const detached = marbles("stop", "--workspace");
   expect(detached.status, detached.stderr).toBe(0);
   expect(detached.stdout).toContain(`detached ${root}`);
+  expect(daemonAlive(home.layout)).toBe(true);
 
-  const stopped = marbles("daemon", "stop");
+  const stopped = marbles("stop");
   expect(stopped.status, stopped.stderr).toBe(0);
   expect(stopped.stdout).toContain("stopped Marbles process pid");
-  expect(await exited).not.toBeNull();
   expect(daemonAlive(home.layout)).toBe(false);
-  expect(marbles("daemon", "stop").stdout).toContain(
-    "no Marbles process is running"
-  );
+  expect(marbles("stop").stdout).toContain("no Marbles process is running");
 
-  for (const removed of ["attach", "detach", "stop"]) {
+  for (const [removed, hint] of [
+    ["daemon", "marbles start or marbles stop"],
+    ["attach", "marbles start"],
+    ["detach", "marbles stop --workspace"],
+  ] as const) {
     const refused = marbles(removed);
     expect(refused.status, removed).toBe(1);
     expect(refused.stderr).toContain(
-      `unknown command "${removed}"; ${removed} is now marbles daemon ${removed}`
+      `unknown command "${removed}"; ${removed} is now ${hint}`
     );
   }
 }, 120_000);

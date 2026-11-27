@@ -69,6 +69,9 @@ it.each(["anonymous", "registered"] as const)(
       });
     const state = join(fixture.root, "state");
     const engine = engineWith({ state });
+    if (kind === "registered") {
+      engine.define(definition);
+    }
     const first = engine.execute<number>(definition, { n: 1 });
     const second = engine.execute<number>(definition, { n: 2 });
     try {
@@ -197,11 +200,12 @@ it("applies a concurrency change live, without stopping what already runs", asyn
 
 it("records workflow runs under the Orchestrator's own id, and shows queued ones on the dashboard", async () => {
   const release = gate();
-  step("hold").do(async () => {
+  const hold = step("hold").do(async () => {
     await release.opened;
     return "held";
   });
   const engine = engineWith();
+  engine.define(hold);
   await engine.start();
   const first = await engine.launch<string>("hold", {}, "watch");
   const second = await engine.launch<string>("hold", {}, "other");
@@ -460,8 +464,9 @@ it("fails a task that throws, with a safe code", async () => {
 });
 
 it("rejects names it cannot run, and one name held by two kinds of runnable", async () => {
-  step("taken").do(() => 1);
+  const taken = step("taken").do(() => 1);
   const engine = engineWith();
+  engine.define(taken);
   expect(() => engine.task({ name: "taken", run: () => 1 })).toThrow(
     "already registered"
   );

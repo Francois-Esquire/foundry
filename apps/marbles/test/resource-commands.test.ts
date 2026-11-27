@@ -1,27 +1,16 @@
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  symlinkSync,
-} from "node:fs";
-import { readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Artifacts, artifactIdSchema } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
-import type { ResourceCommandContext } from "~/cli/resources/commands";
-import {
-  changeAssociation,
-  listResources,
-  relink,
-} from "~/cli/resources/commands";
-import { LinksPlacementError, linkName } from "~/database/links";
+import type { ResourceCommandContext } from "~/cli/resource-runner";
+import { getResource, listResources } from "~/cli/resource-runner";
+import { artifactBlobs } from "~/database/local-artifacts";
 import { initializeDatabase } from "~/database/open";
-import { artifactBlobs } from "~/database/stores";
-import { resourceLinks, stateDatabase, workspaceLinks } from "~/layout";
+import { stateDatabase } from "~/layout";
 import { ResourceAssociationError } from "~/lib/resources";
 import { workspaceState } from "~/lib/state/workspace";
 import { cliArgs } from "./helpers/cli";
@@ -29,10 +18,7 @@ import { touchWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
-const CANNOT_SHARE =
-  /a sandbox belongs to the workspace that started it and cannot be shared/;
 const RUN_LINE = /^rn-1 {2}guides {2}\[complete\]/;
-const NOT_HERE = /no artifact artifact#missing in this workspace/;
 
 async function machine() {
   const home = await realpath(temporaryDirectory("marbles-resource-cli-"));
@@ -64,7 +50,6 @@ async function machine() {
   const context = (workspace: typeof one) => {
     const lines: string[] = [];
     const made: ResourceCommandContext = {
-      artifacts,
       directory: home,
       print: (line) => lines.push(line),
       state,
@@ -81,208 +66,130 @@ function mkdirAt(path: string): string {
 }
 
 describe("the resource commands", () => {
-  it("list what this workspace shows, and with --all every workspace's, marking where each is from", async () => {
+  it("lists and gets resources for this workspace, by --workspace id or path, and with --all", async () => {
     const { context, notes, one, two } = await machine();
     const first = context(one);
-    await listResources("artifact", false, first.context);
+    await listResources("artifact", { all: false }, first.context);
     expect(first.lines).toEqual([
       expect.stringMatching(`^${notes.id}  notes  text/markdown  \\[`),
     ]);
-    await listResources("run", false, first.context);
+    await listResources("run", { all: false }, first.context);
     expect(first.lines.at(-1)).toMatch(RUN_LINE);
+
     const second = context(two);
-    await listResources("artifact", false, second.context);
-    await listResources("run", false, second.context);
+    await listResources("artifact", { all: false }, second.context);
+    await listResources("run", { all: false }, second.context);
     expect(second.lines).toEqual([]);
-    await listResources("artifact", true, second.context);
+
+    await listResources(
+      "artifact",
+      { all: false, workspace: one.id },
+      second.context
+    );
     expect(second.lines).toEqual([
+      expect.stringMatching(`^${notes.id}  notes  text/markdown  \\[`),
+    ]);
+
+    const byPath = context(two);
+    await getResource(
+      "artifact",
+      notes.id,
+      { all: false, workspace: one.root },
+      byPath.context
+    );
+    expect(byPath.lines).toContain(`id: ${notes.id}`);
+    expect(byPath.lines).toContain("name: notes");
+
+    const allView = context(two);
+    await listResources("artifact", { all: true }, allView.context);
+    expect(allView.lines).toEqual([
       expect.stringMatching(` {2}from ${one.id}$`),
     ]);
   });
 
-  it("share an artifact with another workspace and link its files there, then take both back, leaving the artifact", async () => {
-    const { artifacts, context, home, notes, one, two } = await machine();
-    const { context: here, lines } = context(one);
-    await changeAssociation(
-      "share",
-      { id: notes.id, kind: "artifact", with: "two" },
-      here
-    );
-    expect(lines[0]).toBe(
-      `shared with ${join(home, "two")}: artifact ${notes.id}`
-    );
-    const linked = join(
-      resourceLinks(two.root, "artifact"),
-      `@${linkName(one.id)}`,
-      linkName(notes.id)
-    );
-    expect(lstatSync(join(linked, "notes.md")).isSymbolicLink()).toBe(true);
-    expect(await readFile(join(linked, "docs", "guide.md"), "utf8")).toBe(
-      "# Guide\n"
-    );
-    expect(
-      await readFile(join(workspaceLinks(two.root), ".gitignore"), "utf8")
-    ).toBe("*\n");
-    const there = context(two);
-    await listResources("artifact", false, there.context);
-    expect(there.lines).toEqual([expect.stringMatching(` {2}from ${one.id}$`)]);
-
-    await changeAssociation(
-      "unshare",
-      { id: notes.id, kind: "artifact", with: "two" },
-      here
-    );
-    expect(existsSync(linked)).toBe(false);
-    const after = context(one);
-    await listResources("artifact", false, after.context);
-    expect(after.lines).toHaveLength(1);
-    expect(
-      readdirSync(artifactBlobs(artifacts, one.id)).filter(
-        (name) => !name.startsWith(".")
-      )
-    ).toHaveLength(2);
-  });
-
-  it("rebuild a workspace's links from the database, removing its own stale links and keeping what is not one", async () => {
-    const { artifacts, context, notes, one } = await machine();
-    const dir = resourceLinks(one.root, "artifact");
-    mkdirSync(join(dir, "gone"), { recursive: true });
-    symlinkSync(
-      join(artifactBlobs(artifacts, one.id), "stale"),
-      join(dir, "gone", "stale.md")
-    );
-    symlinkSync("/nowhere", join(dir, "shortcut"));
-    await writeFile(join(dir, "mine.txt"), "kept");
-    const { context: here, lines } = context(one);
-    await relink(false, here);
-    expect(existsSync(join(dir, "gone"))).toBe(false);
-    expect(lstatSync(join(dir, "shortcut")).isSymbolicLink()).toBe(true);
-    expect(await readFile(join(dir, "mine.txt"), "utf8")).toBe("kept");
-    expect(
-      await readFile(join(dir, linkName(notes.id), "notes.md"), "utf8")
-    ).toBe("# Notes\n");
-    expect(lines).toEqual([
-      `${dir}: 2 linked`,
-      "  .marbles/artifacts/mine.txt: not a link Marbles made, left as it is",
-      "  .marbles/artifacts/shortcut: not a link Marbles made, left as it is",
-    ]);
-  });
-
-  it("link an artifact whose id is a path name of its own under an escaped name, never outside", async () => {
-    const { artifacts, context, one, state } = await machine();
-    const opened = await initializeDatabase(stateDatabase(state));
-    await new Artifacts({
-      files: blobFiles(artifactBlobs(artifacts, one.id)),
-      store: new SqliteArtifactStore({
-        database: opened.database,
-        scope: one.id,
-      }),
-    }).create({
-      entries: { "escape.md": { bytes: "# Out\n", mime: "text/markdown" } },
-      id: artifactIdSchema.parse(".."),
-      name: "dots",
-      type: "text/markdown",
-    });
-    opened.close();
-    const { context: here, lines } = context(one);
-    await relink(false, here);
-    expect(existsSync(join(workspaceLinks(one.root), "escape.md"))).toBe(false);
-    expect(
-      await readFile(
-        join(resourceLinks(one.root, "artifact"), "%2E%2E", "escape.md"),
-        "utf8"
-      )
-    ).toBe("# Out\n");
-    expect(lines[0]).toBe(`${resourceLinks(one.root, "artifact")}: 3 linked`);
-  });
-
-  it("refuse to share a sandbox before looking for it", async () => {
-    const { context, one } = await machine();
+  it("refuses unknown workspaces and missing resource ids", async () => {
+    const { context, two } = await machine();
     await expect(
-      changeAssociation(
-        "share",
-        { id: "ct-missing", kind: "sandbox", with: "two" },
-        context(one).context
-      )
-    ).rejects.toThrow(CANNOT_SHARE);
-  });
-
-  it("refuse a links directory that is a link, and a resource this workspace does not show", async () => {
-    const { context, home, one, two } = await machine();
-    symlinkSync(join(home, "two"), workspaceLinks(one.root));
-    await expect(relink(false, context(one).context)).rejects.toThrow(
-      LinksPlacementError
-    );
-    await expect(
-      changeAssociation(
-        "share",
-        { id: "artifact#missing", kind: "artifact", with: "one" },
-        context(two).context
-      )
-    ).rejects.toThrow(NOT_HERE);
-    await expect(
-      changeAssociation(
-        "share",
-        { id: "x", kind: "artifact", with: "three" },
+      listResources(
+        "artifact",
+        { all: false, workspace: "no-such-ws" },
         context(two).context
       )
     ).rejects.toThrow(ResourceAssociationError);
+    await expect(
+      getResource(
+        "artifact",
+        "artifact#missing",
+        { all: false },
+        context(two).context
+      )
+    ).rejects.toThrow('no artifact "artifact#missing"');
   });
 });
 
 describe("the resource commands from the CLI", { timeout: 120_000 }, () => {
-  it("list, share, unshare and relink under each resource's own noun", async () => {
+  it("lists and gets resources under each resource noun with --workspace, --all, and --json", async () => {
     const { home, notes, one, two } = await machine();
     await writeFile(
       join(one.root, "marbles.ts"),
       'import "@foundry.sh/marbles";\n'
     );
-    const marbles = (...args: string[]) =>
-      spawnSync(
-        "bun",
-        cliArgs(...args, "--source", join(one.root, "marbles.ts")),
-        {
-          cwd: one.root,
-          encoding: "utf8",
-          env: { ...process.env, FOUNDRY_ROOT: home },
-          input: "",
-          timeout: 60_000,
-        }
-      );
-    const listed = marbles("artifacts");
+    const marbles = (cwd: string, ...args: string[]) =>
+      spawnSync("bun", cliArgs(...args), {
+        cwd,
+        encoding: "utf8",
+        env: { ...process.env, FOUNDRY_ROOT: home },
+        input: "",
+        timeout: 60_000,
+      });
+
+    const listed = marbles(one.root, "artifacts");
     expect(listed.status, listed.stderr).toBe(0);
     expect(listed.stdout).toContain(`${notes.id}  notes`);
-    expect(marbles("artifacts", "list", "--all").stdout).toContain(notes.id);
-    expect(marbles("runs").stdout).toMatch(RUN_LINE);
-
-    const shared = marbles("artifacts", "share", notes.id, two.root);
-    expect(shared.status, shared.stderr).toBe(0);
-    expect(shared.stdout).toContain(
-      `shared with ${two.root}: artifact ${notes.id}`
+    expect(marbles(two.root, "artifacts", "list", "--all").stdout).toContain(
+      notes.id
     );
-    const linked = join(
-      resourceLinks(two.root, "artifact"),
-      `@${linkName(one.id)}`,
-      linkName(notes.id)
+    expect(
+      marbles(two.root, "artifacts", "list", "--workspace", one.id).stdout
+    ).toContain(`${notes.id}  notes`);
+
+    const got = marbles(
+      two.root,
+      "artifacts",
+      "get",
+      notes.id,
+      "--workspace",
+      one.id,
+      "--json"
     );
-    expect(existsSync(linked)).toBe(true);
+    expect(got.status, got.stderr).toBe(0);
+    expect(JSON.parse(got.stdout)).toMatchObject({
+      id: notes.id,
+      name: "notes",
+      owner: one.id,
+    });
 
-    const relinked = marbles("artifacts", "relink");
-    expect(relinked.status, relinked.stderr).toBe(0);
-    expect(relinked.stdout).toContain(
-      `${resourceLinks(one.root, "artifact")}: 2 linked`
-    );
+    const runGot = marbles(one.root, "runs", "get", "rn-1");
+    expect(runGot.status, runGot.stderr).toBe(0);
+    expect(runGot.stdout).toContain("id: rn-1");
+    expect(runGot.stdout).toContain("step: guides");
 
-    const unshared = marbles("artifacts", "unshare", notes.id, two.root);
-    expect(unshared.status, unshared.stderr).toBe(0);
-    expect(existsSync(linked)).toBe(false);
+    const wsGot = marbles(one.root, "workspaces", "get", one.id, "--json");
+    expect(wsGot.status, wsGot.stderr).toBe(0);
+    expect(JSON.parse(wsGot.stdout)).toMatchObject({ id: one.id });
 
-    const missing = marbles("runs", "share", "rn-missing", two.root);
+    const missing = marbles(one.root, "runs", "get", "rn-missing");
     expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain("no run rn-missing in this workspace");
+    expect(missing.stderr).toContain('no run "rn-missing"');
 
     for (const removed of ["share", "unshare", "relink"]) {
-      const refused = marbles(removed, "artifact", notes.id, two.root);
+      const refused = marbles(
+        one.root,
+        removed,
+        "artifact",
+        notes.id,
+        two.root
+      );
       expect(refused.status, removed).toBe(1);
       expect(refused.stderr).toContain(`unknown command "${removed}"`);
     }

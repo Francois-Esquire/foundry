@@ -3,7 +3,7 @@ import {
   containerSandboxConfigFromConstraints,
   containerSandboxConstraintsSchema,
 } from "../container/constraints";
-import { resolveContainerSpec } from "../container/sandbox";
+import { resolveContainerSpec } from "../container/spec";
 
 it("normalizes exact destinations and defaults unspecified native egress to deny", async () => {
   const constraints = containerSandboxConstraintsSchema.parse({

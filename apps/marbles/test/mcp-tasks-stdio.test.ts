@@ -110,14 +110,13 @@ it("serves the workspace's tasks: a CLI change logged before any observer, tags,
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
-observe(tasks, (payload) => {
+export const seenObserver = observe(tasks, (payload) => {
   appendFileSync(${JSON.stringify(seen)}, JSON.stringify(payload) + "\\n");
 }, { name: "seen" });
-// Keeps failing, so it stays where it started.
-observe(tasks, () => {
+export const failingObserver = observe(tasks, () => {
   throw new Error("not yet");
 }, { name: "failing" });
-step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
+export const titles = step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
@@ -159,16 +158,12 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }),
   ]);
   try {
-    const attached = spawnSync(
-      "bun",
-      cliArgs("daemon", "attach", "--source", source),
-      {
-        cwd: root,
-        encoding: "utf8",
-        env: home.env,
-        timeout: 60_000,
-      }
-    );
+    const attached = spawnSync("bun", cliArgs("start", "--source", source), {
+      cwd: root,
+      encoding: "utf8",
+      env: home.env,
+      timeout: 60_000,
+    });
     expect(attached.status, attached.stderr).toBe(0);
     await client.connect(transport);
     const created = await client.callTool({
@@ -299,9 +294,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     const [first] = JSON.parse(after.stdout).items;
     for (const argv of [
       ["list"],
-      ["ready", "--any-tag", "cli"],
+      ["list", "--ready", "--tag", "cli"],
       ["get", first.id, "--depth", "1"],
-      ["deps", first.id],
     ]) {
       const read = cli(...argv, "--json");
       expect(read.status, `${argv.join(" ")}: ${read.stderr}`).toBe(0);

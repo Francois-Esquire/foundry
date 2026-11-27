@@ -191,7 +191,9 @@ const hydrate = <I, O, X extends BaseContext>(
     });
     const parsed = WorkflowCheckpointSchema.safeParse(context.checkpoint);
     const checkpoint = parsed.success ? parsed.data : undefined;
-    yield* root.snapshot.seed(settledSteps(checkpoint));
+    yield* root.snapshot.seed(settledSteps(checkpoint), {
+      memoize: workflow.persistence.results !== "transient",
+    });
     if (checkpoint?.telemetry !== undefined) {
       yield* workflow[workflowEffectAccessKey]().restoreTelemetry(
         checkpoint.telemetry
@@ -296,11 +298,17 @@ export const workflowHandler =
   (context) =>
     Effect.gen(function* () {
       const workflow = yield* materialize(factory, context);
-      yield* hydrate(workflow, context);
-      yield* Effect.sync(() => options.onStart?.(context.run.id, workflow));
-      return yield* drive(workflow, context).pipe(
+      return yield* Effect.gen(function* () {
+        yield* hydrate(workflow, context);
+        yield* Effect.sync(() => options.onStart?.(context.run.id, workflow));
+        return yield* drive(workflow, context).pipe(
+          Effect.ensuring(
+            Effect.sync(() => options.onFinish?.(context.run.id, workflow))
+          )
+        );
+      }).pipe(
         Effect.ensuring(
-          Effect.sync(() => options.onFinish?.(context.run.id, workflow))
+          Effect.promise(() => workflow.dispose({ abort: false }))
         )
       );
     });

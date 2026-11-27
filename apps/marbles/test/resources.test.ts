@@ -8,7 +8,7 @@ import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { inArray } from "drizzle-orm";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { resourceLines } from "~/cli/resources/text";
+import { resourceLines } from "~/cli/format/resources";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import {

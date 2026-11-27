@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import { openWorkspaceRecords } from "~/database/managed";
 import type { Engine } from "~/lib/engine";
 import { testEngine } from "../helpers/engine";
@@ -19,7 +18,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
   await rm(root, { force: true, recursive: true });
 });

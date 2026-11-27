@@ -705,29 +705,25 @@ it("starts the Marbles process all the same when it cannot be recorded", async (
   const source = join(home, "marbles.ts");
   writeFileSync(
     source,
-    'import { step } from "@foundry.sh/marbles";\nstep("noop").do(() => "ok");\n'
+    'import { step } from "@foundry.sh/marbles";\nexport const noop = step("noop").do(() => "ok");\n'
   );
   const env = {
     ...process.env,
     FOUNDRY_ROOT: home,
     [SPAWN_RECORD_ENV]: shared,
   };
-  const attached = spawnSync(
-    "bun",
-    cliArgs("daemon", "attach", "--source", source),
-    {
-      encoding: "utf8",
-      env,
-      timeout: 60_000,
-    }
-  );
+  const attached = spawnSync("bun", cliArgs("start", "--source", source), {
+    encoding: "utf8",
+    env,
+    timeout: 60_000,
+  });
   try {
     expect(attached.status, attached.stderr).toBe(0);
     expect(attached.stderr).toContain("could not record process");
     expect(daemonAlive(layout({ home }))).toBe(true);
     expect(readdirSync(shared)).toEqual([]);
   } finally {
-    spawnSync("bun", cliArgs("daemon", "stop"), { env, timeout: 60_000 });
+    spawnSync("bun", cliArgs("stop"), { env, timeout: 60_000 });
     await vi.waitFor(() => expect(daemonAlive(layout({ home }))).toBe(false), {
       timeout: 30_000,
     });
@@ -947,17 +943,13 @@ it("records the Marbles process a test's CLI starts in the test's home", async (
   const source = join(home.path, "marbles.ts");
   writeFileSync(
     source,
-    'import { step } from "@foundry.sh/marbles";\nstep("noop").do(() => "ok");\n'
+    'import { step } from "@foundry.sh/marbles";\nexport const noop = step("noop").do(() => "ok");\n'
   );
-  const attached = spawnSync(
-    "bun",
-    cliArgs("daemon", "attach", "--source", source),
-    {
-      encoding: "utf8",
-      env: home.env,
-      timeout: 60_000,
-    }
-  );
+  const attached = spawnSync("bun", cliArgs("start", "--source", source), {
+    encoding: "utf8",
+    env: home.env,
+    timeout: 60_000,
+  });
   expect(attached.status, attached.stderr).toBe(0);
   const records = home.env[SPAWN_RECORD_ENV] ?? "";
   const recorded = readdirSync(records).map((name) =>
@@ -994,7 +986,7 @@ it("stops that process and removes the home when the test finishes", () => {
 it("records the MCP server that marbles mcp relays", async () => {
   const home = testHome();
   const transport = new RecordedStdioTransport({
-    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--dry-run"],
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
     command: "bun",
     cwd: home.path,
     env: home.env,

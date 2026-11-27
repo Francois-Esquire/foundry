@@ -4,10 +4,10 @@ import {
   ScheduleDispatch,
   type Schedule as StoredSchedule,
 } from "@foundry/scheduling";
-import { monitor, step } from "@foundry.sh/marbles";
+import { Catalog, monitor, step } from "@foundry.sh/marbles";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { catalog } from "~/authoring/catalog";
+import type { CollectInput } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { registration } from "~/lib/schedule";
@@ -22,7 +22,6 @@ import { temporaryDirectory } from "./helpers/temporary";
 const engines: Engine[] = [];
 
 afterEach(async () => {
-  catalog.reset();
   for (const engine of engines.splice(0)) {
     await engine.dispose();
   }
@@ -39,8 +38,11 @@ function every(key: string, ms: number, workflow = key): Schedule {
   };
 }
 
-async function engineWith(...schedules: Schedule[]): Promise<Engine> {
-  const engine = await startEngine({ print: () => undefined });
+async function engineWith(
+  collect: CollectInput,
+  ...schedules: Schedule[]
+): Promise<Engine> {
+  const engine = await startEngine({ collect, print: () => undefined });
   engines.push(engine);
   for (const schedule of schedules) {
     engine.schedule(schedule);
@@ -71,12 +73,12 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
   it("dispatches an interval once its delay passed, and again only a delay after its run settled", async () => {
     const ends: number[] = [];
     const starts: number[] = [];
-    step("beat").do(async () => {
+    const beat = step("beat").do(async () => {
       starts.push(Date.now());
       await new Promise((resolve) => setTimeout(resolve, 50));
       ends.push(Date.now());
     });
-    const engine = await engineWith(every("beat", 100));
+    const engine = await engineWith([beat], every("beat", 100));
     const scheduler = startScheduler(engine);
     await vi.waitFor(() => expect(starts.length).toBeGreaterThanOrEqual(2), {
       interval: 50,
@@ -92,7 +94,7 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
   });
 
   it("records a launch it cannot start as a failed occurrence, and says so", async () => {
-    const engine = await engineWith(every("orphan", 100, "gone"));
+    const engine = await engineWith([], every("orphan", 100, "gone"));
     const scheduler = startScheduler(engine);
     await vi.waitFor(
       async () =>
@@ -227,8 +229,8 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
 
   it("launches one run for an occurrence a restarted dispatcher submits again", async () => {
     const finish = Promise.withResolvers<void>();
-    step("again").do(() => finish.promise);
-    const engine = await engineWith(every("again", 60_000));
+    const againStep = step("again").do(() => finish.promise);
+    const engine = await engineWith([againStep], every("again", 60_000));
     const request = {
       idempotencyKey: "again:1",
       scheduledFor: 1,
@@ -277,14 +279,14 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
 
   it("cancels the runs it started when its cancel signal aborts", async () => {
     const started = Promise.withResolvers<void>();
-    step("hold").do(async ({ signal }) => {
+    const hold = step("hold").do(async ({ signal }) => {
       started.resolve();
       await new Promise((resolve) =>
         signal.addEventListener("abort", resolve, { once: true })
       );
       signal.throwIfAborted();
     });
-    const engine = await engineWith(every("hold", 50));
+    const engine = await engineWith([hold], every("hold", 50));
     const scheduler = startScheduler(engine);
     await started.promise;
     await scheduler.stop();
@@ -294,8 +296,14 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
   });
 
   it("stops waiting for a run it started once that run is suspended, leaving it suspended", async () => {
-    step("hold").do(({ ask }) => ask.question({ title: "Go on?" }));
-    const engine = await startEngine({ askable: true, print: () => undefined });
+    const hold = step("hold").do(({ ask }) =>
+      ask.question({ title: "Go on?" })
+    );
+    const engine = await startEngine({
+      askable: true,
+      collect: [hold],
+      print: () => undefined,
+    });
     engines.push(engine);
     engine.schedule(every("hold", 50));
     const cancel = new AbortController();
@@ -321,12 +329,17 @@ describe("the schedule loop", { timeout: 20_000 }, () => {
       shipped.push(Date.now());
       await new Promise((resolve) => setTimeout(resolve, 3000));
     });
-    monitor("**/*.md")
+    const watched = monitor("**/*.md")
       .every("1s")
       .do(() => ship({}));
-    const engine = await startEngine({ print: () => undefined, root });
+    const collected = Catalog.collect([ship, watched]);
+    const engine = await startEngine({
+      catalog: collected,
+      print: () => undefined,
+      root,
+    });
     engines.push(engine);
-    const [key] = [...catalog.monitors.keys()] as [string];
+    const [key] = [...collected.monitors.keys()] as [string];
     const scheduler = startScheduler(engine);
     await vi.waitFor(
       async () =>

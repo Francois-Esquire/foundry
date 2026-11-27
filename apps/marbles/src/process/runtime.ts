@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const RUNTIME_FLAGS = ["--no-env-file"] as const;
+export const RUNTIME_FLAGS: readonly string[] =
+  "Bun" in globalThis ? ["--no-env-file"] : [];
 
 export function runtime(): string {
-  return "Bun" in globalThis ? process.execPath : "bun";
+  return process.execPath;
 }
 
 export function envFilesLoaded(): string | undefined {

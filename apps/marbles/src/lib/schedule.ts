@@ -6,15 +6,18 @@ import type {
   RegisterScheduleInput,
   Schedule as StoredSchedule,
 } from "@foundry/scheduling";
-import { durationMs, nextDue as nextOccurrence } from "@foundry/scheduling";
+import { nextDue as nextOccurrence } from "@foundry/scheduling";
 import { z } from "zod";
 import type { Engine } from "~/lib/engine";
 import type { ExecutionStatus } from "~/lib/execution-statuses";
+import { isRecord, jsonData } from "~/lib/json-data";
 import type { Launch } from "~/lib/launch";
 import { isLaunch } from "~/lib/launch";
 import type { Launched } from "~/lib/launcher";
-import { isRecord, jsonData } from "~/lib/state/json";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
+
+// biome-ignore lint/performance/noBarrelFile: Re-export portable cadence parsers for existing callers.
+export { parseAt, parseEvery } from "~/lib/cadence";
 
 const UNITS: Record<string, number> = {
   d: 86_400_000,
@@ -23,41 +26,11 @@ const UNITS: Record<string, number> = {
   s: 1000,
 };
 
-export function parseEvery(every: string): number {
-  const ms = durationMs(every);
-  if (ms === undefined) {
-    throw new Error(`cannot read cadence "${every}" (want e.g. 30m, 6h, 1d)`);
-  }
-  if (!Number.isSafeInteger(ms) || ms <= 0) {
-    throw new Error(
-      `cadence "${every}" must be a positive interval that fits in a safe integer`
-    );
-  }
-  return ms;
-}
-
 function spelled(ms: number): string {
   const match = Object.entries(UNITS).find(
     ([, size]) => ms >= size && ms % size === 0
   );
   return match ? `${String(ms / match[1])}${match[0]}` : `${String(ms)}ms`;
-}
-
-function inRange(value: number, max: number): boolean {
-  return Number.isInteger(value) && value >= 0 && value <= max;
-}
-
-export function parseAt(at: string | CalendarSlot): Trigger {
-  if (typeof at === "string") {
-    return { kind: "interval", ms: parseEvery(at) };
-  }
-  const minute = at.minute ?? 0;
-  if (!(inRange(at.hour, 23) && inRange(minute, 59))) {
-    throw new Error(
-      `cannot read calendar slot ${JSON.stringify(at)} (want hour 0–23, minute 0–59)`
-    );
-  }
-  return { kind: "calendar", slot: { ...at, minute } };
 }
 
 function weekdays(slot: CalendarSlot): readonly Weekday[] {

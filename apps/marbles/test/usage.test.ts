@@ -20,7 +20,6 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock("@foundry/usage/node", () => ({ usage: fake.usage }));
-vi.mock("bun", () => ({ plugin: vi.fn() }));
 
 const UNKNOWN_ACCOUNT = /No usage account/;
 
@@ -43,14 +42,16 @@ afterEach(async () => {
 
 async function marbles() {
   const authoring = await import("@foundry.sh/marbles");
-  const { catalog } = await import("~/authoring/catalog");
+  const { Catalog } = await import("~/authoring/catalog");
   const runtime = await import("~/authoring/runtime");
+  const { resetUsage } = await import("~/authoring/usage");
+  const { initializeUsage } = await import("~/workspace/node-usage");
   const { hostEngine } = await import("~/workspace/open");
   const { workspaceState } = await import("~/lib/state/workspace");
   const { testEngine } = await import("./helpers/engine");
   cleanups.push(async () => {
     await runtime.dispose();
-    catalog.reset();
+    resetUsage();
   });
   const check = authoring.step().do(async () => {
     const { name, provider } = await authoring.usage.query("anthropic");
@@ -67,7 +68,7 @@ async function marbles() {
         state: join(root, "state"),
       },
       {
-        catalog,
+        catalog: new Catalog(),
         config: null,
         configPath: root,
         cwd: workspace.root,
@@ -80,12 +81,25 @@ async function marbles() {
     cleanups.push(() => engine.dispose());
     return engine;
   };
-  return { ...authoring, ...runtime, check, openHost, testEngine };
+  return {
+    ...authoring,
+    ...runtime,
+    check,
+    initializeUsage,
+    openHost,
+    testEngine,
+  };
 }
 
-it("exports the shared usage", async () => {
-  const { usage } = await marbles();
-  expect(usage).toBe(fake.usage);
+it("starts with a portable usage facade and binds Node usage when hosted", async () => {
+  const { openHost, usage } = await marbles();
+  await expect(usage.query()).resolves.toEqual([]);
+  expect(fake.usage.initialize).not.toHaveBeenCalled();
+  await openHost(() => undefined);
+  expect(fake.usage.initialize).toHaveBeenCalledOnce();
+  await expect(usage.query("anthropic")).resolves.toMatchObject({
+    name: "anthropic",
+  });
 }, 20_000);
 
 it("has the default accounts before a host's first step", async () => {
@@ -97,10 +111,12 @@ it("has the default accounts before a host's first step", async () => {
 });
 
 it("has the default accounts before a plain script's first step", async () => {
-  const { check, setDefaultRuntime, testEngine } = await marbles();
-  setDefaultRuntime(() =>
-    Promise.resolve(testEngine({ print: () => undefined, root }))
-  );
+  const { check, initializeUsage, setDefaultRuntime, testEngine } =
+    await marbles();
+  setDefaultRuntime(async () => {
+    await initializeUsage();
+    return testEngine({ print: () => undefined, root });
+  });
   await expect(check.run()).resolves.toMatchObject({
     name: "anthropic",
     provider: "anthropic",

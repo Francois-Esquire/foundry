@@ -81,7 +81,6 @@ export function piProvider(options: PiProviderOptions = {}): Provider {
         })
       ),
     models: options.models ?? PI_DEFAULT_MODELS,
-    offline: false,
     turnLimit: "unsupported",
   };
 }

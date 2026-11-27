@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
 import { marblesDeferredApprovals } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import type {
   DeferredApprovalStore,
   SavedApprovals,

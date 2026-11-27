@@ -12,11 +12,6 @@ export type {
   SessionUsage,
   ToolProvenance,
 } from "../schema";
-export {
-  MESSAGE_STATUSES,
-  SESSION_ROLES,
-  SESSION_STATUSES,
-} from "../schema";
 export type {
   CompactionOptions,
   ModelSummarizerOptions,
@@ -29,6 +24,11 @@ export {
   renderTranscript,
   selectMarker,
 } from "./compactor";
+export {
+  MESSAGE_STATUSES,
+  SESSION_ROLES,
+  SESSION_STATUSES,
+} from "./constants";
 export { toModelMessages } from "./converter";
 export type {
   AgentApprovalRequest,
@@ -52,5 +52,3 @@ export type {
   UpdateSessionInput,
 } from "./sessions";
 export { foldSet, messagesToSummarize, Sessions } from "./sessions";
-export type { SummarizeSessionDeps, Summary, SummaryStore } from "./summary";
-export { createSummaryStore, summarizeSession } from "./summary";

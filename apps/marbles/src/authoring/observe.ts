@@ -1,20 +1,28 @@
-import type { SessionChangeEvent } from "@foundry/agents/schema";
+import type { SessionChangeEvent } from "@foundry/agents/session";
 import type { ArtifactEvent } from "@foundry/artifacts";
 import type { SandboxEvent } from "@foundry/sandbox/store";
 import type { WorkspaceEvent } from "@foundry/workspaces/schema";
 import type { workflow } from "~/authoring/builder";
-import { bindingAt, callSite } from "~/authoring/identity";
 import type {
   agent,
   artifact,
   sandbox,
   workspace,
 } from "~/authoring/resources";
-import { declaringCatalog } from "~/authoring/runtime";
-import type { Fact, Handler, Observable } from "~/lib/events/source";
+import { trackCreatedDeclaration } from "~/authoring/runtime";
+import type { Fact, Handler, Observable, Source } from "~/lib/events/source";
 import { SOURCE, sourceKey } from "~/lib/events/source";
+import { OBSERVER_META } from "~/lib/handles";
 import type { ArtifactShareEvent } from "~/lib/resources";
 import type { RunEvent } from "~/lib/workflow-runs";
+
+export interface ObserverMeta {
+  readonly explicitName: boolean;
+  readonly handler: Handler<unknown>;
+  readonly source: Source;
+  readonly timeout?: number;
+  readonly types?: readonly string[];
+}
 
 export function observe<T extends Fact>(
   source: Observable<T>,
@@ -61,7 +69,9 @@ export function observe(
   if (typeof handler !== "function") {
     throw new TypeError("observe: the handler must be a function");
   }
-  const name = observerName(options.name, handler);
+  if (options.name !== undefined && options.name.trim() === "") {
+    throw new TypeError("observe: an observer's name cannot be blank");
+  }
   if (options.types?.length === 0) {
     throw new TypeError(
       "observe: `types` names no type; leave it out to observe every type"
@@ -75,14 +85,29 @@ export function observe(
       "observe: `timeout` is how many ms one call may run, above 0"
     );
   }
-  declaringCatalog().observe({
+  const explicitName = options.name !== undefined;
+  const name = explicitName ? options.name.trim() : handler.name;
+  const types = options.types === undefined ? undefined : [...options.types];
+  const observer: Observer = {
     handler: handler as Handler<unknown>,
+    kind: "observer",
     name,
-    source: symbol,
+    source: key,
     ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
-    ...(options.types === undefined ? {} : { types: [...options.types] }),
+    ...(types === undefined ? {} : { types }),
+  };
+  Object.defineProperty(observer, OBSERVER_META, {
+    value: {
+      explicitName,
+      handler: handler as Handler<unknown>,
+      source: symbol,
+      ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+      ...(types === undefined ? {} : { types }),
+    } satisfies ObserverMeta,
   });
-  return Object.freeze({ kind: "observer", name, source: key });
+  const frozen = Object.freeze(observer);
+  trackCreatedDeclaration(frozen);
+  return frozen;
 }
 
 export interface ObserveOptions<T extends Fact> {
@@ -92,28 +117,10 @@ export interface ObserveOptions<T extends Fact> {
 }
 
 export interface Observer {
+  readonly handler: Handler<unknown>;
   readonly kind: "observer";
   readonly name: string;
   readonly source: string;
-}
-
-function observerName(
-  given: string | undefined,
-  handler: Handler<never>
-): string {
-  if (given !== undefined) {
-    if (given.trim() === "") {
-      throw new TypeError("observe: an observer's name cannot be blank");
-    }
-    return given.trim();
-  }
-  const site = callSite();
-  const bound = site === undefined ? undefined : bindingAt(site);
-  const name = bound ?? handler.name;
-  if (name === "") {
-    throw new TypeError(
-      "observe: name this observer: pass `{ name }`, assign the call to a top-level const, or give the handler a function name"
-    );
-  }
-  return name;
+  readonly timeout?: number;
+  readonly types?: readonly string[];
 }

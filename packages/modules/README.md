@@ -296,7 +296,6 @@ const platform = createNodeModulePlatform({
   artifacts,
   store,
   containers,
-  containerRuntime,
   transport,
   providers,
   checkoutsRoot,
@@ -304,8 +303,8 @@ const platform = createNodeModulePlatform({
 });
 ```
 
-Options contain the existing `artifacts`, `store`, `containers`, their
-`containerRuntime`, `transport`, and `providers`; `checkoutsRoot` and
+Options contain the existing `artifacts`, `store`, `containers`,
+`transport`, and `providers`; `checkoutsRoot` and
 `files: { root, snapshotDatabase }` configure the Node adapters. The optional
 `observeInvocation` is told of each Gateway invocation of an admitted runtime (fail-soft),
 for a host's audit record. Neither composition

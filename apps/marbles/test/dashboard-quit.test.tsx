@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
-import { selectionKey } from "../src/cli/state/dashboard-model";
-import { DashboardView } from "../src/cli/views/dashboard";
+import { selectionKey } from "../src/tui/state/dashboard-model";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { click, ctrlC, mount, press, unmount } from "./helpers/render";
 

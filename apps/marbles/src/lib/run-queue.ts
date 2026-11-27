@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { JsonValue } from "@foundry/lib/json";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type {
@@ -15,8 +14,12 @@ import type {
   RunOutcome,
   SuspensionId,
 } from "@foundry/queue";
-import type { QueueClient, QueueHandlerContext } from "@foundry/queue/client";
-import { createNodeQueueClient } from "@foundry/queue/node";
+import {
+  createQueueClient,
+  type QueueClient,
+  type QueueClientOptions,
+  type QueueHandlerContext,
+} from "@foundry/queue/client";
 import { QueueStore, type QueueStoreService } from "@foundry/queue/store";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { Runnable } from "@foundry/workflows/definitions";
@@ -31,6 +34,7 @@ import {
 } from "@foundry/workflows/workflow";
 import { Layer } from "effect";
 import { isTask } from "~/lib/execution-record";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { storableJson } from "~/lib/state/json";
 import { isRunId, surfaced } from "~/lib/workflow-runs";
 
@@ -95,6 +99,9 @@ export type TaskHandler = (context: QueueHandlerContext) => Promise<RunOutcome>;
 
 export interface RunQueueOptions {
   readonly attempts?: Attempts;
+  readonly createClient?: (options: QueueClientOptions) => QueueClient;
+  readonly leaseTtlMs?: number;
+  readonly liveness?: OwnerLiveness;
   readonly pools?: readonly ConcurrencyPool[];
 }
 
@@ -151,7 +158,7 @@ const latest = (runs: readonly Run[]): Run | undefined =>
   );
 
 export class RunQueue {
-  readonly instanceId = randomUUID();
+  readonly instanceId = crypto.randomUUID();
   readonly #attached = new Map<string, AttachedWorkflow>();
   readonly #attempts: Attempts;
   readonly #client: QueueClient;
@@ -164,9 +171,17 @@ export class RunQueue {
 
   constructor(store: QueueStoreService, options: RunQueueOptions = {}) {
     this.#attempts = options.attempts ?? UNWATCHED;
-    this.#client = createNodeQueueClient({
+    const { liveness } = options;
+    const createClient = options.createClient ?? createQueueClient;
+    this.#client = createClient({
       instanceId: this.instanceId,
       ...(options.pools === undefined ? {} : { pools: options.pools }),
+      ...(options.leaseTtlMs === undefined
+        ? {}
+        : { leaseTtlMs: options.leaseTtlMs }),
+      ...(liveness === undefined
+        ? {}
+        : { identity: liveness.identity(), isOwnerGone: liveness.isGone }),
       store: Layer.succeed(QueueStore, store),
     });
     this.#unsubscribe = this.#client.subscribe((event) => this.#observe(event));

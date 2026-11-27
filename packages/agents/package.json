@@ -2,75 +2,76 @@
   "name": "@foundry/agents",
   "version": "0.1.0",
   "private": true,
-  "description": "Agent harness, sessions, authorization, and tools for Foundry agents",
+  "description": "Agent harness, sessions, authorization, skills, and MCP for Foundry agents",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts"
-    },
-    "./agents": {
-      "types": "./src/agents/index.ts",
-      "import": "./src/agents/index.ts"
-    },
-    "./tools": {
-      "types": "./src/tools/index.ts",
-      "import": "./src/tools/index.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./node": {
-      "types": "./src/node/index.ts",
-      "import": "./src/node/index.ts"
+      "types": "./dist/node/index.d.ts",
+      "import": "./src/node/index.ts",
+      "default": "./src/node/index.ts"
     },
     "./harness": {
-      "types": "./src/harness/index.ts",
-      "import": "./src/harness/index.ts"
+      "types": "./dist/harness/index.d.ts",
+      "import": "./src/harness/index.ts",
+      "default": "./src/harness/index.ts"
     },
     "./session": {
-      "types": "./src/session/index.ts",
-      "import": "./src/session/index.ts"
+      "types": "./dist/session/index.d.ts",
+      "import": "./src/session/index.ts",
+      "default": "./src/session/index.ts"
     },
     "./store": {
-      "types": "./src/store/index.ts",
-      "import": "./src/store/index.ts"
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
     },
     "./store/memory": {
-      "types": "./src/store/memory.ts",
-      "import": "./src/store/memory.ts"
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
     },
     "./store/sqlite": {
-      "types": "./src/store/sqlite.ts",
-      "import": "./src/store/sqlite.ts"
+      "types": "./dist/store/sqlite.d.ts",
+      "import": "./src/store/sqlite.ts",
+      "default": "./src/store/sqlite.ts"
     },
     "./store/tables": {
-      "types": "./src/store/tables.ts",
-      "import": "./src/store/tables.ts"
+      "types": "./dist/store/tables.d.ts",
+      "import": "./src/store/tables.ts",
+      "default": "./src/store/tables.ts"
     },
     "./authorization": {
-      "types": "./src/authorization/index.ts",
-      "import": "./src/authorization/index.ts"
+      "types": "./dist/authorization/index.d.ts",
+      "import": "./src/authorization/index.ts",
+      "default": "./src/authorization/index.ts"
     },
     "./skills": {
-      "types": "./src/skills/index.ts",
-      "import": "./src/skills/index.ts"
+      "types": "./dist/skills/index.d.ts",
+      "import": "./src/skills/index.ts",
+      "default": "./src/skills/index.ts"
     },
     "./mcp": {
-      "types": "./src/mcp/index.ts",
-      "import": "./src/mcp/index.ts"
-    },
-    "./prompts": {
-      "types": "./src/prompts.ts",
-      "import": "./src/prompts.ts"
-    },
-    "./schema": {
-      "types": "./src/schema.ts",
-      "import": "./src/schema.ts"
+      "types": "./dist/mcp/index.d.ts",
+      "import": "./src/mcp/index.ts",
+      "default": "./src/mcp/index.ts"
     },
     "./testing/store": {
-      "types": "./src/testing/store.ts",
-      "import": "./src/testing/store.ts"
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts",
+      "default": "./src/testing/store.ts"
     }
   },
+  "files": [
+    "./dist/**/*",
+    "./src/**/*",
+    "!**/*.test.*"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
@@ -81,14 +82,13 @@
   },
   "dependencies": {
     "@ai-sdk/mcp": "2.0.29",
-    "@ai-sdk/provider": "4.0.7",
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "ai": "7.0.58",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@foundry/prompts": "workspace:*",
+    "@ai-sdk/provider": "4.0.7",
     "@foundry/tsconfig": "workspace:*",
     "@libsql/client": "^0.18.0",
     "@types/bun": "1.4.4",

@@ -1,7 +1,25 @@
-import { type Job, type JobId, Queue } from "@foundry/queue";
+import {
+  cancelJob,
+  enqueueJob,
+  type Job,
+  type JobId,
+  Queue,
+  type SubmitJobInput,
+} from "@foundry/queue";
+import type { QueueStoreService } from "@foundry/queue/store";
 import { Clock, Effect, Layer } from "effect";
-import { type DispatchStatus, ScheduleDispatch } from "./dispatch";
+import {
+  type DispatchStatus,
+  ScheduleDispatch,
+  type ScheduleDispatchService,
+} from "./dispatch";
 import { DispatchError, type Instant } from "./domain";
+
+export interface QueueDispatchPort {
+  readonly cancel: (id: JobId, reason?: string) => Effect.Effect<void, unknown>;
+  readonly getJob: (id: JobId) => Effect.Effect<Job | undefined, unknown>;
+  readonly submit: (input: SubmitJobInput) => Effect.Effect<Job, unknown>;
+}
 
 const toDispatchError = (cause: unknown) => new DispatchError({ cause });
 
@@ -39,36 +57,45 @@ const statusOf = (job: Job | undefined, now: Instant): DispatchStatus => {
   }
 };
 
+export const queueDispatchOver = (
+  port: QueueDispatchPort
+): ScheduleDispatchService =>
+  ScheduleDispatch.of({
+    cancel: (jobId, reason) =>
+      Effect.flatMap(jobIdOf(jobId), (id) =>
+        Effect.mapError(port.cancel(id, reason), toDispatchError)
+      ),
+    status: (jobId) =>
+      Effect.flatMap(jobIdOf(jobId), (id) =>
+        Effect.zipWith(
+          Effect.mapError(port.getJob(id), toDispatchError),
+          Clock.currentTimeMillis,
+          statusOf
+        )
+      ),
+    submit: ({ idempotencyKey, scheduleId, target }) =>
+      port
+        .submit({
+          handler: target.handler,
+          input: target.input,
+          links: { source: "schedule", triggerId: scheduleId },
+          policy: { ...target.policy, idempotencyKey },
+          ...(target.pool === undefined ? {} : { pool: target.pool }),
+        })
+        .pipe(
+          Effect.map((job) => ({ jobId: job.id })),
+          Effect.mapError(toDispatchError)
+        ),
+  });
+
+export const statelessQueueDispatch = (
+  store: QueueStoreService
+): ScheduleDispatchService =>
+  queueDispatchOver({
+    cancel: (id, reason) => cancelJob(store, id, reason),
+    getJob: store.getJob,
+    submit: (input) => enqueueJob(store, input),
+  });
+
 export const QueueDispatchLayer: Layer.Layer<ScheduleDispatch, never, Queue> =
-  Layer.effect(
-    ScheduleDispatch,
-    Effect.map(Queue, (queue) =>
-      ScheduleDispatch.of({
-        cancel: (jobId, reason) =>
-          Effect.flatMap(jobIdOf(jobId), (id) =>
-            Effect.mapError(queue.cancel(id, reason), toDispatchError)
-          ),
-        status: (jobId) =>
-          Effect.flatMap(jobIdOf(jobId), (id) =>
-            Effect.zipWith(
-              Effect.mapError(queue.getJob(id), toDispatchError),
-              Clock.currentTimeMillis,
-              statusOf
-            )
-          ),
-        submit: ({ idempotencyKey, scheduleId, target }) =>
-          queue
-            .submit({
-              handler: target.handler,
-              input: target.input,
-              links: { source: "schedule", triggerId: scheduleId },
-              policy: { ...target.policy, idempotencyKey },
-              ...(target.pool === undefined ? {} : { pool: target.pool }),
-            })
-            .pipe(
-              Effect.map((job) => ({ jobId: job.id })),
-              Effect.mapError(toDispatchError)
-            ),
-      })
-    )
-  );
+  Layer.effect(ScheduleDispatch, Effect.map(Queue, queueDispatchOver));

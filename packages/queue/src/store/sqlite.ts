@@ -48,6 +48,7 @@ export interface SqliteQueueStoreOptions {
     write: QueueWrite
   ) => Promise<void>;
   readonly scope: string;
+  readonly watermark?: boolean;
 }
 
 const REENTRY =
@@ -106,13 +107,15 @@ const writeRecords = async (
     queueRuns,
     [queueRuns.scope, queueRuns.id],
     (write.runs ?? []).map((run) => ({
+      availableAt: run.state.kind === "queued" ? run.state.availableAt : null,
       body: run,
       id: run.id,
       jobId: run.jobId,
+      pool: run.pool,
       scope,
       state: run.state.kind,
     })),
-    ["body", "state"]
+    ["availableAt", "body", "pool", "state"]
   );
   await upsert(
     transaction,
@@ -311,7 +314,9 @@ export const makeSqliteQueueStore = (
               }
               await writeRecords(transaction, scope, write);
               await deleteRecords(transaction, scope, write);
-              await raiseWatermark(transaction, scope);
+              if (options.watermark ?? true) {
+                await raiseWatermark(transaction, scope);
+              }
               await options.onCommit?.(transaction, write);
             })
           ),

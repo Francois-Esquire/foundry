@@ -1,12 +1,17 @@
 import type { JsonValue } from "@foundry/lib/json";
-import { sameProcess, thisProcess } from "@foundry/lib/node/process-identity";
+import {
+  type ProcessIdentity,
+  sameProcess,
+} from "@foundry/lib/process-identity";
 import type {
   ConcurrencyPool,
   Job,
   JobId,
   QueueEvent,
   Run,
+  RunId,
 } from "@foundry/queue";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 import type {
   ExecutionAnnex,
   ExecutionObservation,
@@ -28,6 +33,8 @@ import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import type { ExecutionStore } from "./execution-store";
 import { storedObservation, storedProgress } from "./execution-store";
 import type { RunQueue } from "./run-queue";
+import type { RunStore } from "./run-store";
+import { runStoreEffect } from "./workflow-runs";
 
 export type {
   ExecutionObservation,
@@ -66,13 +73,18 @@ interface Known {
 }
 
 export interface ExecutionsOptions {
+  readonly ownerIdentity?: () => ProcessIdentity;
   readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly removed?: (run: ExecutionRun) => Promise<void> | void;
   readonly store: ExecutionStore;
   readonly warn: (line: string) => void;
 }
 
-function ownedBy(run: Run, instanceId: string | undefined): boolean {
+function ownedBy(
+  run: Run,
+  instanceId: string | undefined,
+  ownerIdentity: () => ProcessIdentity
+): boolean {
   if (run.state.kind === "running") {
     return run.state.lease.owner.instanceId === instanceId;
   }
@@ -81,11 +93,12 @@ function ownedBy(run: Run, instanceId: string | undefined): boolean {
   }
   const { owner } = run.state;
   return owner.instanceId === undefined
-    ? sameProcess(owner, thisProcess())
+    ? sameProcess(owner, ownerIdentity())
     : owner.instanceId === instanceId;
 }
 
 export class Executions implements ExecutionRuns {
+  readonly #ownerIdentity: () => ProcessIdentity;
   readonly #store: ExecutionStore;
   readonly #warn: (line: string) => void;
   readonly #removed: (run: ExecutionRun) => Promise<void> | void;
@@ -104,6 +117,8 @@ export class Executions implements ExecutionRuns {
   #writes: Promise<unknown> = Promise.resolve();
 
   constructor(options: ExecutionsOptions) {
+    this.#ownerIdentity =
+      options.ownerIdentity ?? PORTABLE_OWNER_LIVENESS.identity;
     this.#store = options.store;
     this.#warn = options.warn;
     this.#removed = options.removed ?? (() => undefined);
@@ -186,7 +201,7 @@ export class Executions implements ExecutionRuns {
   owned(): readonly ExecutionRun[] {
     const instanceId = this.#queue?.instanceId;
     return [...this.#known.values()]
-      .filter((known) => ownedBy(known.run, instanceId))
+      .filter((known) => ownedBy(known.run, instanceId, this.#ownerIdentity))
       .flatMap((known) => this.#records.get(known.run.id) ?? [])
       .sort(bySequence);
   }
@@ -550,5 +565,29 @@ function removedElsewhere(error: unknown): boolean {
     error !== null &&
     "_tag" in error &&
     error._tag === "JobNotFoundError"
+  );
+}
+
+export async function readExecutionFromStores(
+  runStore: Pick<RunStore, "open">,
+  executionStore: Pick<ExecutionStore, "get">,
+  id: string
+): Promise<ExecutionRun | null> {
+  const queue = await runStore.open(() => undefined);
+  const [run, stored] = await Promise.all([
+    runStoreEffect(queue.getRun(id as RunId)),
+    executionStore.get(id),
+  ]);
+  if (run === undefined) {
+    return null;
+  }
+  const job = await runStoreEffect(queue.getJob(run.jobId));
+  if (job === undefined) {
+    return null;
+  }
+  return executionOf(
+    job,
+    run,
+    stored === undefined ? undefined : annexOf(stored)
   );
 }

@@ -58,7 +58,12 @@ export type {
   WorkspaceSourceStatus,
   WriteOutcome,
 } from "./source-adapter";
-export type { WorkspaceStore, WorkspaceStoreWrite } from "./store";
+export type {
+  EntryCountQuery,
+  EntryPageQuery,
+  WorkspaceStore,
+  WorkspaceStoreWrite,
+} from "./store";
 export type {
   CreateFileCommand,
   SaveFileCommand,

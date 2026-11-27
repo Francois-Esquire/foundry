@@ -2,12 +2,8 @@ import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Sandbox as MicroSandbox } from "microsandbox";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { ContainerSandbox } from "../container/runtime";
-import {
-  provisionContainerSandbox,
-  startContainerSandbox,
-} from "../container/sandbox";
 import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { bootGuest } from "./helpers/guest";
 
 const PACKAGE_URL = new URL("../../", import.meta.url);
 const GUEST_PACKAGE_PATH = "/mounts/sandbox";
@@ -24,7 +20,7 @@ process.stdout.write("stdin:eof\\n");
 `;
 
 describe("real MicroSandbox command IO", () => {
-  let sandbox: ContainerSandbox<MicroSandbox>;
+  let sandbox: Awaited<ReturnType<typeof bootGuest<MicroSandbox>>>;
 
   beforeAll(async () => {
     const runtime = createMicrosandboxRuntime();
@@ -34,13 +30,13 @@ describe("real MicroSandbox command IO", () => {
       );
     }
     const source = await realpath(fileURLToPath(PACKAGE_URL));
-    const provisioned = await provisionContainerSandbox(
+    sandbox = await bootGuest(
+      runtime,
       {
         disableNetwork: true,
         image: "docker.io/oven/bun:1-slim",
         workdir: GUEST_PACKAGE_PATH,
       },
-      { runtime },
       [
         {
           id: "package",
@@ -50,12 +46,11 @@ describe("real MicroSandbox command IO", () => {
         },
       ]
     );
-    sandbox = await startContainerSandbox(provisioned);
-    return () => sandbox.remove();
+    return () => sandbox[Symbol.asyncDispose]();
   }, 120_000);
 
   it("lists and reads the mounted package, preserving stdout, stderr, and exit status", async () => {
-    const listing = await sandbox.exec([
+    const listing = await sandbox.commands.exec([
       "ls",
       "-1",
       "package.json",
@@ -71,21 +66,23 @@ describe("real MicroSandbox command IO", () => {
       readFile(new URL("package.json", PACKAGE_URL), "utf8"),
       readFile(new URL("README.md", PACKAGE_URL), "utf8"),
     ]);
-    expect(await sandbox.exec(["cat", "package.json", "README.md"])).toEqual({
+    expect(
+      await sandbox.commands.exec(["cat", "package.json", "README.md"])
+    ).toEqual({
       exitCode: 0,
       stderr: "",
       stdout: manifest + readme,
     });
 
     const missingPath = `/missing-stdio-${crypto.randomUUID()}`;
-    const missing = await sandbox.exec(["cat", missingPath]);
+    const missing = await sandbox.commands.exec(["cat", missingPath]);
     expect(missing.exitCode).not.toBe(0);
     expect(missing.stdout).toBe("");
     expect(missing.stderr).toContain(missingPath);
   }, 30_000);
 
   it("streams terminal responses before the next stdin write and accepts terminal EOF", async () => {
-    const shell = await sandbox.openShell({
+    const shell = await sandbox.shell.open({
       command: ["bun", "-e", ECHO_PROGRAM],
     });
     let output = "";
@@ -184,7 +181,7 @@ describe("real MicroSandbox command IO", () => {
   }, 30_000);
 
   it("preserves binary streams and EOF through the public piped process interface", async () => {
-    const child = await sandbox.spawn([
+    const child = await sandbox.processes.spawn([
       "bun",
       "-e",
       `
@@ -211,7 +208,7 @@ describe("real MicroSandbox command IO", () => {
 
   it("aborts a live piped process and rejects its completion", async () => {
     const controller = new AbortController();
-    const child = await sandbox.spawn(
+    const child = await sandbox.processes.spawn(
       ["bun", "-e", "setInterval(() => {}, 1000)"],
       {
         signal: controller.signal,
@@ -224,16 +221,34 @@ describe("real MicroSandbox command IO", () => {
     await completion;
   }, 30_000);
 
+  it("completes a signalled exec, and rejects one aborted mid-run promptly", async () => {
+    const completed = await sandbox.commands.exec(["echo", "signalled"], {
+      signal: new AbortController().signal,
+    });
+    expect(completed).toMatchObject({ exitCode: 0, stdout: "signalled\n" });
+
+    const controller = new AbortController();
+    const running = sandbox.commands.exec(["sleep", "60"], {
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const abortedAt = Date.now();
+    controller.abort();
+    await expect(running).rejects.toThrow("exec aborted");
+    expect(Date.now() - abortedAt).toBeLessThan(2000);
+    expect((await sandbox.commands.exec(["true"])).exitCode).toBe(0);
+  }, 30_000);
+
   it("refuses an already aborted launch", async () => {
     await expect(
-      sandbox.spawn(["bun", "--version"], {
+      sandbox.processes.spawn(["bun", "--version"], {
         signal: AbortSignal.abort(new Error("cancelled before launch")),
       })
     ).rejects.toThrow("cancelled before launch");
   });
 
   it("sends a named signal and reports the native exit lifecycle", async () => {
-    const child = await sandbox.spawn([
+    const child = await sandbox.processes.spawn([
       "bun",
       "-e",
       "setInterval(() => {}, 1000)",
@@ -254,7 +269,7 @@ describe("real MicroSandbox command IO", () => {
   it("aborts output blocked by backpressure and reaps the guest process", async () => {
     const controller = new AbortController();
     const marker = `/tmp/piped-pid-${crypto.randomUUID()}`;
-    const child = await sandbox.spawn(
+    const child = await sandbox.processes.spawn(
       [
         "bun",
         "-e",
@@ -268,7 +283,10 @@ describe("real MicroSandbox command IO", () => {
     );
     child.stderr.resume();
     await expect
-      .poll(async () => (await sandbox.exec(["test", "-f", marker])).exitCode)
+      .poll(
+        async () =>
+          (await sandbox.commands.exec(["test", "-f", marker])).exitCode
+      )
       .toBe(0);
     const pid = (await sandbox.readTextFile(marker)).trim();
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -280,7 +298,7 @@ describe("real MicroSandbox command IO", () => {
     await expect
       .poll(
         async () =>
-          (await sandbox.exec(["test", "-d", `/proc/${pid}`])).exitCode
+          (await sandbox.commands.exec(["test", "-d", `/proc/${pid}`])).exitCode
       )
       .not.toBe(0);
     expect(child.stdout.destroyed).toBe(true);
@@ -289,7 +307,7 @@ describe("real MicroSandbox command IO", () => {
   it("rejects an abort during launch without leaving the guest process running", async () => {
     const controller = new AbortController();
     const marker = `/tmp/launch-pid-${crypto.randomUUID()}`;
-    const pending = sandbox.spawn(
+    const pending = sandbox.processes.spawn(
       [
         "bun",
         "-e",
@@ -300,19 +318,22 @@ describe("real MicroSandbox command IO", () => {
     controller.abort(new Error("launch abort fixture"));
     await expect(pending).rejects.toThrow("launch abort fixture");
     await new Promise((resolve) => setTimeout(resolve, 100));
-    if ((await sandbox.exec(["test", "-f", marker])).exitCode === 0) {
+    if ((await sandbox.commands.exec(["test", "-f", marker])).exitCode === 0) {
       const pid = (await sandbox.readTextFile(marker)).trim();
       await expect
         .poll(
           async () =>
-            (await sandbox.exec(["test", "-d", `/proc/${pid}`])).exitCode
+            (await sandbox.commands.exec(["test", "-d", `/proc/${pid}`]))
+              .exitCode
         )
         .not.toBe(0);
     }
   }, 30_000);
 
   it("reports a missing executable as a launch error", async () => {
-    const child = await sandbox.spawn(["/missing-executable-fixture"]);
+    const child = await sandbox.processes.spawn([
+      "/missing-executable-fixture",
+    ]);
     child.stdout.resume();
     child.stderr.resume();
     await expect(child.exited).rejects.toThrow(

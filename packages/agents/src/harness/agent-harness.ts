@@ -7,7 +7,6 @@ import { routeOf } from "@foundry/core/agents";
 import type { GenerateTextResult, Output, StreamTextResult, ToolSet } from "ai";
 import type { AgentAuthorizer } from "../authorization/authorization";
 import { createMemoryAgentAuthorizer } from "../authorization/authorization";
-import { createToolContext } from "../tools/context";
 import type {
   LoopAgentCallParameters,
   LoopAgentSettings,
@@ -17,8 +16,6 @@ import type {
 import { LoopAgent } from "./loop-agent";
 import type { StreamPart } from "./stream-transform";
 import { compileTools, withToolCallRegistration } from "./tool-compiler";
-import type { ToolEffectPort } from "./tool-registration";
-import { directToolEffectPort } from "./tool-registration";
 
 const DEFAULT_AGENT_ID = "agent";
 
@@ -33,7 +30,6 @@ export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
   agentId?: string;
   policy?: AgentAuthorizer;
   agentGeneration?: number;
-  effectPort?: ToolEffectPort;
   permission?: HarnessPermissionCallback;
   sessionId?: string;
 };
@@ -58,7 +54,6 @@ export class AgentHarness {
     const {
       tools,
       policy,
-      effectPort,
       agentId,
       agentGeneration,
       sessionId,
@@ -76,18 +71,13 @@ export class AgentHarness {
     const compiled = compileTools(tools ?? {}, {
       agentGeneration,
       agentId: this.agentId,
-      effectPort: effectPort ?? directToolEffectPort,
       permission,
       policy: this.policy,
       sessionId: this.sessionId,
     });
     this.#registrationFor = compiled.registrationFor;
 
-    this.#toolsContext = (
-      toolsContext === undefined
-        ? createToolContext({ policy: this.policy })
-        : createToolContext({ policy: this.policy }, toolsContext)
-    ) as Record<string, unknown>;
+    this.#toolsContext = toolsContext ?? {};
 
     const agentSettings: LoopAgentSettings = { ...rest, tools: compiled.tools };
     (agentSettings as { toolsContext?: Record<string, unknown> }).toolsContext =

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { withConfirmedModuleContainerCleanup } from "@foundry/modules/platform";
 import type { Container, SandboxProcessesFacet } from "@foundry/sandbox";
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
@@ -20,17 +19,14 @@ export async function createBuildRuntime(
     "@foundry/sandbox/node/microsandbox"
   );
   const runtime = createMicrosandboxRuntime();
-  const containers = withConfirmedModuleContainerCleanup(
-    createContainers({
-      instanceLabel: createHash("sha256")
-        .update(`${userData}/modules/build`)
-        .digest("hex")
-        .slice(0, 16),
-      runtime,
-      store: new MemoryContainerStore(),
-    }),
-    runtime
-  );
+  const containers = createContainers({
+    instanceLabel: createHash("sha256")
+      .update(`${userData}/modules/build`)
+      .digest("hex")
+      .slice(0, 16),
+    runtime,
+    store: new MemoryContainerStore(),
+  });
   const cleanup = new Map<string, () => Promise<void>>();
   let prepared: Promise<void> | undefined;
   async function prepare() {
@@ -72,58 +68,82 @@ export async function createBuildRuntime(
         cleanup.delete(container.id);
       }
       cleanup.set(container.id, close);
-      try {
-        await container.files.copyIn(
-          Object.fromEntries(
-            Object.entries(source).map(([path, text]) => [
-              `${ROOT}/${path}`,
-              text,
-            ])
-          )
-        );
-        const commands = [
-          {
-            argv: [
-              "bun",
-              "install",
-              "--ignore-scripts",
-              ...(source["bun.lock"] ? ["--frozen-lockfile"] : []),
-            ],
-            phase: "installing",
-          },
-          { argv: ["bun", "run", "generate"], phase: "generating" },
-          { argv: ["bun", "run", "typecheck"], phase: "checking" },
-          { argv: ["bun", "run", "build"], phase: "building" },
-        ] as const;
-        for (const { phase, argv } of commands) {
-          signal.throwIfAborted();
-          progress({ phase });
-          const { exitCode, log } = await runBuildCommand(
-            container.processes,
-            argv,
-            { cwd: ROOT, signal }
-          );
-          progress({ log, phase });
-          if (exitCode !== 0) {
-            throw new Error(`${phase} failed (exit ${exitCode}).\n${log}`);
-          }
-        }
-        await auditBuildWorkspace(container.files, source, signal);
-        const lock = decoder.decode(
-          await container.files.readFile(`${ROOT}/bun.lock`)
-        );
-        const outputs = await collectOutputs(container, signal);
-        signal.throwIfAborted();
-        return { outputs, source: { ...source, "bun.lock": lock } };
-      } finally {
-        await close();
-      }
+      const built = await buildIn(container, source, signal, progress).catch(
+        (error: unknown) => closeAfterFailure(error, close)
+      );
+      await close();
+      return built;
     },
     async shutdown() {
       await Promise.all([...cleanup.values()].map((close) => close()));
       await containers.shutdown();
     },
   };
+}
+
+async function buildIn(
+  container: Container,
+  source: Record<string, string>,
+  signal: AbortSignal,
+  progress: Parameters<BuildRuntime["run"]>[2]
+): ReturnType<BuildRuntime["run"]> {
+  await container.files.copyIn(
+    Object.fromEntries(
+      Object.entries(source).map(([path, text]) => [`${ROOT}/${path}`, text])
+    )
+  );
+  const commands = [
+    {
+      argv: [
+        "bun",
+        "install",
+        "--ignore-scripts",
+        ...(source["bun.lock"] ? ["--frozen-lockfile"] : []),
+      ],
+      phase: "installing",
+    },
+    { argv: ["bun", "run", "generate"], phase: "generating" },
+    { argv: ["bun", "run", "typecheck"], phase: "checking" },
+    { argv: ["bun", "run", "build"], phase: "building" },
+  ] as const;
+  for (const { phase, argv } of commands) {
+    signal.throwIfAborted();
+    progress({ phase });
+    const { exitCode, log } = await runBuildCommand(container.processes, argv, {
+      cwd: ROOT,
+      signal,
+    });
+    progress({ log, phase });
+    if (exitCode !== 0) {
+      throw new Error(`${phase} failed (exit ${exitCode}).\n${log}`);
+    }
+  }
+  await auditBuildWorkspace(container.files, source, signal);
+  const lock = decoder.decode(
+    await container.files.readFile(`${ROOT}/bun.lock`)
+  );
+  const outputs = await collectOutputs(container, signal);
+  signal.throwIfAborted();
+  return { outputs, source: { ...source, "bun.lock": lock } };
+}
+
+async function closeAfterFailure(
+  error: unknown,
+  close: () => Promise<void>
+): Promise<never> {
+  const [closed] = await Promise.allSettled([close()]);
+  if (closed.status === "rejected") {
+    throw new AggregateError(
+      [error, closed.reason],
+      `${errorMessage(error)}\nBuild container cleanup also failed: ${errorMessage(closed.reason)}`,
+      { cause: error }
+    );
+  }
+  throw error;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function runBuildCommand(

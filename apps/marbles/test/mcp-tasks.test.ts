@@ -7,7 +7,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { DatabaseBusyError } from "~/database/client";
+import { DatabaseBusyError } from "~/database/busy";
 import { TaskStorageError } from "~/database/tasks";
 import { hostTasks } from "~/workspace/open";
 import { runTaskCommand } from "~/workspace/tasks";
