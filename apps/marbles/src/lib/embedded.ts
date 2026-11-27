@@ -7,7 +7,9 @@ export type { ArtifactSubstrate } from "@foundry/artifacts";
 export { Artifacts } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 export { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-export type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
+export { Authorization } from "@foundry/authorization";
+export type { AuthorizationStore } from "@foundry/authorization/store";
+export { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 export type { Provider } from "@foundry/models";
 export { Models } from "@foundry/models";
 export {
@@ -70,11 +72,6 @@ export type { RecordedScope } from "./run-scope";
 export type { RunStore, StoredScope } from "./run-store";
 export { MemoryRunStore } from "./run-store";
 export type { ActivityRecord, ActivityStore } from "./sandbox/activities";
-export type {
-  DeferredApprovalStore,
-  SavedApprovals,
-} from "./sandbox/deferred-approvals";
-export { MemoryDeferredApprovalStore } from "./sandbox/deferred-approvals";
 export type { OutputRecord, RunOutputSink } from "./state/output";
 export { MemoryRunOutputSink } from "./state/output";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";

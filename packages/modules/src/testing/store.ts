@@ -5,7 +5,6 @@ import type { InstallationId, ModuleId } from "../domain";
 import type { ModuleManifest } from "../manifest";
 import type {
   Installation,
-  InstallationGrant,
   Module,
   StoredInstallation,
   StoredManifest,
@@ -61,7 +60,6 @@ export function describeModuleStore(
       const tasks = module("tasks");
       const retained = manifest("content-1", tasks);
       const running = installation("running", tasks, {
-        grants: [grant("host.files.read"), grant("host.network.fetch")],
         installation: {
           containerId: "container-1",
           createdAt: new Date("2026-11-01T00:00:00.001Z"),
@@ -88,7 +86,6 @@ export function describeModuleStore(
       const read = await target.getInstallation(running.installation.id);
       expect(read).toEqual(running);
       expect(read?.installation.createdAt).toBeInstanceOf(Date);
-      expect(read?.grants[0]?.createdAt).toBeInstanceOf(Date);
       expect(read?.installation.updatedAt.getTime()).toBe(8.64e15);
       expect(await target.getInstallation(idle.installation.id)).toEqual(idle);
       expect(await held(target)).toEqual({
@@ -248,7 +245,7 @@ export function describeModuleStore(
       const kept = module("kept");
       await target.commit({ putModules: [kept] });
       const before = await held(target);
-      const hidden = { grants: [] } as unknown as StoredInstallation;
+      const hidden = {} as unknown as StoredInstallation;
       Object.defineProperty(hidden, "installation", {
         enumerable: false,
         value: installation("hidden", kept).installation,
@@ -291,18 +288,6 @@ export function describeModuleStore(
             ],
           },
           "putInstallations[0].installation.updatedAt must be a Date",
-        ],
-        [
-          {
-            putInstallations: [
-              installation("i", kept, {
-                grants: [
-                  Object.create(grant("inherited")) as InstallationGrant,
-                ],
-              }),
-            ],
-          },
-          "putInstallations[0].grants[0] must be a plain object",
         ],
         [
           { putManifests: [manifest("m", kept, { when: new Date(0) })] },
@@ -362,7 +347,7 @@ export function describeModuleStore(
     test("reads are detached from the store", async () => {
       const target = await store();
       const a = module("a");
-      const stored = installation("a", a, { grants: [grant("host.read")] });
+      const stored = installation("a", a);
       const retained = manifest("a", a, { nested: { list: ["x"] } });
       await target.commit({
         putInstallations: [stored],
@@ -377,8 +362,6 @@ export function describeModuleStore(
       );
       mutable(readInstallation.installation).generation = 99;
       readInstallation.installation.createdAt.setTime(0);
-      (readInstallation.grants as InstallationGrant[]).push(grant("extra"));
-      readInstallation.grants[0]?.createdAt.setTime(0);
       const readManifest = mutable(
         await target.getManifest(retained.contentId)
       );
@@ -923,25 +906,14 @@ function manifest(
   };
 }
 
-function grant(capability: string): InstallationGrant {
-  return {
-    capability,
-    constraintsDigest: `digest-${capability}`,
-    createdAt: new Date("2026-11-01T00:00:00.123Z"),
-    version: 1,
-  };
-}
-
 function installation(
   id: string,
   owner: Module,
   overrides: {
-    readonly grants?: readonly InstallationGrant[];
     readonly installation?: Partial<Installation>;
   } = {}
 ): StoredInstallation {
   return {
-    grants: overrides.grants ?? [],
     installation: {
       containerId: null,
       contentId: contentId(`content-${id}`),
@@ -962,9 +934,7 @@ function callerWrite(owner: Module) {
     deleteInstallations: [] as InstallationId[],
     deleteManifests: [] as ContentId[],
     deleteModules: [] as ModuleId[],
-    putInstallations: [
-      installation("added", owner, { grants: [grant("host.read")] }),
-    ],
+    putInstallations: [installation("added", owner)],
     putManifests: [manifest("added", owner, { nested: { list: ["x"] } })],
     putModules: [{ ...owner }],
   } satisfies ModuleStoreWrite;
@@ -985,8 +955,6 @@ function scramble(write: ReturnType<typeof callerWrite>): void {
   for (const put of write.putInstallations) {
     mutable(put.installation).status = "failed";
     put.installation.createdAt.setTime(0);
-    put.grants[0]?.createdAt.setTime(0);
-    (put.grants as InstallationGrant[]).push(grant("late"));
   }
   for (const put of write.putManifests) {
     nestedList(put.manifest).push("changed");

@@ -1,6 +1,7 @@
 import type {
-  AgentAuthorizer,
   ApprovalResolution,
+  Capability,
+  ToolSource,
 } from "@foundry/agents/authorization";
 import type {
   HarnessAuthoritySettings,
@@ -8,23 +9,15 @@ import type {
   HarnessQuestionResult,
 } from "@foundry/agents/harness";
 import { resolveHarnessApproval } from "@foundry/agents/harness";
-import type {
-  AgentApprovalRequest,
-  SessionMessage,
-} from "@foundry/agents/session";
+import type { AgentApprovalRequest } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
+import type { Authorization, Grant } from "@foundry/authorization";
 import {
   type FeedAnswer,
   type FeedQuestionPayload,
   readAnswer,
 } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
-import {
-  type DeferredApproval,
-  type DeferredApprovalStore,
-  DeferredApprovals,
-  type InteractionSession,
-} from "./deferred-approvals";
 import {
   approvalPrompt,
   deferredPrompt,
@@ -35,7 +28,12 @@ import {
 } from "./interaction-prompts";
 import type { SandboxAuthority } from "./session";
 
-type Source = DeferredApproval["source"];
+export interface InteractionSource {
+  readonly definition: string;
+  readonly path: readonly string[];
+  readonly runId: string;
+}
+
 type DeferredNotice = AgentApprovalRequest & {
   agentId: string;
   approvalMode: "live" | "deferred";
@@ -48,178 +46,156 @@ interface PendingInput {
   busy: boolean;
   readonly durable: boolean;
   question: FeedQuestionPayload;
-  readonly source: Source;
+  readonly source: InteractionSource;
   writeIn?: string;
 }
 
 export interface HarnessInteractionsOptions {
-  readonly approvals?: DeferredApprovalStore;
   readonly askable: boolean;
+  readonly authorization: Authorization;
   readonly feed: FeedPublisher;
-  readonly policy: AgentAuthorizer;
   readonly sessions: SessionStore;
+}
+
+function parseSource(value: unknown): InteractionSource | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.definition !== "string" ||
+    typeof candidate.runId !== "string" ||
+    !Array.isArray(candidate.path) ||
+    !candidate.path.every((item) => typeof item === "string")
+  ) {
+    return undefined;
+  }
+  return {
+    definition: candidate.definition,
+    path: [...candidate.path],
+    runId: candidate.runId,
+  };
+}
+
+function deferredNoticeFromGrant(
+  grant: Grant
+):
+  | { readonly notice: DeferredNotice; readonly source: InteractionSource }
+  | undefined {
+  const attrs = grant.requestedBy.attributes;
+  if (attrs?.approvalMode !== "deferred") {
+    return undefined;
+  }
+  const source = parseSource(attrs.marblesSource);
+  if (!source) {
+    return undefined;
+  }
+  const agentId =
+    grant.holder.kind === "exact"
+      ? grant.holder.principal.id
+      : grant.requestedBy.id;
+  const versionRaw =
+    grant.holder.kind === "exact"
+      ? grant.holder.principal.version
+      : grant.requestedBy.version;
+  const agentGeneration =
+    versionRaw !== undefined && Number.isInteger(Number(versionRaw))
+      ? Number(versionRaw)
+      : undefined;
+  const sessionId =
+    typeof attrs.recordSessionId === "string"
+      ? attrs.recordSessionId
+      : (grant.sessionId ?? "");
+  if (!sessionId) {
+    return undefined;
+  }
+  const fallbackTool =
+    grant.scope.target.kind === "exact" ? grant.scope.target.value : "unknown";
+  const toolName =
+    typeof attrs.toolName === "string" ? attrs.toolName : fallbackTool;
+  const toolSource =
+    typeof attrs.toolSource === "string"
+      ? (attrs.toolSource as ToolSource)
+      : "harness";
+  const capability: Capability = {
+    kind: "tool.call",
+    source: toolSource,
+    tool: toolName,
+  };
+  return {
+    notice: {
+      ...(typeof attrs.activityId === "string"
+        ? { activityId: attrs.activityId }
+        : {}),
+      ...(agentGeneration === undefined ? {} : { agentGeneration }),
+      agentId,
+      approvalId: grant.id,
+      approvalMode: "deferred",
+      capability,
+      input: typeof attrs.inputSummary === "string" ? attrs.inputSummary : "",
+      sessionId,
+      toolCallId:
+        typeof attrs.toolCallId === "string" ? attrs.toolCallId : grant.id,
+      toolName,
+    },
+    source,
+  };
 }
 
 export class HarnessInteractions {
   readonly #options: HarnessInteractionsOptions;
   readonly #pending = new Map<string, PendingInput>();
-  readonly #deferred: DeferredApprovals;
   readonly #waits = new Set<Promise<unknown>>();
   readonly #shutdown = new AbortController();
-  readonly #durable = new WeakSet<SandboxAuthority>();
 
   constructor(options: HarnessInteractionsOptions) {
     this.#options = options;
-    this.#deferred = new DeferredApprovals(options.approvals);
   }
 
   async restore(): Promise<void> {
-    const saved = await this.#deferred.load();
-    const records = new Map(
-      saved.requests.map((record) => [record.approvalId, record])
-    );
-    const histories = await this.#histories([
-      ...saved.sessions.map((session) => session.sessionId),
-      ...saved.requests.map((record) => record.sessionId),
-    ]);
-    for (const session of saved.sessions) {
-      const history = histories.get(session.sessionId);
-      for (const request of history?.requests.values() ?? []) {
-        if (
-          request.approvalMode === "deferred" &&
-          request.agentId === session.agentId &&
-          request.agentGeneration === session.agentGeneration &&
-          !records.has(request.approvalId) &&
-          !history?.responses.has(request.approvalId)
-        ) {
-          records.set(request.approvalId, {
-            ...session,
-            approvalId: request.approvalId,
-          });
-        }
-      }
-    }
-    for (const record of records.values()) {
-      const history = histories.get(record.sessionId);
-      const request = history?.requests.get(record.approvalId);
-      const response =
-        history?.responses.get(record.approvalId) ??
-        (await this.#histories([record.sessionId]))
-          .get(record.sessionId)
-          ?.responses.get(record.approvalId);
-      if (
-        request?.approvalMode !== "deferred" ||
-        request.agentId !== record.agentId ||
-        request.agentGeneration !== record.agentGeneration
-      ) {
-        await this.#deferred.remove(record.approvalId);
+    const pendingGrants = await this.#options.authorization.listGrants({
+      state: "pending",
+    });
+    for (const grant of pendingGrants) {
+      const parsed = deferredNoticeFromGrant(grant);
+      if (!parsed) {
         continue;
       }
-      const answered =
-        response && (await this.#grantStored(record, response))
-          ? response
-          : undefined;
-      await this.#publishDeferred(
-        {
-          ...record,
-          approvalMode: "deferred",
-          capability: request.capability,
-          input: request.input,
-          toolCallId: request.toolCallId,
-          toolName: request.name,
-        },
-        record.source,
-        this.#options.policy,
-        true,
-        answered
-      );
-      if (answered) {
-        await this.#deferred.remove(record.approvalId);
+      const current = await this.#options.authorization.getGrant(grant.id);
+      if (current?.state !== "pending") {
+        continue;
       }
-    }
-  }
-
-  async #grantStored(
-    record: DeferredApproval,
-    response: ApprovalResponsePart
-  ): Promise<boolean> {
-    if (!response.approved) {
-      return true;
-    }
-    try {
-      await resolveHarnessApproval(
-        {
-          agentGeneration: record.agentGeneration,
-          agentId: record.agentId,
-          policy: this.#options.policy,
-          store: this.#options.sessions,
-        },
-        record.sessionId,
-        record.approvalId,
-        {
-          approved: true,
-          lifetime: response.scope === "always" ? "persistent" : "session",
-        }
+      await this.#publishDeferred(
+        parsed.notice,
+        parsed.source,
+        this.#options.authorization,
+        true
       );
-      return true;
-    } catch {
-      return false;
     }
-  }
-
-  async #histories(
-    sessionIds: readonly string[]
-  ): Promise<Map<string, ApprovalHistory>> {
-    const unique = [...new Set(sessionIds)];
-    const loaded = await Promise.all(
-      unique.map(async (sessionId) => {
-        const history: ApprovalHistory = {
-          requests: new Map(),
-          responses: new Map(),
-        };
-        const messages = await this.#options.sessions.listMessages(sessionId);
-        for (const part of messages.flatMap((message) => message.parts)) {
-          if (part.type === "tool_approval_request") {
-            if (!history.requests.has(part.approvalId)) {
-              history.requests.set(part.approvalId, part);
-            }
-          } else if (
-            part.type === "tool_approval_response" &&
-            !history.responses.has(part.approvalId)
-          ) {
-            history.responses.set(part.approvalId, part);
-          }
-        }
-        return [sessionId, history] as const;
-      })
-    );
-    return new Map(loaded);
-  }
-
-  registerSession(
-    session: InteractionSession,
-    authority: SandboxAuthority
-  ): Promise<void> {
-    return this.#durable.has(authority)
-      ? this.#deferred.register(session)
-      : Promise.resolve();
   }
 
   authority(
-    source: Source,
+    source: InteractionSource,
     override?: Partial<
-      Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
+      Pick<
+        HarnessAuthoritySettings,
+        | "approve"
+        | "authorization"
+        | "onApprovalRequest"
+        | "principalAttributes"
+      >
     >
   ): SandboxAuthority {
-    const policy = override?.policy ?? this.#options.policy;
-    const durable = policy === this.#options.policy;
+    const authorization =
+      override?.authorization ?? this.#options.authorization;
+    const durable = authorization === this.#options.authorization;
     const approve =
       override?.approve ??
       (this.#options.askable
         ? (request: LiveApproval) => this.#approve(source, request)
         : undefined);
-    const authority: SandboxAuthority = {
-      policy,
+    return {
+      authorization,
       ...(approve ? { approve } : {}),
       onApprovalRequest: async (request) => {
         if (request.approvalMode === "deferred") {
@@ -227,35 +203,28 @@ export class HarnessInteractions {
           if (!agentId) {
             throw new Error("Approval has no agent identity.");
           }
-          if (durable) {
-            await this.#deferred.put({
-              agentId,
-              approvalId: request.approvalId,
-              sessionId: request.sessionId,
-              source,
-              ...(request.agentGeneration === undefined
-                ? {}
-                : { agentGeneration: request.agentGeneration }),
-            });
-          }
           await this.#publishDeferred(
             { ...request, agentId },
             source,
-            policy,
+            authorization,
             durable
           );
         }
         await override?.onApprovalRequest?.(request);
       },
+      principalAttributes: {
+        ...override?.principalAttributes,
+        marblesSource: {
+          definition: source.definition,
+          path: [...source.path],
+          runId: source.runId,
+        },
+      },
     };
-    if (durable) {
-      this.#durable.add(authority);
-    }
-    return authority;
   }
 
   async question(
-    source: Source,
+    source: InteractionSource,
     request: HarnessQuestionRequest,
     attended: boolean
   ): Promise<HarnessQuestionResult> {
@@ -349,28 +318,22 @@ export class HarnessInteractions {
     }
   }
 
-  #approve(source: Source, request: LiveApproval): Promise<ApprovalResolution> {
+  #approve(
+    source: InteractionSource,
+    request: LiveApproval
+  ): Promise<ApprovalResolution> {
     return this.#wait(source, approvalPrompt(request), request.signal);
   }
 
   async #publishDeferred(
     request: DeferredNotice,
-    source: Source,
-    policy: AgentAuthorizer,
-    durable: boolean,
-    response?: { approved: boolean; reason?: string }
+    source: InteractionSource,
+    authorization: Authorization,
+    durable: boolean
   ): Promise<void> {
     const { agentId } = request;
     const prompt = deferredPrompt(request, durable);
     const { question } = prompt;
-    if (response) {
-      await this.#options.feed.publishInput(question, source, {
-        answer: prompt.choiceFor(response.approved),
-        status: "answered",
-        ...(response.reason ? { note: response.reason } : {}),
-      });
-      return;
-    }
     let resolved: PromptAnswer | undefined;
     const id = await this.#options.feed.publishInput(question, source, {
       status: "open",
@@ -383,7 +346,7 @@ export class HarnessInteractions {
             {
               agentGeneration: request.agentGeneration,
               agentId,
-              policy,
+              authorization,
               store: this.#options.sessions,
             },
             request.sessionId,
@@ -401,7 +364,6 @@ export class HarnessInteractions {
           ...(resolved.note ? { note: resolved.note } : {}),
           status: "answered",
         });
-        await this.#deferred.remove(request.approvalId);
       },
       busy: false,
       durable,
@@ -410,7 +372,11 @@ export class HarnessInteractions {
     });
   }
 
-  #wait<T>(source: Source, prompt: Prompt<T>, signal: AbortSignal): Promise<T> {
+  #wait<T>(
+    source: InteractionSource,
+    prompt: Prompt<T>,
+    signal: AbortSignal
+  ): Promise<T> {
     if (this.#shutdown.signal.aborted) {
       return Promise.reject(
         new Error("The host is no longer accepting agent input.")
@@ -427,7 +393,7 @@ export class HarnessInteractions {
   }
 
   async #open<T>(
-    source: Source,
+    source: InteractionSource,
     { parse, question, writeIn }: Prompt<T>,
     signal: AbortSignal
   ): Promise<T> {
@@ -478,18 +444,3 @@ export class HarnessInteractions {
     }
   }
 }
-
-interface ApprovalHistory {
-  readonly requests: Map<string, ApprovalRequestPart>;
-  readonly responses: Map<string, ApprovalResponsePart>;
-}
-
-type MessagePart = SessionMessage["parts"][number];
-type ApprovalRequestPart = Extract<
-  MessagePart,
-  { type: "tool_approval_request" }
->;
-type ApprovalResponsePart = Extract<
-  MessagePart,
-  { type: "tool_approval_response" }
->;

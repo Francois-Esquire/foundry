@@ -7,6 +7,11 @@ import {
   installationIdSchema,
   moduleIdSchema,
 } from "../domain";
+import {
+  MODULE_HOST_PRINCIPAL,
+  moduleCapabilityScope,
+  moduleInstallationPrincipal,
+} from "../grants";
 import { parseModuleManifest } from "../manifest";
 import { Modules } from "../modules";
 import {
@@ -49,17 +54,17 @@ async function storedRecords() {
     now: new Date("2026-08-08T00:00:00.000Z"),
     version,
   });
-  await store.replaceInstallationGrants({
-    expectedGeneration: created.generation,
-    grants: [
-      {
-        capability: "host.files.read",
-        constraintsDigest: "digest-files",
-        version: 1,
-      },
-    ],
-    installationId: created.id,
-    now: new Date("2026-08-08T00:01:00.000Z"),
+  await store.authorization.grant({
+    holder: {
+      kind: "exact",
+      principal: moduleInstallationPrincipal(created.id),
+    },
+    requestedBy: MODULE_HOST_PRINCIPAL,
+    scope: moduleCapabilityScope({
+      capability: "host.files.read",
+      constraintsDigest: "digest-files",
+      version: 1,
+    }),
   });
   const started = await store.beginInstallationTransition({
     expectedGeneration: created.generation,
@@ -103,7 +108,11 @@ describe("Module record schemas", () => {
     for (const grant of context?.grants ?? []) {
       expect(exactly(installationGrantSchema).parse(grant)).toEqual(grant);
     }
-    expect(exactly(storedInstallationSchema).parse(context)).toEqual(context);
+    expect(
+      exactly(storedInstallationSchema).parse({
+        installation: context?.installation,
+      })
+    ).toEqual({ installation: context?.installation });
   });
 
   it("keep the owning Module with a retained manifest", async () => {
@@ -113,38 +122,6 @@ describe("Module record schemas", () => {
 
     expect(exactly(storedManifestSchema).parse(stored)).toEqual(stored);
     expect(storedManifestSchema.safeParse(record).success).toBe(false);
-  });
-
-  it("refuse an Installation holding two Grants for one capability, as the Store does", async () => {
-    const { context, store } = await storedRecords();
-    if (context === null) {
-      throw new Error("expected a gateway context");
-    }
-    const { installation } = context;
-    const read = {
-      capability: "host.files.read",
-      constraintsDigest: "digest-files",
-      version: 1,
-    };
-    const grants = [read, { ...read, version: 2 }];
-    const message = "Grant capability host.files.read is duplicated";
-
-    const result = storedInstallationSchema.safeParse({
-      grants: grants.map((grant) => ({ ...grant, createdAt: new Date() })),
-      installation,
-    });
-
-    expect(result.error?.issues).toEqual([
-      expect.objectContaining({ message, path: ["grants"] }),
-    ]);
-    await expect(
-      store.replaceInstallationGrants({
-        expectedGeneration: installation.generation,
-        grants,
-        installationId: installation.id,
-        now: new Date("2026-08-08T00:04:00.000Z"),
-      })
-    ).rejects.toThrow(message);
   });
 
   it("refuse values outside the persisted shape", () => {

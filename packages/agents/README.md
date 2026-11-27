@@ -614,9 +614,9 @@ toModelMessages(messages)     // session records → AI SDK ModelMessages
 
 ## `@foundry/agents/authorization`
 
-The gate. This module owns what a capability _is_; the mechanism — the
-Authorizer, Grants, Policy tiers — lives in `@foundry/lib/authorization`
-and knows no agent vocabulary.
+The gate. This module maps agent subjects (`AgentSubject` -> `Principal`) and
+capabilities (`Capability` -> `Scope` / `AccessRequest`) onto the unified
+`@foundry/authorization` control plane.
 
 ```typescript
 type Capability =
@@ -628,26 +628,22 @@ type Capability =
 ```
 
 ```typescript
-const { authorizer } = createMemoryAgentAuthorizer({
-  policy: { global: "ask", byKind: { "fs.read": "allow", "tool.call": "ask" } },
+const authorization = createMemoryAuthorization();
+await authorization.grant({
+  holder: agentPrincipalMatcher("coder"),
+  requestedBy: agentPrincipal("coder"),
+  scope: capabilityToScope({ kind: "tool.call", source: "declared", tool: "read" }),
 });
 
-const harness = new AgentHarness({ model, policy: authorizer });
+const harness = new AgentHarness({ agentId: "coder", authorization, model });
 ```
 
-`createMemoryAgentAuthorizer` is the reference composition, with
-`allow`/`revoke` helpers over its Grant repository. A host with real storage
-calls `createAgentAuthorizer({ grants, policy })`; with no `policy` it falls
-back to `AGENT_ASK_BY_DEFAULT`, which asks for everything.
-
-Two properties worth knowing before you configure it:
-
-- **`tool.call` never inherits the global tier.** It is the unclassified
-  fallback, so a blanket `"allow"` must not reach it. Set it explicitly in
-  `byKind`, or every untagged tool is denied.
-- **Without a `permission` callback, `decide` runs twice per call, `claim`
-  once.** The check is repeatable and consumes nothing, so it can run in the
-  SDK's `needsApproval` predicate _and_ in the defensive re-check inside
+`AgentHarness` defaults to an empty, fail-closed `Authorization` instance with
+no grants. Without a `permission` callback, `authorization.check()` runs in
+`needsApproval` (repeatable and side-effect-free), while
+`authorization.authorize()` claims the invocation at execution time and wires
+`permit.signal` into the tool's `abortSignal`, releasing the permit in
+`finally`.
   `execute`. Authority is spent only by `claim`, immediately before the effect,
   keyed by a stable `invocationId` so a replayed continuation re-runs against
   its own claim.

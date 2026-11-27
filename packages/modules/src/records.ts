@@ -56,30 +56,8 @@ export const installationGrantSchema = z
   .readonly();
 export type InstallationGrant = z.infer<typeof installationGrantSchema>;
 
-export function grantCapabilitiesProblem(
-  grants: readonly Pick<InstallationGrant, "capability">[]
-): string | null {
-  const capabilities = new Set<string>();
-  for (const { capability } of grants) {
-    if (capabilities.has(capability)) {
-      return `Grant capability ${capability} is duplicated`;
-    }
-    capabilities.add(capability);
-  }
-  return null;
-}
-
 export const storedInstallationSchema = z
   .object({
-    grants: z
-      .array(installationGrantSchema)
-      .readonly()
-      .superRefine((grants, context) => {
-        const problem = grantCapabilitiesProblem(grants);
-        if (problem !== null) {
-          context.addIssue({ code: "custom", message: problem });
-        }
-      }),
     installation: installationSchema,
   })
   .readonly();

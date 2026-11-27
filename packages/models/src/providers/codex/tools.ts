@@ -4,8 +4,19 @@ import {
 } from "@foundry/core/agents";
 import { asSchema } from "ai";
 import { askQuestions, nativeQuestions } from "../harness/questions";
+import { toolPermissionMeta } from "../harness/tool-meta";
 import type { DriverRun, ReportTool } from "../harness/tool-report";
 import type { AppServerConnection } from "./app-server";
+
+export interface CodexRequestContext {
+  activityId?: string;
+  agentId: string;
+  recordStep: (call: {
+    input: unknown;
+    toolCallId: string;
+    toolName: string;
+  }) => Promise<boolean>;
+}
 export async function dynamicTools(run: DriverRun) {
   const result: {
     name: string;
@@ -51,10 +62,10 @@ export async function answerRequest(
   id: string | number,
   run: DriverRun,
   report: ReportTool,
-  activityId?: string
+  context: CodexRequestContext
 ) {
   if (method === "item/tool/call") {
-    await callHostTool(connection, params, id, run, report, activityId);
+    await callHostTool(connection, params, id, run, report, context);
     return;
   }
   if (
@@ -66,6 +77,20 @@ export async function answerRequest(
   ) {
     const toolCallId = String(params.itemId ?? id);
     const toolName = requestToolName(method, params);
+    const withinLimit = await context.recordStep({
+      input: params,
+      toolCallId,
+      toolName,
+    });
+    if (!withinLimit) {
+      connection.respond(
+        id,
+        method === "item/permissions/requestApproval"
+          ? { permissions: {}, scope: "turn" }
+          : { decision: "decline" }
+      );
+      return;
+    }
     const result = await run.permission({
       input: params,
       sessionId: run.sessionId,
@@ -145,13 +170,23 @@ async function callHostTool(
   id: string | number,
   run: DriverRun,
   report: ReportTool,
-  activityId?: string
+  context: CodexRequestContext
 ) {
   const toolName = String(params.tool);
   const toolCallId = String(params.callId ?? id);
   const call = { input: params.arguments, toolCallId, toolName };
   await report({ ...call, outcome: "started" });
-  const tool = run.tools?.[toolName];
+  if (!(await context.recordStep(call))) {
+    connection.respond(
+      id,
+      toolResponse("Harness tool step limit exceeded", false)
+    );
+    return;
+  }
+  const tool =
+    run.tools && Object.hasOwn(run.tools, toolName)
+      ? run.tools[toolName]
+      : undefined;
   const result: HarnessPermissionResult =
     tool && isHarnessQuestionTool(tool)
       ? { behavior: "allow" }
@@ -159,6 +194,12 @@ async function callHostTool(
           input: params.arguments,
           sessionId: run.sessionId,
           signal: run.signal,
+          ...toolPermissionMeta(tool, {
+            agentId: context.agentId,
+            input: params.arguments,
+            sessionId: run.sessionId,
+            toolCallId,
+          }),
           toolCallId,
           toolName,
         });
@@ -181,7 +222,7 @@ async function callHostTool(
       validated?.success ? validated.value : input,
       {
         abortSignal: run.signal,
-        context: { activityId },
+        context: { activityId: context.activityId },
         messages: [],
         toolCallId,
       }

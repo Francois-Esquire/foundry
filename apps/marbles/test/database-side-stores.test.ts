@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Authorization } from "@foundry/authorization";
 import { afterEach, describe, expect, it } from "vitest";
 import type { WorkspaceDatabaseOptions } from "~/database/managed";
 import {
@@ -36,7 +37,6 @@ function scratch(): string {
 }
 
 const source = { definition: "review", path: ["review"], runId: "run-1" };
-const session = { agentId: "coder", sessionId: "session-1", source };
 const activity: ActivityRecord = {
   event: {
     agentId: "coder",
@@ -78,28 +78,29 @@ describe("the stores an engine keeps beside its records", () => {
       });
     };
     const first = options();
-    await first.options.grants?.transact(() => ({
-      next: "{}",
-      result: undefined,
-    }));
-    await first.options.approvals?.change((saved) => ({
-      ...saved,
-      sessions: [session],
-    }));
+    if (!first.options.authorizationStore) {
+      throw new Error("expected authorizationStore");
+    }
+    const firstAuth = new Authorization({
+      store: first.options.authorizationStore,
+    });
+    const issued = await firstAuth.grant({
+      holder: { kind: "exact", principal: { id: "coder", kind: "agent" } },
+      requestedBy: { id: "coder", kind: "agent" },
+      scope: { action: "tool.call", target: { kind: "exact", value: "read" } },
+    });
     await first.options.activityStore?.put("child-1", activity);
     await dispose(first);
-    await expect(first.options.approvals?.load()).rejects.toThrow("closed");
+    await expect(
+      first.options.authorizationStore?.listGrants()
+    ).rejects.toThrow("closed");
 
     const second = options();
     try {
-      expect(await second.options.approvals?.load()).toEqual({
-        requests: [],
-        sessions: [session],
-      });
       expect(await second.options.activityStore?.load()).toEqual([activity]);
       expect(
-        await second.options.grants?.transact((stored) => ({ result: stored }))
-      ).toBe("{}");
+        await second.options.authorizationStore?.getGrant(issued.id)
+      ).toMatchObject({ id: issued.id, state: "active" });
     } finally {
       await dispose(second);
     }

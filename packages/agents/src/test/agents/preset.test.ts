@@ -1,3 +1,4 @@
+import type { AccessRequest, Authorization } from "@foundry/authorization";
 import type { AgentModel } from "@foundry/core/agents";
 import type { ToolSet } from "ai";
 import { tool } from "ai";
@@ -5,16 +6,12 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { AgentSpec, AgentSurface } from "../../agents/preset";
 import { createAgentPreset, resolveAgent } from "../../agents/preset";
-import type {
-  AgentAuthorizationRequest,
-  AgentAuthorizer,
-} from "../../authorization/authorization";
 import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
 import { tagTool } from "../../harness/tool-registration";
 import type { Skill } from "../../skills/registry";
 import { MemorySessionStore } from "../../store/memory";
-import { fakeAuthorizer } from "../helpers/authorizer";
+import { createPermissiveAuthorization } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
   textGenerateResult,
@@ -44,13 +41,16 @@ const skill = (name: string): Skill => ({
   name,
 });
 
-function trackingPolicy(
-  requests: AgentAuthorizationRequest[]
-): AgentAuthorizer {
-  return fakeAuthorizer((request) => {
+async function trackingAuthorization(
+  requests: AccessRequest[]
+): Promise<Authorization> {
+  const authorization = await createPermissiveAuthorization();
+  const originalCheck = authorization.check.bind(authorization);
+  vi.spyOn(authorization, "check").mockImplementation((request) => {
     requests.push(request);
-    return { kind: "allow", source: "global-policy" };
+    return originalCheck(request);
   });
+  return authorization;
 }
 
 function probeTools(): ToolSet {
@@ -113,7 +113,7 @@ describe("createAgentPreset", () => {
   it.each([false, true])(
     "retains one-off Session correlation without creating history, factory: %s",
     async (factory) => {
-      const requests: AgentAuthorizationRequest[] = [];
+      const requests: AccessRequest[] = [];
       const { store, writes } = recordingStore(new MemorySessionStore());
       const observe = vi.fn(() => null);
       const spec: AgentSpec = { id: "correlated", prompt: "Work once." };
@@ -124,7 +124,7 @@ describe("createAgentPreset", () => {
           : { model: toolCallModel, observe, store }
       );
       const harness = await preset.createAgent({
-        policy: trackingPolicy(requests),
+        authorization: await trackingAuthorization(requests),
         sessionId: "existing-session",
         tools: probeTools(),
       });
@@ -132,7 +132,7 @@ describe("createAgentPreset", () => {
       expect(observe).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: "existing-session" })
       );
-      expect(requests[0]).toMatchObject({ scopeId: "existing-session" });
+      expect(requests[0]).toMatchObject({ sessionId: "existing-session" });
       expect(writes).toEqual([]);
     }
   );
@@ -294,9 +294,11 @@ describe("createAgentPreset", () => {
           write.putSessions !== undefined && write.putMessages === undefined
       );
     const seen: unknown[] = [];
+    const authorization = await createPermissiveAuthorization();
     const preset = createAgentPreset(
       { id: "domain", prompt: "Shared instructions" },
       (context, spec) => ({
+        authorization,
         instructions: spec.prompt,
         model: createScriptedMockModel({
           generate: [
@@ -346,8 +348,8 @@ describe("createAgentPreset", () => {
   });
 
   it("keeps file-defined MCP registration identity through provisioning", async () => {
-    const requests: AgentAuthorizationRequest[] = [];
-    const policy = trackingPolicy(requests);
+    const requests: AccessRequest[] = [];
+    const authorization = await trackingAuthorization(requests);
     const mcp = vi.fn((ids: string[]) => {
       const [serverId] = ids;
       if (!serverId) {
@@ -377,15 +379,17 @@ describe("createAgentPreset", () => {
       { mcp, model: toolCallModel }
     );
 
-    const harness = await preset.createAgent({ policy });
+    const harness = await preset.createAgent({ authorization });
     await harness.generate({ prompt: "go" });
 
     expect(mcp).toHaveBeenCalledWith(["context7"]);
-    expect(requests.map((request) => request.capability)).toContainEqual({
-      kind: "mcp.tool",
-      serverId: "context7",
-      tool: "probe",
-    });
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        action: "mcp.tool",
+        attributes: { tool: "probe" },
+        target: "context7",
+      })
+    );
   });
 
   it.each([false, true])(
@@ -399,7 +403,9 @@ describe("createAgentPreset", () => {
           textStreamResult("done"),
         ],
       });
+      const authorization = await createPermissiveAuthorization();
       const settings = {
+        authorization,
         model,
         store,
         tools: {
@@ -451,9 +457,9 @@ describe("createAgentPreset", () => {
     }
   );
 
-  it("createAgent and createSession share base tools, policy, prompt, and model; createSession adds the store", async () => {
-    const requests: AgentAuthorizationRequest[] = [];
-    const policy = trackingPolicy(requests);
+  it("createAgent and createSession share base tools, authorization, prompt, and model; createSession adds the store", async () => {
+    const requests: AccessRequest[] = [];
+    const authorization = await trackingAuthorization(requests);
     const store = new MemorySessionStore();
     const surface: AgentSurface = {
       model: toolCallModel,
@@ -466,11 +472,11 @@ describe("createAgentPreset", () => {
     const preset = createAgentPreset(spec, surface);
 
     const direct = await preset.createAgent({
-      policy,
+      authorization,
       tools: probeTools(),
     });
     const session = await preset.createSession({
-      policy,
+      authorization,
       sessionId: "s1",
       tools: probeTools(),
     });
@@ -488,26 +494,26 @@ describe("createAgentPreset", () => {
     await session.generate("go");
 
     expect(requests.length).toBeGreaterThan(0);
-    expect(requests.every((r) => r.subject.id === "researcher")).toBe(true);
+    expect(requests.every((r) => r.principal.id === "researcher")).toBe(true);
   });
 
   it("preset identity survives reconstruction and never falls back to a different agent", async () => {
-    const requests: AgentAuthorizationRequest[] = [];
-    const policy = trackingPolicy(requests);
+    const requests: AccessRequest[] = [];
+    const authorization = await trackingAuthorization(requests);
     const surface: AgentSurface = { model: toolCallModel };
     const spec: AgentSpec = { id: "alpha", prompt: "Be alpha." };
     const preset = createAgentPreset(spec, surface);
 
     const first = await preset.createAgent({
-      policy,
+      authorization,
       tools: probeTools(),
     });
     const second = await preset.createAgent({
-      policy,
+      authorization,
       tools: probeTools(),
     });
     const third = await preset.createSession({
-      policy,
+      authorization,
       sessionId: "s2",
       tools: probeTools(),
     });
@@ -519,7 +525,7 @@ describe("createAgentPreset", () => {
     expect(preset.spec).toBe(spec);
     expect(preset.spec.id).toBe("alpha");
     expect(requests.length).toBeGreaterThan(0);
-    expect(requests.every((r) => r.subject.id === "alpha")).toBe(true);
+    expect(requests.every((r) => r.principal.id === "alpha")).toBe(true);
   });
 
   it("resolves the spec's model id through the surface unless the context hands in a model", async () => {
@@ -548,13 +554,13 @@ describe("createAgentPreset", () => {
     expect(fromContext.model).toBe(own);
   });
 
-  it("keeps the host's policy and model when spec settings carry those keys", async () => {
-    const policy = trackingPolicy([]);
+  it("keeps the host's authorization and model when spec settings carry those keys", async () => {
+    const authorization = await trackingAuthorization([]);
     const model = toolCallModel();
-    const surface: AgentSurface = { model: () => model, policy };
+    const surface: AgentSurface = { authorization, model: () => model };
     const settings = {
+      authorization: null,
       model: null,
-      policy: null,
     } as unknown as AgentSpec["settings"];
     const preset = createAgentPreset(
       { id: "kept", prompt: "Hold.", settings },
@@ -562,15 +568,15 @@ describe("createAgentPreset", () => {
     );
 
     const agent = await preset.createAgent({ tools: probeTools() });
-    expect(agent.policy).toBe(policy);
+    expect(agent.authorization).toBe(authorization);
     expect(agent.model).toBe(model);
     await agent.generate({ prompt: "go" });
     const session = await preset.createSession({ sessionId: "s1" });
-    expect(session.policy).toBe(policy);
+    expect(session.authorization).toBe(authorization);
   });
 
   it("forwards createSession's surfaceContext opaquely, with no effect at this layer", async () => {
-    const policy = trackingPolicy([]);
+    const authorization = await trackingAuthorization([]);
     const surface: AgentSurface = { model: toolCallModel };
     const spec: AgentSpec = {
       id: "researcher",
@@ -578,9 +584,12 @@ describe("createAgentPreset", () => {
     };
     const preset = createAgentPreset(spec, surface);
 
-    const plain = await preset.createSession({ policy, sessionId: "s1" });
+    const plain = await preset.createSession({
+      authorization,
+      sessionId: "s1",
+    });
     const withContext = await preset.createSession({
-      policy,
+      authorization,
       sessionId: "s2",
       surfaceContext: { roadmapId: "r1" },
     });

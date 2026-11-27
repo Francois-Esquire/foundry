@@ -10,6 +10,7 @@ import type {
 import type { NativeActivities } from "../harness/native-activity";
 import { record } from "../harness/payload";
 import { answerClaudeQuestion } from "../harness/questions";
+import { toolPermissionMeta } from "../harness/tool-meta";
 import {
   type DriverRun,
   type ToolReport,
@@ -103,6 +104,12 @@ export function createClaudeTools({
     }
     return await run.permission({
       ...request,
+      ...toolPermissionMeta(hostTool, {
+        agentId,
+        input: request.input,
+        sessionId: request.sessionId,
+        toolCallId: request.toolCallId,
+      }),
       toolName: hostName ?? request.toolName,
     });
   };

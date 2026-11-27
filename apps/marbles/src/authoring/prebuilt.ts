@@ -1,7 +1,29 @@
+import { Authorization } from "@foundry/authorization";
+import { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 import { z } from "zod";
 import type { AgentDefinition, Context } from "~/lib/types";
 import { step } from "./builder";
 import { agent } from "./resources";
+
+async function readOnlyAuthorization(): Promise<Authorization> {
+  const authorization = new Authorization({
+    store: new MemoryAuthorizationStore(),
+  });
+  for (const action of [
+    "tool.call",
+    "mcp.tool",
+    "web.fetch",
+    "domain.command",
+  ]) {
+    await authorization.restrict({
+      kind: "deny",
+      reason:
+        "Prebuilt read-only agents cannot execute tools or network actions.",
+      scope: { action, target: { kind: "any" } },
+    });
+  }
+  return authorization;
+}
 
 export interface PrebuiltOptions {
   readonly instructions?: string;
@@ -34,9 +56,10 @@ async function ask(
   prompt: string,
   cwd?: string
 ) {
+  const authorization = await readOnlyAuthorization();
   const session = await context.agents.session(
     definition,
-    cwd === undefined ? {} : { cwd }
+    cwd === undefined ? { authorization } : { authorization, cwd }
   );
   const reply = await session.generate([prompt, BOUNDED].join("\n"), {
     signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
@@ -161,6 +184,7 @@ export function reviewSession(options: PrebuiltOptions = {}) {
     .do(async (context) => {
       const { sessionId } = context.input;
       const session = await context.agents.session(definition, {
+        authorization: await readOnlyAuthorization(),
         session: { id: sessionId },
       });
       const reply = await session.generate(`Review this codebase. ${BOUNDED}`);

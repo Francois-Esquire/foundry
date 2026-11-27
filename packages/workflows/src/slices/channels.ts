@@ -22,6 +22,7 @@ import { Snapshot } from "./snapshot";
 export type { ChannelEvent, SuspensionState } from "../schema";
 
 export interface SuspensionRequest {
+  readonly correlationId?: string;
   readonly kind?: string;
   readonly meta?: Record<string, unknown>;
   readonly name: string;

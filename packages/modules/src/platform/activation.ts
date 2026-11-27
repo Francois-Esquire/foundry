@@ -1,3 +1,4 @@
+import type { Authorization } from "@foundry/authorization";
 import { installationPrincipal } from "../access";
 import type { ModuleVersion } from "../domain";
 import { ModuleStoreConflictError } from "../errors";
@@ -27,7 +28,11 @@ export class ModuleActivationRefusedError extends Error {
 export async function validateModuleActivation(
   input: ModuleActivationInput,
   options: {
-    readonly store: Pick<ModuleCommands, "loadGatewayContext">;
+    readonly authorization?: Authorization;
+    readonly store: Pick<
+      ModuleCommands,
+      "authorization" | "loadGatewayContext"
+    >;
     readonly providers: readonly ModuleCapabilityProvider[];
   }
 ): Promise<ActivationPreflight> {
@@ -43,6 +48,7 @@ export async function validateModuleActivation(
     );
   }
   const preflight = await preflightModuleActivation({
+    authorization: options.authorization ?? options.store.authorization,
     grants: context.grants,
     principal: installationPrincipal(installation, version),
     providers: options.providers,

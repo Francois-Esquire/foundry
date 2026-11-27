@@ -75,7 +75,8 @@ function answered(resolution: unknown, mode: string): Answered {
 
 async function suspendFor(
   { ctx, frame, scope }: AskArgs,
-  raw: z.input<typeof questionSchema>
+  raw: z.input<typeof questionSchema>,
+  correlationId?: string
 ): Promise<Answered> {
   const parsed = questionSchema.safeParse(raw);
   if (!parsed.success) {
@@ -89,6 +90,7 @@ async function suspendFor(
     key: parsed.data.key ?? `ask:${occurrence}`,
   };
   const resolution = await ctx.suspend<unknown>({
+    ...(correlationId === undefined ? {} : { correlationId }),
     kind: FEED_INPUT_KIND,
     name: parsed.data.key
       ? `${ASK_NAME}:${parsed.data.key}`
@@ -108,13 +110,21 @@ async function suspendFor(
 function buildAsk(args: AskArgs): Ask {
   return {
     async approval(request: ApprovalRequest): Promise<Approval> {
-      const answer = await suspendFor(args, {
-        ...request,
-        choices: [APPROVE, REJECT],
-        mode: "approval",
-      });
+      const answer = await suspendFor(
+        args,
+        {
+          ...request,
+          choices: [APPROVE, REJECT],
+          ...(request.key === undefined && request.grantId !== undefined
+            ? { key: request.grantId }
+            : {}),
+          mode: "approval",
+        },
+        request.grantId
+      );
       return {
         approved: answer.choice === APPROVE,
+        ...(request.grantId === undefined ? {} : { grantId: request.grantId }),
         ...(answer.note === undefined ? {} : { note: answer.note }),
       };
     },

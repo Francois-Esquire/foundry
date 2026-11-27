@@ -2,17 +2,18 @@ import { dirname, resolve } from "node:path";
 import type { SessionMessage, SessionRecord } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
+import type { AuthorizationStore } from "@foundry/authorization/store";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
 import { ownedWrite } from "@foundry/lib/plain-json";
 import type { QueueStoreService } from "@foundry/queue/store";
 import type { ScheduleStoreService } from "@foundry/scheduling/store";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { DatabaseActivityStore } from "~/database/activities";
-import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import { DatabaseAutomationStore } from "~/database/automations";
+import { surfacingBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
-import { DatabaseGrantStorage } from "~/database/grants";
 import type { HostDatabaseOptions, MarblesDatabase } from "~/database/open";
 import { openHostDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
@@ -197,7 +198,7 @@ export function defaultWorkspaceTriggers(
 }
 
 type SideStores = Required<
-  Pick<EngineOptions, "activityStore" | "approvals" | "grants" | "recoveryLog">
+  Pick<EngineOptions, "activityStore" | "authorizationStore" | "recoveryLog">
 >;
 
 function sideStores(
@@ -215,23 +216,27 @@ function sideStores(
     scope: workspaceId,
   });
   const activities = over((opened) => new DatabaseActivityStore(kept(opened)));
-  const approvals = over(
-    (opened) => new DatabaseDeferredApprovalStore(kept(opened))
+  const authorization = over((opened) =>
+    surfacingBusy(new SqliteAuthorizationStore(kept(opened)))
   );
-  const grants = over((opened) => new DatabaseGrantStorage(kept(opened)));
   const recoveries = over((opened) => new DatabaseRecoveryLog(kept(opened)));
+  const authorizationStore: AuthorizationStore = {
+    commit: (write) => authorization((store) => store.commit(write)),
+    durability: "commit",
+    getClaim: (invocationId) =>
+      authorization((store) => store.getClaim(invocationId)),
+    getGrant: (id) => authorization((store) => store.getGrant(id)),
+    getRestriction: (id) => authorization((store) => store.getRestriction(id)),
+    listGrants: (query) => authorization((store) => store.listGrants(query)),
+    listRestrictions: () => authorization((store) => store.listRestrictions()),
+    transaction: (work) => authorization((store) => store.transaction(work)),
+  };
   return {
     activityStore: {
       load: () => activities((store) => store.load()),
       put: (key, record) => activities((store) => store.put(key, record)),
     },
-    approvals: {
-      change: (update) => approvals((store) => store.change(update)),
-      load: () => approvals((store) => store.load()),
-    },
-    grants: {
-      transact: (apply) => grants((store) => store.transact(apply)),
-    },
+    authorizationStore,
     recoveryLog: {
       record: (report) => recoveries((store) => store.record(report)),
     },
@@ -306,8 +311,8 @@ export function withWorkspaceDatabase(
       ...options,
       ...Object.fromEntries(missing.map((key) => [key, make[key](claim())])),
       activityStore: options.activityStore ?? sides.activityStore,
-      approvals: options.approvals ?? sides.approvals,
-      grants: options.grants ?? sides.grants,
+      authorizationStore:
+        options.authorizationStore ?? sides.authorizationStore,
       recoveryLog: options.recoveryLog ?? sides.recoveryLog,
     },
     release: claim(),

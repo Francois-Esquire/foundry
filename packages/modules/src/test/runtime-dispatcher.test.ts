@@ -14,6 +14,11 @@ import type {
   ModuleGatewayInvocationFrame,
   ModuleRuntimeIdentity,
 } from "../gateway/types";
+import {
+  MODULE_HOST_PRINCIPAL,
+  moduleCapabilityScope,
+  moduleInstallationPrincipal,
+} from "../grants";
 import { PORTABLE_SCHEMA_DIALECT } from "../manifest";
 import { Modules } from "../modules";
 import { moduleFixture } from "./helpers/module-fixture";
@@ -122,11 +127,13 @@ describe("authorized Module Gateway dispatch", () => {
     await vi.waitFor(() => {
       expect(invoke).toHaveBeenCalledOnce();
     });
-    dispatcher.revoke({
-      capability: "platform.notifications",
-      installationId: fixture.runtime.installationId,
-      reason: "Module Grant was revoked",
-    });
+    await fixture.store.authorization.revoke(
+      {
+        kind: "principal",
+        principal: moduleInstallationPrincipal(fixture.runtime.installationId),
+      },
+      "Module Grant was revoked"
+    );
     expect(providerSignal?.aborted).toBe(true);
     completeProvider?.({ delivered: true });
 
@@ -152,11 +159,13 @@ describe("authorized Module Gateway dispatch", () => {
     await vi.waitFor(() => {
       expect(resolveConstraints).toHaveBeenCalledOnce();
     });
-    dispatcher.revoke({
-      capability: "platform.notifications",
-      installationId: fixture.runtime.installationId,
-      reason: "Module Grant was revoked",
-    });
+    await fixture.store.authorization.revoke(
+      {
+        kind: "principal",
+        principal: moduleInstallationPrincipal(fixture.runtime.installationId),
+      },
+      "Module Grant was revoked"
+    );
     resolving.resolve({ constraintsDigest: "digest" });
 
     await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
@@ -273,11 +282,13 @@ describe("authorized Module Gateway dispatch", () => {
     await vi.waitFor(() => {
       expect(resolveConstraints).toHaveBeenCalledOnce();
     });
-    dispatcher.revoke({
-      capability: "platform.notifications",
-      installationId: fixture.runtime.installationId,
-      reason: "Module Grant was revoked",
-    });
+    await fixture.store.authorization.revoke(
+      {
+        kind: "principal",
+        principal: moduleInstallationPrincipal(fixture.runtime.installationId),
+      },
+      "Module Grant was revoked"
+    );
     resolving.resolve({ constraintsDigest: "digest" });
 
     await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
@@ -364,14 +375,16 @@ describe("authorized Module Gateway dispatch", () => {
     await vi.waitFor(() => {
       expect(resolveConstraints).toHaveBeenCalledOnce();
     });
-    await fixture.store.revokeInstallationGrant({
-      capability: "platform.notifications",
-      expectedGeneration: fixture.runtime.generation,
-      installationId: fixture.runtime.installationId,
-    });
+    await fixture.store.authorization.revoke(
+      {
+        kind: "principal",
+        principal: moduleInstallationPrincipal(fixture.runtime.installationId),
+      },
+      "revoked"
+    );
     resolving.resolve({ constraintsDigest: "digest" });
 
-    await expect(dispatch).rejects.toMatchObject({ code: "unauthorized" });
+    await expect(dispatch).rejects.toMatchObject({ code: "cancelled" });
     expect(invoke).not.toHaveBeenCalled();
   });
 
@@ -422,11 +435,13 @@ describe("authorized Module Gateway dispatch", () => {
       done: false,
       value: { step: 1 },
     });
-    dispatcher.revoke({
-      capability: "platform.notifications",
-      installationId: fixture.runtime.installationId,
-      reason: "Module Grant was revoked",
-    });
+    await fixture.store.authorization.revoke(
+      {
+        kind: "principal",
+        principal: moduleInstallationPrincipal(fixture.runtime.installationId),
+      },
+      "Module Grant was revoked"
+    );
 
     await expect(iterator.next()).rejects.toMatchObject({ code: "cancelled" });
   });
@@ -618,17 +633,17 @@ async function createFixture(input: { readonly grant?: boolean } = {}) {
     status: "starting",
   });
   if (input.grant !== false) {
-    await store.replaceInstallationGrants({
-      expectedGeneration: installation.generation,
-      grants: [
-        {
-          capability: "platform.notifications",
-          constraintsDigest: "digest",
-          version: 1,
-        },
-      ],
-      installationId: installation.id,
-      now: new Date("2026-08-09T00:01:00.000Z"),
+    await store.authorization.grant({
+      holder: {
+        kind: "exact",
+        principal: moduleInstallationPrincipal(installation.id),
+      },
+      requestedBy: MODULE_HOST_PRINCIPAL,
+      scope: moduleCapabilityScope({
+        capability: "platform.notifications",
+        constraintsDigest: "digest",
+        version: 1,
+      }),
     });
   }
   const context = await store.loadGatewayContext(installation.id);
