@@ -175,15 +175,6 @@ Source responsibilities and dependency boundaries:
   `node-host-liveness.ts`, `RunOutputSink` with `MemoryRunOutputSink` and
   `FileRunOutputSink`, injectable queue and scheduler client factories with
   `leaseTtlMs` and `claimTtlMs`, and injectable host adapters on `EngineOptions`.
-- `src/storage/` defines Web-standard storage ports in `ports.ts`, Memory
-  adapters in `memory.ts`, and SQLite adapters in `sqlite.ts`, verified by
-  the shared storage conformance suite.
-- `src/service/` provides the unified, backend-agnostic domain service:
-  `errors.ts`, `ports.ts`, and `marbles.ts` are 100% Web-standard (no daemon
-  lifecycle, TUI preferences, SQLite, or fs dependencies) so non-Node hosts,
-  including Cloudflare Workers, can use `createMcpServer(service.toMcpOptions())`.
-  `local.ts` is the local Node composition root wiring SQLite and daemon access
-  for CLI and stdio MCP.
 - `src/database/` is the Marbles database: one SQLite file at the state
   root, `<state>/marbles.db`, that every process on the machine opens at
   once. `open.ts` has one way in per role: `initializeDatabase`, for
