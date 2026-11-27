@@ -360,31 +360,35 @@ function buildContainerFacets(
           async start(command: SandboxCommand, options?: SandboxExecOptions) {
             const proc = await guest.startProcess(command, options);
             let status: SandboxProcessStatus = "running";
+            let terminationRequested = false;
             const exited = proc.wait().finally(() => {
               if (status === "running") {
-                status = "exited";
+                status = terminationRequested ? "terminated" : "exited";
               }
             });
             exited.catch(() => undefined);
+            const hardStop = async (): Promise<void> => {
+              if (status !== "running") {
+                return;
+              }
+              terminationRequested = true;
+              try {
+                await proc.kill();
+              } catch (error: unknown) {
+                if (status === "running") {
+                  terminationRequested = false;
+                }
+                throw error;
+              }
+              await exited.catch(() => undefined);
+            };
             return {
               id: proc.id,
-              async kill() {
-                if (status !== "running") {
-                  return;
-                }
-                await proc.kill();
-                status = "terminated";
-              },
+              kill: hardStop,
               get status() {
                 return status;
               },
-              async terminate() {
-                if (status !== "running") {
-                  return;
-                }
-                await proc.terminate();
-                status = "terminated";
-              },
+              terminate: hardStop,
               wait: () => exited,
             };
           },
@@ -688,10 +692,15 @@ async function probeHttp(
   fetchImpl: typeof globalThis.fetch
 ): Promise<boolean> {
   try {
-    const url = new URL(path, endpoint.url);
+    const base = new URL(endpoint.url);
+    const url = new URL(path, base);
+    if (url.origin !== base.origin) {
+      return false;
+    }
     const response = await fetchImpl(url, {
       ...(endpoint.headers === undefined ? {} : { headers: endpoint.headers }),
       method: "GET",
+      redirect: "manual",
       signal: AbortSignal.timeout(500),
     });
     return response.ok;

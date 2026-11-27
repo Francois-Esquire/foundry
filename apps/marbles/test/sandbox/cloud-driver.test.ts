@@ -100,32 +100,50 @@ describe("Marbles cloud-native sandbox integration", () => {
       );
 
       await expect(
-        FIRST_PARTY_DRIVERS["claude-code"]({
-          auth: { apiKey: "test-key", kind: "apiKey" },
-          guest,
-          settings: {
-            agentId: "agent-1",
-            container,
-            harness: "claude-code",
-            hostCwd: "/virtual/project",
-            instructions: "test",
-            modelId: "claude-sonnet-4-5",
-            options: {
-              authority: { policy: {} as never },
-              sandbox: {} as never,
+        Promise.resolve(
+          FIRST_PARTY_DRIVERS["claude-code"]({
+            auth: { apiKey: "test-key", kind: "apiKey" },
+            guest,
+            settings: {
+              agentId: "agent-1",
+              container,
+              harness: "claude-code",
+              hostCwd: "/virtual/project",
+              instructions: "test",
+              modelId: "claude-sonnet-4-5",
+              options: {
+                authority: { policy: {} as never },
+                sandbox: {} as never,
+              },
+              provider: "anthropic",
+              sessionId: "cloud-session-1",
+              signal: new AbortController().signal,
+              store: {} as never,
+              write: () => undefined,
             },
-            provider: "anthropic",
+          })
+        ).then(async (driver) => {
+          const stream = await driver.run({
+            input: { parts: [{ text: "hi", type: "text" }] },
+            onActivity: async () => undefined,
+            onSessionId: async () => undefined,
+            onToolEvent: async () => undefined,
+            permission: async () => ({ behavior: "allow" }),
+            profile: {
+              allowedTools: [],
+              disallowedTools: [],
+              maxSteps: 1,
+              mode: "scheduled",
+              unresolved: "deny",
+            },
+            question: async () => ({ answers: {}, outcome: "answered" }),
             sessionId: "cloud-session-1",
             signal: new AbortController().signal,
-            store: {} as never,
-            write: () => undefined,
-          },
-        }).then((driver) =>
-          driver.runTurn({
-            messages: [{ content: "hi", role: "user" }],
-            signal: new AbortController().signal,
-          })
-        )
+          });
+          for await (const _chunk of stream) {
+            // drain until spawn rejects
+          }
+        })
       ).rejects.toThrow();
     } finally {
       await container.close();
@@ -190,6 +208,37 @@ describe("Marbles cloud-native sandbox integration", () => {
     } finally {
       await container.close();
       await containers.shutdown();
+    }
+  });
+
+  it("rejects an explicit workspace selection when the driver lacks host-directory mounts and no materializer is configured", async () => {
+    const cloudDriver = createCloudFakeDriver();
+    const engine = createEngine({
+      catalog: new Catalog(),
+      dry: false,
+      print: () => undefined,
+      root: "/virtual/project",
+      sandboxDriver: cloudDriver,
+      workspaceId: "cloud-ws-no-mat",
+    });
+
+    try {
+      await expect(
+        engine.sandboxes.start({
+          image: "ghcr.io/foundry/agent:latest",
+        })
+      ).rejects.toMatchObject({
+        code: "unsupported",
+        name: SandboxError.name,
+      });
+
+      const empty = await engine.sandboxes.start({
+        image: "ghcr.io/foundry/agent:latest",
+        mount: "none",
+      });
+      await empty.close();
+    } finally {
+      await (await engine.sandboxes.containers()).shutdown();
     }
   });
 });

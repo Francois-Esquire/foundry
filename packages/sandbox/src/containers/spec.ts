@@ -344,24 +344,20 @@ export function assertDriverSupports(
   spec: ContainerSpec,
   capabilities: DriverCapabilities | undefined
 ): void {
-  if (capabilities === undefined) {
-    return;
-  }
-  assertNetworkSupported(spec, capabilities);
-  assertMountsSupported(spec, capabilities);
-  assertEndpointsSupported(spec, capabilities);
-  assertLifetimeAndSecretsSupported(spec, capabilities);
+  const caps: DriverCapabilities = capabilities ?? {};
+  assertNetworkSupported(spec, caps);
+  assertMountsSupported(spec, caps);
+  assertEndpointsSupported(spec, caps);
+  assertLifetimeAndSecretsSupported(spec, caps);
 }
 
 function assertNetworkSupported(
   spec: ContainerSpec,
   capabilities: DriverCapabilities
 ): void {
-  if (capabilities.network === undefined) {
-    return;
-  }
   const tier = typeof spec.network === "string" ? spec.network : "allowlist";
-  if (!capabilities.network.includes(tier)) {
+  const supported = capabilities.network ?? [];
+  if (!supported.includes(tier)) {
     throw new SandboxError(
       "unsupported",
       `driver does not support network policy "${tier}"`
@@ -373,11 +369,9 @@ function assertMountsSupported(
   spec: ContainerSpec,
   capabilities: DriverCapabilities
 ): void {
-  if (capabilities.mounts === undefined) {
-    return;
-  }
+  const supported = capabilities.mounts ?? [];
   for (const mount of spec.mounts) {
-    if (!capabilities.mounts.includes(mount.source.kind)) {
+    if (!supported.includes(mount.source.kind)) {
       throw new SandboxError(
         "unsupported",
         `driver does not support "${mount.source.kind}" mounts (mount "${mount.id}")`
@@ -390,17 +384,19 @@ function assertEndpointsSupported(
   spec: ContainerSpec,
   capabilities: DriverCapabilities
 ): void {
-  if (capabilities.endpoints === undefined) {
-    return;
-  }
+  const supported = capabilities.endpoints ?? [];
   for (const entry of spec.expose) {
-    if (
-      entry.access !== undefined &&
-      !capabilities.endpoints.includes(entry.access)
-    ) {
+    if (entry.access !== undefined) {
+      if (!supported.includes(entry.access)) {
+        throw new SandboxError(
+          "unsupported",
+          `driver does not support "${entry.access}" endpoint exposure for port ${String(entry.port)}`
+        );
+      }
+    } else if (supported.length === 0) {
       throw new SandboxError(
         "unsupported",
-        `driver does not support "${entry.access}" endpoint exposure for port ${String(entry.port)}`
+        `driver does not support endpoint exposure for port ${String(entry.port)}`
       );
     }
   }
@@ -410,7 +406,7 @@ function assertLifetimeAndSecretsSupported(
   spec: ContainerSpec,
   capabilities: DriverCapabilities
 ): void {
-  if (spec.secrets.length > 0 && capabilities.secrets === false) {
+  if (spec.secrets.length > 0 && capabilities.secrets !== true) {
     throw new SandboxError(
       "unsupported",
       "driver does not support secret bindings"
@@ -418,7 +414,7 @@ function assertLifetimeAndSecretsSupported(
   }
   if (
     spec.lifetime?.ttlMs !== undefined &&
-    capabilities.lifetime?.ttl === false
+    capabilities.lifetime?.ttl !== true
   ) {
     throw new SandboxError(
       "unsupported",
@@ -427,7 +423,7 @@ function assertLifetimeAndSecretsSupported(
   }
   if (
     spec.lifetime?.idleTimeoutMs !== undefined &&
-    capabilities.lifetime?.idle === false
+    capabilities.lifetime?.idle !== true
   ) {
     throw new SandboxError(
       "unsupported",

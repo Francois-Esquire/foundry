@@ -100,6 +100,22 @@ export function createInventory(options: {
     rowId: string
   ): Promise<void> => {
     if (driver.listResources === undefined) {
+      let foreign: boolean;
+      try {
+        foreign = await isForeignReference(rowId, name);
+      } catch (error: unknown) {
+        retryByName(name, rowId);
+        report(
+          `container ${rowId}: previous resource ${name} could not be checked (${String(error)}); kept to retry`
+        );
+        return;
+      }
+      if (foreign) {
+        report(
+          `container ${rowId}: previous resource ${name} is owned by another record; left alone`
+        );
+        return;
+      }
       try {
         await driver.stopResource(name).catch(() => undefined);
         await driver.removeResource(name);
@@ -145,10 +161,20 @@ export function createInventory(options: {
     readonly removed: string[];
     readonly resources: readonly DriverResourceSummary[];
   }> => {
+    const recordedByAnother = recordedNames();
+    const passedOver: string[] = [];
     const removed: string[] = [];
     let failure: { readonly error: unknown } | undefined;
-    for (const [name] of candidates) {
+    for (const [name, rowId] of candidates) {
+      if (abandoned.get(name) !== rowId) {
+        continue;
+      }
       try {
+        if (await isForeignReference(rowId, name, recordedByAnother)) {
+          passedOver.push(name);
+          abandoned.delete(name);
+          continue;
+        }
         await driver.stopResource(name).catch(() => undefined);
         await driver.removeResource(name);
         removed.push(name);
@@ -167,7 +193,7 @@ export function createInventory(options: {
         { cause: failure.error }
       );
     }
-    return { passedOver: [], removed, resources: [] };
+    return { passedOver, removed, resources: [] };
   };
 
   const reclaim = async (
@@ -250,6 +276,15 @@ export function createInventory(options: {
     if (row.nativeId === undefined) {
       return { conflicts: [], stuck: [], unjudged: false };
     }
+    let foreign: boolean;
+    try {
+      foreign = await isForeignReference(row.id, row.nativeId);
+    } catch {
+      return { conflicts: [], stuck: [], unjudged: true };
+    }
+    if (foreign) {
+      return { conflicts: [row.nativeId], stuck: [], unjudged: false };
+    }
     try {
       const status =
         driver.inspect === undefined
@@ -312,12 +347,8 @@ export function createInventory(options: {
   ): Promise<boolean | undefined> => {
     try {
       const ownStore = await store.identity();
-      const nameValid =
-        ownsNativeName(row.id, resource.name) ||
-        (resource.name === row.nativeId &&
-          !NATIVE_NAME_PATTERN.test(resource.name));
       return (
-        !(isRowsResource(resource, row.id, ownStore) && nameValid) ||
+        !isRowsResource(resource, row.id, ownStore) ||
         (await recordedByAnother(resource.name, row.id))
       );
     } catch {
@@ -329,6 +360,13 @@ export function createInventory(options: {
     (await store.list()).some(
       (stored) => stored.id !== except && stored.nativeId === name
     );
+
+  const isForeignReference = async (
+    rowId: string,
+    name: string,
+    recordedByAnother: RecordedByAnother = recordedNames()
+  ): Promise<boolean> =>
+    isForeignNativeName(rowId, name) || (await recordedByAnother(name, rowId));
 
   const disposeListed = async (
     resource: DriverResourceSummary
@@ -402,6 +440,7 @@ export function createInventory(options: {
     clearRow,
     discardBooted,
     hint,
+    isForeignReference,
     removeAttached,
     removeSuperseded,
     retryAtShutdown,

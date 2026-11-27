@@ -13,7 +13,7 @@ it("executes workspace tools while preserving nosuid/nodev and config noexec", a
   await writeFile(join(source, "tool"), "#!/bin/sh\nprintf 'workspace-tool'\n");
   await chmod(join(source, "tool"), 0o755);
   const containers = createContainers({
-    driver: createMicrosandboxDriver(),
+    driver: createMicrosandboxDriver({ allowedMountRoots: [source] }),
     instanceLabel: `exec-test-${crypto.randomUUID()}`,
     store: new MemoryContainerStore(),
   });

@@ -203,6 +203,9 @@ export function createContainers(options: CreateContainersOptions): Containers {
       vm = attachContainer(handle, spec, {
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       });
+      if (actualRef !== requestedName) {
+        await update(entry, { nativeId: actualRef });
+      }
       await handle.ensureDirectory(spec.workdir);
       await update(entry, { nativeId: actualRef, status: "running" });
       return { labels, nativeId: actualRef, spec, vm };
@@ -233,6 +236,12 @@ export function createContainers(options: CreateContainersOptions): Containers {
       return undefined;
     }
     assertNotAborted(signal, "container open was cancelled");
+    if (await inventory.isForeignReference(row.id, row.nativeId)) {
+      throw new SandboxError(
+        "invalid-contract",
+        `container ${row.id} records resource ${row.nativeId}, which is owned by another record`
+      );
+    }
     const { labels, spec } = await buildSpec(row, input, row.nativeId);
     if (row.status === "paused" && driver.resumeResource !== undefined) {
       await driver.resumeResource(row.nativeId);
@@ -247,15 +256,58 @@ export function createContainers(options: CreateContainersOptions): Containers {
     const vm = attachContainer(handle, spec, {
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     });
-    const entry = { row };
-    if (row.status === "paused" || row.nativeId !== handle.id) {
-      await update(entry, { nativeId: handle.id, status: "running" });
+    const eventId = globalThis.crypto.randomUUID();
+    let claimed: ContainerRow;
+    try {
+      claimed = await serialized(async (view) => {
+        const current = await view.get(row.id);
+        if (
+          current === undefined ||
+          current.status !== row.status ||
+          current.nativeId !== row.nativeId ||
+          current.updatedAt !== row.updatedAt
+        ) {
+          throw new SandboxError(
+            "invalid-transition",
+            `container ${row.id} changed while reconnecting`
+          );
+        }
+        assertNotClaimedElsewhere(current);
+        const next: ContainerRow = Object.freeze({
+          ...current,
+          holder,
+          nativeId: handle.id,
+          status: "running",
+          updatedAt: Date.now(),
+        });
+        if (isForeignNativeName(next.id, handle.id)) {
+          throw new SandboxError(
+            "invalid-contract",
+            `container ${next.id} records the native name ${handle.id}, which is not one of its own`
+          );
+        }
+        const entered = enteredEvent(current, next);
+        await view.commit({
+          ...(entered === undefined
+            ? {}
+            : {
+                events: [
+                  sandboxEvent(entered, eventId, next.id, next.updatedAt),
+                ],
+              }),
+          putContainers: [next],
+        });
+        return next;
+      });
+    } catch (error: unknown) {
+      await vm.disconnect().catch(() => undefined);
+      throw error;
     }
     const attached: Live = {
       handles: 0,
       labels,
       nativeId: handle.id,
-      row: entry.row,
+      row: claimed,
       spec,
       turn: Promise.resolve(),
       vm,
@@ -337,6 +389,10 @@ export function createContainers(options: CreateContainersOptions): Containers {
     let failed = false;
     const letGo = async (): Promise<void> => {
       if (failed) {
+        if (entry.spec.lifetime?.whenReleased === "keep") {
+          await inReleaseTurn(entry.row.id, () => entry.vm.disconnect());
+          return;
+        }
         await retryRelease(entry.row.id);
         return;
       }
@@ -584,15 +640,33 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       const entry = live.get(id);
       if (entry !== undefined) {
-        await entry.turn;
-        if (entry.vm.handle.pause !== undefined) {
-          await entry.vm.handle.pause();
-        } else if (driver.pauseResource !== undefined) {
-          await driver.pauseResource(entry.nativeId);
-        }
-        await entry.vm.disconnect();
-        live.delete(id);
-        await update(entry, { status: "paused" });
+        const run = async (): Promise<void> => {
+          if (live.get(id) !== entry) {
+            throw new SandboxError(
+              "invalid-transition",
+              `container ${id} was closed before it could be paused`
+            );
+          }
+          if (entry.vm.handle.pause !== undefined) {
+            await entry.vm.handle.pause();
+          } else if (driver.pauseResource === undefined) {
+            throw new SandboxError(
+              "unsupported",
+              "driver does not support pausing live containers"
+            );
+          } else {
+            await driver.pauseResource(entry.nativeId);
+          }
+          await entry.vm.disconnect();
+          if (live.get(id) !== entry) {
+            return;
+          }
+          live.delete(id);
+          await update(entry, { status: "paused" });
+        };
+        const turn = entry.turn.then(run, run);
+        entry.turn = turn.catch(() => undefined);
+        await turn;
         return;
       }
       const row = await rowOrThrow(id);
@@ -699,7 +773,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
           const recorded = JSON.stringify(parseContainerSpecInput(spec));
           await update({ row }, (current) => {
             assertNotClaimedElsewhere(current);
-            return { spec: recorded };
+            const changed = recorded !== current.spec;
+            const needsReplacement =
+              changed &&
+              (current.status === "running" || current.status === "paused");
+            return {
+              spec: recorded,
+              ...(needsReplacement ? { status: "restarting" as const } : {}),
+            };
           });
         }
         return;
@@ -752,14 +833,44 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
     async resume(id, signal) {
       assertOpen();
-      const row = await rowOrThrow(id);
-      if (row.status !== "paused") {
+      if (driver.connect === undefined) {
         throw new SandboxError(
-          "invalid-transition",
-          `container ${id} is ${row.status}, not paused`
+          "unsupported",
+          "driver does not support resuming paused containers"
         );
       }
-      return containers.open(id, signal);
+      const running = live.get(id);
+      if (running !== undefined) {
+        throw new SandboxError(
+          "invalid-transition",
+          `container ${id} is running, not paused`
+        );
+      }
+      let inflight = pending.get(id);
+      if (inflight === undefined) {
+        assertNotRemoving(id);
+        inflight = bringingUp(id, async () => {
+          await released(id);
+          const existing = await rowOrThrow(id);
+          if (existing.status !== "paused") {
+            throw new SandboxError(
+              "invalid-transition",
+              `container ${id} is ${existing.status}, not paused`
+            );
+          }
+          assertNotClaimedElsewhere(existing);
+          const parsed = parseContainerSpecInput(JSON.parse(existing.spec));
+          const reconnected = await tryReconnect(existing, parsed, signal);
+          if (reconnected === undefined) {
+            throw new SandboxError(
+              "provider-failed",
+              `paused container ${id} could not be reattached`
+            );
+          }
+          return reconnected;
+        });
+      }
+      return handleFor(await inflight);
     },
 
     async shutdown() {

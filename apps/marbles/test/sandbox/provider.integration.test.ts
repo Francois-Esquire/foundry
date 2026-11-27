@@ -27,7 +27,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       );
     }
     const root = await mkdtemp(join(tmpdir(), `marbles-${harness}-`));
-    const runtime = createMicrosandboxDriver();
+    const runtime = createMicrosandboxDriver({ allowedMountRoots: [root] });
     const containers = createContainers({
       driver: runtime,
       instanceLabel: "marbles-harness-test",

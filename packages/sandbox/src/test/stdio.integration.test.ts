@@ -23,7 +23,8 @@ describe("real MicroSandbox command IO", () => {
   let sandbox: Awaited<ReturnType<typeof bootGuest<MicroSandbox>>>;
 
   beforeAll(async () => {
-    const runtime = createMicrosandboxDriver();
+    const source = await realpath(fileURLToPath(PACKAGE_URL));
+    const runtime = createMicrosandboxDriver({ allowedMountRoots: [source] });
     if (
       !(await (runtime.isInstalled
         ? runtime.isInstalled()
@@ -33,7 +34,6 @@ describe("real MicroSandbox command IO", () => {
         "Install the MicroSandbox runtime before running test:integration"
       );
     }
-    const source = await realpath(fileURLToPath(PACKAGE_URL));
     sandbox = await bootGuest(runtime, {
       image: "docker.io/oven/bun:1-slim",
       mounts: [

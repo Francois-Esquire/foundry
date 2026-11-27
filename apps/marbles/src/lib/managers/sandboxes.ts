@@ -8,6 +8,7 @@ import type {
 import {
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
   DEFAULT_SANDBOX_WORKING_DIRECTORY,
+  SandboxError,
 } from "@foundry/sandbox";
 
 import type { ManagerArgs } from "../bindings";
@@ -250,6 +251,17 @@ export class SandboxesManager implements Sandboxes {
       workspaceMaterialization === undefined
         ? driverSupportsBind
         : workspaceMaterialization === "bind";
+    if (
+      !("files" in sandbox) &&
+      sandbox.mount !== "none" &&
+      !bindWorkspace &&
+      typeof workspaceMaterialization !== "function"
+    ) {
+      throw new SandboxError(
+        "unsupported",
+        "driver does not support host-directory mounts and no workspaceMaterialization callback is configured"
+      );
+    }
     const container = await containers.start(
       constraintsFor(sandbox, dirs, { bindWorkspace }),
       signal

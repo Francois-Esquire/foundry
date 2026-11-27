@@ -5,7 +5,10 @@ import {
   SandboxError,
 } from "@foundry/sandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createCloudFakeDriver } from "@foundry/sandbox/testing";
+import {
+  createCloudFakeDriver,
+  createFakeDriver,
+} from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
 
 describe("cloud-native driver portability", () => {
@@ -183,5 +186,230 @@ describe("cloud-native driver portability", () => {
       workdir: "C:\\workspace",
     });
     expect(parsed.workdir).toBe("C:\\workspace");
+  });
+
+  it("fails closed when a driver omits capabilities or individual capability fields", async () => {
+    const base = createFakeDriver();
+    const undeclared = { ...base, capabilities: undefined };
+    const empty = { ...base, capabilities: {} };
+
+    for (const driver of [undeclared, empty]) {
+      const containers = createContainers({
+        driver,
+        instanceLabel: "fail-closed",
+        store: new MemoryContainerStore(),
+      });
+      await expect(
+        containers.start({ image: "ghcr.io/foundry/agent:latest" })
+      ).rejects.toMatchObject({ code: "unsupported", name: SandboxError.name });
+      await expect(
+        containers.start({
+          image: "ghcr.io/foundry/agent:latest",
+          network: "open",
+        })
+      ).rejects.toMatchObject({ code: "unsupported", name: SandboxError.name });
+      await expect(
+        containers.start({
+          expose: [{ port: 3000 }],
+          image: "ghcr.io/foundry/agent:latest",
+        })
+      ).rejects.toMatchObject({ code: "unsupported", name: SandboxError.name });
+      await expect(
+        containers.start({
+          image: "ghcr.io/foundry/agent:latest",
+          secrets: [{ hosts: ["api.example.com"], name: "TOKEN" }],
+        })
+      ).rejects.toMatchObject({ code: "unsupported", name: SandboxError.name });
+      await expect(
+        containers.start({
+          image: "ghcr.io/foundry/agent:latest",
+          lifetime: { ttlMs: 60_000 },
+        })
+      ).rejects.toMatchObject({ code: "unsupported", name: SandboxError.name });
+    }
+    expect(base.handles).toHaveLength(0);
+  });
+
+  it("rejects live pause without a pause implementation and never replaces a paused container on resume", async () => {
+    const base = createFakeDriver({ pause: false });
+    const fakePauseCap = {
+      ...base,
+      capabilities: { ...base.capabilities, pause: true },
+    };
+    const store = new MemoryContainerStore();
+    const c1 = createContainers({
+      driver: fakePauseCap,
+      instanceLabel: "pause-guard",
+      store,
+    });
+    const live = await c1.start({ image: "ghcr.io/foundry/agent:latest" });
+    await expect(c1.pause(live.id)).rejects.toMatchObject({
+      code: "unsupported",
+      name: SandboxError.name,
+    });
+    expect(base.handles[0]?.disconnected).toBe(false);
+    expect((await c1.get(live.id))?.status).toBe("running");
+    await live.close();
+    await c1.shutdown();
+
+    const noConnect = createFakeDriver({ connect: false, pause: true });
+    const store2 = new MemoryContainerStore();
+    const c2 = createContainers({
+      driver: noConnect,
+      instanceLabel: "resume-guard",
+      store: store2,
+    });
+    const paused = await c2.start({
+      image: "ghcr.io/foundry/agent:latest",
+      lifetime: { whenReleased: "keep" },
+    });
+    await c2.pause(paused.id);
+    await expect(c2.resume(paused.id)).rejects.toMatchObject({
+      code: "unsupported",
+      name: SandboxError.name,
+    });
+    expect(noConnect.handles).toHaveLength(1);
+    expect(noConnect.handles[0]?.removed).toBe(false);
+    expect((await c2.get(paused.id))?.status).toBe("paused");
+    await c2.shutdown();
+  });
+
+  it("claims holder on reconnect without duplicate started event and replaces on detached restart with changed spec", async () => {
+    const store = new MemoryContainerStore();
+    const driver = createCloudFakeDriver();
+    const workerA = createContainers({
+      driver,
+      holder: "worker-a",
+      instanceLabel: "claim-test",
+      store,
+    });
+    const first = await workerA.start({
+      image: "ghcr.io/foundry/agent:v1",
+      lifetime: { whenReleased: "keep" },
+    });
+    await first.close();
+    await workerA.shutdown();
+
+    const workerB = createContainers({
+      driver,
+      holder: "worker-b",
+      instanceLabel: "claim-test",
+      store,
+    });
+    const recordedEvents: string[] = [];
+    const origTransaction = store.transaction.bind(store);
+    store.transaction = (work) =>
+      origTransaction(async (view) => {
+        const origCommit = view.commit.bind(view);
+        return work({
+          ...view,
+          commit: (write) => {
+            for (const event of write.events ?? []) {
+              recordedEvents.push(event.type);
+            }
+            return origCommit(write);
+          },
+        });
+      });
+    const reopened = await workerB.open(first.id);
+    expect((await workerB.get(first.id))?.holder).toBe("worker-b");
+    expect(recordedEvents).not.toContain("sandbox.started");
+    await reopened.close();
+
+    await workerB.restart(first.id, {
+      image: "ghcr.io/foundry/agent:v2",
+      lifetime: { whenReleased: "keep" },
+    });
+    const replaced = await workerB.open(first.id);
+    expect(driver.handles).toHaveLength(2);
+    expect(driver.handles[1]?.spec.image).toBe("ghcr.io/foundry/agent:v2");
+    await replaced.close();
+    await workerB.shutdown();
+  });
+
+  it("retries disconnect without removing a retained resource when disconnect fails once", async () => {
+    const driver = createCloudFakeDriver();
+    const store = new MemoryContainerStore();
+    const containers = createContainers({
+      driver,
+      instanceLabel: "detach-retry",
+      store,
+    });
+    const handle = await containers.start({
+      image: "ghcr.io/foundry/agent:latest",
+      lifetime: { whenReleased: "keep" },
+    });
+    const [underlying] = driver.handles;
+    expect(underlying).toBeDefined();
+    let attempts = 0;
+    const origDisconnect = underlying?.disconnect?.bind(underlying);
+    if (underlying) {
+      underlying.disconnect = async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("transient detach error");
+        }
+        await origDisconnect?.();
+      };
+    }
+
+    await expect(handle.close()).rejects.toThrow("transient detach error");
+    await handle.close();
+    expect(attempts).toBe(2);
+    expect(underlying?.removed).toBe(false);
+    expect(underlying?.stopped).toBe(false);
+    await containers.shutdown();
+  });
+
+  it("rejects cross-origin HTTP readiness paths and redirects without sending endpoint headers off-origin", async () => {
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    const driver = createCloudFakeDriver();
+    const containers = createContainers({
+      driver,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+      instanceLabel: "http-origin",
+      store: new MemoryContainerStore(),
+    });
+    const container = await containers.start({
+      expose: [{ access: "private", port: 3000, protocol: "https" }],
+      image: "ghcr.io/foundry/agent:latest",
+    });
+    try {
+      await expect(
+        container.services?.start({
+          argv: ["bun", "server.ts"],
+          id: "web",
+          readiness: {
+            intervalMs: 10,
+            kind: "http",
+            path: "https://attacker.example/steal",
+            port: 3000,
+            timeoutMs: 60,
+          },
+        })
+      ).rejects.toMatchObject({ code: "provider-failed" });
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      const svc = await container.services?.start({
+        argv: ["bun", "server.ts"],
+        id: "web-ok",
+        readiness: {
+          intervalMs: 10,
+          kind: "http",
+          path: "/health",
+          port: 3000,
+          timeoutMs: 200,
+        },
+      });
+      expect(svc?.status).toBe("ready");
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.any(URL),
+        expect.objectContaining({ redirect: "manual" })
+      );
+      await svc?.terminate();
+    } finally {
+      await container.close();
+      await containers.shutdown();
+    }
   });
 });

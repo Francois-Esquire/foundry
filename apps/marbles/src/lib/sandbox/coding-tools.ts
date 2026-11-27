@@ -21,22 +21,27 @@ function assertWorkspace(path: string): string {
 
 export function createCodingTools(container: CodingToolsContainer): ToolSet {
   let canonicalRoot: Promise<void> | undefined;
-  const { storage } = container;
+  const resolveRealpath = (target: string): Promise<string> | undefined =>
+    container.storage
+      ? container.storage.realpath(target)
+      : container.files.realpath?.(target);
   const checkRoot = (): Promise<void> => {
-    if (storage === undefined) {
-      return Promise.resolve();
-    }
-    canonicalRoot ??= storage
-      .realpath(WORKSPACE)
-      .then((real) => {
-        if (real !== WORKSPACE) {
-          throw new Error("Coding workspace root must be canonical.");
-        }
-      })
-      .catch((error: unknown) => {
-        canonicalRoot = undefined;
-        throw error;
-      });
+    canonicalRoot ??= (() => {
+      const resolved = resolveRealpath(WORKSPACE);
+      if (resolved === undefined) {
+        return Promise.resolve();
+      }
+      return resolved
+        .then((real) => {
+          if (real !== WORKSPACE) {
+            throw new Error("Coding workspace root must be canonical.");
+          }
+        })
+        .catch((error: unknown) => {
+          canonicalRoot = undefined;
+          throw error;
+        });
+    })();
     return canonicalRoot;
   };
   const isAbsent = async (path: string): Promise<boolean> => {
@@ -51,7 +56,10 @@ export function createCodingTools(container: CodingToolsContainer): ToolSet {
     allowMissing = false
   ): Promise<string> => {
     const requested = assertWorkspace(path);
-    if (storage === undefined) {
+    if (
+      container.storage === undefined &&
+      container.files.realpath === undefined
+    ) {
       return requested;
     }
     await checkRoot();
@@ -59,7 +67,11 @@ export function createCodingTools(container: CodingToolsContainer): ToolSet {
     const missing: string[] = [];
     while (candidate.length > 0) {
       try {
-        const existing = assertWorkspace(await storage.realpath(candidate));
+        const resolved = resolveRealpath(candidate);
+        if (resolved === undefined) {
+          return assertWorkspace(posix.join(candidate, ...missing.reverse()));
+        }
+        const existing = assertWorkspace(await resolved);
         return assertWorkspace(posix.join(existing, ...missing.reverse()));
       } catch (error) {
         if (

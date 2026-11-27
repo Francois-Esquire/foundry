@@ -17,16 +17,6 @@ import { createMicrosandboxDriver } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 it("uses guest storage over a mounted slice and enforces a read-only mount", async () => {
-  const runtime = createMicrosandboxDriver();
-  if (
-    !(await (runtime.isInstalled
-      ? runtime.isInstalled()
-      : Promise.resolve(true)))
-  ) {
-    throw new Error(
-      "Install the MicroSandbox runtime before running test:integration"
-    );
-  }
   const root = await realpath(await mkdtemp(join(tmpdir(), "guest-storage-")));
   const source = join(root, "selected");
   await mkdir(source);
@@ -34,6 +24,17 @@ it("uses guest storage over a mounted slice and enforces a read-only mount", asy
   await writeFile(join(root, "outside.txt"), "outside");
   await symlink("notes.md", join(source, "link"));
   await symlink(join(root, "outside.txt"), join(source, "escape"));
+  const runtime = createMicrosandboxDriver({ allowedMountRoots: [source] });
+  if (
+    !(await (runtime.isInstalled
+      ? runtime.isInstalled()
+      : Promise.resolve(true)))
+  ) {
+    await rm(root, { force: true, recursive: true });
+    throw new Error(
+      "Install the MicroSandbox runtime before running test:integration"
+    );
+  }
   const containers = createContainers({
     driver: runtime,
     instanceLabel: `storage-test-${crypto.randomUUID()}`,
