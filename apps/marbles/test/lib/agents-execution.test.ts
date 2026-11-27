@@ -41,6 +41,7 @@ function deps(
 ): AgentsDeps {
   return {
     activities: host.activities,
+    authorization: host.authorization,
     automations: host.automations,
     containerOf: () => ({}) as ReturnType<AgentsDeps["containerOf"]>,
     defaultExecutor: () => CODEX,

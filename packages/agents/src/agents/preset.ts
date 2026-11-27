@@ -1,10 +1,10 @@
+import type { Authorization } from "@foundry/authorization";
 import type {
   AgentModel,
   AgentSpec as CoreAgentSpec,
   ObserveTurn,
 } from "@foundry/core/agents";
 import type { ToolSet } from "ai";
-import type { AgentAuthorizer } from "../authorization/authorization";
 import type { AgentHarnessSettings } from "../harness/agent-harness";
 import { AgentHarness } from "../harness/agent-harness";
 import { composeTools } from "../harness/compose-tools";
@@ -26,7 +26,7 @@ type AgentSettings = Omit<
   | "toolsContext"
   | "agentId"
   | "agentGeneration"
-  | "policy"
+  | "authorization"
   | "sessionId"
 >;
 
@@ -37,10 +37,10 @@ export interface AgentExecutionContext {
 
 export interface AgentPresetContext {
   agentGeneration?: number;
+  authorization?: Authorization;
   execution?: AgentExecutionContext;
   instructions?: string;
   model?: AgentModel;
-  policy?: AgentAuthorizer;
   sessionId?: string;
   settings?: AgentSettings;
   surfaceContext?: Readonly<Record<string, unknown>>;
@@ -65,13 +65,13 @@ export interface AgentPreset {
 }
 
 export interface AgentSurface {
+  authorization?: Authorization;
   mcp?: (ids: string[]) => Promise<ToolSet>;
   model: (selection: {
     readonly model?: string;
     readonly provider?: string;
   }) => AgentModel;
   observe?: ObserveTurn;
-  policy?: AgentAuthorizer;
   skills?: (names: string[]) => Promise<Skill[]>;
   store?: SessionStore;
   tools?: (names: string[], context: AgentPresetContext) => Promise<ToolSet>;
@@ -156,12 +156,12 @@ async function provisionSpec(
     spec.mcp?.length && surface.mcp ? await surface.mcp(spec.mcp) : undefined;
   const domainTools = await resolveTools(spec, surface, context);
   return {
+    authorization: surface.authorization,
     instructions: [context.instructions ?? spec.prompt, skills?.instructions]
       .filter(Boolean)
       .join("\n\n"),
     model,
     observe: surface.observe,
-    policy: surface.policy,
     tools: composeTools(skills?.tools, mcpTools, domainTools),
     toolsContext: surface.toolsContext,
   };
@@ -180,9 +180,9 @@ function configureAgent(
     ...context.settings,
     agentGeneration: context.agentGeneration ?? defaults.agentGeneration,
     agentId: spec.id,
+    authorization: context.authorization ?? defaults.authorization,
     instructions: defaults.instructions ?? context.instructions ?? spec.prompt,
     model: context.model ?? defaults.model,
-    policy: context.policy ?? defaults.policy,
     sessionId,
     tools: composeTools(defaults.tools, context.tools),
     toolsContext: {

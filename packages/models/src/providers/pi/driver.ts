@@ -86,8 +86,10 @@ export function createPiDriver(options: PiDriverOptions): HarnessTurnDriver {
         signal,
       }));
       const events = createPiEvents({
+        agentId: options.agentId,
         close: () => state.rpc?.close(),
         finish,
+        nativeTools: options.nativeTools,
         push: queue.push,
         report: reporter.report,
         run: { ...run, signal },

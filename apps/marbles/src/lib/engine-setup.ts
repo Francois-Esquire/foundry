@@ -1,10 +1,8 @@
 import { homedir } from "node:os";
-import {
-  createAgentAuthorizer,
-  createMemoryAgentAuthorizer,
-} from "@foundry/agents/authorization";
 import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
+import { Authorization } from "@foundry/authorization";
+import { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 import type { Models } from "@foundry/models";
 import type { Output } from "ai";
 import type { AutomationService } from "~/lib/automation/service";
@@ -33,7 +31,6 @@ import { workingDirectory } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
 import { MemoryRunStore } from "~/lib/run-store";
 import type { HarnessActivities } from "~/lib/sandbox/activities";
-import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
@@ -124,20 +121,25 @@ export function storedScopes(
   };
 }
 
+export function authorizationOf(options: EngineOptions): Authorization {
+  return (
+    options.authorization ??
+    new Authorization({
+      store: options.authorizationStore ?? new MemoryAuthorizationStore(),
+    })
+  );
+}
+
 export function interactionsOf(
   options: EngineOptions,
-  feed: FeedPublisher
+  feed: FeedPublisher,
+  authorization: Authorization
 ): HarnessInteractions {
   return new HarnessInteractions({
     askable: options.askable ?? false,
+    authorization,
     feed,
-    policy: options.grants
-      ? createAgentAuthorizer({
-          grants: new StoredAgentGrantRepository(options.grants),
-        })
-      : createMemoryAgentAuthorizer().authorizer,
     sessions: options.sessions,
-    ...(options.approvals ? { approvals: options.approvals } : {}),
   });
 }
 
@@ -148,6 +150,7 @@ export function agentsOf(
     readonly agentIdOf?: (
       agent: AgentLike<Output.Output>
     ) => string | undefined;
+    readonly authorization: Authorization;
     readonly automations: AutomationService;
     readonly context: ExecutionContext;
     readonly executions: Executions;
@@ -161,6 +164,7 @@ export function agentsOf(
   return new AgentsManager({
     activities: parts.activities,
     ...(parts.agentIdOf === undefined ? {} : { agentIdOf: parts.agentIdOf }),
+    authorization: parts.authorization,
     automations: parts.automations,
     containerOf: (sandbox) => parts.sandboxes.containerOf(sandbox),
     context: parts.context,

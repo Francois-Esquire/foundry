@@ -304,6 +304,42 @@ describe("Module management", () => {
     expect(files.delete).not.toHaveBeenCalled();
   });
 
+  it("reconciles and carries over grants when selecting a new version", async () => {
+    const { management, module, content, artifacts, installation, store } =
+      await fixture();
+    await store.authorization.grant({
+      holder: {
+        kind: "exact",
+        principal: { id: installation.id, kind: "module.installation" },
+      },
+      requestedBy: { id: "host", kind: "module.host" },
+      scope: {
+        action: "module.capability",
+        constraintsDigest: "digest-old",
+        target: { kind: "exact", value: "host.removed@1" },
+      },
+    });
+    expect(
+      (await management.getInstallation({ installationId: installation.id }))
+        ?.grants
+    ).toHaveLength(1);
+    const ready = await artifacts.revise({
+      artifactId: module.artifactId,
+      contentId: content.id,
+      expectedUpdatedAt: content.updatedAt,
+    });
+    const next = await artifacts.freeze(ready.id, { tag: "2.0.0" });
+    await management.selectVersion({
+      contentId: next.id,
+      expectedGeneration: 0,
+      installationId: installation.id,
+    });
+    expect(
+      (await management.getInstallation({ installationId: installation.id }))
+        ?.grants
+    ).toEqual([]);
+  });
+
   it("keeps registration and Artifact when installation cleanup fails", async () => {
     const { management, module, artifacts, store, files } = await fixture();
     files.delete.mockRejectedValueOnce(new Error("writers still live"));

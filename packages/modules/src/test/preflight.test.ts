@@ -1,4 +1,6 @@
 import { contentIdSchema } from "@foundry/artifacts";
+import { Authorization } from "@foundry/authorization";
+import { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 import { digestJson } from "@foundry/lib/digest";
 import { describe, expect, it } from "vitest";
 
@@ -102,6 +104,63 @@ describe("Module activation preflight", () => {
     });
     expect(rawOnly.additions).toMatchObject([
       { alias: "weather", capability: "host.network.fetch" },
+    ]);
+  });
+
+  it("blocks activation preflight when an authorization deny restriction matches a required capability", async () => {
+    const authorization = new Authorization({
+      store: new MemoryAuthorizationStore(),
+    });
+    const fetch = provider(() =>
+      Promise.resolve({ constraintsDigest: "policy:api.example.com" })
+    );
+    await authorization.grant({
+      holder: {
+        kind: "exact",
+        principal: {
+          id: principal.installationId,
+          kind: "module.installation",
+        },
+      },
+      requestedBy: { id: "host", kind: "module.host" },
+      scope: {
+        action: "module.capability",
+        constraintsDigest: "policy:api.example.com",
+        target: { kind: "exact", value: "host.network.fetch@1" },
+      },
+    });
+    await authorization.restrict({
+      kind: "deny",
+      reason: "Blocked by host policy",
+      scope: {
+        action: "module.capability",
+        target: { kind: "exact", value: "host.network.fetch@1" },
+      },
+    });
+    const result = await preflightModuleActivation({
+      authorization,
+      principal,
+      providers: [fetch],
+      version: version({
+        capabilities: [
+          {
+            alias: "weather",
+            capability: "host.network.fetch",
+            constraints: { hosts: ["api.example.com"] },
+            reason: "Loads forecasts",
+            required: true,
+            version: 1,
+          },
+        ],
+      }),
+    });
+    expect(result.compatible).toBe(false);
+    expect(result.facts).toEqual([
+      {
+        blocking: true,
+        detail: "Host denies host.network.fetch@1: Blocked by host policy",
+        kind: "denied-capability",
+      },
     ]);
   });
 

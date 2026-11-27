@@ -113,25 +113,11 @@ function installation(value: unknown, at: string) {
   const record = plain(value, at);
   const fields = plain(record.installation, `${at}.installation`);
   const fieldAt = `${at}.installation`;
-  const grants: unknown = record.grants;
-  if (!Array.isArray(grants)) {
-    throw new TypeError(`${at}.grants must be an array`);
-  }
   const containerId: unknown = fields.containerId;
   if (containerId !== null && typeof containerId !== "string") {
     throw new TypeError(`${fieldAt}.containerId must be text or null`);
   }
   return {
-    grants: Array.from({ length: grants.length }, (_, index) => {
-      const grantAt = `${at}.grants[${index}]`;
-      const grant = plain(grants[index], grantAt);
-      return {
-        capability: text(grant, "capability", grantAt),
-        constraintsDigest: text(grant, "constraintsDigest", grantAt),
-        createdAt: date(grant, "createdAt", grantAt),
-        version: number(grant, "version", grantAt),
-      };
-    }),
     installation: {
       containerId,
       contentId: text(fields, "contentId", fieldAt),

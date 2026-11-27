@@ -3,6 +3,8 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { Artifacts } from "@foundry/artifacts";
 import type { ArtifactStore } from "@foundry/artifacts/store";
+import type { Authorization } from "@foundry/authorization";
+import type { AuthorizationStore } from "@foundry/authorization/store";
 import {
   type InstallationId,
   installationIdSchema,
@@ -24,19 +26,28 @@ import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
 import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";
 import { connectModuleSocket } from "./websocket";
 
+export interface CreateModuleRuntimeOptions {
+  readonly authorization?: Authorization;
+  readonly authorizationStore?: AuthorizationStore;
+}
+
 export async function createModuleRuntime(
   userData: string,
-  artifactStore: ArtifactStore
+  artifactStore: ArtifactStore,
+  options: CreateModuleRuntimeOptions = {}
 ): Promise<ModuleRuntime> {
   const { createMicrosandboxRuntime } = await import(
     "@foundry/sandbox/node/microsandbox"
   );
+  const root = path.join(userData, ".runtime");
+  const { authorization, authorizationStore } = options;
   const artifacts = new Artifacts({ store: artifactStore });
   const store = new Modules({
     artifactOfContent: async (contentId) =>
       (await artifacts.getContent(contentId))?.artifactId ?? null,
+    ...(authorization === undefined ? {} : { authorization }),
+    ...(authorizationStore === undefined ? {} : { authorizationStore }),
   });
-  const root = path.join(userData, ".runtime");
   const checkoutsRoot = path.join(root, "checkouts");
   const filesRoot = path.join(userData, ".data");
   const runtime = createMicrosandboxRuntime();
@@ -63,6 +74,7 @@ export async function createModuleRuntime(
   }
   const system = createModulePlatform({
     artifacts,
+    ...(authorization === undefined ? {} : { authorization }),
     checkouts: createModuleCheckouts({ artifacts, root: checkoutsRoot }),
     containers,
     files: {

@@ -266,17 +266,17 @@ for (const run of RUNS) {
             now: new Date("2026-08-08T00:01:00.000Z"),
             status: "starting",
           });
-          await registry.replaceInstallationGrants({
-            expectedGeneration: 1,
-            grants: [
-              {
-                capability: "host.agents.run",
-                constraintsDigest: "abc",
-                version: 1,
-              },
-            ],
-            installationId: installation.id,
-            now: new Date("2026-08-08T00:01:00.000Z"),
+          await registry.authorization.grant({
+            holder: {
+              kind: "exact",
+              principal: { id: installation.id, kind: "module.installation" },
+            },
+            requestedBy: { id: "host", kind: "module.host" },
+            scope: {
+              action: "module.capability",
+              constraintsDigest: "abc",
+              target: { kind: "exact", value: "host.agents.run@1" },
+            },
           });
           throw new Error("injected lifecycle failure");
         })

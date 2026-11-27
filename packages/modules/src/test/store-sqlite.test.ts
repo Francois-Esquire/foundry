@@ -9,7 +9,6 @@ import type { ModuleManifest } from "../manifest";
 import { Modules } from "../modules";
 import type {
   Installation,
-  InstallationGrant,
   Module,
   StoredInstallation,
   StoredManifest,
@@ -17,7 +16,6 @@ import type {
 import {
   installationSchema,
   moduleSchema,
-  storedInstallationSchema,
   storedManifestSchema,
 } from "../records";
 import type { ModuleStoreWrite } from "../store";
@@ -59,29 +57,14 @@ function manifest(
   };
 }
 
-function grant(
-  capability: string,
-  overrides: Partial<InstallationGrant> = {}
-): InstallationGrant {
-  return {
-    capability,
-    constraintsDigest: `digest-${capability}`,
-    createdAt: at("2026-11-01T00:00:00.123Z"),
-    version: 1,
-    ...overrides,
-  };
-}
-
 function installation(
   id: string,
   owner: Module,
   overrides: {
-    readonly grants?: readonly InstallationGrant[];
     readonly installation?: Partial<Installation>;
   } = {}
 ): StoredInstallation {
   return {
-    grants: overrides.grants ?? [],
     installation: {
       containerId: null,
       contentId: `content-${id}` as ContentId,
@@ -200,15 +183,10 @@ describe("SqliteModuleStore", () => {
 
       expect(committed).toBe(1);
       expect(await held(store)).toEqual(before);
-      const json = installation("json", kept, {
-        grants: [grant(bad("capability"), { constraintsDigest: bad("d") })],
-      });
       const retained = manifest("json", kept, { [bad("key")]: bad("value") });
       await store.commit({
-        putInstallations: [json],
         putManifests: [retained],
       });
-      expect(await store.getInstallation(json.installation.id)).toEqual(json);
       expect(await store.getManifest(retained.contentId)).toEqual(retained);
     }
   );
@@ -229,10 +207,6 @@ describe("SqliteModuleStore", () => {
         shaped({ installation: { createdAt: new Date(Number.NaN) } }),
         "putInstallations[0].installation.createdAt: an invalid Date is not a valid Date",
       ],
-      [
-        shaped({ grants: [grant("g", { createdAt: new Date(Number.NaN) })] }),
-        "putInstallations[0].grants[0].createdAt",
-      ],
       ...[-0, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53].map(
         (value): [ModuleStoreWrite, string] => [
           shaped({ installation: { generation: value } }),
@@ -243,10 +217,6 @@ describe("SqliteModuleStore", () => {
         shaped({ installation: { startAttempts: -0 } }),
         "putInstallations[0].installation.startAttempts: -0 does not read back intact",
       ],
-      ...[-0, Number.NaN].map((value): [ModuleStoreWrite, string] => [
-        shaped({ grants: [grant("g", { version: value })] }),
-        "putInstallations[0].grants[0].version",
-      ]),
       [
         {
           putManifests: [
@@ -296,10 +266,6 @@ describe("SqliteModuleStore", () => {
           },
         }),
         installation("fractional", owner, {
-          grants: [
-            grant("z.last", { version: 2.5 }),
-            grant("a.first", { createdAt: new Date(-1), version: -3 }),
-          ],
           installation: {
             containerId: "",
             createdAt: at("1969-12-31T23:59:59.999Z"),
@@ -335,9 +301,6 @@ describe("SqliteModuleStore", () => {
         expect(read).toEqual(record);
         expect(read?.installation.createdAt.getTime()).toBe(
           record.installation.createdAt.getTime()
-        );
-        expect(read?.grants.map((g) => g.createdAt.getTime())).toEqual(
-          record.grants.map((g) => g.createdAt.getTime())
         );
       }
       expect(
@@ -450,9 +413,7 @@ describe("SqliteModuleStore", () => {
       const writeOf = (name: string) => {
         const owner = module(name);
         return {
-          putInstallations: [
-            installation(name, owner, { grants: [grant("g")] }),
-          ],
+          putInstallations: [installation(name, owner)],
           putManifests: [manifest(name, owner, { list: ["x"] })],
           putModules: [owner],
         };
@@ -461,7 +422,6 @@ describe("SqliteModuleStore", () => {
         for (const put of write.putInstallations) {
           put.installation.createdAt.setTime(0);
           Object.assign(put.installation, { status: "failed" });
-          put.grants[0]?.createdAt.setTime(0);
         }
         for (const put of write.putManifests) {
           (put.manifest as unknown as { list: string[] }).list.push("changed");
@@ -596,9 +556,7 @@ describe("SqliteModuleStore", () => {
     const owners = Array.from({ length: 4000 }, (_, index) =>
       module(`m${index}`)
     );
-    const installations = owners.map((owner) =>
-      installation(owner.id, owner, { grants: [grant("g")] })
-    );
+    const installations = owners.map((owner) => installation(owner.id, owner));
     const manifests = owners.map((owner) => manifest(owner.id, owner));
     await store.commit({
       putInstallations: installations,
@@ -790,11 +748,9 @@ describe("module tables", () => {
     expect(columnsOf(moduleManifests)).toEqual(
       fieldsOf(storedManifestSchema.unwrap().shape)
     );
-    expect(columnsOf(moduleInstallations)).toEqual({
-      ...fieldsOf(installationSchema.unwrap().shape),
-      grants: storedInstallationSchema.unwrap().shape.grants.safeParse(null)
-        .success,
-    });
+    expect(columnsOf(moduleInstallations)).toEqual(
+      fieldsOf(installationSchema.unwrap().shape)
+    );
   });
 });
 

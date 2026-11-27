@@ -1,4 +1,4 @@
-import { createMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import { createMemoryAuthorization } from "@foundry/agents/authorization";
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox";
@@ -59,7 +59,7 @@ function open(execution?: Execution, wireModelId?: string) {
     instructions: "inspect",
     modelId: wireModelId === undefined ? "gpt-5.5" : "sol",
     options: {
-      authority: { policy: createMemoryAgentAuthorizer().authorizer },
+      authority: { authorization: createMemoryAuthorization() },
       sandbox: {} as SandboxHandle,
     },
     provider: "work-codex",

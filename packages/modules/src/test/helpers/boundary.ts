@@ -16,6 +16,7 @@ export const MODULE_NOUNS = [
 
 export const MODULE_ALLOWED_PACKAGE_IMPORTS = [
   "@foundry/artifacts",
+  "@foundry/authorization",
   "@foundry/core/storage",
   "@foundry/core/pagination",
   "@foundry/lib/abort",

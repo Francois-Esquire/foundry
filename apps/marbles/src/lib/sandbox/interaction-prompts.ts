@@ -36,7 +36,8 @@ export function approvalPrompt(
 ): Prompt<ApprovalResolution> {
   return {
     parse: (answer) => ({
-      approved: answer.choice !== DENY,
+      approved:
+        answer.choice === APPROVE_ONCE || answer.choice === APPROVE_SESSION,
       lifetime: answer.choice === APPROVE_SESSION ? "session" : "once",
       ...(answer.note ? { reason: answer.note } : {}),
     }),

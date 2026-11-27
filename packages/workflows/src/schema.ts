@@ -135,6 +135,7 @@ export const StepSnapshotSchema = z.object({
   suspendedAt: z.string().optional(),
   suspension: z
     .object({
+      correlationId: z.string().optional(),
       meta: unknownRecord.optional(),
       name: z.string(),
       reason: z.string(),
@@ -153,6 +154,7 @@ export const SnapshotStateSchema = z.object({
 export type SnapshotState = z.infer<typeof SnapshotStateSchema>;
 
 export const SuspensionStateSchema = z.object({
+  correlationId: z.string().optional(),
   kind: z.string().optional(),
   meta: unknownRecord.optional(),
   name: z.string(),

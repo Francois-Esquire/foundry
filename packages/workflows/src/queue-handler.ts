@@ -145,7 +145,8 @@ const suspendedOn = ({ originPath, suspension }: SuspendSignal) =>
         key: suspensionOccurrenceKey(
           originPath,
           suspension.name,
-          suspension.occurrence ?? 0
+          suspension.occurrence ?? 0,
+          suspension.correlationId
         ),
         kind: suspension.kind ?? "external",
         reason: suspension.reason,

@@ -4,17 +4,18 @@ import { z } from "zod";
 
 import { SessionHarness } from "../../harness/session-harness";
 import { MemorySessionStore } from "../../store/memory";
-import { fakeAuthorizer } from "../helpers/authorizer";
+import { createPermissiveAuthorization } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
   textStreamResult,
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-function harnessWithTool(output: unknown) {
+async function harnessWithTool(output: unknown) {
   const store = new MemorySessionStore();
   const harness = new SessionHarness(
     {
+      authorization: await createPermissiveAuthorization(),
       instructions: "x",
       model: createScriptedMockModel({
         stream: [
@@ -22,10 +23,6 @@ function harnessWithTool(output: unknown) {
           textStreamResult("done"),
         ],
       }),
-      policy: fakeAuthorizer(() => ({
-        kind: "allow",
-        source: "global-policy",
-      })),
       store,
       tools: {
         probe: tool({
@@ -47,7 +44,7 @@ function toolResults(messages: { parts: { type: string }[] }[]) {
 
 describe("what a session keeps of a turn's values", () => {
   it("keeps a tool's output in its JSON form, which any store can copy", async () => {
-    const { harness, store } = harnessWithTool({
+    const { harness, store } = await harnessWithTool({
       at: new Date(0),
       cleanup: () => undefined,
       link: new URL("https://example.com/a"),
@@ -69,7 +66,7 @@ describe("what a session keeps of a turn's values", () => {
   });
 
   it("fails the turn loudly, keeping an error result that names the tool, when its output has no JSON form", async () => {
-    const { harness, store } = harnessWithTool({ count: 1n });
+    const { harness, store } = await harnessWithTool({ count: 1n });
     const onError = vi.fn();
     const onToolResult = vi.fn();
 

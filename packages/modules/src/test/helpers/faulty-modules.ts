@@ -9,13 +9,17 @@ export function faultyRegistry(
   registry: Modules,
   faults: (commands: Commands) => Partial<Commands>
 ): ModuleUnit<keyof Commands> {
-  const over = (target: Commands): Commands => {
+  const over = (target: Commands & Pick<Modules, "authorization">) => {
     const commands: Commands = {
       loadModule: (id) => target.loadModule(id),
       registerModule: (input) => target.registerModule(input),
       retainManifest: (input) => target.retainManifest(input),
     };
-    return { ...commands, ...faults(commands) };
+    return {
+      ...commands,
+      ...faults(commands),
+      authorization: target.authorization,
+    };
   };
   return {
     ...over(registry),
