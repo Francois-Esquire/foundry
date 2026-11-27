@@ -140,4 +140,76 @@ describe("JSON Artifact store persistence", () => {
     await writeFile(path, "{ not json");
     await expect(artifacts.list({})).rejects.toThrow();
   });
+
+  it("captures query and lookup inputs before async deferral", async () => {
+    const path = recordsPath();
+    const jsonStore = new JsonArtifactStore({ path });
+    const artifacts = new Artifacts({ store: jsonStore });
+    const created = await artifacts.create({
+      entries: { "a.txt": { bytes: "alpha" }, "b.txt": { bytes: "beta" } },
+      metadata: { messageId: "m1", sessionId: "s1" },
+      name: "Owned",
+      type: "text/plain",
+    });
+    const contentId = created.content?.id;
+    if (contentId === undefined) {
+      throw new Error("Expected Content");
+    }
+
+    const blobQuery: { limit: number } = { limit: 1 };
+    const pendingBlobs = jsonStore.listBlobsPage(blobQuery);
+    blobQuery.limit = 2;
+    expect((await pendingBlobs).items).toHaveLength(1);
+
+    const states: ("ready" | "failed")[] = ["ready"];
+    const contentQuery: {
+      artifactId: typeof created.id;
+      limit: number;
+      state: ("ready" | "failed")[];
+    } = {
+      artifactId: created.id,
+      limit: 1,
+      state: states,
+    };
+    const pendingContents = jsonStore.listContentsPage(contentQuery);
+    states[0] = "failed";
+    contentQuery.limit = 0;
+    expect((await pendingContents).items.map((row) => row.id)).toEqual([
+      contentId,
+    ]);
+
+    const lookup = { messageId: "m1", sessionId: "s1" };
+    const pendingLookup = jsonStore.findContent(created.id, lookup);
+    lookup.messageId = "other";
+    expect((await pendingLookup)?.id).toBe(contentId);
+
+    await jsonStore.transaction(async (view) => {
+      const viewBlobQuery: { limit: number } = { limit: 1 };
+      const viewBlobs = view.listBlobsPage?.(viewBlobQuery);
+      viewBlobQuery.limit = 2;
+      expect((await viewBlobs)?.items).toHaveLength(1);
+
+      const viewStates: ("ready" | "failed")[] = ["ready"];
+      const viewContentQuery: {
+        artifactId: typeof created.id;
+        limit: number;
+        state: ("ready" | "failed")[];
+      } = {
+        artifactId: created.id,
+        limit: 1,
+        state: viewStates,
+      };
+      const viewContents = view.listContentsPage?.(viewContentQuery);
+      viewStates[0] = "failed";
+      viewContentQuery.limit = 0;
+      expect((await viewContents)?.items.map((row) => row.id)).toEqual([
+        contentId,
+      ]);
+
+      const viewLookup = { messageId: "m1", sessionId: "s1" };
+      const found = view.findContent?.(created.id, viewLookup);
+      viewLookup.sessionId = "other";
+      expect((await found)?.id).toBe(contentId);
+    });
+  });
 });

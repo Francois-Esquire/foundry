@@ -21,11 +21,19 @@ import type {
   WorkspaceRegistration,
 } from "../schema";
 import type {
+  EntryCountQuery,
+  EntryPageQuery,
   WorkspaceSave,
   WorkspaceStore,
   WorkspaceStoreWrite,
 } from "./index";
-import { byPathThenId, pageInputOf, pageOffset } from "./order";
+import {
+  byPathThenId,
+  entryCountQueryOf,
+  entryPageQueryOf,
+  pageInputOf,
+  pageOffset,
+} from "./order";
 import { workspaceEntries, workspaces } from "./tables";
 
 export type WorkspaceDatabase = SqliteDatabase;
@@ -212,6 +220,84 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
           )
         );
       return rows.map((row) => entryOf(this.#scope, row)).sort(byPathThenId);
+    });
+  }
+
+  listEntriesPage(
+    workspaceId: WorkspaceId,
+    input?: EntryPageQuery
+  ): Promise<Page<WorkspaceEntry, number>> {
+    let query: EntryPageQuery;
+    try {
+      query = entryPageQueryOf(input);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#turns.run(() => {
+      const limit = pageLimit(query.limit);
+      const offset = pageOffset(query.cursor);
+      if (
+        !storableText(workspaceId) ||
+        (query.type !== undefined && !storableText(query.type))
+      ) {
+        return Promise.resolve({ items: [], total: 0 });
+      }
+      const where = and(
+        eq(workspaceEntries.scope, this.#scope),
+        eq(workspaceEntries.workspaceId, workspaceId),
+        query.type === undefined
+          ? undefined
+          : eq(workspaceEntries.type, query.type)
+      );
+      return this.#database.transaction(async (transaction) => {
+        const [counted] = await transaction
+          .select({ total: count() })
+          .from(workspaceEntries)
+          .where(where);
+        const rows = await transaction
+          .select(entryColumns)
+          .from(workspaceEntries)
+          .where(where)
+          .orderBy(asc(workspaceEntries.path), asc(workspaceEntries.id))
+          .limit(limit + 1)
+          .offset(offset);
+        return buildPage(rows, limit, offset, counted?.total ?? 0, (row) =>
+          entryOf(this.#scope, row)
+        );
+      });
+    });
+  }
+
+  countEntries(
+    workspaceId: WorkspaceId,
+    query?: EntryCountQuery
+  ): Promise<number> {
+    let owned: EntryCountQuery;
+    try {
+      owned = entryCountQueryOf(query);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#turns.run(async () => {
+      if (
+        !storableText(workspaceId) ||
+        (owned.type !== undefined && !storableText(owned.type))
+      ) {
+        return 0;
+      }
+      const [counted] = await this.#database
+        .select({ total: count() })
+        .from(workspaceEntries)
+        .where(
+          and(
+            eq(workspaceEntries.scope, this.#scope),
+            eq(workspaceEntries.workspaceId, workspaceId),
+            owned.type === undefined
+              ? undefined
+              : eq(workspaceEntries.type, owned.type)
+          )
+        );
+      return counted?.total ?? 0;
     });
   }
 

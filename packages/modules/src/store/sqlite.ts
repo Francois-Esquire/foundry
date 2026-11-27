@@ -1,4 +1,6 @@
 import type { ContentId } from "@foundry/artifacts";
+import type { Page } from "@foundry/core/pagination";
+import { pageFromRows } from "@foundry/lib/pagination";
 import {
   assertScope,
   batches,
@@ -16,6 +18,7 @@ import type { SQL } from "drizzle-orm";
 import {
   and,
   asc,
+  count,
   eq,
   getTableColumns,
   gt,
@@ -27,11 +30,18 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import type { InstallationId, ModuleId } from "../domain";
-import { capturedQuery, capturedWrite, ownedQuery } from "./captured";
+import {
+  capturedQuery,
+  capturedWrite,
+  ownedIdPageQuery,
+  ownedQuery,
+} from "./captured";
 import type {
+  InstallationIdPageQuery,
   InstallationListQuery,
   ManifestListQuery,
   Module,
+  ModuleIdPageQuery,
   ModuleListQuery,
   ModuleStore,
   ModuleStoreDurability,
@@ -248,6 +258,69 @@ export class SqliteModuleStore implements ModuleStore {
     });
   }
 
+  listModulesPage(
+    query: ModuleIdPageQuery = {}
+  ): Promise<Page<Module, string>> {
+    let owned: ModuleIdPageQuery & { readonly limit: number };
+    try {
+      owned = ownedIdPageQuery(capturedQuery(query));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#turns.run(() => {
+      if (owned.artifactId !== undefined && !storableText(owned.artifactId)) {
+        if (owned.cursor !== undefined) {
+          return Promise.reject(new RangeError("Page cursor is invalid"));
+        }
+        return Promise.resolve({ items: [], total: 0 });
+      }
+      if (owned.cursor !== undefined && !storableText(owned.cursor)) {
+        return Promise.reject(new RangeError("Page cursor is invalid"));
+      }
+      const filter = and(
+        eq(modules.scope, this.#scope),
+        owned.artifactId === undefined
+          ? undefined
+          : eq(modules.artifactId, owned.artifactId)
+      );
+      return this.#database.transaction(async (transaction) => {
+        if (owned.cursor !== undefined) {
+          const [anchor] = await transaction
+            .select({ id: modules.id })
+            .from(modules)
+            .where(and(filter, eq(modules.id, owned.cursor as ModuleId)))
+            .limit(1);
+          if (anchor === undefined) {
+            throw new RangeError("Page cursor is invalid");
+          }
+        }
+        const [counted] = await transaction
+          .select({ total: count() })
+          .from(modules)
+          .where(filter);
+        const rows = await transaction
+          .select(moduleColumns)
+          .from(modules)
+          .where(
+            and(
+              filter,
+              owned.cursor === undefined
+                ? undefined
+                : gt(modules.id, owned.cursor as ModuleId)
+            )
+          )
+          .orderBy(asc(modules.id))
+          .limit(owned.limit + 1);
+        return pageFromRows(
+          rows,
+          owned.limit,
+          counted?.total ?? 0,
+          (row) => row.id
+        );
+      });
+    });
+  }
+
   listInstallations(
     query: InstallationListQuery
   ): Promise<ModuleStorePage<StoredInstallation>> {
@@ -274,6 +347,74 @@ export class SqliteModuleStore implements ModuleStore {
           ).map((row) => ({ ...installationOf(row), position: row.position })),
         table: moduleInstallations,
       };
+    });
+  }
+
+  listInstallationsPage(
+    query: InstallationIdPageQuery = {}
+  ): Promise<Page<StoredInstallation, string>> {
+    let owned: InstallationIdPageQuery & { readonly limit: number };
+    try {
+      owned = ownedIdPageQuery(capturedQuery(query));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#turns.run(() => {
+      if (owned.moduleId !== undefined && !storableText(owned.moduleId)) {
+        if (owned.cursor !== undefined) {
+          return Promise.reject(new RangeError("Page cursor is invalid"));
+        }
+        return Promise.resolve({ items: [], total: 0 });
+      }
+      if (owned.cursor !== undefined && !storableText(owned.cursor)) {
+        return Promise.reject(new RangeError("Page cursor is invalid"));
+      }
+      const filter = and(
+        eq(moduleInstallations.scope, this.#scope),
+        owned.moduleId === undefined
+          ? undefined
+          : eq(moduleInstallations.moduleId, owned.moduleId)
+      );
+      return this.#database.transaction(async (transaction) => {
+        if (owned.cursor !== undefined) {
+          const [anchor] = await transaction
+            .select({ id: moduleInstallations.id })
+            .from(moduleInstallations)
+            .where(
+              and(
+                filter,
+                eq(moduleInstallations.id, owned.cursor as InstallationId)
+              )
+            )
+            .limit(1);
+          if (anchor === undefined) {
+            throw new RangeError("Page cursor is invalid");
+          }
+        }
+        const [counted] = await transaction
+          .select({ total: count() })
+          .from(moduleInstallations)
+          .where(filter);
+        const rows = await transaction
+          .select(installationColumns)
+          .from(moduleInstallations)
+          .where(
+            and(
+              filter,
+              owned.cursor === undefined
+                ? undefined
+                : gt(moduleInstallations.id, owned.cursor as InstallationId)
+            )
+          )
+          .orderBy(asc(moduleInstallations.id))
+          .limit(owned.limit + 1);
+        return pageFromRows(
+          rows.map(installationOf),
+          owned.limit,
+          counted?.total ?? 0,
+          (stored) => stored.installation.id
+        );
+      });
     });
   }
 

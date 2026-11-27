@@ -333,6 +333,120 @@ export function describeArtifactStore(
       );
     });
 
+    it("paginates blobs and contents and performs targeted content lookups when implemented", async () => {
+      const store = await fresh();
+      const first = artifact({ name: "First" });
+      const second = artifact({ name: "Second" });
+      const blobA = { ...inlineBlob(), id: blobIdSchema.parse("blob-1") };
+      const blobB: Blob = {
+        byteLength: 1,
+        createdAt: AT,
+        digest: OTHER_DIGEST,
+        id: blobIdSchema.parse("blob-2"),
+        path: "objects/blob-2",
+      };
+      const blobC = { ...inlineBlob(), id: blobIdSchema.parse("blob-3") };
+      const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
+      const c1: Content = {
+        ...content(first.id, [blobA.id]),
+        createdAt: at(1),
+        id: contentIdSchema.parse("c-1"),
+        metadata: { messageId: "m1", sessionId: "s1" },
+        state: "frozen",
+        tag: "v1.0.0",
+      };
+      const c2: Content = {
+        ...content(first.id),
+        createdAt: at(2),
+        id: contentIdSchema.parse("c-2"),
+        metadata: { messageId: "m1", sessionId: "s1" },
+        state: "ready",
+        tag: null,
+      };
+      const c3: Content = {
+        ...content(second.id),
+        createdAt: at(3),
+        id: contentIdSchema.parse("c-3"),
+        metadata: { messageId: "m2", sessionId: "s2" },
+        state: "failed",
+        tag: "v1.0.0",
+      };
+      await store.commit({
+        putArtifacts: [first, second],
+        putBlobs: [blobC, blobA, blobB],
+        putContents: [c3, c1, c2],
+      });
+
+      if (store.listBlobsPage !== undefined) {
+        const page1 = await store.listBlobsPage({ limit: 2 });
+        expect(page1).toEqual({
+          items: [{ id: blobA.id }, { id: blobB.id, path: blobB.path }],
+          nextCursor: blobB.id,
+        });
+        const page2 = await store.listBlobsPage({
+          cursor: page1.nextCursor,
+          limit: 2,
+        });
+        expect(page2).toEqual({ items: [{ id: blobC.id }] });
+        await expect(store.listBlobsPage({ limit: 0 })).rejects.toThrow(
+          RangeError
+        );
+      }
+
+      if (store.listContentsPage !== undefined) {
+        const page1 = await store.listContentsPage({ limit: 2 });
+        expect(page1.items).toEqual([c1, c2]);
+        expect(page1.nextCursor).toBe(c2.id);
+        const page2 = await store.listContentsPage({
+          cursor: page1.nextCursor,
+          limit: 2,
+        });
+        expect(page2).toEqual({ items: [c3] });
+        expect(
+          await store.listContentsPage({ artifactId: first.id, limit: 1 })
+        ).toEqual({ items: [c1], nextCursor: c1.id });
+        expect(
+          await store.listContentsPage({ state: ["ready", "failed"] })
+        ).toEqual({ items: [c2, c3] });
+        expect(await store.listContentsPage({ tagged: true })).toEqual({
+          items: [c1, c3],
+        });
+        expect(await store.listContentsPage({ tagged: false })).toEqual({
+          items: [c2],
+        });
+        await expect(store.listContentsPage({ limit: 0 })).rejects.toThrow(
+          RangeError
+        );
+      }
+
+      if (store.findContentByTag !== undefined) {
+        expect(await store.findContentByTag(first.id, "v1.0.0")).toEqual(c1);
+        expect(await store.findContentByTag(second.id, "v1.0.0")).toEqual(c3);
+        expect(await store.findContentByTag(first.id, "v2.0.0")).toBeNull();
+      }
+
+      if (store.findContent !== undefined) {
+        expect(
+          await store.findContent(first.id, {
+            messageId: "m1",
+            sessionId: "s1",
+          })
+        ).toEqual(c2);
+        expect(
+          await store.findContent(first.id, {
+            messageId: "m2",
+            sessionId: "s2",
+          })
+        ).toBeNull();
+        expect(
+          await store.findContent(second.id, {
+            messageId: "m2",
+            sessionId: "s2",
+          })
+        ).toEqual(c3);
+      }
+    });
+
     it("finds the Contents and chunked blobs naming a blob", async () => {
       const store = await fresh();
       const owner = artifact();

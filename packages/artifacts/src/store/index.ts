@@ -1,10 +1,30 @@
+import type { Page, PageInput } from "@foundry/core/pagination";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type { ArtifactCursor, ArtifactFilter } from "../listing";
-import type { Artifact, ArtifactEvent, Blob, Content } from "../schema";
+import type {
+  Artifact,
+  ArtifactEvent,
+  Blob,
+  Content,
+  ContentState,
+} from "../schema";
 
 export type { ArtifactCursor, ArtifactFilter } from "../listing";
 
 export type BlobListing = Pick<Blob, "id" | "path">;
+
+export type BlobPageQuery = PageInput<BlobId>;
+
+export interface ContentLookup {
+  readonly messageId: string;
+  readonly sessionId: string;
+}
+
+export interface ContentPageQuery extends PageInput<ContentId> {
+  readonly artifactId?: ArtifactId;
+  readonly state?: ContentState | readonly ContentState[];
+  readonly tagged?: boolean;
+}
 
 export interface BlobReferences {
   readonly blobIds: readonly BlobId[];
@@ -41,12 +61,24 @@ export interface ArtifactStore {
   readonly durability?: ArtifactStoreDurability;
   findBlobByPath?(path: string): Promise<Blob | null>;
   findBlobs(digest: string): Promise<readonly Blob[]>;
+  findContent?(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null>;
+  findContentByTag?(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null>;
   findReferences(id: BlobId): Promise<BlobReferences>;
   getArtifact(id: ArtifactId): Promise<Artifact | null>;
   getBlob(id: BlobId): Promise<Blob | null>;
   getContent(id: ContentId): Promise<Content | null>;
   listArtifacts(query: ArtifactListQuery): Promise<ArtifactListing>;
   listBlobs(): Promise<readonly BlobListing[]>;
+  listBlobsPage?(query?: BlobPageQuery): Promise<Page<BlobListing, BlobId>>;
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]>;
+  listContentsPage?(
+    query?: ContentPageQuery
+  ): Promise<Page<Content, ContentId>>;
   transaction?<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T>;
 }

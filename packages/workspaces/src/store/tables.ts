@@ -65,5 +65,18 @@ export const workspaceEntries = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.scope, table.workspaceId, table.id] }),
+    index("workspace_entries_scope_workspace_path").on(
+      table.scope,
+      table.workspaceId,
+      table.path,
+      table.id
+    ),
+    index("workspace_entries_scope_workspace_type_path").on(
+      table.scope,
+      table.workspaceId,
+      table.type,
+      table.path,
+      table.id
+    ),
   ]
 );

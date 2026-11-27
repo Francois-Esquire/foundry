@@ -367,4 +367,106 @@ describe("Modules over a store without transaction", () => {
     );
     expect((await registry.listInstallations()).items).toHaveLength(1);
   });
+
+  it("uses listModulesPage and listInstallationsPage without draining listModules/listInstallations", async () => {
+    const base = new MemoryModuleStore();
+    const counts = {
+      listInstallations: 0,
+      listInstallationsPage: 0,
+      listModules: 0,
+      listModulesPage: 0,
+    };
+    const track = (inner: ModuleStore): ModuleStore => {
+      const wrapped: ModuleStore = {
+        commit: (write) => inner.commit(write),
+        getInstallation: (id) => inner.getInstallation(id),
+        getManifest: (contentId) => inner.getManifest(contentId),
+        getModule: (id) => inner.getModule(id),
+        listInstallations: (query) => {
+          counts.listInstallations += 1;
+          return inner.listInstallations(query);
+        },
+        listInstallationsPage: (query) => {
+          counts.listInstallationsPage += 1;
+          return (
+            inner.listInstallationsPage?.(query) ??
+            Promise.resolve({ items: [] })
+          );
+        },
+        listManifests: (query) => inner.listManifests(query),
+        listModules: (query) => {
+          counts.listModules += 1;
+          return inner.listModules(query);
+        },
+        listModulesPage: (query) => {
+          counts.listModulesPage += 1;
+          return (
+            inner.listModulesPage?.(query) ?? Promise.resolve({ items: [] })
+          );
+        },
+      };
+      const transaction = inner.transaction?.bind(inner);
+      return transaction === undefined
+        ? wrapped
+        : {
+            ...wrapped,
+            transaction: <T>(work: (view: ModuleStore) => Promise<T>) =>
+              transaction((view) => work(track(view))),
+          };
+    };
+    const registry = new Modules({ store: track(base) });
+    const fixtureA = await moduleFixture();
+    const fixtureB = await moduleFixture();
+    const modA = defineModule({
+      artifact: fixtureA.artifact,
+      id: moduleIdSchema.parse("alpha"),
+    });
+    const modB = defineModule({
+      artifact: fixtureB.artifact,
+      id: moduleIdSchema.parse("beta"),
+    });
+    await registry.registerModule({ module: modB });
+    await registry.registerModule({ module: modA });
+    await registry.createInstallation({
+      id: installationIdSchema.parse("inst-1"),
+      now: new Date("2026-08-08T00:00:00.000Z"),
+      version: defineModuleVersion({
+        artifact: fixtureA.artifact,
+        content: fixtureA.content,
+        manifest: VALID_MANIFEST,
+        module: modA,
+      }),
+    });
+    counts.listModules = 0;
+    counts.listInstallations = 0;
+
+    const modsPage = await registry.listModules({ limit: 1 });
+    expect(modsPage).toEqual({
+      items: [modA],
+      nextCursor: modA.id,
+      total: 2,
+    });
+    const instPage = await registry.listInstallations({
+      limit: 1,
+      moduleId: modA.id,
+    });
+    expect(instPage.items.map((item) => item.id)).toEqual(["inst-1"]);
+    expect(counts.listModulesPage).toBe(1);
+    expect(counts.listInstallationsPage).toBe(1);
+    expect(counts.listModules).toBe(0);
+    expect(counts.listInstallations).toBe(0);
+  });
+
+  it("falls back to draining listModules/listInstallations for minimal stores without *Page", async () => {
+    const { registry, version } = await registered();
+    await registry.createInstallation({
+      id: installationIdSchema.parse("inst-fallback"),
+      now: new Date("2026-08-08T00:00:00.000Z"),
+      version,
+    });
+    expect((await registry.listModules({ limit: 1 })).items).toHaveLength(1);
+    expect(
+      (await registry.listInstallations({ limit: 1 })).items.map((i) => i.id)
+    ).toEqual(["inst-fallback"]);
+  });
 });
