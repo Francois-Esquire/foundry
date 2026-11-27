@@ -11,7 +11,7 @@ import { getResource, listResources } from "~/cli/resource-runner";
 import { artifactBlobs } from "~/database/local-artifacts";
 import { initializeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import { ResourceAssociationError } from "~/lib/resources";
+import { ResourceNotFoundError } from "~/lib/resources";
 import { workspaceState } from "~/lib/state/workspace";
 import { cliArgs } from "./helpers/cli";
 import { touchWorkspace } from "./helpers/registry";
@@ -115,7 +115,7 @@ describe("the resource commands", () => {
         { all: false, workspace: "no-such-ws" },
         context(two).context
       )
-    ).rejects.toThrow(ResourceAssociationError);
+    ).rejects.toThrow(ResourceNotFoundError);
     await expect(
       getResource(
         "artifact",

@@ -17,7 +17,6 @@ describe("stream", () => {
     });
     const engine = createEngine({
       catalog: Catalog.collect([counting]),
-      dry: true,
       print: () => undefined,
       root: process.cwd(),
       workspaceId: "ws",

@@ -1,3 +1,4 @@
+import { builtinModules } from "node:module";
 import { resolve } from "node:path";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Artifacts } from "@foundry/artifacts";
@@ -17,6 +18,7 @@ import { MemoryRunOutputSink } from "~/lib/state/output";
 const NODE_BUILTIN =
   /^(?:node:|bun:|(?:assert|async_hooks|buffer|child_process|cluster|crypto|dgram|dns|events|fs|http|http2|https|inspector|module|net|os|path|perf_hooks|process|punycode|querystring|readline|repl|stream|string_decoder|timers|tls|tty|url|util|v8|vm|worker_threads|zlib)(?:\/|$))/;
 
+const ALL_IMPORTS = /.*/;
 const engines: Engine[] = [];
 
 afterEach(async () => {
@@ -177,4 +179,47 @@ describe("portable Engine execution", () => {
     expect(forbiddenImports).toEqual([]);
     expect(built.success).toBe(true);
   });
+});
+
+describe("import portability", () => {
+  it.each([
+    "database/stores",
+    "database/resources",
+    "database/migrate-core",
+    "authoring/index",
+    "authoring/providers",
+    "lib/execution-statuses",
+  ])(
+    "bundles %s for the browser without Node or libsql imports",
+    async (entry) => {
+      const builtins = new Set(
+        builtinModules.map((name) => name.replace("node:", ""))
+      );
+      const forbidden: string[] = [];
+      const built = await globalThis.Bun.build({
+        entrypoints: [resolve(import.meta.dirname, `../src/${entry}.ts`)],
+        plugins: [
+          {
+            name: "import-audit",
+            setup(build) {
+              build.onResolve({ filter: ALL_IMPORTS }, (args) => {
+                if (
+                  args.path.startsWith("node:") ||
+                  builtins.has(args.path) ||
+                  args.path.startsWith("@libsql/client")
+                ) {
+                  forbidden.push(`${args.importer} -> ${args.path}`);
+                  return { external: true, path: args.path };
+                }
+              });
+            },
+          },
+        ],
+        target: "browser",
+      });
+      expect(forbidden).toEqual([]);
+      expect(built.logs).toEqual([]);
+      expect(built.success).toBe(true);
+    }
+  );
 });

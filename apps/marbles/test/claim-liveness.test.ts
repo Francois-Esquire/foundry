@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StoreDatabase } from "~/database/open";
 import { marblesDeliveryClaims } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -82,7 +83,11 @@ describe("a claim on a row another engine left", () => {
       ownerStarted: left.started,
       scope: "ws",
     });
-    const records = new DatabaseWorkspaceRecords({ database, scope: "ws" });
+    const records = new DatabaseWorkspaceRecords({
+      database,
+      liveness: NODE_OWNER_LIVENESS,
+      scope: "ws",
+    });
     expect(await records.claimDelivery()).toBeUndefined();
     expect(watch.asked).toEqual([false]);
     await records.releaseDelivery();

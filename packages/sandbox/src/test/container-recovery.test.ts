@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import {
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_ID_LABEL,
@@ -7,9 +7,9 @@ import {
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
   CONTAINER_STORE_LABEL,
-} from "../container/defaults";
+} from "../containers/defaults";
 import { MemoryContainerStore } from "../store/memory";
-import { createFakeContainerRuntime } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 import {
   CONTAINER_SPEC,
   CONTAINER_STORES,
@@ -27,16 +27,16 @@ describe.each(CONTAINER_STORES)(
 
     describe("sweep", () => {
       it("sweep stops VMs with our labels and no row, ignoring other instances and the harness", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const other = createContainers({
+          driver: runtime,
           instanceLabel: "instance-b",
-          runtime,
           store: newStore(),
         });
         const mine = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
 
@@ -44,27 +44,33 @@ describe.each(CONTAINER_STORES)(
         const orphan = await mine.start(CONTAINER_SPEC);
         await store.commit({ deleteContainers: [orphan.id] });
         const foreign = await other.start(CONTAINER_SPEC);
+        const harnessLabels = {
+          [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
+          "com.foundry.environment.scope-id": "scope",
+          [CONTAINER_ENVIRONMENT_ID_LABEL]: "harness-vm",
+        };
         await runtime.create({
-          cpus: 1,
-          detached: false,
-          disableNetwork: false,
-          env: {},
-          image: "x",
-          labels: {
-            [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-            "com.foundry.environment.scope-id": "scope",
-            [CONTAINER_ENVIRONMENT_ID_LABEL]: "harness-vm",
-          },
-          memoryMib: 1,
-          mounts: [],
+          containerId: "harness-vm",
+          labels: harnessLabels,
           name: "harness-vm",
-          ports: [],
-          pull: "missing",
-          workdir: "/w",
+          spec: {
+            cpus: 1,
+            env: {},
+            expose: [],
+            image: "x",
+            labels: harnessLabels,
+            memoryMib: 1,
+            mounts: [],
+            name: "harness-vm",
+            network: "open",
+            pull: "missing",
+            secrets: [],
+            workdir: "/w",
+          },
         });
 
         expect(await mine.sweep()).toEqual([`${orphan.id}-1`]);
-        const byName = new Map(runtime.instances.map((i) => [i.id, i.removed]));
+        const byName = new Map(runtime.handles.map((i) => [i.id, i.removed]));
         expect(byName.get(`${kept.id}-1`)).toBe(false);
         expect(byName.get(`${orphan.id}-1`)).toBe(true);
         expect(byName.get(`${foreign.id}-1`)).toBe(false);
@@ -75,38 +81,46 @@ describe.each(CONTAINER_STORES)(
 
       it("leaves, in a sweep, a VM with this instance's labels that no row's id labels", async () => {
         const { runtime, containers } = fixture();
+        const unlabelledLabels = {
+          [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
+          [CONTAINER_INSTANCE_LABEL]: "instance-a",
+        };
         const instance = await runtime.create({
-          cpus: 1,
-          detached: false,
-          disableNetwork: true,
-          env: {},
-          image: "test-image",
-          labels: {
-            [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-            [CONTAINER_INSTANCE_LABEL]: "instance-a",
-          },
-          memoryMib: 512,
-          mounts: [],
+          containerId: "unlabelled",
+          labels: unlabelledLabels,
           name: "unlabelled",
-          ports: [],
-          pull: "missing",
-          workdir: "/work",
+          spec: {
+            cpus: 1,
+            env: {},
+            expose: [],
+            image: "test-image",
+            labels: unlabelledLabels,
+            memoryMib: 512,
+            mounts: [],
+            name: "unlabelled",
+            network: "none",
+            pull: "missing",
+            secrets: [],
+            workdir: "/work",
+          },
         });
         expect(await containers.sweep()).toEqual([]);
-        expect(instance.removed).toBe(false);
+        expect(runtime.handles.find((h) => h.id === instance.id)?.removed).toBe(
+          false
+        );
         await containers.shutdown();
       });
 
       it("sweeps only VMs that carry its own store's identity: another store's live VM, under the same instance label, is passed over and named", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const ours = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store: newStore(),
         });
         const theirs = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store: new MemoryContainerStore(),
         });
         const held = await theirs.start(CONTAINER_SPEC);
@@ -114,9 +128,7 @@ describe.each(CONTAINER_STORES)(
         const swept = await ours.sweep();
         expect([...swept]).toEqual([]);
         expect(swept.passedOver).toEqual([name]);
-        expect(runtime.instances.find((i) => i.id === name)?.removed).toBe(
-          false
-        );
+        expect(runtime.handles.find((i) => i.id === name)?.removed).toBe(false);
         const recovered = await ours.recover(() => true);
         expect(recovered.passedOver).toEqual([name]);
         await held.close();
@@ -127,11 +139,11 @@ describe.each(CONTAINER_STORES)(
 
     describe("recovery", () => {
       it("recover removes the rows a gone process left, with their VMs, and sweeps VMs with no row, once", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const running = await gone.start(CONTAINER_SPEC);
@@ -142,8 +154,8 @@ describe.each(CONTAINER_STORES)(
         await store.commit({ deleteContainers: [unrowed.id] });
 
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const mine = await next.start(CONTAINER_SPEC);
@@ -162,7 +174,7 @@ describe.each(CONTAINER_STORES)(
           swept: [`${unrowed.id}-1`],
         });
         expect((await store.list()).map((row) => row.id)).toEqual([mine.id]);
-        const byName = new Map(runtime.instances.map((i) => [i.id, i.removed]));
+        const byName = new Map(runtime.handles.map((i) => [i.id, i.removed]));
         expect(byName.get(`${running.id}-1`)).toBe(true);
         expect(byName.get(`${unrowed.id}-1`)).toBe(true);
         expect(byName.get(`${mine.id}-1`)).toBe(false);
@@ -180,11 +192,11 @@ describe.each(CONTAINER_STORES)(
       });
 
       it("keeps the row of a VM a recovery could not remove, removing, and the next recovery takes it over and removes it", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
@@ -198,8 +210,8 @@ describe.each(CONTAINER_STORES)(
         };
 
         const first = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         expect(await first.recover(() => true)).toEqual({
@@ -210,12 +222,12 @@ describe.each(CONTAINER_STORES)(
           swept: [],
         });
         expect(await store.get(left.id)).toMatchObject({ status: "removing" });
-        expect(runtime.instances[0]?.removed).toBe(false);
+        expect(runtime.handles[0]?.removed).toBe(false);
 
         runtimeDown.now = false;
         const second = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         expect(await second.recover(() => true)).toEqual({
@@ -226,27 +238,27 @@ describe.each(CONTAINER_STORES)(
           swept: [],
         });
         expect(await store.list()).toEqual([]);
-        expect(runtime.instances[0]?.removed).toBe(true);
+        expect(runtime.handles[0]?.removed).toBe(true);
         await second.shutdown();
       });
 
       it("leaves a row to the Containers that opened it while a recovery was judging it", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const row = await gone.start(CONTAINER_SPEC);
         const recovering = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const winner = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         let judged = (): void => undefined;
@@ -273,7 +285,7 @@ describe.each(CONTAINER_STORES)(
           removed: [],
           swept: [],
         });
-        const live = runtime.instances.at(-1);
+        const live = runtime.handles.at(-1);
         expect(live?.removed).toBe(false);
         expect(await store.get(row.id)).toMatchObject({ status: "running" });
         const holders: (string | undefined)[] = [];
@@ -294,25 +306,35 @@ describe.each(CONTAINER_STORES)(
           const id = globalThis.crypto.randomUUID();
           const own = await store.identity();
           try {
-            const instance = await runtime.create({
-              cpus: 1,
-              detached: false,
-              disableNetwork: true,
-              env: {},
-              image: "test-image",
-              labels: {
-                [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-                [CONTAINER_INSTANCE_LABEL]: "instance-a",
-                [CONTAINER_ID_LABEL]: id,
-                [CONTAINER_STORE_LABEL]: own,
-              },
-              memoryMib: 512,
-              mounts: [],
+            const orphanLabels = {
+              [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
+              [CONTAINER_INSTANCE_LABEL]: "instance-a",
+              [CONTAINER_ID_LABEL]: id,
+              [CONTAINER_STORE_LABEL]: own,
+            };
+            const created = await runtime.create({
+              containerId: id,
+              labels: orphanLabels,
               name: `${id}-1`,
-              ports: [],
-              pull: "missing",
-              workdir: "/work",
+              spec: {
+                cpus: 1,
+                env: {},
+                expose: [],
+                image: "test-image",
+                labels: orphanLabels,
+                memoryMib: 512,
+                mounts: [],
+                name: `${id}-1`,
+                network: "none",
+                pull: "missing",
+                secrets: [],
+                workdir: "/work",
+              },
             });
+            const instance = runtime.handles.find((h) => h.id === created.id);
+            if (instance === undefined) {
+              throw new Error("expected created handle");
+            }
             instance.nativeStatus = status;
             await expect(containers.sweep()).resolves.toEqual([instance.id]);
             expect(instance.removed).toBe(true);

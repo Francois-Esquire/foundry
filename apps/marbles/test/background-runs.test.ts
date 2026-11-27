@@ -10,13 +10,13 @@ import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
-import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import { RunQueue } from "~/lib/run-queue";
 import type { SessionRef } from "~/lib/types";
 import { isJsonValue } from "~/lib/workflow-runs";
 import type { RunInfo } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { testEngine } from "./helpers/engine";
+import { CODEX } from "./helpers/harnesses";
 
 const engines: Engine[] = [];
 afterEach(async () => {
@@ -352,22 +352,6 @@ it("reuses one registered agent step and records serializable dispatch input", a
     registrations.mockRestore();
   }
 });
-
-it.each([CLAUDE_CODE, CODEX])(
-  "uses SDK steps for a dry run routed through $harness",
-  async (executor) => {
-    const jobs = await dispatches({ dry: true });
-    const run = await jobs.start({
-      maxTurns: 101,
-      model: executor.model,
-      prompt: "Hello",
-      provider: executor.provider,
-    });
-    await vi.waitFor(async () =>
-      expect((await jobs.get(run.runId)).status).toBe("completed")
-    );
-  }
-);
 
 it("can register the MCP dispatcher after the engine has started", async () => {
   const engine = testEngine();

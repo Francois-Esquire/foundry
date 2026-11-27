@@ -19,7 +19,6 @@ pub struct HelloResult {
 pub struct SetupDraftParams {
     pub instructions: String,
     pub name: String,
-    pub template: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,7 +150,6 @@ mod tests {
         SetupDraftParams {
             instructions: "do it".to_owned(),
             name: "demo".to_owned(),
-            template: "basic".to_owned(),
         }
     }
 
@@ -204,7 +202,7 @@ mod tests {
 
         assert_roundtrip(
             &attach,
-            r#"{"root":"/repo","setup":{"instructions":"do it","name":"demo","template":"basic"},"source":"./repo"}"#,
+            r#"{"root":"/repo","setup":{"instructions":"do it","name":"demo"},"source":"./repo"}"#,
         );
     }
 

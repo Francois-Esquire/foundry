@@ -6,11 +6,13 @@ import { queueRuns } from "@foundry/queue/store/tables";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readExecution } from "~/database/executions";
-import { readLiveGenerations } from "~/database/generations";
-import { readDatabase } from "~/database/open";
+import {
+  readDatabase,
+  readLiveGenerations,
+  readStoredSchedules,
+  recordedWorkspaces,
+} from "~/database/open";
 import { marblesGenerations } from "~/database/tables";
-import { readStoredSchedules } from "~/database/triggers";
-import { recordedWorkspaces } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { connect, type MarblesClient } from "~/process/client";
 import { type Daemon, type DaemonOptions, startDaemon } from "~/process/daemon";

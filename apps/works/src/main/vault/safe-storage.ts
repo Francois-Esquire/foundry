@@ -2,7 +2,7 @@ import path from "node:path";
 import { safeStorage } from "electron";
 import { type Encryptor, SecureStore } from "./secure-store";
 import { JsonFileStore } from "./store";
-import { Vault } from "./vault";
+import { Vault, type VaultOptions } from "./vault";
 
 function safeStorageEncryptor(): Encryptor {
   return {
@@ -13,12 +13,18 @@ function safeStorageEncryptor(): Encryptor {
   };
 }
 
-export function openAppVault(userDataDir: string): Promise<Vault> {
-  return Vault.open({
-    secure: new SecureStore(
-      new JsonFileStore(path.join(userDataDir, "vault.json")),
-      safeStorageEncryptor()
-    ),
-    settings: new JsonFileStore(path.join(userDataDir, "settings.json")),
-  });
+export function openAppVault(
+  userDataDir: string,
+  options: VaultOptions = {}
+): Promise<Vault> {
+  return Vault.open(
+    {
+      secure: new SecureStore(
+        new JsonFileStore(path.join(userDataDir, "vault.json")),
+        safeStorageEncryptor()
+      ),
+      settings: new JsonFileStore(path.join(userDataDir, "settings.json")),
+    },
+    options
+  );
 }

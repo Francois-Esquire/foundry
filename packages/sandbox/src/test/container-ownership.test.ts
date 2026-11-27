@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
+import type { ContainerSpecInput } from "../containers/spec";
 import type { ContainerStore, ContainerStoreWrite } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
 import { SqliteContainerStore } from "../store/sqlite";
-import type { FakeContainerRuntime } from "../testing/index";
-import { createFakeContainerRuntime } from "../testing/index";
+import type { FakeDriver } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 import { libsqlDatabases } from "./helpers/sqlite";
 
-const SPEC: ContainerSandboxConstraints = {
-  format: "foundry.sandbox.container/1",
+const SPEC: ContainerSpecInput = {
   image: "docker.io/oven/bun:1",
 };
 const REFUSED = /commit refused/;
@@ -64,8 +63,8 @@ function recordsRunning(write: ContainerStoreWrite): boolean {
   return (write.putContainers ?? []).some((row) => row.status === "running");
 }
 
-function stubbornRuntime(count: number): FakeContainerRuntime {
-  const runtime = createFakeContainerRuntime();
+function stubbornRuntime(count: number): FakeDriver {
+  const runtime = createFakeDriver();
   const create = runtime.create.bind(runtime);
   let left = count;
   runtime.create = async (spec) => {
@@ -79,8 +78,8 @@ function stubbornRuntime(count: number): FakeContainerRuntime {
   return runtime;
 }
 
-function brokenSetupRuntime(cleanupFails: boolean): FakeContainerRuntime {
-  const runtime = createFakeContainerRuntime();
+function brokenSetupRuntime(cleanupFails: boolean): FakeDriver {
+  const runtime = createFakeDriver();
   const create = runtime.create.bind(runtime);
   runtime.create = async (spec) => {
     const instance = await create(spec);
@@ -94,8 +93,8 @@ function brokenSetupRuntime(cleanupFails: boolean): FakeContainerRuntime {
   return runtime;
 }
 
-function remaining(runtime: FakeContainerRuntime): string[] {
-  return runtime.instances
+function remaining(runtime: FakeDriver): string[] {
+  return runtime.handles
     .filter((instance) => !instance.removed)
     .map((instance) => instance.id);
 }
@@ -103,13 +102,17 @@ function remaining(runtime: FakeContainerRuntime): string[] {
 describe("a commit that fails after a boot", () => {
   it("start removes the VM it booted and rejects with the commit's error", async () => {
     const { allow, refuse, store } = refusingStore();
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const runtime = createFakeDriver();
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     refuse(recordsRunning);
 
     await expect(containers.start(SPEC)).rejects.toThrow(REFUSED);
 
-    expect(runtime.instances).toHaveLength(1);
+    expect(runtime.handles).toHaveLength(1);
     expect(remaining(runtime)).toEqual([]);
     const [row] = await store.list();
     expect(row).toMatchObject({ nativeId: `${row?.id}-1`, status: "failed" });
@@ -121,15 +124,19 @@ describe("a commit that fails after a boot", () => {
 
   it("open removes the VM it booted, and the next open boots anew", async () => {
     const { allow, refuse, store } = refusingStore();
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const runtime = createFakeDriver();
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     const first = await containers.start(SPEC);
     await first.close();
     refuse(recordsRunning);
 
     await expect(containers.open(first.id)).rejects.toThrow(REFUSED);
 
-    expect(runtime.instances.map((instance) => instance.id)).toEqual([
+    expect(runtime.handles.map((instance) => instance.id)).toEqual([
       `${first.id}-1`,
       `${first.id}-2`,
     ]);
@@ -149,14 +156,18 @@ describe("a commit that fails after a boot", () => {
 
   it("restart removes the VM it booted, leaving the closed handle nothing to stop", async () => {
     const { allow, refuse, store } = refusingStore();
-    const runtime = createFakeContainerRuntime();
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const runtime = createFakeDriver();
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     const handle = await containers.start(SPEC);
     refuse(recordsRunning);
 
     await expect(containers.restart(handle.id)).rejects.toThrow(REFUSED);
 
-    expect(runtime.instances.map((instance) => instance.id)).toEqual([
+    expect(runtime.handles.map((instance) => instance.id)).toEqual([
       `${handle.id}-1`,
       `${handle.id}-2`,
     ]);
@@ -176,7 +187,7 @@ describe("a commit that fails after a boot", () => {
     const database = await files.open();
     const store = new SqliteContainerStore({ database, scope: "s" });
     const other = files.connect(database);
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     const create = runtime.create.bind(runtime);
     const locked = Promise.withResolvers<void>();
     const unlock = Promise.withResolvers<void>();
@@ -188,11 +199,15 @@ describe("a commit that fails after a boot", () => {
       });
       return locked.promise.then(() => create(spec));
     };
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
 
     await expect(containers.start(SPEC)).rejects.toThrow(BUSY);
 
-    expect(runtime.instances).toHaveLength(1);
+    expect(runtime.handles).toHaveLength(1);
     expect(remaining(runtime)).toEqual([]);
     unlock.resolve();
     await holder;
@@ -208,7 +223,11 @@ describe("a VM the Containers could not remove", () => {
   it("is removed by a later sweep", async () => {
     const { allow, refuse, store } = refusingStore();
     const runtime = stubbornRuntime(1);
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     refuse(recordsRunning);
 
     await expect(containers.start(SPEC)).rejects.toThrow(REFUSED);
@@ -226,7 +245,7 @@ describe("a VM the Containers could not remove", () => {
   it("is removed by shutdown, which rejects while it will not go and retries when called again", async () => {
     const { refuse, store } = refusingStore();
     const failRemove: string[] = [];
-    const base = createFakeContainerRuntime({ inventory: { failRemove } });
+    const base = createFakeDriver({ inventory: { failRemove } });
     const create = base.create.bind(base);
     base.create = async (spec) => {
       const instance = await create(spec);
@@ -234,8 +253,8 @@ describe("a VM the Containers could not remove", () => {
       return instance;
     };
     const containers = createContainers({
+      driver: base,
       instanceLabel: "a",
-      runtime: base,
       store,
     });
     refuse(recordsRunning);
@@ -255,7 +274,11 @@ describe("a VM the Containers could not remove", () => {
   it("is kept when the last close cannot remove it, and shutdown removes it", async () => {
     const runtime = stubbornRuntime(1);
     const store = new MemoryContainerStore();
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     const handle = await containers.start(SPEC);
 
     await expect(handle.close()).rejects.toThrow("remove failed");
@@ -272,6 +295,9 @@ describe.each(STORES)(
     it("is kept for the next sweep or shutdown, not forgotten", async () => {
       const { allow, refuse, store } = refusingStore(await open());
       const runtime = stubbornRuntime(1);
+      if (!runtime.listResources) {
+        throw new Error("expected listResources");
+      }
       const list = runtime.listResources.bind(runtime);
       const read = Promise.withResolvers<void>();
       const resume = Promise.withResolvers<void>();
@@ -286,8 +312,8 @@ describe.each(STORES)(
         return page;
       };
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "a",
-        runtime,
         store,
       });
 
@@ -311,11 +337,19 @@ describe.each(STORES)(
 describe("an old VM whose stop fails", () => {
   async function reopened() {
     const failStop: string[] = [];
-    const runtime = createFakeContainerRuntime({ inventory: { failStop } });
+    const runtime = createFakeDriver({ inventory: { failStop } });
     const store = new MemoryContainerStore();
-    const before = createContainers({ instanceLabel: "a", runtime, store });
+    const before = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     const { id } = await before.start(SPEC);
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     return { containers, failStop, id, runtime, store };
   }
 
@@ -355,7 +389,11 @@ describe("an old VM whose stop fails", () => {
     expect(remaining(runtime)).toEqual([`${id}-1`]);
     failStop.length = 0;
     await containers.shutdown();
-    const next = createContainers({ instanceLabel: "a", runtime, store });
+    const next = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
     expect(await next.recover(() => true)).toEqual({
       conflicts: [],
       kept: [],
@@ -373,7 +411,11 @@ describe("a boot whose guest setup fails", () => {
   it("rejects with the setup's error and keeps a VM it could not remove for sweep", async () => {
     const runtime = brokenSetupRuntime(true);
     const store = new MemoryContainerStore();
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
 
     await expect(containers.start(SPEC)).rejects.toThrow("guest setup failed");
     const [row] = await store.list();
@@ -388,8 +430,8 @@ describe("a boot whose guest setup fails", () => {
   it("keeps a VM it could not remove for shutdown", async () => {
     const runtime = brokenSetupRuntime(true);
     const containers = createContainers({
+      driver: runtime,
       instanceLabel: "a",
-      runtime,
       store: new MemoryContainerStore(),
     });
 
@@ -403,8 +445,8 @@ describe("a boot whose guest setup fails", () => {
     const runtime = brokenSetupRuntime(false);
     runtime.listResources = () => Promise.reject(new Error("inventory read"));
     const containers = createContainers({
+      driver: runtime,
       instanceLabel: "a",
-      runtime,
       store: new MemoryContainerStore(),
     });
 
@@ -416,11 +458,15 @@ describe("a boot whose guest setup fails", () => {
 
 describe("a boot that fails before any VM exists", () => {
   it("keeps nothing, so shutdown succeeds without reading the inventory", async () => {
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     runtime.create = () => Promise.reject(new Error("no hypervisor"));
     runtime.listResources = () => Promise.reject(new Error("inventory read"));
     const store = new MemoryContainerStore();
-    const containers = createContainers({ instanceLabel: "a", runtime, store });
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel: "a",
+      store,
+    });
 
     await expect(containers.start(SPEC)).rejects.toThrow("no hypervisor");
     expect((await store.list())[0]?.status).toBe("failed");

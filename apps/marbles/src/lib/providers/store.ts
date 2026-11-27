@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import type { ModelKind } from "@foundry/models";
 import { z } from "zod";
 
@@ -71,7 +70,7 @@ export interface ProviderWrites {
 }
 
 export interface ProviderStore {
-  identityKey(make: boolean): Promise<Buffer | undefined>;
+  identityKey(make: boolean): Promise<Uint8Array | undefined>;
   read(): Promise<ProviderConfigurations>;
   revision(): Promise<number>;
   update(
@@ -167,16 +166,20 @@ function unreadable(what: string, why: string): ConfigurationError {
 const KEY = /^[0-9a-f]{64}$/;
 
 export function newIdentityKey(): string {
-  return randomBytes(32).toString("hex");
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
 }
 
-export function identityKeyFrom(text: string): Buffer {
+export function identityKeyFrom(text: string): Uint8Array {
   if (!KEY.test(text)) {
     throw new InvalidStoredConfiguration(
       "the identity key in the Marbles database is not one; remove it to start new sessions everywhere"
     );
   }
-  return Buffer.from(text, "hex");
+  return Uint8Array.from(text.match(/../g) ?? [], (byte) =>
+    Number.parseInt(byte, 16)
+  );
 }
 
 export class MemoryProviderStore implements ProviderStore {
@@ -184,7 +187,7 @@ export class MemoryProviderStore implements ProviderStore {
   #key: string | undefined;
   #revision = 0;
 
-  identityKey(make: boolean): Promise<Buffer | undefined> {
+  identityKey(make: boolean): Promise<Uint8Array | undefined> {
     if (make) {
       this.#key ??= newIdentityKey();
     }
@@ -241,59 +244,6 @@ export function writtenTexts(
       );
     }
     texts.set(workspace, configurationText(writes.workspace));
-  }
-  return texts;
-}
-
-export function readOnlyProviders(store: ProviderStore): ProviderStore {
-  const own = new Map<string, string>();
-  let writes = 0;
-  const read = async (): Promise<ProviderConfigurations> => {
-    const kept = await store.read();
-    const revision = kept.revision + writes;
-    if (own.size === 0) {
-      return kept;
-    }
-    const texts = new Map(textsOf(kept));
-    for (const [scope, text] of own) {
-      texts.set(scope, text);
-    }
-    return keptConfigurations(texts, revision);
-  };
-  let edits: Promise<unknown> = Promise.resolve();
-  const editNow = async (
-    workspace: string | undefined,
-    edit: (current: ProviderConfigurations) => ProviderWrites
-  ): Promise<ProviderConfigurations> => {
-    const written = writtenTexts(workspace, edit(await read()));
-    for (const [scope, text] of written) {
-      own.set(scope, text);
-    }
-    writes += written.size > 0 ? 1 : 0;
-    return read();
-  };
-  return {
-    identityKey: () => store.identityKey(false),
-    read,
-    revision: async () => (await store.revision()) + writes,
-    update(workspace, edit) {
-      const landing = edits.then(() => editNow(workspace, edit));
-      edits = landing.catch(() => undefined);
-      return landing;
-    },
-  };
-}
-
-function textsOf(kept: ProviderConfigurations): ReadonlyMap<string, string> {
-  const texts = new Map<string, string>();
-  if (kept.machine !== undefined) {
-    texts.set(MACHINE_SCOPE, configurationText(kept.machine));
-  }
-  for (const id of kept.workspaces) {
-    const file = kept.workspace(id);
-    if (file !== undefined) {
-      texts.set(id, configurationText(file));
-    }
   }
   return texts;
 }

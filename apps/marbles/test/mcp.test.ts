@@ -72,7 +72,7 @@ function summaries(value: unknown) {
   return z.object({ items: summarySchema.array() }).parse(payload(value)).items;
 }
 
-it("dispatches workflows and agents through the MCP tools, over a workspace a dry-run host serves", async () => {
+it("dispatches workflows and agents through the MCP tools, over a workspace a host serves", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-"));
   const source = join(root, "marbles.ts");
   const schemaLibrary = createRequire(import.meta.url).resolve("zod");
@@ -89,7 +89,7 @@ export const greet = step("greet").input(z.object({ name: z.string() })).do(({ i
 export const greeting = workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new RecordedStdioTransport({
-    args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
+    args: ["--no-env-file", resolve("test/helpers/mcp-host.ts"), source],
     command: "bun",
     cwd: root,
     env: testHome().env,
@@ -659,6 +659,40 @@ it("starts without a source and serves the stored tasks of every recorded worksp
     );
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    await client.close();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
+it("explains the missing source when its default workspace is not hosted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mm-"));
+  const home = testHome();
+  const source = join(root, "marbles.ts");
+  const own = workspaceState(home.layout.state, root);
+  const transport = new RecordedStdioTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
+    command: "bun",
+    cwd: root,
+    env: home.env,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    for (const target of [{}, { workspace: own.id }]) {
+      const definitions = await client.callTool({
+        arguments: { ...target, resource: "definitions" },
+        name: "list",
+      });
+      expect(definitions.isError).toBe(true);
+      expect(payload(definitions)).toMatchObject({
+        error: {
+          code: "not_hosted",
+          message: expect.stringContaining(`no Marbles source at "${source}"`),
+        },
+      });
+    }
   } finally {
     await client.close();
     await rm(root, { force: true, recursive: true });

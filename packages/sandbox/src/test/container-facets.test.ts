@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
-
-import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
+import type { ContainerSpecInput } from "../containers/spec";
+import { resolveHostMountSpecs } from "../node/mounts";
 import { MemoryContainerStore } from "../store/memory";
-import type { FakeContainerRuntimeOptions } from "../testing/index";
-import { createFakeContainerRuntime } from "../testing/index";
+import type { FakeDriverOptions } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 import {
   runSandboxContract,
   SANDBOX_ARGV_FIXTURE,
@@ -19,22 +19,21 @@ const BOUNDED_CONTRACT_ERROR = /bounded portable contract/i;
 const OWNERSHIP_ERROR = /does not belong/i;
 const DATA_MOUNT_PATH = /\/foundry\/data/;
 
-const SPEC: ContainerSandboxConstraints = {
-  format: "foundry.sandbox.container/1",
+const SPEC: ContainerSpecInput = {
   image: "docker.io/oven/bun:1",
 };
 
 function fixture(
-  runtimeOptions: FakeContainerRuntimeOptions = {},
+  runtimeOptions: FakeDriverOptions = {},
   mounts: {
     readonly allowedMountRoots?: readonly string[];
     readonly mountTargetRoot?: string;
   } = {}
 ) {
-  const runtime = createFakeContainerRuntime(runtimeOptions);
+  const runtime = createFakeDriver(runtimeOptions);
   const containers = createContainers({
+    driver: runtime,
     instanceLabel: "facets",
-    runtime,
     store: new MemoryContainerStore(),
     ...mounts,
   });
@@ -75,14 +74,14 @@ describe("container shell", () => {
     vi.useFakeTimers();
     try {
       const changed = vi.fn();
-      const subscription = await container.files.watch(
+      const subscription = await container.files.watch?.(
         "/workspace",
         changed,
         vi.fn()
       );
       await vi.advanceTimersByTimeAsync(1000);
       expect(changed).toHaveBeenCalledTimes(1);
-      await subscription.close();
+      await subscription?.close();
       await vi.advanceTimersByTimeAsync(1000);
       expect(changed).toHaveBeenCalledTimes(1);
     } finally {
@@ -93,6 +92,9 @@ describe("container shell", () => {
   it("opens an interactive session whose close is idempotent", async () => {
     const { containers } = fixture();
     const container = await containers.start(SPEC);
+    if (!container.shell) {
+      throw new Error("expected shell");
+    }
     const shell = await container.shell.open();
     const chunks: string[] = [];
     const unsubscribe = shell.onData((chunk) => chunks.push(chunk));
@@ -110,6 +112,9 @@ describe("container managed services", () => {
     const { runtime, containers } = fixture();
     const container = await containers.start(SPEC);
     const { services } = container;
+    if (!services) {
+      throw new Error("expected services");
+    }
     const service = await services.start({
       argv: ["bun", "start"],
       cwd: "/workspace",
@@ -121,7 +126,7 @@ describe("container managed services", () => {
 
     expect(service.status).toBe("ready");
     expect(await services.list()).toEqual([service]);
-    expect(runtime.instances[0]?.commands).toEqual([["bun", "start"]]);
+    expect(runtime.handles[0]?.commands).toEqual([["bun", "start"]]);
 
     const [first, second] = await Promise.all([
       service.terminate(),
@@ -149,7 +154,7 @@ describe("container managed services", () => {
       OWNERSHIP_ERROR
     );
     await container.close();
-    expect(runtime.instances[0]?.removed).toBe(true);
+    expect(runtime.handles[0]?.removed).toBe(true);
   });
 
   it("settles a service whose exec session ends without an exit event", async () => {
@@ -159,13 +164,16 @@ describe("container managed services", () => {
       },
     });
     const container = await containers.start(SPEC);
-    const service = await container.services.start({
+    const service = await container.services?.start({
       argv: ["bun", "start"],
       id: "program",
       readiness: { kind: "started" },
       terminationGraceMs: 0,
     });
 
+    if (!service) {
+      throw new Error("expected service");
+    }
     await expect(service.wait()).resolves.toMatchObject({
       exitCode: 137,
       terminationRequested: false,
@@ -175,7 +183,7 @@ describe("container managed services", () => {
       exitCode: 137,
     });
     await container.close();
-    expect(runtime.instances[0]?.removed).toBe(true);
+    expect(runtime.handles[0]?.removed).toBe(true);
   });
 
   it("keeps settled stdout and stderr separate from service control", async () => {
@@ -187,11 +195,14 @@ describe("container managed services", () => {
       }),
     });
     const container = await containers.start(SPEC);
-    const service = await container.services.start({
+    const service = await container.services?.start({
       argv: ["bun", "start"],
       id: "program",
       readiness: { kind: "started" },
     });
+    if (!service) {
+      throw new Error("expected service");
+    }
 
     await expect(service.wait()).resolves.toMatchObject({
       exitCode: 7,
@@ -226,7 +237,7 @@ describe("container scoped mounts", () => {
           {
             access: "read-write",
             id: "data",
-            source,
+            source: { kind: "host-directory", path: source },
             target: "/foundry/data",
           },
         ],
@@ -236,10 +247,22 @@ describe("container scoped mounts", () => {
         throw new Error("expected volumes");
       }
 
-      expect(runtime.instances[0]?.spec.mounts).toEqual([
+      expect(runtime.handles[0]?.spec.mounts).toEqual([
         {
+          access: "read-write",
           id: "data",
-          readOnly: false,
+          source: { kind: "host-directory", path: source },
+          target: "/foundry/data",
+        },
+      ]);
+      expect(
+        await resolveHostMountSpecs(runtime.handles[0]?.spec.mounts ?? [], [
+          root,
+        ])
+      ).toEqual([
+        {
+          access: "read-write",
+          id: "data",
           source: await realpath(source),
           target: "/foundry/data",
         },
@@ -255,22 +278,25 @@ describe("container scoped mounts", () => {
       );
 
       await expect(
-        containers.start({
-          ...SPEC,
-          mounts: [
+        resolveHostMountSpecs(
+          [
             {
               access: "read-only",
               id: "escape",
-              source: path.join(root, "escape"),
+              source: {
+                kind: "host-directory",
+                path: path.join(root, "escape"),
+              },
               target: "/foundry/data",
             },
           ],
-        })
+          [root]
+        )
       ).rejects.toThrow();
-      expect(runtime.instances).toHaveLength(1);
+      expect(runtime.handles).toHaveLength(1);
 
       await container.close();
-      expect(runtime.instances[0]?.removed).toBe(true);
+      expect(runtime.handles[0]?.removed).toBe(true);
     } finally {
       await rm(directory, { force: true, recursive: true });
     }
@@ -281,13 +307,13 @@ describe("container scoped mounts", () => {
       path.join(tmpdir(), "foundry-container-target-")
     );
     try {
-      const spec: ContainerSandboxConstraints = {
+      const spec: ContainerSpecInput = {
         ...SPEC,
         mounts: [
           {
             access: "read-write",
             id: "home",
-            source: directory,
+            source: { kind: "host-directory", path: directory },
             target: "/home/user",
           },
         ],

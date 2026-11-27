@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { bootGuest } from "./helpers/guest";
 
 const sdk = vi.hoisted(() => {
@@ -69,14 +69,14 @@ beforeEach(() => {
 describe("MicroSandbox removal", () => {
   it("treats a VM that is already gone as removed", async () => {
     sdk.remove.mockRejectedValue(new sdk.SandboxNotFoundError("gone"));
-    const guest = await bootGuest(createMicrosandboxRuntime());
+    const guest = await bootGuest(createMicrosandboxDriver());
 
     await expect(guest[Symbol.asyncDispose]()).resolves.toBeUndefined();
   });
 
   it("surfaces every other removal failure, so the removal can be retried", async () => {
     sdk.remove.mockRejectedValueOnce(new Error("still running"));
-    const guest = await bootGuest(createMicrosandboxRuntime());
+    const guest = await bootGuest(createMicrosandboxDriver());
 
     await expect(guest[Symbol.asyncDispose]()).rejects.toThrow("still running");
     await guest[Symbol.asyncDispose]();
@@ -88,7 +88,7 @@ describe("MicroSandbox exec handles", () => {
   it("disposes a signalled exec's handle when it finishes", async () => {
     const running = handle(exited());
     sdk.native.execStreamWith.mockResolvedValue(running);
-    const guest = await bootGuest(createMicrosandboxRuntime());
+    const guest = await bootGuest(createMicrosandboxDriver());
 
     await guest.commands.exec(["true"], {
       signal: new AbortController().signal,
@@ -100,7 +100,7 @@ describe("MicroSandbox exec handles", () => {
   it("disposes an aborted exec's handle", async () => {
     const running = handle(never());
     sdk.native.execStreamWith.mockResolvedValue(running);
-    const guest = await bootGuest(createMicrosandboxRuntime());
+    const guest = await bootGuest(createMicrosandboxDriver());
     const controller = new AbortController();
 
     const result = guest.commands.exec(["sleep", "60"], {
@@ -118,8 +118,11 @@ describe("MicroSandbox exec handles", () => {
   it("disposes a shell's handle on close, once", async () => {
     const running = handle(never());
     sdk.native.execStreamWith.mockResolvedValue(running);
-    const guest = await bootGuest(createMicrosandboxRuntime());
+    const guest = await bootGuest(createMicrosandboxDriver());
 
+    if (!guest.shell) {
+      throw new Error("expected shell");
+    }
     const shell = await guest.shell.open();
     await shell.close();
     await shell.close();
@@ -130,10 +133,10 @@ describe("MicroSandbox exec handles", () => {
   it("disposes the handle of a spawn aborted while it was launching", async () => {
     const launching = Promise.withResolvers<ReturnType<typeof handle>>();
     sdk.native.execStreamWith.mockReturnValue(launching.promise);
-    const guest = await bootGuest(createMicrosandboxRuntime());
+    const guest = await bootGuest(createMicrosandboxDriver());
     const controller = new AbortController();
 
-    const spawned = guest.processes.spawn(["serve"], {
+    const spawned = guest.processes?.spawn?.(["serve"], {
       signal: controller.signal,
     });
     await vi.waitFor(() =>

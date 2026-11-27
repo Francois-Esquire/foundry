@@ -6,9 +6,8 @@ export default defineConfig({
   resolve: {
     alias: [
       ["@foundry.sh/marbles", "src/authoring/index.ts"],
-      ["@foundry.sh/marbles/engine", "src/entries/engine.ts"],
+      ["@foundry.sh/marbles/engine", "src/entries/embedded.ts"],
       ["@foundry.sh/marbles/lib", "src/entries/lib.ts"],
-      ["@foundry.sh/marbles/prebuilt", "src/authoring/prebuilt.ts"],
       ["@foundry.sh/marbles/process", "src/process/index.ts"],
       ["@foundry.sh/marbles/providers", "src/authoring/providers.ts"],
       ...["claude-code", "codex", "gateway", "pi", "vercel"].map(

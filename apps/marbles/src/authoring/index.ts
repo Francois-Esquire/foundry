@@ -62,7 +62,6 @@ export type {
   MonitorHandler,
 } from "~/lib/monitor";
 export type { MonitorRecord } from "~/lib/registry";
-export type { ArtifactShareEvent } from "~/lib/resources";
 export type {
   CalendarSlot,
   Schedule,

@@ -1,4 +1,6 @@
 import type { ContentId } from "@foundry/artifacts";
+import type { AuthorizationStore } from "@foundry/authorization/store";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
 import type { Page } from "@foundry/core/pagination";
 import { pageFromRows } from "@foundry/lib/pagination";
 import {
@@ -169,6 +171,13 @@ export class SqliteModuleStore implements ModuleStore {
         await this.#onCommit?.(transaction, owned);
       })
     );
+  }
+
+  openAuthorizationStore(): AuthorizationStore {
+    return new SqliteAuthorizationStore({
+      database: this.#database,
+      scope: this.#scope,
+    });
   }
 
   transaction<T>(work: (view: ModuleStore) => Promise<T>): Promise<T> {
@@ -626,9 +635,6 @@ function installationRow(
 ): Omit<InstallationRow, "position" | "scope"> {
   const { installation } = stored;
   const field = (name: string) => `${at}.installation.${name}`;
-  if (!Array.isArray(stored.grants)) {
-    throw unstorable(`${at}.grants`, "holds no array of Grants");
-  }
   return {
     containerId:
       installation.containerId === null
@@ -637,18 +643,6 @@ function installationRow(
     contentId: text(installation.contentId, field("contentId")),
     createdAt: instant(installation.createdAt, field("createdAt")),
     generation: integer(installation.generation, field("generation")),
-    grants: stored.grants.map((grant, index) => {
-      const grantAt = `${at}.grants[${index}]`;
-      return {
-        capability: jsonText(grant.capability, `${grantAt}.capability`),
-        constraintsDigest: jsonText(
-          grant.constraintsDigest,
-          `${grantAt}.constraintsDigest`
-        ),
-        createdAt: instant(grant.createdAt, `${grantAt}.createdAt`),
-        version: jsonNumber(grant.version, `${grantAt}.version`),
-      };
-    }),
     id: text(installation.id, field("id")),
     moduleId: text(installation.moduleId, field("moduleId")),
     startAttempts: integer(installation.startAttempts, field("startAttempts")),
@@ -661,12 +655,6 @@ function installationOf(
   row: Omit<typeof moduleInstallations.$inferSelect, "position" | "scope">
 ): StoredInstallation {
   return {
-    grants: row.grants.map((grant) => ({
-      capability: grant.capability,
-      constraintsDigest: grant.constraintsDigest,
-      createdAt: new Date(grant.createdAt),
-      version: grant.version,
-    })),
     installation: {
       containerId: row.containerId,
       contentId: row.contentId,
@@ -691,13 +679,6 @@ function text<T extends string>(value: T, field: string): T {
   }
   if (!storableText(value)) {
     throw unstorable(field, UNSTORABLE_TEXT);
-  }
-  return value;
-}
-
-function jsonText(value: string, field: string): string {
-  if (typeof value !== "string") {
-    throw unstorable(field, `${describe(value)} is not text`);
   }
   return value;
 }

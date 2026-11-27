@@ -33,9 +33,8 @@
         "ignore"
       ],
       "entry": [
-        "src/workspace/hosted.ts",
         "stories/**/*.stories.tsx",
-        "test/helpers/dry-mcp-host.ts",
+        "test/helpers/mcp-host.ts",
         "test/helpers/generation-*.ts",
         "test/helpers/store-writer.ts",
         "vitest.package.config.ts"
@@ -68,6 +67,9 @@
       ]
     },
     "tooling/*": {},
+    "tooling/release": {
+      "entry": ["src/cli.ts", "src/extension-cli.ts", "src/prepare.ts"]
+    },
     "tooling/vscode-extension": {
       "ignore": ["fixtures/**"]
     },

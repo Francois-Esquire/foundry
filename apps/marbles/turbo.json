@@ -1,12 +1,17 @@
 {
   "extends": ["//"],
   "tasks": {
+    "db:generate": {
+      "dependsOn": ["^build"],
+      "outputs": ["src/database/migrations/**"]
+    },
     "build": {
-      "outputs": [
-        "dist/**",
-        ".cache/tsbuildinfo.json",
-        "src/database/migrations/**"
-      ]
+      "dependsOn": ["^build", "db:generate"],
+      "outputs": ["dist/**", ".cache/tsbuildinfo.json"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build", "db:generate"],
+      "outputs": []
     },
     "test": {
       "dependsOn": ["build"],
@@ -21,7 +26,7 @@
       "env": ["MARBLES_TEST_RUNS", "MARBLES_DAEMON_BIN"]
     },
     "test:integration": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "db:generate"],
       "cache": false,
       "env": [
         "ANTHROPIC_API_KEY",

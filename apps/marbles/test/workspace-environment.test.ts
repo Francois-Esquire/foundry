@@ -54,13 +54,12 @@ const wrapped = Object.fromEntries(
 );
 mock.module("node:child_process", () => ({ ...real, ...wrapped, default: { ...real, ...wrapped } }));
 const { hostEngine, openWorkspace } = await import(${JSON.stringify(join(SRC, "workspace/open.ts"))});
-const { openHostDatabase } = await import(${JSON.stringify(join(SRC, "database/workspaces.ts"))});
+const { openHostDatabase } = await import(${JSON.stringify(join(SRC, "database/open.ts"))});
 const report = {};
 const lines = [];
 const args = {
   artifacts: ${JSON.stringify(home.layout.artifacts)},
   config: ${JSON.stringify(source)},
-  dry: false,
   state: ${JSON.stringify(home.layout.state)},
 };
 const opened = await openWorkspace(args, { print: (line) => lines.push(line) });

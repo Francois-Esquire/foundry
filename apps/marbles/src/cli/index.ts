@@ -302,7 +302,6 @@ function scanArgv(argv: readonly string[]): ScannedArgs {
     artifacts,
     config: config ?? DEFAULT_SOURCE,
     directory: process.cwd(),
-    dry: false,
     json,
     ...(config === undefined ? {} : { sourceExplicit: true }),
     state,

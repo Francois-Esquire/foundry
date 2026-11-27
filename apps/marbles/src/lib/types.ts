@@ -25,9 +25,10 @@ import type {
   FileInput,
   FileResolved,
 } from "@foundry/artifacts";
+import type { Authorization, GrantId } from "@foundry/authorization";
 import type {
   Container,
-  ContainerSandboxConstraints,
+  ContainerSpecInput,
   SandboxCommand,
   SandboxExecOptions,
   SandboxExecResult,
@@ -87,18 +88,17 @@ export interface WorkspaceDefinition {
   readonly path: string;
 }
 
-export type SandboxResources = NonNullable<
-  ContainerSandboxConstraints["resources"]
->;
+export type SandboxResources = NonNullable<ContainerSpecInput["resources"]>;
 
 interface SandboxOptions
   extends Pick<
-    ContainerSandboxConstraints,
-    | "detached"
+    ContainerSpecInput,
+    | "expose"
     | "labels"
+    | "lifetime"
     | "network"
-    | "ports"
     | "publicEnvironment"
+    | "secrets"
     | "workdir"
   > {
   readonly resources?: SandboxResources;
@@ -107,7 +107,7 @@ interface SandboxOptions
 export interface ImageSandbox extends SandboxOptions {
   readonly executable?: boolean;
   readonly image: string;
-  readonly mount?: "." | WorkspaceDefinition;
+  readonly mount?: "none" | "." | WorkspaceDefinition;
   readonly target?: string;
 }
 
@@ -148,6 +148,7 @@ interface SharedSessionOptions {
 interface HostSessionOptions extends SharedSessionOptions {
   readonly apiKey?: never;
   readonly authority?: never;
+  readonly authorization?: Authorization;
   readonly cwd?: string;
   readonly maxTurns?: number;
   readonly oauthToken?: never;
@@ -159,7 +160,10 @@ interface HostSessionOptions extends SharedSessionOptions {
 export interface SandboxAgentOptions extends SharedSessionOptions {
   readonly apiKey?: string;
   readonly authority?: Partial<
-    Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
+    Pick<
+      HarnessAuthoritySettings,
+      "approve" | "authorization" | "onApprovalRequest" | "principalAttributes"
+    >
   >;
   readonly cwd?: never;
   readonly maxTurns?: never;
@@ -372,12 +376,14 @@ export interface Question {
 
 export interface ApprovalRequest {
   readonly body?: string;
+  readonly grantId?: GrantId;
   readonly key?: string;
   readonly title: string;
 }
 
 export interface Approval {
   readonly approved: boolean;
+  readonly grantId?: GrantId;
   readonly note?: string;
 }
 

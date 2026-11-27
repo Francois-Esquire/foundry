@@ -1,39 +1,17 @@
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ArtifactEvent } from "@foundry/artifacts";
 import type {
-  ArtifactShareEvent,
   CommandResult,
   LockedNode,
   StepDefinition,
 } from "@foundry.sh/marbles";
-import {
-  agent,
-  artifact,
-  Catalog,
-  monitor,
-  observe,
-  step,
-  workflow,
-} from "@foundry.sh/marbles";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  expectTypeOf,
-  it,
-  vi,
-} from "vitest";
+import { agent, Catalog, monitor, step, workflow } from "@foundry.sh/marbles";
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { buildDefinition } from "~/lib/managers/agents";
-import { startEngine, testEngine } from "./helpers/engine";
-import type { TestMachine } from "./helpers/records";
-import { testMachine } from "./helpers/records";
+import { startEngine } from "./helpers/engine";
 
 const HASHED_AGENT = /^agent-/;
 const BLANK_AGENT = /a name cannot be blank/;
@@ -44,16 +22,6 @@ const MONITOR_TAKEN =
   /monitor "docs": a schedule or monitor of that name is already registered/;
 
 const engines: Engine[] = [];
-let machine: TestMachine;
-
-beforeAll(async () => {
-  machine = await testMachine();
-});
-
-afterAll(() => {
-  machine.close();
-});
-
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
 });
@@ -121,53 +89,6 @@ describe("monitor(source).name(key)", () => {
       .name("docs")
       .do(() => undefined);
     expect(() => Catalog.collect([first, second])).toThrow(MONITOR_TAKEN);
-  });
-});
-
-describe("observe(artifact, …)", () => {
-  it("types its handler for artifact and share facts alike, and is handed shares when it names their types", async () => {
-    const seen: ArtifactShareEvent[] = [];
-    const shares = observe(
-      artifact,
-      (fact) => {
-        expectTypeOf(fact).toEqualTypeOf<ArtifactEvent | ArtifactShareEvent>();
-        if (
-          fact.type === "artifact.shared" ||
-          fact.type === "artifact.unshared"
-        ) {
-          seen.push(fact);
-        }
-      },
-      { name: "shares", types: ["artifact.shared", "artifact.unshared"] }
-    );
-    const state = machine.workspace();
-    const records = machine.records(state);
-    const engine = testEngine({
-      collect: [shares],
-      print: () => undefined,
-      records,
-      state,
-    });
-    engines.push(engine);
-    setHost(engine);
-    await engine.start();
-
-    const share = (type: ArtifactShareEvent["type"], id: string) => ({
-      artifactId: "ar-1",
-      at: new Date().toISOString(),
-      id,
-      type,
-      workspace: "ws2",
-    });
-    await records.changes.record(machine.database.database, "artifacts", [
-      share("artifact.shared", "fact-1"),
-      share("artifact.unshared", "fact-2"),
-    ]);
-    await vi.waitFor(() => expect(seen).toHaveLength(2));
-    expect(seen.map((each) => each.type)).toEqual([
-      "artifact.shared",
-      "artifact.unshared",
-    ]);
   });
 });
 

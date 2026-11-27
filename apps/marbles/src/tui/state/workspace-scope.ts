@@ -2,7 +2,6 @@ import type { DashboardSnapshot } from "./dashboard-model";
 
 interface Owned {
   readonly workspace?: { readonly id: string };
-  readonly workspaces?: readonly string[];
 }
 
 export function workspaceScoped(
@@ -12,10 +11,7 @@ export function workspaceScoped(
   if (everywhere) {
     return snapshot;
   }
-  const here = (item: Owned): boolean =>
-    item.workspace === undefined ||
-    (snapshot.workspaceId !== undefined &&
-      (item.workspaces ?? []).includes(snapshot.workspaceId));
+  const here = (item: Owned): boolean => item.workspace === undefined;
   return {
     ...snapshot,
     runs: snapshot.runs.filter(here),

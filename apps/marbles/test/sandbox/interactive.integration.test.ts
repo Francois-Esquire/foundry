@@ -36,7 +36,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
           image: "docker.io/oven/bun:1-slim",
           network:
             harness === "builtin"
-              ? "disabled"
+              ? "none"
               : {
                   destinations: [
                     {
@@ -106,7 +106,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     const engine = createEngine({
       askable: true,
       catalog: Catalog.collect([coding]),
-      dry: false,
       print: () => undefined,
       providers:
         harness === "builtin"

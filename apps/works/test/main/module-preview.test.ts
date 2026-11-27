@@ -130,7 +130,13 @@ describe("Module sessions", () => {
     );
     for (const path of [
       "/_foundry/health",
+      "//_foundry/health",
+      "///_foundry/health",
+      "/%2F_foundry/health",
       "/_module/gateway",
+      "//_module/gateway",
+      "///_module/gateway",
+      "/%2F%2F_module/gateway",
       "/undeclared",
       "/%00.js",
       "/%zz.js",
@@ -169,6 +175,30 @@ describe("Module sessions", () => {
       return new Response("stale");
     });
     expect((await stale(request)).status).toBe(409);
+  });
+
+  it("rejects double-encoded dot segments targeting internal paths", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("secret")));
+    const proxy = createModuleProxy(
+      {
+        endpoint: () => ({
+          origin: "http://127.0.0.1:3000",
+          views: [{ id: "main", path: "/", title: "Fixture" }],
+        }),
+      },
+      fetchMock as unknown as typeof fetch
+    );
+    expect(
+      (await proxy(new Request("module-app://h/%252e/_foundry/x.json"))).status
+    ).toBe(404);
+    expect(
+      (
+        await proxy(
+          new Request("module-app://h/a/%252e%252e/_module/gateway/x.json")
+        )
+      ).status
+    ).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

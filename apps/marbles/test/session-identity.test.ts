@@ -9,9 +9,8 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { z } from "zod";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { DatabaseProviderStore } from "~/database/providers";
+import { providerStoreForState, writeAsHost } from "~/database/open";
 import { marblesIdentityKeys } from "~/database/tables";
-import { writeAsHost } from "~/database/workspaces";
 import type { AgentDefinition, SessionRef } from "~/lib/types";
 import { pluginOf } from "./helpers/plugins";
 
@@ -74,7 +73,7 @@ async function write(
   extra: object = {}
 ): Promise<void> {
   const configuration = { providers, version: 1, ...extra } as never;
-  await DatabaseProviderStore.forState(state).update("ws1", () =>
+  await providerStoreForState(state).update("ws1", () =>
     scope === "machine"
       ? { machine: configuration }
       : { workspace: configuration }
@@ -90,7 +89,6 @@ async function engine(environment: Record<string, string> = {}) {
 function build(environment: Record<string, string>) {
   return createEngine({
     catalog: new Catalog(),
-    dry: false,
     environment: { ACCOUNT_HOME: "/accounts/personal", ...environment },
     plugins: [cli],
     print: () => undefined,

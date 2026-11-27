@@ -59,14 +59,14 @@ export const write = step("write").do(async ({ run }) => {
   await writeFile(
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
-import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 const { promise: allObserved, resolve: observedAll } = Promise.withResolvers();
 let observed = 0;
 globalThis.observed = () => {
   observed += 1;
   if (observed === 3) observedAll();
 };
-const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, dry: false, state: ${JSON.stringify(state)} };
+const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, state: ${JSON.stringify(state)} };
 const opened = await openWorkspace(args, { print: () => undefined });
 const database = await openHostDatabase(${JSON.stringify(state)});
 const engine = await hostEngine(args, opened, { database, print: () => undefined });

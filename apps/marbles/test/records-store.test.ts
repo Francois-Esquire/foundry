@@ -14,6 +14,7 @@ import { openWorkspaceRecords } from "~/database/managed";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -59,6 +60,7 @@ const KINDS: readonly {
         (scope) =>
           new DatabaseWorkspaceRecords({
             database: machine.database.database,
+            liveness: NODE_OWNER_LIVENESS,
             scope,
           })
       );

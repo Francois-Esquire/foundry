@@ -27,7 +27,7 @@ it("names a definition from its export as it is now when the same process loads 
     script,
     `import { writeFileSync } from "node:fs";
 import { openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
-const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, dry: true, state: ${JSON.stringify(join(root, "state"))} };
+const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, state: ${JSON.stringify(join(root, "state"))} };
 const names = async () => [...(await openWorkspace(args, { print: () => undefined })).catalog.definitions.keys()];
 const first = await names();
 writeFileSync(${JSON.stringify(source)}, ${JSON.stringify(declare("gamma"))});

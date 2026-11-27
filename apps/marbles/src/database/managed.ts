@@ -2,18 +2,20 @@ import { dirname, resolve } from "node:path";
 import type { SessionMessage, SessionRecord } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import { capturedSessionWrite } from "@foundry/agents/store/sqlite";
+import type { AuthorizationStore } from "@foundry/authorization/store";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
 import type { JsonValue } from "@foundry/lib/json";
 import { ownedWrite } from "@foundry/lib/plain-json";
 import type { QueueStoreService } from "@foundry/queue/store";
 import type { ScheduleStoreService } from "@foundry/scheduling/store";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { DatabaseActivityStore } from "~/database/activities";
-import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import { DatabaseAutomationStore } from "~/database/automations";
+import { surfacingBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
-import { DatabaseGrantStorage } from "~/database/grants";
-import type { MarblesDatabase } from "~/database/open";
+import type { HostDatabaseOptions, MarblesDatabase } from "~/database/open";
+import { openHostDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
@@ -21,8 +23,6 @@ import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
 import type { StoreDatabase } from "~/database/types";
 import { DatabaseUsageStore } from "~/database/usage";
-import type { HostDatabaseOptions } from "~/database/workspaces";
-import { openHostDatabase } from "~/database/workspaces";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type {
   AutomationStore,
@@ -33,7 +33,8 @@ import { storedAutomation } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import type { ChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
-import { RecordsGate } from "~/lib/events/records";
+import { causingRun } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import type {
   ExecutionObservation,
   RetentionGap,
@@ -42,6 +43,7 @@ import type {
 import type { ExecutionStore, Removal } from "~/lib/execution-store";
 import { storedObservation, storedProgress } from "~/lib/execution-store";
 import { inTurn } from "~/lib/in-turn";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { RecordedScope } from "~/lib/run-scope";
 import type { RunStore, StoredScope } from "~/lib/run-store";
 import type { Workspace } from "~/lib/state/workspace";
@@ -64,7 +66,9 @@ export function openWorkspaceRecords(
   const database = new LazyDatabase(options);
   return new ManagedWorkspaceRecords(
     database,
-    new ChangeRecorder(options.workspaceId),
+    new ChangeRecorder(options.workspaceId, {
+      causingRun: () => causingRun() ?? undefined,
+    }),
     () => database.close()
   );
 }
@@ -84,7 +88,9 @@ export function openWorkspaceDatabase(
   options: OpenWorkspaceRecordsOptions
 ): WorkspaceDatabase {
   const database = new LazyDatabase(options);
-  const changes = new ChangeRecorder(options.workspaceId);
+  const changes = new ChangeRecorder(options.workspaceId, {
+    causingRun: () => causingRun() ?? undefined,
+  });
   const records = new ManagedWorkspaceRecords(database, changes, () =>
     Promise.resolve()
   );
@@ -170,8 +176,12 @@ export function defaultWorkspaceRuns(
     state: defaultStateRoot(state, root, workspaceId),
     workspaceId,
   });
-  return new ManagedRunStore(database, new ChangeRecorder(workspaceId), () =>
-    database.close()
+  return new ManagedRunStore(
+    database,
+    new ChangeRecorder(workspaceId, {
+      causingRun: () => causingRun() ?? undefined,
+    }),
+    () => database.close()
   );
 }
 
@@ -188,7 +198,7 @@ export function defaultWorkspaceTriggers(
 }
 
 type SideStores = Required<
-  Pick<EngineOptions, "activityStore" | "approvals" | "grants" | "recoveryLog">
+  Pick<EngineOptions, "activityStore" | "authorizationStore" | "recoveryLog">
 >;
 
 function sideStores(
@@ -206,23 +216,27 @@ function sideStores(
     scope: workspaceId,
   });
   const activities = over((opened) => new DatabaseActivityStore(kept(opened)));
-  const approvals = over(
-    (opened) => new DatabaseDeferredApprovalStore(kept(opened))
+  const authorization = over((opened) =>
+    surfacingBusy(new SqliteAuthorizationStore(kept(opened)))
   );
-  const grants = over((opened) => new DatabaseGrantStorage(kept(opened)));
   const recoveries = over((opened) => new DatabaseRecoveryLog(kept(opened)));
+  const authorizationStore: AuthorizationStore = {
+    commit: (write) => authorization((store) => store.commit(write)),
+    durability: "commit",
+    getClaim: (invocationId) =>
+      authorization((store) => store.getClaim(invocationId)),
+    getGrant: (id) => authorization((store) => store.getGrant(id)),
+    getRestriction: (id) => authorization((store) => store.getRestriction(id)),
+    listGrants: (query) => authorization((store) => store.listGrants(query)),
+    listRestrictions: () => authorization((store) => store.listRestrictions()),
+    transaction: (work) => authorization((store) => store.transaction(work)),
+  };
   return {
     activityStore: {
       load: () => activities((store) => store.load()),
       put: (key, record) => activities((store) => store.put(key, record)),
     },
-    approvals: {
-      change: (update) => approvals((store) => store.change(update)),
-      load: () => approvals((store) => store.load()),
-    },
-    grants: {
-      transact: (apply) => grants((store) => store.transact(apply)),
-    },
+    authorizationStore,
     recoveryLog: {
       record: (report) => recoveries((store) => store.record(report)),
     },
@@ -252,7 +266,9 @@ export function withWorkspaceDatabase(
     state: defaultStateRoot(state, root, workspaceId),
     workspaceId,
   });
-  const changes = new ChangeRecorder(workspaceId);
+  const changes = new ChangeRecorder(workspaceId, {
+    causingRun: () => causingRun() ?? undefined,
+  });
   const make: {
     readonly [K in keyof DatabaseKept]-?: (
       done: () => Promise<void>
@@ -295,8 +311,8 @@ export function withWorkspaceDatabase(
       ...options,
       ...Object.fromEntries(missing.map((key) => [key, make[key](claim())])),
       activityStore: options.activityStore ?? sides.activityStore,
-      approvals: options.approvals ?? sides.approvals,
-      grants: options.grants ?? sides.grants,
+      authorizationStore:
+        options.authorizationStore ?? sides.authorizationStore,
       recoveryLog: options.recoveryLog ?? sides.recoveryLog,
     },
     release: claim(),
@@ -417,6 +433,7 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
         new DatabaseWorkspaceRecords({
           changes,
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: changes.scope,
         })
     );

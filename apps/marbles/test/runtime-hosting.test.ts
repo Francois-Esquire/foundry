@@ -498,7 +498,7 @@ describe("load-time routing and cross-workspace isolation", () => {
     setHost(engineB, new Catalog());
     try {
       const loadingStep = step("top-level-during-load").do(() => "ran");
-      await withLoadScope({ dry: true, workspaceId: "ws-a" }, async () => {
+      await withLoadScope({ workspaceId: "ws-a" }, async () => {
         await expect(tasks.list()).rejects.toThrow(
           "workspace ws-a: tasks is not available while its source loads"
         );
@@ -539,7 +539,7 @@ describe("load-time routing and cross-workspace isolation", () => {
     try {
       await hostTasks(engineB).create({ title: "from-b" });
       const loadingA = withLoadScope(
-        { dry: false, workspaceId: "ws-a-loading" },
+        { workspaceId: "ws-a-loading" },
         async () => {
           startedLoad.resolve(undefined);
           await finishLoad.promise;

@@ -1,12 +1,12 @@
 import { Readable } from "node:stream";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createBuildRuntime } from "~/main/modules/builds/runtime";
 
 const native = vi.hoisted(() => ({ create: vi.fn() }));
 
-vi.mock("@foundry/sandbox/node/microsandbox", () => ({
-  createMicrosandboxRuntime: native.create,
+vi.mock("@foundry/sandbox/providers/microsandbox", () => ({
+  createMicrosandboxDriver: native.create,
 }));
 
 vi.mock("~/main/modules/builds/workspace", () => ({
@@ -23,7 +23,7 @@ function exited(exitCode: number) {
 }
 
 async function build(exitCode: number) {
-  const runtime = createFakeContainerRuntime({
+  const runtime = createFakeDriver({
     files: {
       "/workspace/bun.lock": "{}",
       "/workspace/packages/app/dist/index.js": "export {};",
@@ -32,8 +32,8 @@ async function build(exitCode: number) {
   });
   const closeFailure = new Error("VM removal failed");
   const create = runtime.create.bind(runtime);
-  runtime.create = async (spec) => {
-    const instance = await create(spec);
+  runtime.create = async (request) => {
+    const instance = await create(request);
     vi.spyOn(instance, "remove").mockRejectedValueOnce(closeFailure);
     return instance;
   };
@@ -64,7 +64,7 @@ describe("build container cleanup", () => {
     expect(message).toContain("VM removal failed");
 
     await builds.shutdown();
-    expect(runtime.instances[0]?.removed).toBe(true);
+    expect(runtime.handles[0]?.removed).toBe(true);
   });
 
   it("reports the cleanup error of a build that succeeded", async () => {
@@ -73,6 +73,6 @@ describe("build container cleanup", () => {
     expect(failure).toBe(closeFailure);
 
     await builds.shutdown();
-    expect(runtime.instances[0]?.removed).toBe(true);
+    expect(runtime.handles[0]?.removed).toBe(true);
   });
 });

@@ -14,10 +14,10 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 
 const ROOT = import.meta.dirname;
 const MIGRATIONS = join(ROOT, "src/database/migrations");
-const BUNDLED_FILE = join(ROOT, "src/database/bundled-migrations.ts");
 const NAME = "init";
 const SQL = `0000_${NAME}.sql`;
 const JOURNAL = join("meta", "_journal.json");
+const BUNDLED = "bundled.ts";
 const UNRELEASED = 0;
 
 interface Journal {
@@ -58,13 +58,7 @@ export function generateMigrations(): void {
       entry.when = UNRELEASED;
     }
     writeFileSync(join(staged, JOURNAL), JSON.stringify(journal, null, 2));
-    const bundledSource = bundled(staged, journal);
-    if (
-      !existsSync(BUNDLED_FILE) ||
-      readFileSync(BUNDLED_FILE, "utf8") !== bundledSource
-    ) {
-      writeFileSync(BUNDLED_FILE, bundledSource);
-    }
+    writeFileSync(join(staged, BUNDLED), bundled(staged, journal));
     if (sameMigrations(staged)) {
       return;
     }
@@ -95,7 +89,7 @@ function bundled(staged: string, journal: Journal): string {
 }
 
 function sameMigrations(staged: string): boolean {
-  return [SQL, JOURNAL].every(
+  return [SQL, JOURNAL, BUNDLED].every(
     (file) =>
       existsSync(join(MIGRATIONS, file)) &&
       readFileSync(join(MIGRATIONS, file), "utf8") ===

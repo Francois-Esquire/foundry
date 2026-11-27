@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { workspaceState } from "~/lib/state/workspace";
 import { cliArgs } from "./helpers/cli";
 import { type TestHome, testHome } from "./helpers/home";
@@ -304,7 +305,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
   });
 
   it("lets a separate process read and change the tasks while another has them open", async () => {
-    const { openHostDatabase } = await import("~/database/workspaces");
+    const { openHostDatabase } = await import("~/database/open");
     const { DatabaseWorkspaceRecords } = await import("~/database/tasks");
     const { Tasks } = await import("@foundry/tasks");
     const source = join(root, ".foundry", "marbles");
@@ -317,6 +318,7 @@ describe("tasks CLI", { timeout: 30_000 }, () => {
     const database = await openHostDatabase(state);
     const records = new DatabaseWorkspaceRecords({
       database: database.database,
+      liveness: NODE_OWNER_LIVENESS,
       scope: id,
     });
     try {

@@ -16,6 +16,7 @@ import type {
 import { Sessions } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
+import type { Authorization } from "@foundry/authorization";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { ModelSelection, Models, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
@@ -84,13 +85,13 @@ import {
 export interface AgentsDeps {
   readonly activities: HarnessActivities;
   readonly agentIdOf?: (agent: AgentLike<Output.Output>) => string | undefined;
+  readonly authorization: Authorization;
   readonly automations: AutomationService;
   readonly containerOf: (sandbox: SandboxHandle) => Container;
   readonly context?: ExecutionContext;
   readonly createMcpClient?: typeof createNodeMcpClient;
   readonly cwd: string;
   readonly defaultExecutor: () => TurnExecutorRef;
-  readonly dry: boolean;
   readonly executionOf?: (provider: string) => Execution | null | undefined;
   readonly implementationOf?: (provider: string) => string | undefined;
   readonly instanceOf?: (provider: string) => string | undefined;
@@ -427,15 +428,12 @@ function validateSessionOptions(options: SessionOptions): void {
   }
 }
 
-async function interactionOptions(
+function interactionOptions(
   interactions: HarnessInteractions,
   source: Source,
-  agentId: string,
-  sessionId: string,
   options: SandboxAgentOptions
-): Promise<SandboxSessionOptions> {
+): SandboxSessionOptions {
   const authority = interactions.authority(source, options.authority);
-  await interactions.registerSession({ agentId, sessionId, source }, authority);
   return {
     ...options,
     authority,
@@ -657,13 +655,7 @@ interface Route {
   readonly provider: string | undefined;
 }
 
-function turnLimitMode(
-  deps: AgentsDeps,
-  resolution: Resolution<"text">
-): TurnLimit["kind"] {
-  if (deps.dry) {
-    return "steps";
-  }
+function turnLimitMode(resolution: Resolution<"text">): TurnLimit["kind"] {
   if (resolution.turnLimit === "unsupported") {
     throw new TurnLimitUnsupportedError(
       `maxTurns is not supported by the ${resolution.provider} model provider`
@@ -735,13 +727,11 @@ async function openUnentered<OUTPUT extends Output.Output>(
       `agent "${definition.id}" names MCP servers, which a sandbox session cannot reach yet`
     );
   }
-  const mcp = deps.dry
-    ? []
-    : await connectServers(
-        deps,
-        definition as AgentDefinition<Output.Output>,
-        site
-      );
+  const mcp = await connectServers(
+    deps,
+    definition as AgentDefinition<Output.Output>,
+    site
+  );
   try {
     site.signal().throwIfAborted();
     return await openBuilt(deps, site, definition, options, mcp, input);
@@ -794,7 +784,7 @@ async function openBuilt<OUTPUT extends Output.Output>(
   const limit =
     options.sandbox || options.maxTurns === undefined
       ? undefined
-      : resolveTurnLimit(options.maxTurns, turnLimitMode(deps, resolution));
+      : resolveTurnLimit(options.maxTurns, turnLimitMode(resolution));
   const opening: Opening = {
     definition,
     execution,
@@ -809,16 +799,14 @@ async function openBuilt<OUTPUT extends Output.Output>(
     site,
     skills: await deps.skills(definition.skills),
   };
-  const meter =
-    site.consume && !(options.sandbox && !deps.dry) ? costMeter() : undefined;
-  const harness =
-    options.sandbox && !deps.dry
-      ? await openSandboxSession(
-          deps,
-          { ...opening, options },
-          await startedSandbox(options.sandbox)
-        )
-      : await openLocalSession(deps, opening, meter);
+  const meter = site.consume && !options.sandbox ? costMeter() : undefined;
+  const harness = options.sandbox
+    ? await openSandboxSession(
+        deps,
+        { ...opening, options },
+        await startedSandbox(options.sandbox)
+      )
+    : await openLocalSession(deps, opening, meter);
   return retainSession(
     harness,
     id,
@@ -858,13 +846,7 @@ async function openSandboxSession(
     resolution.hold();
     site.retain({ close: () => resolution.release() });
   }
-  const sessionOptions = await interactionOptions(
-    deps.interactions,
-    source,
-    definition.id,
-    id,
-    options
-  );
+  const sessionOptions = interactionOptions(deps.interactions, source, options);
   const harness = await createSandboxSession({
     agentId: definition.id,
     container: deps.containerOf(sandbox),
@@ -880,11 +862,6 @@ async function openSandboxSession(
     onChildSession: (sessionId, session) =>
       deps.activities.attach(sessionId, session, { delegated: true }),
     provider: executor.provider,
-    registerChildSession: (sessionId) =>
-      deps.interactions.registerSession(
-        { agentId: definition.id, sessionId, source },
-        sessionOptions.authority
-      ),
     ...(guest ? {} : { model: heldText(resolution, site) }),
     instructions: [prompt, ...skills.map((skill) => skill.instructions ?? "")]
       .filter(Boolean)
@@ -931,7 +908,10 @@ async function openLocalSession(
     ...(provider === undefined ? {} : { provider }),
     skills: skills.map((skill) => skill.name),
   };
+  const authorization =
+    (options.sandbox ? undefined : options.authorization) ?? deps.authorization;
   return await createAgentPreset(spec, {
+    authorization,
     mcp: (ids) =>
       Promise.resolve(
         composeTools(
@@ -945,6 +925,7 @@ async function openLocalSession(
     skills: () => Promise.resolve(skills),
     store: deps.sessions,
   }).createSession({
+    authorization,
     compaction: resolveCompaction(options.compaction, model),
     model,
     sessionId: id,

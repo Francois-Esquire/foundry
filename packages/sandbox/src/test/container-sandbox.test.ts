@@ -4,36 +4,34 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
-
-import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
-import type { ContainerConfig } from "../container/runtime";
-import { resolveContainerSpec } from "../container/spec";
+import { createContainers } from "../containers/containers";
+import type { ContainerDefaults } from "../containers/driver";
+import type { ContainerSpecInput } from "../containers/spec";
+import { resolveContainerSpec } from "../containers/spec";
+import { reserveLoopbackPorts } from "../node/network";
 import { MemoryContainerStore } from "../store/memory";
-import type { FakeContainerRuntimeOptions } from "../testing/index";
-import { createFakeContainerRuntime } from "../testing/index";
+import type { FakeDriverOptions } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 
 const PORT_RANGE_ERROR = /1 through 65535/i;
 const DUPLICATE_PORT_ERROR = /must be unique/i;
 const REMOVED_CONTAINER_ERROR = /has been removed/;
 
-const SPEC: ContainerSandboxConstraints = {
-  format: "foundry.sandbox.container/1",
-};
+const SPEC: ContainerSpecInput = {};
 
 async function started(
-  config: ContainerConfig = {},
-  options: FakeContainerRuntimeOptions = {}
+  defaults: ContainerDefaults = {},
+  options: FakeDriverOptions = {}
 ) {
-  const runtime = createFakeContainerRuntime(options);
+  const runtime = createFakeDriver(options);
   const containers = createContainers({
-    config,
+    defaults,
+    driver: runtime,
     instanceLabel: "facet-contract",
-    runtime,
     store: new MemoryContainerStore(),
   });
   const container = await containers.start(SPEC);
-  const [instance] = runtime.instances;
+  const [instance] = runtime.handles;
   if (instance === undefined) {
     throw new Error("expected a booted instance");
   }
@@ -41,9 +39,13 @@ async function started(
 }
 
 describe("resolveContainerSpec", () => {
-  it("converts container resource limits to microVM units", async () => {
-    const spec = await resolveContainerSpec({
-      resources: { cpus: 1.5, memoryBytes: 512 * 1024 * 1024, pids: 256 },
+  it("converts container resource limits to microVM units", () => {
+    const spec = resolveContainerSpec({
+      input: {
+        resources: { cpus: 1.5, memoryBytes: 512 * 1024 * 1024, pids: 256 },
+      },
+      labels: {},
+      name: "c1",
     });
 
     expect(spec.memoryMib).toBe(512);
@@ -51,20 +53,28 @@ describe("resolveContainerSpec", () => {
     expect(spec.pidsLimit).toBe(256);
   });
 
-  it("rounds a partial MiB of memory up so the requested minimum is met", async () => {
-    const spec = await resolveContainerSpec({
-      resources: { memoryBytes: 512 * 1024 * 1024 + 1 },
+  it("rounds a partial MiB of memory up so the requested minimum is met", () => {
+    const spec = resolveContainerSpec({
+      input: {
+        resources: { memoryBytes: 512 * 1024 * 1024 + 1 },
+      },
+      labels: {},
+      name: "c2",
     });
 
     expect(spec.memoryMib).toBe(513);
   });
 
-  it("stamps the base and immutable environment-id labels alongside caller labels", async () => {
-    const spec = await resolveContainerSpec({
-      labels: {
-        "com.foundry.environment.id": "forged",
-        "com.foundry.session": "s1",
+  it("stamps the base and immutable environment-id labels alongside caller labels", () => {
+    const spec = resolveContainerSpec({
+      input: {
+        labels: {
+          "com.foundry.environment.id": "forged",
+          "com.foundry.session": "s1",
+        },
       },
+      labels: {},
+      name: "c3",
     });
 
     expect(spec.labels).toEqual({
@@ -74,36 +84,58 @@ describe("resolveContainerSpec", () => {
     });
   });
 
-  it("assigns a distinct loopback host port per published guest port", async () => {
-    const spec = await resolveContainerSpec({ ports: [3000, 5173] });
+  it("validates guest ports and lets local drivers reserve distinct loopback ports", async () => {
+    const spec = resolveContainerSpec({
+      input: { expose: [{ port: 3000 }, { port: 5173 }] },
+      labels: {},
+      name: "c4",
+    });
 
-    expect(spec.ports.map((p) => p.guestPort)).toEqual([3000, 5173]);
-    expect(spec.ports.map((p) => p.host)).toEqual(["127.0.0.1", "127.0.0.1"]);
-    const hostPorts = spec.ports.map((p) => p.hostPort);
+    expect(spec.expose.map((e) => e.port)).toEqual([3000, 5173]);
+    const mappings = await reserveLoopbackPorts(spec.expose.map((e) => e.port));
+    expect(mappings.map((p) => p.guestPort)).toEqual([3000, 5173]);
+    expect(mappings.map((p) => p.host)).toEqual(["127.0.0.1", "127.0.0.1"]);
+    const hostPorts = mappings.map((p) => p.hostPort);
     expect(new Set(hostPorts).size).toBe(2);
     for (const port of hostPorts) {
       expect(port).toBeGreaterThan(0);
     }
   });
 
-  it("rejects invalid or repeated guest ports before assigning host ingress", async () => {
-    await expect(resolveContainerSpec({ ports: [0] })).rejects.toThrow(
-      PORT_RANGE_ERROR
-    );
-    await expect(resolveContainerSpec({ ports: [3000, 3000] })).rejects.toThrow(
-      DUPLICATE_PORT_ERROR
-    );
-    await expect(resolveContainerSpec({ ports: [0] })).rejects.toMatchObject({
-      code: "invalid-contract",
-      name: "SandboxError",
-    });
+  it("rejects invalid or repeated guest ports before assigning host ingress", () => {
+    expect(() =>
+      resolveContainerSpec({
+        input: { expose: [{ port: 0 }] },
+        labels: {},
+        name: "c5",
+      })
+    ).toThrow(PORT_RANGE_ERROR);
+    expect(() =>
+      resolveContainerSpec({
+        input: { expose: [{ port: 3000 }, { port: 3000 }] },
+        labels: {},
+        name: "c6",
+      })
+    ).toThrow(DUPLICATE_PORT_ERROR);
+    try {
+      resolveContainerSpec({
+        input: { expose: [{ port: 0 }] },
+        labels: {},
+        name: "c7",
+      });
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "invalid-contract",
+        name: "SandboxError",
+      });
+    }
   });
 });
 
 describe("a container's facets", () => {
   it("reads back what it writes, and reports the mapped host port", async () => {
-    const { container, containers, instance } = await started({
-      ports: [3000],
+    const { container, containers } = await started({
+      expose: [{ port: 3000 }],
       workdir: "/workspace",
     });
 
@@ -114,11 +146,11 @@ describe("a container's facets", () => {
       ).toString()
     ).toBe("from the host");
 
-    expect(await container.ports.hostPort(3000)).toEqual({
+    expect(await container.ports?.endpoint(3000)).toMatchObject({
       host: "127.0.0.1",
-      port: instance.spec.ports[0]?.hostPort,
+      port: 43_000,
     });
-    expect(await container.ports.hostPort(9999)).toBeUndefined();
+    expect(await container.ports?.endpoint(9999)).toBeUndefined();
     await containers.shutdown();
   });
 
@@ -176,21 +208,29 @@ describe("a container's facets", () => {
     });
     const seen: string[] = [];
     const record = (
-      _command: string[],
+      _command: unknown,
       options: { readonly cwd: string }
     ): never => {
       seen.push(options.cwd);
       return { wait: () => Promise.resolve() } as never;
     };
     vi.spyOn(instance, "exec").mockImplementation(record);
-    vi.spyOn(instance, "spawn").mockImplementation(record);
-    vi.spyOn(instance, "startProcess").mockImplementation(record);
-    vi.spyOn(instance, "execStream").mockImplementation(record);
+    vi.spyOn(instance as Required<typeof instance>, "spawn").mockImplementation(
+      record
+    );
+    vi.spyOn(
+      instance as Required<typeof instance>,
+      "startProcess"
+    ).mockImplementation(record);
+    vi.spyOn(
+      instance as Required<typeof instance>,
+      "execStream"
+    ).mockImplementation(record);
 
     await container.commands.exec(["true"], { cwd: "app" });
-    await container.processes.spawn(["true"], { cwd: "app/src" });
-    await container.processes.start(["true"], { cwd: "/opt/./tool" });
-    await container.shell.open({ cwd: "app" });
+    await container.processes?.spawn?.(["true"], { cwd: "app/src" });
+    await container.processes?.start(["true"], { cwd: "/opt/./tool" });
+    await container.shell?.open({ cwd: "app" });
     await container.commands.exec(["true"]);
     expect(seen).toEqual([
       "/srv/app",
@@ -202,9 +242,9 @@ describe("a container's facets", () => {
 
     for (const run of [
       () => container.commands.exec(["true"], { cwd: "../etc" }),
-      () => container.processes.spawn(["true"], { cwd: "../etc" }),
-      () => container.processes.start(["true"], { cwd: "../etc" }),
-      () => container.shell.open({ cwd: "../etc" }),
+      () => container.processes?.spawn?.(["true"], { cwd: "../etc" }),
+      () => container.processes?.start(["true"], { cwd: "../etc" }),
+      () => container.shell?.open({ cwd: "../etc" }),
     ]) {
       await expect(run()).rejects.toMatchObject({ code: "invalid-contract" });
     }
@@ -262,23 +302,27 @@ describe("a container's facets", () => {
 
   it("refuses every operation on every facet once closed", async () => {
     const source = await mkdtemp(join(tmpdir(), "sandbox-facets-"));
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     const containers = createContainers({
-      allowedMountRoots: [source],
+      driver: runtime,
       instanceLabel: "facet-contract",
-      runtime,
       store: new MemoryContainerStore(),
     });
     const container = await containers.start({
       ...SPEC,
       mounts: [
-        { access: "read-only", id: "data", source, target: "/workspace/data" },
+        {
+          access: "read-only",
+          id: "data",
+          source: { kind: "host-directory", path: source },
+          target: "/workspace/data",
+        },
       ],
     });
     const { commands, files, ports, processes, services, shell, volumes } =
       container;
-    if (volumes === undefined) {
-      throw new Error("expected a volumes facet");
+    if (volumes === undefined || services === undefined) {
+      throw new Error("expected volumes and services facets");
     }
     await services.start({
       argv: ["serve"],
@@ -288,7 +332,7 @@ describe("a container's facets", () => {
 
     await container.close();
 
-    expect(runtime.instances[0]?.removed).toBe(true);
+    expect(runtime.handles[0]?.removed).toBe(true);
     for (const run of [
       () => commands.exec(["true"]),
       () => files.copyIn({}),
@@ -296,23 +340,23 @@ describe("a container's facets", () => {
       () => files.isDirectory("."),
       () => files.list("."),
       () => files.list(".", { recursive: true }),
-      () => files.lstat("a"),
-      () => files.readDirectory("."),
+      () => files.lstat?.("a"),
+      () => files.readDirectory?.("."),
       () => files.readFile("a"),
-      () => files.readLink("a"),
-      () => files.realpath("a"),
-      () => files.replaceFile("a", new Uint8Array()),
+      () => files.readLink?.("a"),
+      () => files.realpath?.("a"),
+      () => files.replaceFile?.("a", new Uint8Array()),
       () =>
-        files.watch(
+        files.watch?.(
           ".",
           () => undefined,
           () => undefined
         ),
       () => files.writeFile("a", "a"),
-      () => ports.hostPort(3000),
-      () => processes.spawn(["true"]),
-      () => processes.start(["true"]),
-      () => services.list(),
+      () => ports?.endpoint(3000),
+      () => processes?.spawn?.(["true"]),
+      () => processes?.start(["true"]),
+      () => services?.list(),
       () =>
         services.start({
           argv: ["serve"],
@@ -321,7 +365,7 @@ describe("a container's facets", () => {
         }),
       () => services.stop("program"),
       () => services.stop("unknown"),
-      () => shell.open(),
+      () => shell?.open(),
       () => volumes.list(),
       () => volumes.unmount("data"),
       () => volumes.unmount("unknown"),
@@ -343,9 +387,9 @@ describe("a container's facets", () => {
       try {
         const changed = vi.fn();
         const closed = vi.fn();
-        await container.files.watch(".", changed, vi.fn());
-        const watcher = await container.files.watch(".", closed, vi.fn());
-        await watcher.close();
+        await container.files.watch?.(".", changed, vi.fn());
+        const watcher = await container.files.watch?.(".", closed, vi.fn());
+        await watcher?.close();
         await vi.advanceTimersByTimeAsync(2000);
         expect(changed).toHaveBeenCalledTimes(2);
 
@@ -392,7 +436,7 @@ describe("a container's facets", () => {
         },
       }
     );
-    await container.processes.spawn(["serve"]);
+    await container.processes?.spawn?.(["serve"]);
     expect(signal?.aborted).toBe(false);
 
     await container.close();

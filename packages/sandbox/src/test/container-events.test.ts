@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import { sandboxEventSchema } from "../store/schema";
-import { createFakeContainerRuntime } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 import {
   CONTAINER_SPEC,
   CONTAINER_STORES,
@@ -21,8 +21,8 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
     it("carries sandbox.created in the insert, then started and stopped as the row enters running and stopped", async () => {
       const { store, writes } = gatedStore({ transactional: true });
       const containers = createContainers({
+        driver: createFakeDriver(),
         instanceLabel: "instance-a",
-        runtime: createFakeContainerRuntime(),
         store,
       });
       const c = await containers.start(CONTAINER_SPEC);
@@ -64,7 +64,7 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
     });
 
     it("carries sandbox.started when a row recorded failed is reopened and comes up", async () => {
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const create = runtime.create.bind(runtime);
       const boot: { refuses: boolean } = { refuses: true };
       runtime.create = (...args) =>
@@ -73,8 +73,8 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
           : create(...args);
       const { store, writes } = gatedStore({ transactional: true });
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       await expect(containers.start(CONTAINER_SPEC)).rejects.toThrow(
@@ -97,12 +97,12 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
 
   describe("failure and destruction", () => {
     it("carries sandbox.failed once, in the write that records the row failed", async () => {
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       runtime.create = () => Promise.reject(new Error("no hypervisor"));
       const { store, writes } = gatedStore({ transactional: true });
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       await expect(containers.start(CONTAINER_SPEC)).rejects.toThrow(
@@ -136,10 +136,10 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
 
     it("carries sandbox.destroyed once for a row a recovery takes back, and nothing for a claim that changes only its holder", async () => {
       const { store, writes } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const gone = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const left = await gone.start(CONTAINER_SPEC);
@@ -154,15 +154,15 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
       const recovery = writes.length;
 
       await createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       }).recover(() => true);
       expect(events(writes.slice(recovery))).toEqual([]);
       runtimeDown.now = false;
       const second = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       await second.recover(() => true);
@@ -184,15 +184,15 @@ describe.each(CONTAINER_STORES)("container events over %s", (_name, open) => {
 
     it("carries sandbox.destroyed in the delete, and none when another Containers instance deleted the row first", async () => {
       const { store, writes } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const first = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const second = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const c = await first.start(CONTAINER_SPEC);

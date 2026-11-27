@@ -1,10 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
-  existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -18,10 +16,9 @@ import { initializeDatabase, readDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
-import { workspaceState } from "~/lib/state/workspace";
+import { insideState, workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { recordSpawned } from "~/process/spawned";
-import { hostWorkspace } from "~/workspace/host";
 import { testHome } from "./helpers/home";
 import { readWorkspace, recordWorkspace } from "./helpers/registry";
 
@@ -128,7 +125,10 @@ await host.close();
     const record = await readDatabase(
       stateDatabase(state),
       (database) =>
-        new WorkspaceRegistry({ database, state }).read(workspace.id),
+        new WorkspaceRegistry({
+          acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+          database,
+        }).read(workspace.id),
       { migrations: next }
     );
     expect(record?.id).toBe(workspace.id);
@@ -273,31 +273,5 @@ await recordWorkspace(state, workspaceState(state, ${JSON.stringify(workspace)})
       workspace.id
     );
     expect(lockHolder(processLock(machine.state))).toBe(daemon.pid);
-  });
-
-  it("offers nothing to create at a missing source under --dry-run, and writes nothing", async () => {
-    const root = scratch();
-    const { artifacts, state } = testHome({ providers: false }).layout;
-    const offered: string[] = [];
-    const host = await hostWorkspace({
-      artifacts,
-      directory: root,
-      dry: true,
-      onMissing: (configPath) => {
-        offered.push(configPath);
-        return Promise.resolve(false);
-      },
-      source: join(root, "marbles.ts"),
-      state,
-    });
-    try {
-      expect(host.config).toBeNull();
-    } finally {
-      await host.close();
-    }
-    expect(offered).toEqual([]);
-    expect(readdirSync(root)).toEqual([]);
-    expect(existsSync(state)).toBe(false);
-    expect(existsSync(artifacts)).toBe(false);
   });
 });

@@ -9,13 +9,12 @@ import {
 import { MemoryContainerStore } from "../store/memory";
 import { createSandboxToolSchemas } from "../tools/index";
 
-it("publishes explicit canonical subpaths with no wildcard exports", () => {
+it("publishes every canonical subpath", () => {
   const subpaths = Object.keys(packageJson.exports);
-  expect(subpaths.filter((key) => key.includes("*"))).toEqual([]);
   for (const canonical of [
     ".",
     "./node",
-    "./node/microsandbox",
+    "./providers/microsandbox",
     "./store",
     "./store/memory",
     "./store/sqlite",

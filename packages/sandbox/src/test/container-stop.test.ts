@@ -1,27 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_STORE_LABEL,
-} from "../container/defaults";
-import type { FakeContainerRuntimeOptions } from "../testing/index";
-import { createFakeContainerRuntime } from "../testing/index";
+} from "../containers/defaults";
+import type { FakeDriverOptions } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 import {
   CONTAINER_SPEC,
   events,
   gatedStore,
 } from "./helpers/containers-fixture";
 
-async function stuck(options: FakeContainerRuntimeOptions = {}) {
-  const runtime = createFakeContainerRuntime(options);
+async function stuck(options: FakeDriverOptions = {}) {
+  const runtime = createFakeDriver(options);
   const gated = gatedStore();
   const containers = createContainers({
+    driver: runtime,
     instanceLabel: "stop",
-    runtime,
     store: gated.store,
   });
   const handle = await containers.start(CONTAINER_SPEC);
-  const [instance] = runtime.instances;
+  const [instance] = runtime.handles;
   if (instance === undefined) {
     throw new Error("expected a booted instance");
   }
@@ -72,7 +72,7 @@ describe("stop", () => {
       const removeResource = vi.spyOn(runtime, "removeResource");
 
       await expect(containers.stop(handle.id)).rejects.toThrow(
-        `msb rm -f ${handle.id}-1`
+        `remove container resource "${handle.id}-1"`
       );
 
       expect(stopResource).not.toHaveBeenCalled();
@@ -118,11 +118,11 @@ describe("stop", () => {
   });
 
   it("refuses a live row, an unknown one and one another holder is removing", async () => {
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     const { store } = gatedStore();
     const containers = createContainers({
+      driver: runtime,
       instanceLabel: "stop",
-      runtime,
       store,
     });
     const handle = await containers.start(CONTAINER_SPEC);
@@ -154,14 +154,14 @@ describe("stop", () => {
     await stopping;
     await expect(reopened).resolves.toMatchObject({ id: handle.id });
     expect(instance.removed).toBe(true);
-    expect(runtime.instances[1]?.removed).toBe(false);
+    expect(runtime.handles[1]?.removed).toBe(false);
     expect((await containers.get(handle.id))?.status).toBe("running");
     await containers.shutdown();
   });
 });
 
 function booting() {
-  const runtime = createFakeContainerRuntime();
+  const runtime = createFakeDriver();
   const gated = gatedStore();
   const create = runtime.create.bind(runtime);
   let resume = (): void => undefined;
@@ -178,8 +178,8 @@ function booting() {
     return await create(spec);
   });
   const containers = createContainers({
+    driver: runtime,
     instanceLabel: "stop",
-    runtime,
     store: gated.store,
   });
   const started = containers.start(CONTAINER_SPEC);
@@ -203,8 +203,8 @@ describe("a first boot in flight", () => {
 
     resume();
     await expect(started).resolves.toMatchObject({ id });
-    expect(runtime.instances).toHaveLength(1);
-    expect(runtime.instances[0]?.removed).toBe(false);
+    expect(runtime.handles).toHaveLength(1);
+    expect(runtime.handles[0]?.removed).toBe(false);
     expect((await containers.get(id))?.status).toBe("running");
     await containers.shutdown();
   });
@@ -218,11 +218,11 @@ describe("a first boot in flight", () => {
     const [first, second] = await Promise.all([started, opened]);
 
     expect(second.id).toBe(first.id);
-    expect(runtime.instances).toHaveLength(1);
+    expect(runtime.handles).toHaveLength(1);
     await first.close();
-    expect(runtime.instances[0]?.removed).toBe(false);
+    expect(runtime.handles[0]?.removed).toBe(false);
     await second.close();
-    expect(runtime.instances[0]?.removed).toBe(true);
+    expect(runtime.handles[0]?.removed).toBe(true);
     await containers.shutdown();
   });
 
@@ -237,7 +237,7 @@ describe("a first boot in flight", () => {
 
     resume();
     await started;
-    expect(runtime.instances[0]?.removed).toBe(false);
+    expect(runtime.handles[0]?.removed).toBe(false);
     expect((await containers.get(id))?.status).toBe("running");
     await containers.shutdown();
   });
@@ -251,7 +251,7 @@ describe("a first boot in flight", () => {
     resume();
     await started;
 
-    expect(runtime.instances.map((each) => each.spec.image)).toEqual([
+    expect(runtime.handles.map((each) => each.spec.image)).toEqual([
       CONTAINER_SPEC.image,
     ]);
     const row = await containers.get(id);
@@ -261,11 +261,11 @@ describe("a first boot in flight", () => {
   });
 
   it("is waited for by shutdown, from before its row is written", async () => {
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     const { hold, store } = gatedStore();
     const containers = createContainers({
+      driver: runtime,
       instanceLabel: "stop",
-      runtime,
       store,
     });
     const insert = hold(
@@ -278,17 +278,17 @@ describe("a first boot in flight", () => {
     insert.release();
     await Promise.all([started, stopped]);
 
-    expect(runtime.instances.map((each) => each.removed)).toEqual([true]);
+    expect(runtime.handles.map((each) => each.removed)).toEqual([true]);
     expect((await store.list()).map((row) => row.status)).toEqual(["stopped"]);
   });
 
   it("is forgotten once it fails", async () => {
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     vi.spyOn(runtime, "create").mockRejectedValueOnce(new Error("no boot"));
     const { store } = gatedStore();
     const containers = createContainers({
+      driver: runtime,
       instanceLabel: "stop",
-      runtime,
       store,
     });
 
@@ -352,7 +352,7 @@ describe("closing a handle again after its close failed", () => {
     const reopened = containers.open(handle.id);
     await Promise.all([closing, reopened]);
 
-    expect(runtime.instances[1]?.removed).toBe(false);
+    expect(runtime.handles[1]?.removed).toBe(false);
     expect((await get(handle.id))?.status).toBe("running");
     await containers.shutdown();
   });
@@ -363,7 +363,7 @@ describe("closing a handle again after its close failed", () => {
 
     await handle.close();
 
-    expect(runtime.instances[1]?.removed).toBe(false);
+    expect(runtime.handles[1]?.removed).toBe(false);
     expect((await containers.get(handle.id))?.status).toBe("running");
     await containers.shutdown();
   });

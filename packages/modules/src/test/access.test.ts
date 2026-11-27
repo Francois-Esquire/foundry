@@ -50,21 +50,27 @@ async function fixture(
 
 function failingAfterRevokeWrite(registry: Modules): AccessRegistry {
   return {
+    authorization: registry.authorization,
     loadGatewayContext: (id) => registry.loadGatewayContext(id),
-    replaceInstallationGrants: (input) =>
-      registry.replaceInstallationGrants(input),
-    revokeInstallationGrant: (input) => registry.revokeInstallationGrant(input),
     transaction: (work) =>
       registry.transaction((inner, effects) =>
         work(
           {
+            authorization: new Proxy(inner.authorization, {
+              get(target, property, receiver) {
+                if (property === "revoke") {
+                  return async (...args: Parameters<typeof target.revoke>) => {
+                    await target.revoke(...args);
+                    throw new Error(
+                      "Failed after the write, before the commit"
+                    );
+                  };
+                }
+                const value: unknown = Reflect.get(target, property, receiver);
+                return typeof value === "function" ? value.bind(target) : value;
+              },
+            }),
             loadGatewayContext: (id) => inner.loadGatewayContext(id),
-            replaceInstallationGrants: (input) =>
-              inner.replaceInstallationGrants(input),
-            async revokeInstallationGrant(input) {
-              await inner.revokeInstallationGrant(input);
-              throw new Error("Failed after the write, before the commit");
-            },
           },
           effects
         )
@@ -237,12 +243,17 @@ describe("Module access", () => {
         constraintsDigest: "news",
         version: 1,
       };
-      const held = await store.loadGatewayContext(installationId);
-      await store.replaceInstallationGrants({
-        expectedGeneration: installation.generation,
-        grants: [...(held?.grants ?? []), second],
-        installationId,
-        now: new Date(0),
+      await store.authorization.grant({
+        holder: {
+          kind: "exact",
+          principal: { id: installationId, kind: "module.installation" },
+        },
+        requestedBy: { id: "host", kind: "module.host" },
+        scope: {
+          action: "module.capability",
+          constraintsDigest: second.constraintsDigest,
+          target: { kind: "exact", value: `${second.capability}@1` },
+        },
       });
       invocations.revoke.mockImplementationOnce(() => {
         throw new Error("cancellation failed");
@@ -323,11 +334,13 @@ describe("Module access", () => {
               store: registry,
             })
           ).toThrow('durability "host"');
-          await registry.revokeInstallationGrant({
-            capability: WEATHER,
-            expectedGeneration: 0,
-            installationId,
-          });
+          await registry.authorization.revoke(
+            {
+              kind: "principal",
+              principal: { id: installationId, kind: "module.installation" },
+            },
+            "rollback test"
+          );
           throw original;
         })
       ).rejects.toBe(original);

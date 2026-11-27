@@ -3,7 +3,7 @@ import { NoObjectGeneratedError, Output, simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { createDriverSession } from "../../harness/driver-session";
 import { SessionHarness } from "../../harness/session-harness";
 import type { StreamPart } from "../../harness/stream-transform";
@@ -146,8 +146,8 @@ describe("structured output", () => {
     const session = createDriverSession(
       {
         agentId: "coder",
+        authorization: createMemoryAuthorization(),
         model: { harness: "native", id: "model" },
-        policy: createMemoryAgentAuthorizer().authorizer,
         profile: {
           allowedTools: [],
           disallowedTools: [],

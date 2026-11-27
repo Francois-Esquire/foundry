@@ -4,6 +4,7 @@ import { defineConfig } from "tsup";
 const INTERNAL = [
   "agents",
   "artifacts",
+  "authorization",
   "core",
   "lib",
   "models",
@@ -76,7 +77,6 @@ export default defineConfig([
     dts: false,
     entry: {
       index: "src/authoring/index.ts",
-      prebuilt: "src/authoring/prebuilt.ts",
       providers: "src/authoring/providers.ts",
       statuses: "src/lib/execution-statuses.ts",
     },
@@ -106,7 +106,10 @@ export default defineConfig([
       options.chunkNames = "node-[hash]";
     },
     onSuccess: async () => {
-      cpSync("src/database/migrations", "dist/migrations", { recursive: true });
+      cpSync("src/database/migrations", "dist/migrations", {
+        filter: (src) => !src.endsWith("bundled.ts"),
+        recursive: true,
+      });
     },
     platform: "node",
   },
@@ -127,7 +130,6 @@ export default defineConfig([
       index: "src/authoring/index.ts",
       initialize: "src/process/initialize.ts",
       lib: "src/entries/lib.ts",
-      prebuilt: "src/authoring/prebuilt.ts",
       process: "src/process/index.ts",
       providers: "src/authoring/providers.ts",
       ...providerEntries,

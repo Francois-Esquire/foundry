@@ -1,3 +1,4 @@
+import type { Authorization } from "@foundry/authorization";
 import type {
   HarnessActivityEvent,
   HarnessCapabilities,
@@ -6,9 +7,9 @@ import type {
   HarnessToolEvent,
   ModelRoute,
 } from "@foundry/core/agents";
-import type { ApprovalResolution } from "@foundry/lib/authorization";
+import type { JsonValue } from "@foundry/lib/json";
 import type { Output, ToolSet } from "ai";
-import type { AgentAuthorizer } from "../authorization/authorization";
+import type { ApprovalResolution } from "../authorization/authorization";
 import type { SessionMessage } from "../schema";
 import type {
   AgentApprovalRequest,
@@ -49,14 +50,17 @@ export interface HarnessAuthoritySettings {
       suggestions?: unknown;
     }
   ) => Promise<ApprovalResolution>;
+  authoritySessionId?: string;
+  authorization: Authorization;
   onApprovalRequest?: (
     request: AgentApprovalRequest & {
       sessionId: string;
       approvalMode: "live" | "deferred";
     }
   ) => void | Promise<void>;
-  policy: AgentAuthorizer;
+  principalAttributes?: Readonly<Record<string, JsonValue>>;
   profile: HarnessPermissionProfile;
+  skipProfileGrants?: boolean;
   store: SessionStore;
 }
 

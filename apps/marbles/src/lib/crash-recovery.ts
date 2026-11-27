@@ -1,50 +1,22 @@
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { stopOrphans } from "@foundry/lib/node/orphans";
 import type { Containers } from "@foundry/sandbox";
-import { removeByHand } from "@foundry/sandbox";
+import { defaultRemovalHint } from "@foundry/sandbox";
 import type { ContainerRow, ContainerStore } from "@foundry/sandbox/store";
-import { z } from "zod";
+import type {
+  RecoveryReport,
+  RecoveryStep,
+  RecoveryStepName,
+} from "./recovery-report";
+
+export type { RecoveryLog, RecoveryReport } from "./recovery-report";
+
 import type { OwnerLiveness } from "~/lib/owner-liveness";
 
 import type { ExecutionRun } from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
 import type { HarnessActivities } from "./sandbox/activities";
 import { holderState, leftBehind } from "./sandbox/holders";
-
-const RECOVERY_STEPS = [
-  "processes",
-  "containers",
-  "runs",
-  "activities",
-  "artifacts",
-] as const;
-export type RecoveryStepName = (typeof RECOVERY_STEPS)[number];
-
-interface RecoveryStep {
-  readonly detail: string;
-  readonly outcome: "done" | "failed" | "skipped";
-  readonly step: RecoveryStepName;
-}
-
-export interface RecoveryReport {
-  readonly at: string;
-  readonly steps: readonly RecoveryStep[];
-}
-
-export const recoveryReportSchema = z.object({
-  at: z.string(),
-  steps: z.array(
-    z.object({
-      detail: z.string(),
-      outcome: z.enum(["done", "failed", "skipped"]),
-      step: z.enum(RECOVERY_STEPS),
-    })
-  ),
-});
-
-export interface RecoveryLog {
-  record(report: RecoveryReport): Promise<void>;
-}
 
 export interface CrashRecoveryOptions {
   readonly activities: HarnessActivities;
@@ -166,7 +138,7 @@ export class CrashRecovery {
     const passed =
       passedOver.length === 0
         ? ""
-        : `; ${String(passedOver.length)} VM(s) passed over, not provably this engine's: ${passedOver.join(", ")} (one no engine owns is removed by hand with ${removeByHand("<name>")})`;
+        : `; ${String(passedOver.length)} VM(s) passed over, not provably this engine's: ${passedOver.join(", ")} (one no engine owns: ${defaultRemovalHint("<name>")})`;
     if (recovered.kept.length === 0) {
       return {
         acted:
@@ -178,7 +150,7 @@ export class CrashRecovery {
     const conflicting =
       conflicts.length === 0
         ? ""
-        : `; the VM(s) ${conflicts.join(", ")} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed by hand with ${removeByHand("<name>")}`;
+        : `; the VM(s) ${conflicts.join(", ")} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns: ${defaultRemovalHint("<name>")}`;
     return {
       acted: true,
       detail: `${did}; ${String(recovered.kept.length)} container(s) whose VM would not go kept, removing, for the next start to retry${conflicting}${kept}${passed}`,

@@ -3,9 +3,10 @@ import { realpathSync } from "node:fs";
 import type { ProcessIdentity } from "@foundry/lib/node/process-identity";
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { afterEach, expect, it } from "vitest";
-import { DatabaseRecoveryLog, readLastRecovery } from "~/database/recoveries";
+import { readLastRecovery } from "~/database/open";
+import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { workspaceStores } from "~/database/stores";
 import { CrashRecovery } from "~/lib/crash-recovery";
 import { HarnessActivities } from "~/lib/sandbox/activities";
@@ -15,7 +16,7 @@ import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-const SPEC = { format: "foundry.sandbox.container/1", image: "x" } as const;
+const SPEC = { image: "x" } as const;
 const machines: TestMachine[] = [];
 const RUNS = () => Promise.resolve([]);
 
@@ -44,19 +45,19 @@ async function fixture() {
   const machine = await testMachine();
   machines.push(machine);
   const stores = workspaceStores(machine.database.database, "ws");
-  const runtime = createFakeContainerRuntime();
+  const runtime = createFakeDriver();
   const gone = await goneProcess();
   const theirs = createContainers({
+    driver: runtime,
     holder: JSON.stringify({ ...gone, registry: "gone" }),
     instanceLabel: "marbles-ws",
-    runtime,
     store: stores.containers,
   });
   const ours = () =>
     createContainers({
+      driver: runtime,
       holder: containerHolder(),
       instanceLabel: "marbles-ws",
-      runtime,
       store: stores.containers,
     });
   const recovery = (registry: ReturnType<typeof ours>, lines: string[]) =>
@@ -96,7 +97,7 @@ it("takes back the rows a gone process held, with their VMs, and keeps those a l
   expect((await stores.containers.list()).map((row) => row.id)).toEqual([
     held.id,
   ]);
-  const removed = new Map(runtime.instances.map((vm) => [vm.id, vm.removed]));
+  const removed = new Map(runtime.handles.map((vm) => [vm.id, vm.removed]));
   expect(removed.get(`${left.id}-1`)).toBe(true);
   expect(removed.get(`${held.id}-1`)).toBe(false);
 
@@ -125,11 +126,11 @@ it("leaves a VM a live container records though it carries a gone one's id, and 
   const { report } = await recovery(ours(), []).recover(RUNS);
 
   expect(report.steps.find((step) => step.step === "containers")).toEqual({
-    detail: `0 container(s) removed, 0 VM(s) swept; 1 container(s) whose VM would not go kept, removing, for the next start to retry; the VM(s) ${vm} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns is removed by hand with \`msb rm -f <name>\` (msb is node_modules/.bin/msb, in the Foundry install)`,
+    detail: `0 container(s) removed, 0 VM(s) swept; 1 container(s) whose VM would not go kept, removing, for the next start to retry; the VM(s) ${vm} bear the id or name of one but are not provably its (another container records them, they carry no label of this store, or their name and label disagree), so they were left alone; one no engine owns: remove container resource "<name>" through your configured driver`,
     outcome: "failed",
     step: "containers",
   });
-  expect(runtime.instances.find((i) => i.id === vm)?.removed).toBe(false);
+  expect(runtime.handles.find((i) => i.id === vm)?.removed).toBe(false);
   expect(await stores.containers.get(held.id)).toMatchObject({
     nativeId: vm,
   });
@@ -159,7 +160,7 @@ it("keeps a row whose holder cannot be read, and names it on every start", async
       `[recovery] containers: done, 0 container(s) removed; 1 container(s) whose holder cannot be told gone or running kept: ${left.id}`,
     ]);
   }
-  expect(runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed).toBe(
+  expect(runtime.handles.find((i) => i.id === `${left.id}-1`)?.removed).toBe(
     false
   );
 });
@@ -168,8 +169,8 @@ it("names, in its report, the VMs its sweep passed over as not provably this eng
   const { ours, recovery, runtime, theirs } = await fixture();
   await theirs.start(SPEC);
   const other = createContainers({
+    driver: runtime,
     instanceLabel: "marbles-ws",
-    runtime,
     store: new MemoryContainerStore(),
   });
   const held = await other.start(SPEC);
@@ -179,9 +180,9 @@ it("names, in its report, the VMs its sweep passed over as not provably this eng
   ).toContain(
     `1 VM(s) passed over, not provably this engine's: ${held.row.nativeId}`
   );
-  expect(
-    runtime.instances.find((i) => i.id === held.row.nativeId)?.removed
-  ).toBe(false);
+  expect(runtime.handles.find((i) => i.id === held.row.nativeId)?.removed).toBe(
+    false
+  );
   await held.close();
   await other.shutdown();
 });
@@ -212,9 +213,9 @@ it("reports a row whose VM would not go as failed, keeps it, and the next start 
 
   runtimeDown.now = false;
   const later = createContainers({
+    driver: runtime,
     holder: JSON.stringify({ pid: 1, registry: "later", started: null }),
     instanceLabel: "marbles-ws",
-    runtime,
     store: stores.containers,
   });
   const lines: string[] = [];
@@ -238,7 +239,7 @@ it("reports a row whose VM would not go as failed, keeps it, and the next start 
     "[recovery] containers: done, 1 container(s) removed, 0 VM(s) swept",
   ]);
   expect(await stores.containers.list()).toEqual([]);
-  expect(runtime.instances[0]?.removed).toBe(true);
+  expect(runtime.handles[0]?.removed).toBe(true);
   await first.shutdown();
   await later.shutdown();
 });
@@ -246,12 +247,12 @@ it("reports a row whose VM would not go as failed, keeps it, and the next start 
 it("takes back only its own workspace's rows and VMs, beside another workspace in the same process", async () => {
   const machine = await testMachine();
   machines.push(machine);
-  const runtime = createFakeContainerRuntime();
+  const runtime = createFakeDriver();
   const registry = (scope: string, holder: string) =>
     createContainers({
+      driver: runtime,
       holder,
       instanceLabel: `marbles-${scope}`,
-      runtime,
       store: workspaceStores(machine.database.database, scope).containers,
     });
   const gone = await goneProcess();
@@ -281,7 +282,7 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
   expect(lines).toEqual([
     "[recovery] containers: done, 1 container(s) removed, 0 VM(s) swept",
   ]);
-  const removed = new Map(runtime.instances.map((vm) => [vm.id, vm.removed]));
+  const removed = new Map(runtime.handles.map((vm) => [vm.id, vm.removed]));
   expect(removed.get(`${betaLeft.id}-1`)).toBe(true);
   expect(removed.get(`${alphaHeld.id}-1`)).toBe(false);
   expect(removed.get(`${alphaLeft.id}-1`)).toBe(false);
@@ -299,8 +300,8 @@ it("keeps the names of passed-over VMs in the report as the database keeps it an
   const { ours, runtime, stores, theirs } = await fixture();
   await theirs.start(SPEC);
   const other = createContainers({
+    driver: runtime,
     instanceLabel: "marbles-ws",
-    runtime,
     store: new MemoryContainerStore(),
   });
   const held = await other.start(SPEC);

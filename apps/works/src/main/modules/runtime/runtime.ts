@@ -3,6 +3,8 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { Artifacts } from "@foundry/artifacts";
 import type { ArtifactStore } from "@foundry/artifacts/store";
+import type { Authorization } from "@foundry/authorization";
+import type { AuthorizationStore } from "@foundry/authorization/store";
 import {
   type InstallationId,
   installationIdSchema,
@@ -17,34 +19,44 @@ import {
   createModulePlatform,
   ModuleActivationRefusedError,
 } from "@foundry/modules/platform";
-import { createContainers } from "@foundry/sandbox/node";
+import { createContainers } from "@foundry/sandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
 import { WORKS_MODULE_SETTINGS, worksModuleLaunch } from "./launch";
 import { connectModuleSocket } from "./websocket";
 
+export interface CreateModuleRuntimeOptions {
+  readonly authorization?: Authorization;
+  readonly authorizationStore?: AuthorizationStore;
+}
+
 export async function createModuleRuntime(
   userData: string,
-  artifactStore: ArtifactStore
+  artifactStore: ArtifactStore,
+  options: CreateModuleRuntimeOptions = {}
 ): Promise<ModuleRuntime> {
-  const { createMicrosandboxRuntime } = await import(
-    "@foundry/sandbox/node/microsandbox"
+  const { createMicrosandboxDriver } = await import(
+    "@foundry/sandbox/providers/microsandbox"
   );
+  const root = path.join(userData, ".runtime");
+  const { authorization, authorizationStore } = options;
   const artifacts = new Artifacts({ store: artifactStore });
   const store = new Modules({
     artifactOfContent: async (contentId) =>
       (await artifacts.getContent(contentId))?.artifactId ?? null,
+    ...(authorization === undefined ? {} : { authorization }),
+    ...(authorizationStore === undefined ? {} : { authorizationStore }),
   });
-  const root = path.join(userData, ".runtime");
   const checkoutsRoot = path.join(root, "checkouts");
   const filesRoot = path.join(userData, ".data");
-  const runtime = createMicrosandboxRuntime();
-  const containers = createContainers({
+  const driver = createMicrosandboxDriver({
     allowedMountRoots: [checkoutsRoot, filesRoot],
+  });
+  const containers = createContainers({
+    driver,
     instanceLabel: createHash("sha256").update(root).digest("hex").slice(0, 16),
     mountTargetRoot: "/foundry",
-    runtime,
     store: new MemoryContainerStore(),
   });
   const dataDirectories = new Map<InstallationId, InstallationId>();
@@ -63,6 +75,7 @@ export async function createModuleRuntime(
   }
   const system = createModulePlatform({
     artifacts,
+    ...(authorization === undefined ? {} : { authorization }),
     checkouts: createModuleCheckouts({ artifacts, root: checkoutsRoot }),
     containers,
     files: {
@@ -93,7 +106,7 @@ export async function createModuleRuntime(
     prepared ??= (async () => {
       await mkdir(checkoutsRoot, { mode: 0o700, recursive: true });
       await mkdir(filesRoot, { mode: 0o700, recursive: true });
-      if (!(await runtime.isInstalled())) {
+      if (driver.isInstalled !== undefined && !(await driver.isInstalled())) {
         throw new ModuleRuntimeError(
           "Modules require the Microsandbox runtime. Install it before opening an app."
         );

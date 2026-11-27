@@ -7,6 +7,7 @@ import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { openWorkspaceRecords } from "~/database/managed";
+import { providerStoreForState } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { Engine } from "~/entries/engine";
 import { Engine as LibEntryEngine } from "~/entries/lib";
@@ -102,12 +103,13 @@ describe("the published Engine", () => {
     expect(Object.keys(lib)).not.toContain("stateProviders");
     expect(lib.DatabaseProviderStore).toBe(DatabaseProviderStore);
     const state = join(scratch(), "provider-state");
-    await DatabaseProviderStore.forState(state).update(undefined, () => ({
+    await providerStoreForState(state).update(undefined, () => ({
       machine: { providers: [], version: 1 },
     }));
-    expect(
-      (await DatabaseProviderStore.forState(state).read()).machine
-    ).toEqual({ providers: [], version: 1 });
+    expect((await providerStoreForState(state).read()).machine).toEqual({
+      providers: [],
+      version: 1,
+    });
   });
 
   it("closes the database it opened when it is disposed", async () => {
@@ -174,7 +176,6 @@ describe("the published Engine", () => {
   it("is the class a hosted workspace's engine is built from", async () => {
     const engine = createEngine({
       catalog: new Catalog(),
-      dry: true,
       print: () => undefined,
       root: scratch(),
       workspaceId: "hosted-class",

@@ -197,7 +197,7 @@ export function DefinitionsBlock<S>({
           description={
             searching
               ? "Try another search or clear filters."
-              : "Choose a starter during setup, or add a prebuilt step in .foundry/marbles."
+              : "Create the starter during setup, or add a step in .foundry/marbles."
           }
           onReset={searching ? onReset : undefined}
           title={

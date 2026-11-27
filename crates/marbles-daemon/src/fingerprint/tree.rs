@@ -10,7 +10,6 @@ pub(crate) const MISSING: &str = "missing";
 const SKIPPED: &[&str] = &[
     ".cache",
     ".git",
-    ".marbles",
     ".next",
     ".turbo",
     "build",
@@ -145,7 +144,6 @@ mod tests {
             "node_modules/pkg/index.js",
             ".git/config.json",
             "dist/out.js",
-            ".marbles/link.json",
             "ignored/inner.ts",
             "nested/deep/h.mts",
         ] {

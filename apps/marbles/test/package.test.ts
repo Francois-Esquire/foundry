@@ -623,7 +623,6 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       "index",
       "initialize",
       "lib",
-      "prebuilt",
       "process",
       "providers",
       "workspace",
@@ -895,13 +894,13 @@ if (vercelProvider.id !== vercel.id) throw new Error("defineProvider returns its
           ? join(authoring, "inventory.ts")
           : join(directory, "marbles.config.ts");
       const listHome = testHome();
-      writeFileSync(config, 'import "@foundry.sh/marbles/prebuilt";');
+      writeFileSync(config, 'import "@foundry.sh/marbles";');
       expect(run(cli, ["list"], directory, listHome.env)).not.toContain(
         "[step]"
       );
       writeFileSync(
         config,
-        'import { summarizeCodebase } from "@foundry.sh/marbles/prebuilt"; export const packedSummary = summarizeCodebase({ name: "packed-summary" });'
+        'import { step } from "@foundry.sh/marbles"; export const packedSummary = step("packed-summary").do(() => "packed");'
       );
       expect(
         run(cli, ["list"], directory, listHome.env)

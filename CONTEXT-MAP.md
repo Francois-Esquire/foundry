@@ -15,12 +15,13 @@
 
 ### Domains
 
+- [Authorization](./packages/authorization/CONTEXT.md): unified authorization control plane of authority DAG grants, decidable scope lattice, guardrails, and revocable permits
 - **Workspaces** (`packages/workspaces`): durable catalog over an authoritative workspace source
 - **Artifacts** (`packages/artifacts`): stable artifact identity, versioned content, and directly usable files
 - **Tasks** (`packages/tasks`): task backlog tracking what there is to do, what is ready, and what is done
 - **Modules** (`packages/modules`): workspace module contracts, registry, packaging, and composition
 - **Agents** (`packages/agents`): agent harnesses, sessions, authorization, skills, and tools
-- **Sandbox** (`packages/sandbox`): portable sandbox filesystem, command execution, and capability facets
+- [Sandbox](./packages/sandbox/CONTEXT.md): portable, OS-agnostic sandbox execution surface and durable container orchestration across local, cloud, and virtual drivers
 - **Workflows** (`packages/workflows`): multi-step durable workflows and step hooks
 - [Queue](./packages/queue/CONTEXT.md): durable job execution, concurrency pools, retries, leases, and suspensions
 - [Scheduling](./packages/scheduling/CONTEXT.md): recurring and future schedules that dispatch each due occurrence once
@@ -37,6 +38,7 @@
 - **Core (Shared Kernel)**: provides shared primitives to every context; `@foundry/core/agents` holds the reference vocabulary shared among `Prompts`, `Agents`, and `Models`
 - **Workspaces → Artifacts → Modules**: `Artifacts` gives stable identity and versioned content to entries cataloged by `Workspaces`; `Modules` composes `Artifacts` and `Sandbox` into runnable workspace modules
 - **Scheduling → Queue → Workflows**: `Scheduling` claims due occurrences and dispatches them as jobs into `Queue`; `Workflows` executes multi-step `Workflow` and `Step` runs on `Queue` through a queue handler
-- **Marbles → Domains, Tools / Engines**: composes `Workspaces`, `Artifacts`, `Tasks`, `Agents`, `Sandbox`, `Queue`, `Scheduling`, `Workflows`, `Models`, `Prompts`, and `Usage` behind local host facades
+- **Authorization ← Agents, Modules, Workflows, Hosts**: `Authorization` owns grants, approval quorums, restrictions, invocation claims, and revocable permits; domain runtimes and hosts consume its control plane rather than duplicating authorization stores
+- **Marbles → Domains, Tools / Engines**: composes `Authorization`, `Workspaces`, `Artifacts`, `Tasks`, `Agents`, `Sandbox`, `Queue`, `Scheduling`, `Workflows`, `Models`, `Prompts`, and `Usage` behind local host facades
 - **Works → Artifacts, Modules, Sandbox**: composes workspace modules, artifacts, and sandboxes into a desktop host
 - **Spyglass → Workspaces (scanned subjects)**: analyzes TypeScript workspaces read-only into datasets, projections, and lenses

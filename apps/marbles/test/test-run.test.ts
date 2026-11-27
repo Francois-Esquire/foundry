@@ -18,7 +18,8 @@ import {
 import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { expect, it, vi } from "vitest";
-import { readLiveGenerations } from "~/database/generations";
+
+import { readLiveGenerations } from "~/database/open";
 import { layout } from "~/layout";
 import { daemonAlive } from "~/process/client";
 import { readProcess } from "~/process/instance";

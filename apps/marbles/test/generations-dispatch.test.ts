@@ -3,12 +3,10 @@ import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
-import { readLiveGenerations } from "~/database/generations";
-import { readDatabase } from "~/database/open";
+import { readDatabase, readLiveGenerations } from "~/database/open";
 import { marblesGenerations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import { CODEX } from "~/lib/harnesses";
 import type { DispatchInfo, DispatchOptions } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { type TestEngineOptions, testEngine } from "./helpers/engine";
@@ -19,6 +17,7 @@ import {
   switchingWorkspace,
   whenLogged,
 } from "./helpers/generation-switch";
+import { CODEX } from "./helpers/harnesses";
 
 const AGENT_DISPATCH = "agent-dispatch";
 

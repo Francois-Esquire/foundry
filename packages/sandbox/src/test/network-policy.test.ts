@@ -1,27 +1,36 @@
 import { expect, it } from "vitest";
-import {
-  containerSandboxConfigFromConstraints,
-  containerSandboxConstraintsSchema,
-} from "../container/constraints";
-import { resolveContainerSpec } from "../container/spec";
+import { containerSpecSchema, resolveContainerSpec } from "../containers/spec";
 
-it("normalizes exact destinations and defaults unspecified native egress to deny", async () => {
-  const constraints = containerSandboxConstraintsSchema.parse({
-    format: "foundry.sandbox.container/1",
+it("normalizes exact destinations and defaults unspecified egress to none", () => {
+  const input = containerSpecSchema.parse({
     network: {
       destinations: [{ host: "API.OpenAI.com", ports: [443] }],
       mode: "allowlist",
     },
   });
-  const config = containerSandboxConfigFromConstraints(constraints);
-  expect((await resolveContainerSpec(config)).network).toEqual({
+  expect(
+    resolveContainerSpec({ input, labels: {}, name: "c1" }).network
+  ).toEqual({
     destinations: [{ host: "api.openai.com", ports: [443] }],
     mode: "allowlist",
   });
-  expect((await resolveContainerSpec({})).disableNetwork).toBe(true);
   expect(
-    (await resolveContainerSpec({ network: "unrestricted" })).disableNetwork
-  ).toBe(false);
+    resolveContainerSpec({ input: {}, labels: {}, name: "c2" }).network
+  ).toBe("none");
+  expect(
+    resolveContainerSpec({
+      input: { network: "internet" },
+      labels: {},
+      name: "c3",
+    }).network
+  ).toBe("internet");
+  expect(
+    resolveContainerSpec({
+      input: { network: "open" },
+      labels: {},
+      name: "c4",
+    }).network
+  ).toBe("open");
 });
 
 it.each([
@@ -33,8 +42,7 @@ it.each([
   "api.openai.com\u0000",
 ])("rejects a non-exact hostname %s", (host) => {
   expect(
-    containerSandboxConstraintsSchema.safeParse({
-      format: "foundry.sandbox.container/1",
+    containerSpecSchema.safeParse({
       network: { destinations: [{ host }], mode: "allowlist" },
     }).success
   ).toBe(false);

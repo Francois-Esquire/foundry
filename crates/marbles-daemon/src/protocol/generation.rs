@@ -244,7 +244,6 @@ mod tests {
         SetupDraftParams {
             instructions: "do it".to_owned(),
             name: "demo".to_owned(),
-            template: "basic".to_owned(),
         }
     }
 
@@ -300,7 +299,7 @@ mod tests {
         assert_roundtrip(&without, "{}");
         assert_roundtrip(
             &with,
-            r#"{"setups":{"/repo":{"instructions":"do it","name":"demo","template":"basic"}}}"#,
+            r#"{"setups":{"/repo":{"instructions":"do it","name":"demo"}}}"#,
         );
     }
 

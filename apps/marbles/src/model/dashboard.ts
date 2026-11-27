@@ -123,7 +123,6 @@ export interface RunSnapshot {
   readonly triggerId?: string;
   readonly usage?: UsageTotal;
   readonly workspace?: OwnerWorkspace;
-  readonly workspaces?: readonly string[];
 }
 
 export interface DashboardSnapshot {

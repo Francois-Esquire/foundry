@@ -72,13 +72,14 @@ export type SandboxProcessStatus = "running" | "exited" | "terminated";
 
 export interface SandboxProcess {
   readonly id: string;
+  kill?(): Promise<void>;
   readonly status: SandboxProcessStatus;
   terminate(): Promise<void>;
   wait(): Promise<SandboxExecResult>;
 }
 
 export interface SandboxProcessesFacet {
-  spawn(
+  spawn?(
     command: SandboxCommand,
     options?: SandboxExecOptions
   ): Promise<SandboxPipedProcess>;
@@ -130,13 +131,22 @@ export interface SandboxPipedProcess {
   readonly stdout: SandboxReadable;
 }
 
-export interface SandboxPortBinding {
-  readonly host: string;
-  readonly port: number;
+export type SandboxEndpointAccess = "loopback" | "private" | "public";
+
+export type SandboxEndpointProtocol = "http" | "https" | "tcp" | "ws" | "wss";
+
+export interface SandboxEndpoint {
+  readonly access: SandboxEndpointAccess;
+  readonly expiresAt?: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly host?: string;
+  readonly port?: number;
+  readonly protocol: SandboxEndpointProtocol;
+  readonly url: string;
 }
 
 export interface SandboxPortsFacet {
-  hostPort(port: number): Promise<SandboxPortBinding | undefined>;
+  endpoint(port: number): Promise<SandboxEndpoint | undefined>;
 }
 
 export interface SandboxService {
@@ -158,6 +168,13 @@ export type SandboxServiceReadiness =
   | {
       readonly kind: "tcp";
       readonly port: number;
+      readonly timeoutMs: number;
+      readonly intervalMs?: number;
+    }
+  | {
+      readonly kind: "http";
+      readonly port: number;
+      readonly path?: string;
       readonly timeoutMs: number;
       readonly intervalMs?: number;
     };

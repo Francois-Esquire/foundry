@@ -336,17 +336,6 @@ describe("runs", () => {
     await expect(runs.get("rn-1")).rejects.toThrow(DISPOSED_RUNS);
     await expect(runs.list()).rejects.toThrow(DISPOSED_RUNS);
   });
-
-  it("reads under a dry engine too", async () => {
-    const leaf = step("dry-leaf").do(() => "dry");
-    const engine = testEngine({ dry: true, print: () => undefined });
-    engines.push(engine);
-    setHost(engine);
-    await engine.start();
-    const { id, result } = await leaf.enqueue();
-    await expect(result).resolves.toBe("dry");
-    await expect(runs.get(id)).resolves.toMatchObject({ status: "complete" });
-  });
 });
 
 describe(".enqueue() at its edges", () => {
@@ -685,7 +674,7 @@ describe("an unnamed .enqueue() on replay", () => {
     const ids = new Map<string, string[]>();
     const gate = Promise.withResolvers<void>();
     function loadOf(workspaceId: string, between?: Promise<void>) {
-      return withLoadScope({ dry: false, workspaceId }, async () => {
+      return withLoadScope({ workspaceId }, async () => {
         const own: string[] = [];
         ids.set(workspaceId, own);
         own.push(identityOf(build()) ?? "");
@@ -711,7 +700,7 @@ describe("an unnamed .enqueue() on replay", () => {
       let childCalls = 0;
       let parentCalls = 0;
       function declare() {
-        return withLoadScope({ dry: false, workspaceId: "ws" }, () => {
+        return withLoadScope({ workspaceId: "ws" }, () => {
           const make = (value: number) =>
             step().do(() => {
               childCalls += 1;

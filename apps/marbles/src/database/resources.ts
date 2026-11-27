@@ -6,25 +6,14 @@ import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import type { ContainerRow } from "@foundry/sandbox";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
-import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
-import { ChangeRecorder } from "~/database/changes";
-import { readDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { StoreDatabase } from "~/database/types";
-import { WorkspaceRegistry, workspaceAcceptance } from "~/database/workspaces";
-import { stateDatabase } from "~/layout";
-import { ARTIFACTS, sourceKey } from "~/lib/events/source";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import { ownerOfRun } from "~/lib/execution-record";
-import type {
-  AssociationTransaction,
-  ResourceAssociation,
-  ResourceKind,
-  ResourceRef,
-} from "~/lib/resources";
-import { ResourceAssociations, sameResource } from "~/lib/resources";
+import type { ResourceKind, ResourceRef } from "~/lib/resources";
 import type { RunReads, RunRecord } from "~/lib/workflow-runs";
-import { readRun, readRuns, runStoreEffect } from "~/lib/workflow-runs";
+import { readRuns, runStoreEffect } from "~/lib/workflow-runs";
 
 export type ViewScope = { readonly workspace: string } | typeof ALL_WORKSPACES;
 
@@ -33,7 +22,6 @@ export const ALL_WORKSPACES = "all";
 export interface Shown<T> {
   readonly ref: ResourceRef;
   readonly value: T;
-  readonly workspaces: readonly string[];
 }
 
 export interface RunResource {
@@ -50,35 +38,28 @@ export interface ResourceViewOptions {
   readonly acceptWorkspace?: (id: string) => boolean;
   readonly database: StoreDatabase;
   readonly scope: ViewScope;
-  readonly state?: string;
 }
 
 const PAGE = 200;
 
 interface KindReader<T> {
-  get(owner: string, ids: readonly string[]): Promise<readonly T[]>;
   id(value: T): string;
   list(owner: string): Promise<readonly T[]>;
 }
 
 export class ResourceView {
   readonly scope: ViewScope;
-  readonly #associations: DatabaseAssociationStore;
   readonly #database: StoreDatabase;
-  readonly #accepts: (id: string) => boolean;
   readonly #registry: WorkspaceRegistry;
 
   constructor(options: ResourceViewOptions) {
     this.scope = options.scope;
     this.#database = options.database;
-    this.#associations = new DatabaseAssociationStore(options);
-    const { acceptWorkspace, database, state } = options;
+    const { acceptWorkspace, database } = options;
     this.#registry = new WorkspaceRegistry({
       database,
-      ...(state === undefined ? {} : { state }),
       ...(acceptWorkspace === undefined ? {} : { acceptWorkspace }),
     });
-    this.#accepts = workspaceAcceptance(options);
   }
 
   async runs(limit?: number): Promise<readonly Shown<RunResource>[]> {
@@ -87,29 +68,6 @@ export class ResourceView {
       (run) => run.record.timestamps.createdAt,
       limit
     );
-  }
-
-  async sharedRuns(limit?: number): Promise<readonly Shown<RunResource>[]> {
-    if (this.scope === ALL_WORKSPACES) {
-      return [];
-    }
-    const here = this.scope.workspace;
-    const reader = this.#runs();
-    const refs = (await this.#associations.sharedWith("run", here)).filter(
-      (ref) => ref.owner !== here && this.#counts(ref.owner)
-    );
-    const found = await this.#fetch("run", reader, refs);
-    const all = await this.#associations.list("run");
-    const shown = found.map(({ ref, value }) => ({
-      ref,
-      value,
-      workspaces: workspacesOf(ref, all),
-    }));
-    return newestOfEach(
-      shown,
-      (run) => run.record.timestamps.createdAt,
-      undefined
-    ).slice(0, limit);
   }
 
   async sessions(): Promise<readonly Shown<SessionRecord>[]> {
@@ -173,79 +131,21 @@ export class ResourceView {
     return shown.map(({ ref }) => ref).filter((ref) => ref.id === id);
   }
 
-  async has(ref: ResourceRef): Promise<boolean> {
-    return (
-      this.#counts(ref.owner) &&
-      (await this.#reader(ref.kind).get(ref.owner, [ref.id])).length > 0
-    );
-  }
-
-  #counts(owner: string): boolean {
-    return (
-      (this.scope !== ALL_WORKSPACES && owner === this.scope.workspace) ||
-      this.#accepts(owner)
-    );
-  }
-
   async #show<T>(
     kind: ResourceKind,
     reader: KindReader<T>
   ): Promise<Shown<T>[]> {
-    const associations = await this.#associations.list(kind);
-    const found = await this.#collect(kind, reader, associations);
-    return found.map(({ ref, value }) => ({
-      ref,
-      value,
-      workspaces: workspacesOf(ref, associations),
-    }));
-  }
-
-  async #collect<T>(
-    kind: ResourceKind,
-    reader: KindReader<T>,
-    associations: readonly ResourceAssociation[]
-  ): Promise<{ readonly ref: ResourceRef; readonly value: T }[]> {
-    const owned = async (owner: string) =>
-      (await reader.list(owner)).map((value) => ({
-        ref: { id: reader.id(value), kind, owner },
-        value,
-      }));
-    if (this.scope === ALL_WORKSPACES) {
-      const owners = (await this.#registry.list()).map((record) => record.id);
-      const found: { readonly ref: ResourceRef; readonly value: T }[] = [];
-      for (const owner of owners) {
-        found.push(...(await owned(owner)));
-      }
-      return found;
-    }
-    const here = this.scope.workspace;
-    const shared = associations
-      .filter(
-        ({ ref, workspace }) =>
-          workspace === here && ref.owner !== here && this.#counts(ref.owner)
-      )
-      .map(({ ref }) => ref);
-    return [
-      ...(await owned(here)),
-      ...(await this.#fetch(kind, reader, shared)),
-    ];
-  }
-
-  async #fetch<T>(
-    kind: ResourceKind,
-    reader: KindReader<T>,
-    refs: readonly ResourceRef[]
-  ): Promise<{ readonly ref: ResourceRef; readonly value: T }[]> {
-    const found: { readonly ref: ResourceRef; readonly value: T }[] = [];
-    for (const [owner, group] of byOwner(refs)) {
-      for (const value of await reader.get(
-        owner,
-        group.map((ref) => ref.id)
-      )) {
-        found.push({ ref: { id: reader.id(value), kind, owner }, value });
+    const owners =
+      this.scope === ALL_WORKSPACES
+        ? (await this.#registry.list()).map((record) => record.id)
+        : [this.scope.workspace];
+    const shown: Shown<T>[] = [];
+    for (const owner of owners) {
+      for (const value of await reader.list(owner)) {
+        shown.push({ ref: { id: reader.id(value), kind, owner }, value });
       }
     }
-    return found;
+    return shown;
   }
 
   #reader(kind: ResourceKind): KindReader<unknown> {
@@ -268,19 +168,6 @@ export class ResourceView {
     const store = (owner: string) =>
       makeSqliteQueueStore({ database, scope: owner });
     return {
-      get: (owner, ids) =>
-        asBusy(async () => {
-          const runs = store(owner);
-          const held = await holdersIn(runs);
-          const found: RunResource[] = [];
-          for (const id of ids) {
-            const record = await readRun(runs, id);
-            if (record !== null) {
-              found.push({ owner: held.get(id) ?? null, record });
-            }
-          }
-          return found;
-        }),
       id: (run) => run.record.id,
       list: (owner) =>
         asBusy(async () => {
@@ -296,7 +183,6 @@ export class ResourceView {
 
   #sessions(): KindReader<SessionRecord> {
     return {
-      get: (owner, ids) => this.#sessionStore(owner).getSessions(ids),
       id: (session) => session.id,
       list: async (owner) => {
         const store = this.#sessionStore(owner);
@@ -313,18 +199,6 @@ export class ResourceView {
     const store = (owner: string) =>
       new SqliteArtifactStore({ database: this.#database, scope: owner });
     return {
-      get: (owner, ids) =>
-        asBusy(async () => {
-          const artifacts = store(owner);
-          const found: Artifact[] = [];
-          for (const id of ids) {
-            const artifact = await artifacts.getArtifact(id as ArtifactId);
-            if (artifact !== null) {
-              found.push(artifact);
-            }
-          }
-          return found;
-        }),
       id: (artifact) => artifact.id,
       list: (owner) =>
         asBusy(async () => {
@@ -350,35 +224,10 @@ export class ResourceView {
     const store = (owner: string) =>
       new SqliteContainerStore({ database: this.#database, scope: owner });
     return {
-      get: (owner, ids) =>
-        asBusy(async () => {
-          const containers = store(owner);
-          const found: ContainerRow[] = [];
-          for (const id of ids) {
-            const row = await containers.get(id);
-            if (row !== undefined) {
-              found.push(row);
-            }
-          }
-          return found;
-        }),
       id: (row) => row.id,
       list: (owner) => asBusy(() => store(owner).list()),
     };
   }
-}
-
-function workspacesOf(
-  ref: ResourceRef,
-  associations: readonly ResourceAssociation[]
-): readonly string[] {
-  return [
-    ref.owner,
-    ...associations
-      .filter((association) => sameResource(association.ref, ref))
-      .map((association) => association.workspace)
-      .sort(),
-  ];
 }
 
 function byOwner(
@@ -408,88 +257,6 @@ function newestOfEach<T>(
     taken.set(ref.owner, count + 1);
     return count < limit;
   });
-}
-
-export interface AssociationScopeOptions {
-  readonly acceptWorkspace?: (id: string) => boolean;
-  readonly state?: string;
-}
-
-function associationScope(
-  scope?: string | AssociationScopeOptions
-): AssociationScopeOptions {
-  if (typeof scope === "string") {
-    return { state: scope };
-  }
-  return scope ?? {};
-}
-
-export function resourceAssociations(
-  database: StoreDatabase,
-  scope?: string | AssociationScopeOptions
-): ResourceAssociations {
-  const options = associationScope(scope);
-  return new ResourceAssociations({
-    read: (work) => asBusy(() => work(associationUnit(database, options))),
-    transact: associationTransaction(database, options),
-  });
-}
-
-export function associationTransaction(
-  database: StoreDatabase,
-  scope?: string | AssociationScopeOptions
-): AssociationTransaction {
-  const options = associationScope(scope);
-  return (work) =>
-    asBusy(() =>
-      database.transaction((tx) => work(associationUnit(tx, options)))
-    );
-}
-
-function associationUnit(
-  database: StoreDatabase,
-  options: AssociationScopeOptions
-): Parameters<Parameters<AssociationTransaction>[0]>[0] {
-  const scopeOptions = {
-    ...(options.acceptWorkspace === undefined
-      ? {}
-      : { acceptWorkspace: options.acceptWorkspace }),
-    ...(options.state === undefined ? {} : { state: options.state }),
-  };
-  const view = new ResourceView({
-    database,
-    scope: ALL_WORKSPACES,
-    ...scopeOptions,
-  });
-  const registry = new WorkspaceRegistry({ database, ...scopeOptions });
-  return {
-    directory: {
-      has: (ref) => view.has(ref),
-      registered: async (id) => (await registry.read(id)) !== undefined,
-    },
-    store: new DatabaseAssociationStore({
-      database,
-      onCommit: async (transaction, write) => {
-        for (const { fact, owner } of write.events ?? []) {
-          await new ChangeRecorder(owner).record(transaction, ARTIFACTS_KEY, [
-            fact,
-          ]);
-        }
-      },
-    }),
-  };
-}
-
-const ARTIFACTS_KEY = sourceKey(ARTIFACTS) ?? "artifacts";
-
-export function readResourceView<T>(
-  state: string,
-  scope: ViewScope,
-  work: (view: ResourceView) => Promise<T>
-): Promise<T | undefined> {
-  return readDatabase(stateDatabase(state), (database) =>
-    work(new ResourceView({ database, scope, state }))
-  );
 }
 
 async function holdersIn(

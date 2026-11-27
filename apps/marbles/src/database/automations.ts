@@ -1,9 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import { readDatabase } from "~/database/open";
 import { marblesAutomations } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import { stateDatabase } from "~/layout";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type {
   AutomationStore,
@@ -11,7 +9,7 @@ import type {
   StoredAutomation,
 } from "~/lib/automation/store";
 import { storedAutomation } from "~/lib/automation/store";
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 
 export interface DatabaseAutomationStoreOptions {
   readonly database: StoreDatabase;
@@ -154,23 +152,4 @@ function parsedInput(text: string): unknown {
   } catch {
     return text;
   }
-}
-
-export function readAutomations(state: string, scope: string): AutomationStore {
-  const refused = () =>
-    Promise.reject(new Error("the automations are read only here"));
-  return {
-    close: () => Promise.resolve(),
-    edit: refused,
-    async list() {
-      const read = await asBusy(() =>
-        readDatabase(stateDatabase(state), (database) =>
-          automationsIn(database, scope).list()
-        )
-      );
-      return read ?? [];
-    },
-    put: refused,
-    remove: refused,
-  };
 }

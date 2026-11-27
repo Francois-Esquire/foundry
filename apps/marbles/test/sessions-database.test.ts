@@ -19,7 +19,8 @@ import { ChangeRecorder } from "~/database/changes";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { openWorkspaceDatabase } from "~/database/managed";
-import { readResourceView } from "~/database/resources";
+
+import { readResourceView } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { stateDatabase } from "~/layout";
 import { workspaceState } from "~/lib/state/workspace";
@@ -426,7 +427,6 @@ describe("an engine Marbles creates over a workspace's state", () => {
     return {
       engine: createEngine({
         catalog: new Catalog(),
-        dry: false,
         print: () => undefined,
         root: workspace.root,
         stateDir: workspace.dir,

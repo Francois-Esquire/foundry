@@ -47,7 +47,6 @@ interface Hosting {
 }
 
 export interface LoadScope {
-  readonly dry: boolean;
   readonly workspaceId: string;
 }
 
@@ -69,11 +68,9 @@ interface RuntimeState {
   bound: Set<Binding>;
   bunEvaluatingLoads: Set<LoadingRoute>;
   contextBindings: WeakMap<ExecutionContext, Binding>;
-  createFallback:
-    | ((options: { readonly dry: boolean }) => Promise<InstanceRuntime>)
-    | undefined;
+  createFallback: (() => Promise<InstanceRuntime>) | undefined;
+  fallback: Promise<InstanceRuntime> | undefined;
   fallbackRoot: () => string;
-  fallbacks: Map<boolean, Promise<InstanceRuntime>>;
   hostings: Map<string, Hosting>;
   hostState: "unhosted" | "loading" | "hosted";
   pendingHostings: Set<string>;
@@ -93,8 +90,8 @@ function runtimeState(): RuntimeState {
       bunEvaluatingLoads: new Set<LoadingRoute>(),
       contextBindings: new WeakMap<ExecutionContext, Binding>(),
       createFallback: undefined,
+      fallback: undefined,
       fallbackRoot: () => "/",
-      fallbacks: new Map<boolean, Promise<InstanceRuntime>>(),
       hostings: new Map<string, Hosting>(),
       hostState: "unhosted",
       pendingHostings: new Set<string>(),
@@ -237,7 +234,6 @@ export async function runLoadScope<T>(
   const route: LoadingRoute = {
     created: new Set<object>(),
     definitions: new Map<string, number>(),
-    dry: scope.dry,
     finished: false,
     kind: "loading",
     locked: new Set<object>(),
@@ -603,7 +599,7 @@ export function readingRuntime(word: string): Promise<InstanceRuntime | null> {
     return Promise.resolve(hosting.runtime);
   }
   if (state.hostState === "unhosted") {
-    return state.fallbacks.get(false) ?? Promise.resolve(null);
+    return state.fallback ?? Promise.resolve(null);
   }
   return Promise.reject(hostless(word, "read", state.hostState === "loading"));
 }
@@ -636,7 +632,7 @@ export function hasDefaultRuntime(): boolean {
 }
 
 export function setDefaultRuntime(
-  create: (options: { readonly dry: boolean }) => Promise<InstanceRuntime>
+  create: () => Promise<InstanceRuntime>
 ): void {
   runtimeState().createFallback = create;
 }
@@ -664,19 +660,13 @@ export function instanceRuntime(): Promise<InstanceRuntime> {
   if (create === undefined) {
     return Promise.reject(missingRuntimeError());
   }
-  let runtime = state.fallbacks.get(false);
-  if (runtime === undefined) {
-    runtime = create({ dry: false });
-    state.fallbacks.set(false, runtime);
-  }
-  return runtime;
+  state.fallback ??= create();
+  return state.fallback;
 }
 
 export async function dispose(): Promise<void> {
   const state = runtimeState();
-  const pending = [...state.fallbacks.values()];
-  state.fallbacks.clear();
-  for (const runtime of pending) {
-    await (await runtime).dispose();
-  }
+  const pending = state.fallback;
+  state.fallback = undefined;
+  await (await pending)?.dispose();
 }
