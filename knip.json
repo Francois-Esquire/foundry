@@ -68,6 +68,9 @@
       ]
     },
     "tooling/*": {},
+    "tooling/release": {
+      "entry": ["src/cli.ts", "src/extension-cli.ts", "src/prepare.ts"]
+    },
     "tooling/vscode-extension": {
       "ignore": ["fixtures/**"]
     },

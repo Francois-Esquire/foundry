@@ -84,9 +84,7 @@ into generated workspaces as local `@foundry/module-sdk`. `scripts/emit-sdk.ts` 
 that source with `typescript` for the `emit-sdk` script and is never imported by a
 runtime module.
 
-`src/test/helpers/boundary.ts` lists the allowed package imports per role, and
-`src/test/boundary.test.ts` checks every import, re-export, and dynamic import
-in production source against it. Relative imports must resolve inside `src`.
+Repo-wide boundary tests in root `tests/` enforce package tiers, export layout, Web-standard portability, Drizzle/libSQL isolation, and `@foundry/modules`'s type-only `@foundry/sandbox` seam in `platform/`.
 
 ### `@foundry/artifacts`
 

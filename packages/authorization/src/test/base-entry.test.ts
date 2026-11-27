@@ -1,19 +1,8 @@
-import { resolve } from "node:path";
-import {
-  assertExportLayout,
-  assertExportNames,
-  assertPackageTiers,
-  assertWebStandardExports,
-  portableSubpaths,
-} from "@foundry/lib/testing/seam";
 import { describe, expect, it } from "vitest";
 import { Authorization, Permit } from "../index";
 import { MemoryAuthorizationStore } from "../store/memory";
 
-const PACKAGE_DIR = resolve(import.meta.dirname, "../..");
-const PACKAGES_DIR = resolve(PACKAGE_DIR, "..");
-
-describe("@foundry/authorization base entry and seams", () => {
+describe("@foundry/authorization base entry", () => {
   it("evaluates and runs Authorization over MemoryAuthorizationStore without Node adapters", async () => {
     const auth = new Authorization({ store: new MemoryAuthorizationStore() });
     const decision = await auth.check({
@@ -42,21 +31,5 @@ describe("@foundry/authorization base entry and seams", () => {
           () => undefined
         )
     ).toThrow(TypeError);
-  });
-
-  it("passes Web-standard, layout, naming, and package tier seam audits", () => {
-    const subpaths = portableSubpaths(PACKAGE_DIR);
-    expect(subpaths).toEqual(
-      expect.arrayContaining([
-        ".",
-        "./store",
-        "./store/memory",
-        "./testing/store",
-      ])
-    );
-    expect(() => assertWebStandardExports(PACKAGE_DIR, subpaths)).not.toThrow();
-    expect(() => assertExportLayout(PACKAGES_DIR)).not.toThrow();
-    expect(() => assertExportNames(PACKAGES_DIR)).not.toThrow();
-    expect(() => assertPackageTiers(PACKAGES_DIR)).not.toThrow();
   });
 });
