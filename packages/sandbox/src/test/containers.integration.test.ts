@@ -1,37 +1,44 @@
 import { describe, expect, it } from "vitest";
-import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
-} from "../container/defaults";
-import { createMicrosandboxRuntime } from "../node/microsandbox";
+} from "../containers/defaults";
+import type { ContainerSpecInput } from "../containers/spec";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
-const SPEC: ContainerSandboxConstraints = {
-  format: "foundry.sandbox.container/1",
+const SPEC: ContainerSpecInput = {
+  expose: [{ port: 3000 }],
   image: "docker.io/library/debian:trixie-slim",
-  network: "disabled",
-  ports: [3000],
+  network: "none",
 };
 
 describe("real MicroSandbox Containers", () => {
   it("starts, restarts under open handles, closes, and sweeps orphans", async () => {
-    const runtime = createMicrosandboxRuntime();
-    if (!(await runtime.isInstalled())) {
+    const runtime = createMicrosandboxDriver();
+    if (
+      !(await (runtime.isInstalled
+        ? runtime.isInstalled()
+        : Promise.resolve(true)))
+    ) {
       throw new Error(
         "Install the MicroSandbox runtime before running test:integration"
       );
     }
     const instanceLabel = `itest-${crypto.randomUUID()}`;
     const store = new MemoryContainerStore();
-    const containers = createContainers({ instanceLabel, runtime, store });
+    const containers = createContainers({
+      driver: runtime,
+      instanceLabel,
+      store,
+    });
     const inventory = async () =>
       (
-        await runtime.listResources({
+        await runtime.listResources?.({
           labels: { [CONTAINER_INSTANCE_LABEL]: instanceLabel },
         })
-      ).resources;
+      )?.resources ?? [];
 
     const a = await containers.start(SPEC);
     const b = await containers.open(a.id);
@@ -39,17 +46,20 @@ describe("real MicroSandbox Containers", () => {
       expect((await a.commands.exec(["echo", "one"])).stdout.trim()).toBe(
         "one"
       );
-      expect(await a.ports.hostPort(5173)).toBe(undefined);
+      expect(await a.ports?.endpoint(5173)).toBe(undefined);
       expect((await inventory()).map((r) => r.name)).toEqual([`${a.id}-1`]);
 
-      await containers.restart(a.id, { ...SPEC, ports: [3000, 5173] });
+      await containers.restart(a.id, {
+        ...SPEC,
+        expose: [{ port: 3000 }, { port: 5173 }],
+      });
 
       expect((await store.get(a.id))?.status).toBe("running");
       expect((await inventory()).map((r) => r.name)).toEqual([`${a.id}-2`]);
       expect((await b.commands.exec(["echo", "two"])).stdout.trim()).toBe(
         "two"
       );
-      expect(await b.ports.hostPort(5173)).toBeDefined();
+      expect(await b.ports?.endpoint(5173)).toBeDefined();
     } finally {
       await a.close();
       await b.close();
@@ -61,15 +71,15 @@ describe("real MicroSandbox Containers", () => {
 
     const durable = new MemoryContainerStore();
     const crashed = createContainers({
+      driver: runtime,
       instanceLabel,
-      runtime,
       store: durable,
     });
     const orphan = await crashed.start(SPEC);
     await durable.commit({ deleteContainers: [orphan.id] });
     const nextBoot = createContainers({
+      driver: runtime,
       instanceLabel,
-      runtime,
       store: durable,
     });
     expect(await nextBoot.sweep()).toEqual([`${orphan.id}-1`]);

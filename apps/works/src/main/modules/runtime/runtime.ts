@@ -19,7 +19,7 @@ import {
   createModulePlatform,
   ModuleActivationRefusedError,
 } from "@foundry/modules/platform";
-import { createContainers } from "@foundry/sandbox/node";
+import { createContainers } from "@foundry/sandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { moduleDirectory } from "../local-library";
 import { type ModuleRuntime, ModuleRuntimeError } from "./controller";
@@ -36,8 +36,8 @@ export async function createModuleRuntime(
   artifactStore: ArtifactStore,
   options: CreateModuleRuntimeOptions = {}
 ): Promise<ModuleRuntime> {
-  const { createMicrosandboxRuntime } = await import(
-    "@foundry/sandbox/node/microsandbox"
+  const { createMicrosandboxDriver } = await import(
+    "@foundry/sandbox/providers/microsandbox"
   );
   const root = path.join(userData, ".runtime");
   const { authorization, authorizationStore } = options;
@@ -50,12 +50,13 @@ export async function createModuleRuntime(
   });
   const checkoutsRoot = path.join(root, "checkouts");
   const filesRoot = path.join(userData, ".data");
-  const runtime = createMicrosandboxRuntime();
-  const containers = createContainers({
+  const driver = createMicrosandboxDriver({
     allowedMountRoots: [checkoutsRoot, filesRoot],
+  });
+  const containers = createContainers({
+    driver,
     instanceLabel: createHash("sha256").update(root).digest("hex").slice(0, 16),
     mountTargetRoot: "/foundry",
-    runtime,
     store: new MemoryContainerStore(),
   });
   const dataDirectories = new Map<InstallationId, InstallationId>();
@@ -105,7 +106,7 @@ export async function createModuleRuntime(
     prepared ??= (async () => {
       await mkdir(checkoutsRoot, { mode: 0o700, recursive: true });
       await mkdir(filesRoot, { mode: 0o700, recursive: true });
-      if (!(await runtime.isInstalled())) {
+      if (driver.isInstalled !== undefined && !(await driver.isInstalled())) {
         throw new ModuleRuntimeError(
           "Modules require the Microsandbox runtime. Install it before opening an app."
         );

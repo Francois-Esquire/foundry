@@ -1,6 +1,6 @@
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
 import { CLI_HARNESSES } from "~/lib/cli-harnesses";
 import { guestAuth } from "~/lib/sandbox/credentials";
@@ -61,7 +61,7 @@ describe("guest CLI preparation", () => {
 
   it("installs before use, isolates writable state, and keeps keys out of persisted configuration", async () => {
     let installed = false;
-    const runtime = createFakeContainerRuntime({
+    const runtime = createFakeDriver({
       exec: (command) => {
         if (command[0] === "uname") {
           return { exitCode: 0, stderr: "", stdout: "aarch64\n" };
@@ -80,13 +80,11 @@ describe("guest CLI preparation", () => {
       },
     });
     const containers = createContainers({
-      allowedMountRoots: [],
+      driver: runtime,
       instanceLabel: "prepare-test",
-      runtime,
       store: new MemoryContainerStore(),
     });
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "fixture",
     });
     try {
@@ -115,7 +113,7 @@ describe("guest CLI preparation", () => {
       expect(second.environment.ANTHROPIC_API_KEY).toBe("key-second");
       expect(JSON.stringify(container.row)).not.toContain("key-first");
       expect(
-        JSON.stringify([...(runtime.instances[0]?.files ?? [])])
+        JSON.stringify([...(runtime.handles[0]?.files ?? [])])
       ).not.toContain("key-first");
       expect(first.environment.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
     } finally {

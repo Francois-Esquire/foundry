@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
@@ -225,14 +225,13 @@ describe("a workspace, a sandbox, or an artifact", () => {
   it("a sandbox starts at its first exec and keeps one container until closed", async () => {
     const commands: string[][] = [];
     const containers = createContainers({
-      allowedMountRoots: [await realpath(root)],
-      instanceLabel: "test",
-      runtime: createFakeContainerRuntime({
+      driver: createFakeDriver({
         exec: (command) => {
           commands.push([...command]);
           return { exitCode: 0, stderr: "", stdout: "ok" };
         },
       }) as never,
+      instanceLabel: "test",
       store: new MemoryContainerStore(),
     });
     const engine = testEngine({

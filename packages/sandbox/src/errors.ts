@@ -2,7 +2,8 @@ export type SandboxErrorCode =
   | "cancelled"
   | "invalid-contract"
   | "invalid-transition"
-  | "provider-failed";
+  | "provider-failed"
+  | "unsupported";
 
 export interface SandboxErrorOptions {
   readonly cause?: unknown;

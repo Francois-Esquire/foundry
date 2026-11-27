@@ -117,10 +117,14 @@ export interface PreparedGuest {
   readonly executable: string;
 }
 
+type GuestProvisioningMode = "auto" | "prebaked" | "upload";
+
 interface PrepareGuestOptions<H extends CliHarness> {
   readonly auth: GuestAuth<H>;
   readonly download?: typeof downloadGuestCli;
   readonly harness: H;
+  readonly preinstalledExecutable?: string;
+  readonly provisioning?: GuestProvisioningMode;
   readonly sessionId: string;
   readonly signal: AbortSignal;
 }
@@ -141,8 +145,23 @@ export async function prepareGuest<H extends CliHarness>(
     return result.stdout;
   };
   const descriptor = CLI_HARNESSES[options.harness];
-  const artifact = guestArtifact(options.harness, await exec(["uname", "-m"]));
   const state = `/var/lib/foundry/sessions/${createHash("sha256").update(options.sessionId).digest("hex")}`;
+  const provisioning = options.provisioning ?? "auto";
+
+  if (options.preinstalledExecutable !== undefined) {
+    await exec(["mkdir", "-p", `${state}/${descriptor.stateDir}`]);
+    return {
+      environment: {
+        HOME: state,
+        LANG: "C.UTF-8",
+        PATH: "/opt/foundry/bin:/opt/foundry/codex-path:/usr/local/bin:/usr/bin:/bin",
+        ...descriptor.env(state, options.auth),
+      },
+      executable: options.preinstalledExecutable,
+    };
+  }
+
+  const artifact = guestArtifact(options.harness, await exec(["uname", "-m"]));
   await exec([
     "mkdir",
     "-p",
@@ -174,6 +193,11 @@ export async function prepareGuest<H extends CliHarness>(
     !installed.stdout.includes(descriptor.expectedVersion) ||
     supportsPresent.exitCode !== 0
   ) {
+    if (provisioning === "prebaked") {
+      throw new Error(
+        `Pre-baked guest CLI for "${options.harness}" is missing or does not match expected version ${descriptor.expectedVersion}.`
+      );
+    }
     const files = await (options.download ?? downloadGuestCli)(
       artifact,
       options.signal

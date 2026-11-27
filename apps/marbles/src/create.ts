@@ -12,8 +12,8 @@ import type { AuthorizationStore } from "@foundry/authorization/store";
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
-import type { Containers } from "@foundry/sandbox";
-import { createContainers } from "@foundry/sandbox/node";
+import type { Containers, Driver } from "@foundry/sandbox";
+import { createContainers } from "@foundry/sandbox";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
@@ -48,7 +48,10 @@ import type { PoolConfig } from "~/lib/execution-record";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
-import { allowedMountRoots } from "~/lib/managers/sandboxes";
+import {
+  allowedMountRoots,
+  type WorkspaceMaterialization,
+} from "~/lib/managers/sandboxes";
 import { localWorkspaces } from "~/lib/managers/workspaces";
 import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
@@ -104,11 +107,13 @@ export interface CreateEngineOptions {
   readonly print: (line: string) => void;
   readonly providers?: readonly Provider[];
   readonly root: string;
+  readonly sandboxDriver?: Driver | (() => Promise<Driver>);
   readonly spawned?: string;
   readonly stateDir?: string;
   readonly stateRoot?: string;
   readonly stores?: WorkspaceStoreBundle;
   readonly workspaceId: string;
+  readonly workspaceMaterialization?: WorkspaceMaterialization;
 }
 
 function declareDefinitions(target: Engine | Registry, catalog: Catalog): void {
@@ -389,26 +394,40 @@ class OwnDatabaseEngine extends PublishedEngine {
 }
 
 function containersFor(
-  { catalog, liveness, print, root, workspaceId }: CreateEngineOptions,
+  {
+    catalog,
+    liveness,
+    print,
+    root,
+    sandboxDriver,
+    workspaceId,
+  }: CreateEngineOptions,
   worktreeHome: string,
   store: ContainerStore | undefined
 ): () => Promise<Containers> {
-  const runtime = () =>
-    import("@foundry/sandbox/node/microsandbox").then(
-      ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
-    );
-  return async () => {
+  const resolveDriver = async (): Promise<Driver> => {
+    if (sandboxDriver !== undefined) {
+      return typeof sandboxDriver === "function"
+        ? await sandboxDriver()
+        : sandboxDriver;
+    }
     mkdirSync(worktreeHome, { recursive: true });
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
-    return createContainers({
+    const { createMicrosandboxDriver } = await import(
+      "@foundry/sandbox/providers/microsandbox"
+    );
+    return createMicrosandboxDriver({
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
+    });
+  };
+  return async () =>
+    createContainers({
+      driver: await resolveDriver(),
       holder: containerHolder(liveness),
       instanceLabel: `marbles-${workspaceId}`,
       report: (line) => print(`[sandbox] ${line}`),
-      runtime: await runtime(),
       store: store ?? new MemoryContainerStore(),
     });
-  };
 }
 
 function realPath(file: string | undefined): string | undefined {
@@ -489,6 +508,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(spawned === undefined ? {} : { spawned }),
     state,
     workspaceId,
+    ...(options.workspaceMaterialization === undefined
+      ? {}
+      : { workspaceMaterialization: options.workspaceMaterialization }),
     ...(workspaceStore === undefined
       ? {}
       : { workspaces: localWorkspaces({}, workspaceStore) }),

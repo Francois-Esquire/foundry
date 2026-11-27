@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { createContainers } from "@foundry/sandbox/node";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { artifactBlobs } from "~/database/local-artifacts";
 import { openDatabase } from "~/database/open";
 import { workspaceStores } from "~/database/stores";
@@ -39,9 +39,8 @@ const manager = new Artifacts({
   store: stores.artifacts,
 });
 const containers = createContainers({
-  allowedMountRoots: [],
+  driver: createFakeDriver(),
   instanceLabel: `store-writer-${name}`,
-  runtime: createFakeContainerRuntime(),
   store: stores.containers,
 });
 const catalogue = localWorkspaces({}, stores.workspaces);
@@ -61,7 +60,6 @@ try {
       type: "text/plain",
     });
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       mounts: [],
       workdir: "/workspace",
     });

@@ -11,7 +11,7 @@ import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { createContainers } from "@foundry/sandbox/node";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
@@ -128,12 +128,11 @@ describe("observing every source", () => {
       type: "text/markdown",
     });
     const containers = createContainers({
+      driver: createFakeDriver() as never,
       instanceLabel: "marbles-test",
-      runtime: createFakeContainerRuntime() as never,
       store: stores.containers,
     });
     const sandbox = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1",
     });
     await sandbox.close();
@@ -302,9 +301,8 @@ describe("the run a fact is recorded as made by", () => {
 describe("a write the recorder hands a store", () => {
   it("carries every field the store reads, own or inherited, each read once, as the store alone would read it", async () => {
     const { database } = machine.database;
-    const runtime = createFakeContainerRuntime() as never;
+    const runtime = createFakeDriver() as never;
     const SPEC = {
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1",
     } as const;
     const now = new Date();
@@ -366,8 +364,8 @@ describe("a write the recorder hands a store", () => {
           Promise.resolve(workspaceStores(database, scope).containers),
         seed: async (store: ContainerStore) => {
           const containers = createContainers({
+            driver: runtime,
             instanceLabel: "marbles-test",
-            runtime,
             store,
           });
           const started = await containers.start(SPEC);

@@ -14,7 +14,7 @@ it("publishes every canonical subpath", () => {
   for (const canonical of [
     ".",
     "./node",
-    "./node/microsandbox",
+    "./providers/microsandbox",
     "./store",
     "./store/memory",
     "./store/sqlite",

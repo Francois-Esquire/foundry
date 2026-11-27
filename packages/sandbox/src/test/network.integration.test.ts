@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { bootGuest } from "./helpers/guest";
 
 const request = (url: string) => [
@@ -17,7 +17,7 @@ const request = (url: string) => [
 ];
 
 it("allows an exact HTTPS destination and denies another hostname and port", async () => {
-  const runtime = createMicrosandboxRuntime();
+  const runtime = createMicrosandboxDriver();
   await using sandbox = await bootGuest(runtime, {
     image: "docker.io/oven/bun:1-slim",
     network: { destinations: [{ host: "example.com" }], mode: "allowlist" },
@@ -46,7 +46,7 @@ it("allows an exact HTTPS destination and denies another hostname and port", asy
 }, 120_000);
 
 it("denies guest egress when no network choice is supplied", async () => {
-  await using sandbox = await bootGuest(createMicrosandboxRuntime(), {
+  await using sandbox = await bootGuest(createMicrosandboxDriver(), {
     image: "docker.io/oven/bun:1-slim",
   });
   expect(

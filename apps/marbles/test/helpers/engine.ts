@@ -5,7 +5,7 @@ import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { workspaces } from "@foundry/workspaces/node";
 import { type GitRun, git } from "@foundry/workspaces/node/git";
 import { Catalog, type CollectInput } from "~/authoring/catalog";
@@ -45,7 +45,6 @@ export function testInstances(
   EngineOptions,
   "artifacts" | "containers" | "git" | "models" | "sessions" | "workspaces"
 > {
-  const root = options.root ?? process.cwd();
   const gitOptions =
     options.git ?? (options.live ? {} : { run: echoGit(() => undefined) });
   return {
@@ -56,9 +55,8 @@ export function testInstances(
       (() =>
         Promise.resolve(
           createContainers({
-            allowedMountRoots: [root],
+            driver: createFakeDriver() as never,
             instanceLabel: "marbles-test",
-            runtime: createFakeContainerRuntime() as never,
             store: new MemoryContainerStore(),
           })
         )),

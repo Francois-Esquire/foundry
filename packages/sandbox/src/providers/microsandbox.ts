@@ -5,24 +5,41 @@ import type {
   Sandbox as MicroSandbox,
   SandboxBuilder,
 } from "microsandbox";
-import { BoundedBytes } from "../container/bounded-bytes";
-import { pipedProcess } from "../container/piped-process";
-import { isTcpPort } from "../container/ports";
+import { BoundedBytes } from "../containers/bounded-bytes";
 import type {
-  ContainerExecOptions,
-  ContainerInstance,
-  ContainerNetworkAllowlist,
-  ContainerProcess,
-  ContainerRuntime,
   ContainerSpec,
-} from "../container/runtime";
-import { guestStorage } from "../container/storage";
+  Driver,
+  DriverCapabilities,
+  DriverExecOptions,
+  DriverHandle,
+  DriverProcess,
+  NetworkAllowlist,
+} from "../containers/driver";
+import { isTcpPort } from "../containers/spec";
 import { SandboxError } from "../errors";
+import { type ResolvedHostMount, resolveHostMountSpecs } from "../node/mounts";
+import {
+  type LoopbackPortMapping,
+  probeTcp,
+  reserveLoopbackPorts,
+} from "../node/network";
 import type {
+  SandboxCommand,
   SandboxDirectoryEntry,
+  SandboxEndpoint,
   SandboxExecResult,
   SandboxShell,
 } from "../sandbox";
+import { pipedProcess } from "./microsandbox/piped-process";
+import { guestStorage } from "./microsandbox/storage";
+
+export interface MicrosandboxDriverOptions {
+  readonly allowedMountRoots?: readonly string[];
+}
+
+export function microsandboxRemovalHint(name: string): string {
+  return `\`msb rm -f ${name}\` (msb is node_modules/.bin/msb, in the Foundry install)`;
+}
 
 async function sdk() {
   return import("microsandbox");
@@ -78,20 +95,45 @@ const DENY_GUEST_EGRESS_POLICY: MicrosandboxNetworkPolicy = Object.freeze({
   rules: Object.freeze([]),
 });
 
+const MICROSANDBOX_CAPABILITIES: DriverCapabilities = Object.freeze({
+  endpoints: Object.freeze(["loopback"] as const),
+  lifetime: Object.freeze({ idle: false, ttl: false }),
+  listing: true,
+  mounts: Object.freeze(["host-directory"] as const),
+  network: Object.freeze(["none", "allowlist", "open"] as const),
+  pause: false,
+  reconnect: false,
+  secrets: false,
+});
+
 let installing: Promise<void> | undefined;
 const MAX_SERVICE_OUTPUT_BYTES = 1024 * 1024;
 const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 const REMOVE_STOP_TIMEOUT_MS = 2000;
+const SIGTERM = 15;
 
-export function createMicrosandboxRuntime(): ContainerRuntime<MicroSandbox> {
+export function createMicrosandboxDriver(
+  options: MicrosandboxDriverOptions = {}
+): Driver<MicroSandbox> {
+  const allowedMountRoots = options.allowedMountRoots ?? [];
   return {
-    async create(spec) {
+    capabilities: MICROSANDBOX_CAPABILITIES,
+    async create({ spec }) {
+      const mounts = await resolveHostMountSpecs(
+        spec.mounts,
+        allowedMountRoots
+      );
+      const ports = await reserveLoopbackPorts(
+        spec.expose.map((entry) => entry.port)
+      );
       const { Sandbox } = await sdk();
       const sandbox = await applySpec(
         Sandbox.builder(spec.name),
-        spec
+        spec,
+        mounts,
+        ports
       ).create();
-      return new MicrosandboxInstance(sandbox, spec);
+      return new MicrosandboxHandle(sandbox, spec, ports);
     },
     async install() {
       installing ??= (async () => {
@@ -130,6 +172,8 @@ export function createMicrosandboxRuntime(): ContainerRuntime<MicroSandbox> {
           : { nextCursor: page.nextCursor }),
       };
     },
+    manualRemovalHint: microsandboxRemovalHint,
+    name: "microsandbox",
     removeResource: removeIfPresent,
     async stopResource(name) {
       const { Sandbox } = await sdk();
@@ -164,7 +208,9 @@ function labelsOf(config: Record<string, unknown>): Record<string, string> {
 
 function applySpec(
   builder: SandboxBuilder,
-  spec: ContainerSpec
+  spec: ContainerSpec,
+  mounts: readonly ResolvedHostMount[],
+  ports: readonly LoopbackPortMapping[]
 ): SandboxBuilder {
   builder
     .image(spec.image)
@@ -172,19 +218,19 @@ function applySpec(
     .memory(spec.memoryMib)
     .pullPolicy(PULL_POLICY[spec.pull])
     .ephemeral(true)
-    .detached(spec.detached)
+    .detached(spec.lifetime?.whenReleased === "keep")
     .quietLogs();
 
   if (Object.keys(spec.env).length > 0) {
-    builder.envs(spec.env);
+    builder.envs({ ...spec.env });
   }
   if (Object.keys(spec.labels).length > 0) {
-    builder.labels(spec.labels);
+    builder.labels({ ...spec.labels });
   }
   if (spec.pidsLimit !== undefined) {
     builder.rlimit("nproc", spec.pidsLimit);
   }
-  for (const mount of spec.mounts) {
+  for (const mount of mounts) {
     builder.volume(mount.target, (volume: MicrosandboxMountBuilder) => {
       let configured = volume
         .bind(mount.source)
@@ -195,25 +241,29 @@ function applySpec(
       if (!mount.executable) {
         configured = configured.noexec();
       }
-      if (mount.readOnly) {
+      if (mount.access === "read-only") {
         configured = configured.readonly();
       }
       return configured;
     });
   }
-  configureNetwork(builder, spec);
+  configureNetwork(builder, spec, ports);
   return builder;
 }
 
-function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
+function configureNetwork(
+  builder: SandboxBuilder,
+  spec: ContainerSpec,
+  ports: readonly LoopbackPortMapping[]
+): void {
   builder.network((network: MicrosandboxNetworkBuilder) => {
     let configured = network;
     if (typeof spec.network === "object") {
       configured = allowlistNetwork(network, spec.network);
-    } else if (spec.disableNetwork) {
+    } else if (spec.network === "none") {
       configured = network.policy(DENY_GUEST_EGRESS_POLICY);
     }
-    for (const mapping of spec.ports) {
+    for (const mapping of ports) {
       assertPrivatePortMapping(mapping);
       configured = configured.portBind(
         mapping.host,
@@ -227,11 +277,10 @@ function configureNetwork(builder: SandboxBuilder, spec: ContainerSpec): void {
 
 function allowlistNetwork(
   network: MicrosandboxNetworkBuilder,
-  { destinations }: ContainerNetworkAllowlist
+  { destinations }: NetworkAllowlist
 ): MicrosandboxNetworkBuilder {
-  const portsOf = (
-    destination: ContainerNetworkAllowlist["destinations"][number]
-  ) => destination.ports ?? [DEFAULT_ALLOWLIST_PORT];
+  const portsOf = (destination: NetworkAllowlist["destinations"][number]) =>
+    destination.ports ?? [DEFAULT_ALLOWLIST_PORT];
   const interceptedPorts = [...new Set(destinations.flatMap(portsOf))];
   return network
     .policy({
@@ -249,9 +298,7 @@ function allowlistNetwork(
     .tls((tls) => tls.interceptedPorts(interceptedPorts).verifyUpstream(true));
 }
 
-function assertPrivatePortMapping(
-  mapping: ContainerSpec["ports"][number]
-): void {
+function assertPrivatePortMapping(mapping: LoopbackPortMapping): void {
   if (mapping.host !== "127.0.0.1") {
     throw new SandboxError(
       "invalid-contract",
@@ -266,14 +313,24 @@ function assertPrivatePortMapping(
   }
 }
 
-class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
+function toPosixArgv(command: SandboxCommand): string[] {
+  return typeof command === "string" ? ["sh", "-c", command] : [...command];
+}
+
+class MicrosandboxHandle implements DriverHandle<MicroSandbox> {
   readonly native: MicroSandbox;
   private readonly spec: ContainerSpec;
+  private readonly ports: readonly LoopbackPortMapping[];
   readonly storage: Storage;
 
-  constructor(native: MicroSandbox, spec: ContainerSpec) {
+  constructor(
+    native: MicroSandbox,
+    spec: ContainerSpec,
+    ports: readonly LoopbackPortMapping[]
+  ) {
     this.native = native;
     this.spec = spec;
+    this.ports = ports;
     this.storage = guestStorage(native.fs(), (argv) =>
       this.exec(argv, { cwd: spec.workdir, env: {} })
     );
@@ -283,11 +340,38 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
     return this.spec.name;
   }
 
+  endpoint(guestPort: number): Promise<SandboxEndpoint | undefined> {
+    const mapping = this.ports.find((port) => port.guestPort === guestPort);
+    if (mapping === undefined) {
+      return Promise.resolve(undefined);
+    }
+    const protocol =
+      this.spec.expose.find((entry) => entry.port === guestPort)?.protocol ??
+      "http";
+    return Promise.resolve(
+      Object.freeze({
+        access: "loopback",
+        host: mapping.host,
+        port: mapping.hostPort,
+        protocol,
+        url: `${protocol}://${mapping.host}:${String(mapping.hostPort)}`,
+      })
+    );
+  }
+
+  async probePort(guestPort: number): Promise<boolean> {
+    const mapping = this.ports.find((port) => port.guestPort === guestPort);
+    if (mapping === undefined) {
+      return false;
+    }
+    return probeTcp(mapping.host, mapping.hostPort);
+  }
+
   async exec(
-    command: string[],
-    options: ContainerExecOptions
+    command: SandboxCommand,
+    options: DriverExecOptions
   ): Promise<SandboxExecResult> {
-    const [cmd, ...args] = command;
+    const [cmd, ...args] = toPosixArgv(command);
     if (cmd === undefined) {
       throw new SandboxError("invalid-contract", "exec requires a command");
     }
@@ -301,10 +385,11 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   }
 
   async execStream(
-    command: string[],
-    options: ContainerExecOptions
+    command: SandboxCommand | undefined,
+    options: DriverExecOptions
   ): Promise<SandboxShell> {
-    const [cmd, ...args] = command;
+    const argv = command === undefined ? ["/bin/sh"] : toPosixArgv(command);
+    const [cmd, ...args] = argv;
     if (cmd === undefined) {
       throw new SandboxError(
         "invalid-contract",
@@ -356,10 +441,10 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
   }
 
   async startProcess(
-    command: string[],
-    options: ContainerExecOptions
-  ): Promise<ContainerProcess> {
-    const [cmd, ...args] = command;
+    command: SandboxCommand,
+    options: DriverExecOptions
+  ): Promise<DriverProcess> {
+    const [cmd, ...args] = toPosixArgv(command);
     if (cmd === undefined) {
       throw new SandboxError(
         "invalid-contract",
@@ -373,14 +458,14 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
     return Object.freeze({
       id: `container-process-${globalThis.crypto.randomUUID()}`,
       kill: () => handle.kill(),
-      signal: (signal: number) => handle.signal(signal),
+      terminate: () => handle.signal(SIGTERM),
       wait: () => settled,
     });
   }
 
-  async spawn(command: string[], options: ContainerExecOptions) {
+  async spawn(command: SandboxCommand, options: DriverExecOptions) {
     options.signal?.throwIfAborted();
-    const [cmd, ...args] = command;
+    const [cmd, ...args] = toPosixArgv(command);
     if (cmd === undefined) {
       throw new SandboxError("invalid-contract", "spawn requires a command");
     }
@@ -442,6 +527,20 @@ class MicrosandboxInstance implements ContainerInstance<MicroSandbox> {
     }
   }
 
+  async unmount(id: string, target: string): Promise<void> {
+    const result = await this.exec(["umount", target], {
+      cwd: this.spec.workdir,
+      env: {},
+    });
+    if (result.exitCode !== 0) {
+      throw new SandboxError(
+        "provider-failed",
+        `sandbox mount "${id}" could not be unmounted`,
+        { details: { exitCode: result.exitCode } }
+      );
+    }
+  }
+
   async stop(): Promise<void> {
     await this.native.stop();
   }
@@ -483,11 +582,11 @@ async function collectBoundedProcess(
 function configureExec(
   builder: ExecBuilder,
   args: string[],
-  options: ContainerExecOptions
+  options: DriverExecOptions
 ): ExecBuilder {
   builder.args(args).cwd(options.cwd);
   if (Object.keys(options.env).length > 0) {
-    builder.envs(options.env);
+    builder.envs({ ...options.env });
   }
   if (options.user !== undefined) {
     builder.user(options.user);

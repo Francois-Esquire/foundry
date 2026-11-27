@@ -1,10 +1,24 @@
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
+import {
+  DEFAULT_SANDBOX_WORKING_DIRECTORY,
+  SandboxError,
+} from "@foundry/sandbox";
 import { prepareSandboxProcess } from "@foundry/sandbox/node";
 import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
 import { codexSubscriptionTokens } from "./credentials";
 import type { PreparedGuest } from "./prepare";
 import type { SandboxSessionSettings } from "./session";
+
+function requireSpawn(settings: SandboxSessionSettings) {
+  const spawn = settings.container.processes?.spawn;
+  if (spawn === undefined) {
+    throw new SandboxError(
+      "unsupported",
+      "CLI harness requires a sandbox driver that supports piped process spawning"
+    );
+  }
+  return spawn;
+}
 
 interface GuestDriverInput {
   readonly auth: GuestAuth;
@@ -18,6 +32,7 @@ export type GuestDriver = (
 
 export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
   "claude-code": async ({ guest, settings }) => {
+    const spawnProcess = requireSpawn(settings);
     const { createClaudeCodeDriver } = await import(
       "@foundry/models/providers/claude-code"
     );
@@ -32,20 +47,18 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
       },
       spawnClaudeCodeProcess: (spawn) =>
         prepareSandboxProcess(() =>
-          settings.container.processes.spawn(
-            [guest.executable, ...spawn.args],
-            {
-              cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
-              environment: guest.environment,
-              signal: spawn.signal
-                ? AbortSignal.any([settings.signal, spawn.signal])
-                : settings.signal,
-            }
-          )
+          spawnProcess([guest.executable, ...spawn.args], {
+            cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
+            environment: guest.environment,
+            signal: spawn.signal
+              ? AbortSignal.any([settings.signal, spawn.signal])
+              : settings.signal,
+          })
         ),
     });
   },
   codex: async ({ auth, guest, settings }) => {
+    const spawnProcess = requireSpawn(settings);
     const { createCodexDriver } = await import(
       "@foundry/models/providers/codex"
     );
@@ -66,7 +79,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
       spawn: (argv, spawn) =>
         Promise.resolve(
           prepareSandboxProcess(() =>
-            settings.container.processes.spawn(argv, {
+            spawnProcess(argv, {
               cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
               environment: guest.environment,
               signal: AbortSignal.any([settings.signal, spawn.signal]),
@@ -76,6 +89,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
     });
   },
   pi: async ({ guest, settings }) => {
+    const spawnProcess = requireSpawn(settings);
     const { createPiDriver } = await import("@foundry/models/providers/pi");
     return createPiDriver({
       agentId: settings.agentId,
@@ -87,7 +101,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
       sessionDirectory: `${guest.environment.PI_CODING_AGENT_DIR}/sessions`,
       spawn: async (argv, spawn) =>
         prepareSandboxProcess(() =>
-          settings.container.processes.spawn(argv, {
+          spawnProcess(argv, {
             cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
             environment: guest.environment,
             signal: AbortSignal.any([settings.signal, spawn.signal]),

@@ -1,6 +1,6 @@
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import type { Authorization } from "@foundry/authorization";
-import type { ContainerRuntime, Containers } from "@foundry/sandbox";
+import type { Containers, Driver } from "@foundry/sandbox";
 
 import type { InstallationId } from "../domain";
 import { createModuleGateway } from "../gateway/module-gateway";
@@ -24,7 +24,7 @@ export interface CreateModulePlatformOptions {
   readonly checkouts: ModuleCheckouts;
   /** @deprecated */
   readonly containerRuntime?: Pick<
-    ContainerRuntime,
+    Driver,
     "listResources" | "stopResource" | "removeResource"
   >;
   readonly containers: Containers;

@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { storageChecks } from "@foundry/core/testing/storage";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { guestStorage } from "../container/storage";
+import { guestStorage } from "../providers/microsandbox/storage";
 
 const roots: string[] = [];
 afterEach(async () => {

@@ -1,7 +1,7 @@
 import type { Authorization, Permit } from "@foundry/authorization";
 import type {
   Container,
-  ContainerSandboxConstraints,
+  ContainerSpecInput,
   Containers,
 } from "@foundry/sandbox";
 
@@ -58,7 +58,18 @@ export function createContainerModuleProgramRuntime(
       const container = await openContainer(options, input, checkout.hostPath);
       try {
         await assertMounted(container);
-        return container;
+        if (container.ports === undefined || container.services === undefined) {
+          throw new ModuleProgramRuntimeError(
+            "port-unavailable",
+            "Module container driver must support endpoints and services"
+          );
+        }
+        return {
+          close: () => container.close(),
+          id: container.id,
+          ports: container.ports,
+          services: container.services,
+        };
       } catch (error) {
         return rethrowAfterCleanup(
           error,
@@ -114,7 +125,7 @@ async function openContainer(
     installationId: input.installationId,
     network:
       destinations === null
-        ? "disabled"
+        ? "none"
         : {
             destinations: destinations.map((destination) => ({
               ...destination,
@@ -204,29 +215,28 @@ function moduleRuntimeSpec(input: {
   readonly installationId: InstallationId;
   readonly checkoutPath: string;
   readonly filesPath: string;
-  readonly network: ContainerSandboxConstraints["network"];
+  readonly network: ContainerSpecInput["network"];
   readonly resources: ModuleProgramResources;
-}): ContainerSandboxConstraints {
+}): ContainerSpecInput {
   return {
-    format: "foundry.sandbox.container/1",
+    expose: [{ port: MODULE_PROGRAM_PORT }],
     image: "docker.io/oven/bun:1-slim",
     labels: { "com.foundry.installation": input.installationId },
     mounts: [
       {
         access: "read-only",
         id: "program",
-        source: input.checkoutPath,
+        source: { kind: "host-directory", path: input.checkoutPath },
         target: MODULE_PROGRAM_ROOT,
       },
       {
         access: "read-write",
         id: "installation-files",
-        source: input.filesPath,
+        source: { kind: "host-directory", path: input.filesPath },
         target: MODULE_FILES_ROOT,
       },
     ],
     network: input.network,
-    ports: [MODULE_PROGRAM_PORT],
     publicEnvironment: {
       NODE_ENV: "production",
       PORT: String(MODULE_PROGRAM_PORT),

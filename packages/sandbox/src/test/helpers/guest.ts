@@ -1,25 +1,33 @@
-import { attachContainer } from "../../container/facets";
-import type {
-  ContainerConfig,
-  ContainerMountSpec,
-  ContainerRuntime,
-} from "../../container/runtime";
-import { resolveContainerSpec } from "../../container/spec";
+import type { ContainerDefaults, Driver } from "../../containers/driver";
+import { attachContainer } from "../../containers/facets";
+import {
+  type ContainerSpecInput,
+  resolveContainerSpec,
+} from "../../containers/spec";
 
 export async function bootGuest<TNative>(
-  runtime: ContainerRuntime<TNative>,
-  config: ContainerConfig = {},
-  mounts: readonly ContainerMountSpec[] = []
+  driver: Driver<TNative>,
+  input: ContainerSpecInput = {},
+  defaults: ContainerDefaults = {}
 ) {
-  const spec = await resolveContainerSpec(config, mounts);
-  const instance = await runtime.create(spec);
-  const { facets, remove } = attachContainer(instance, spec, {
-    mountCapability: false,
+  const id = `guest-${globalThis.crypto.randomUUID()}`;
+  const spec = resolveContainerSpec({
+    defaults,
+    input,
+    labels: {},
+    name: id,
   });
-  await instance.ensureDirectory(spec.workdir);
+  const handle = await driver.create({
+    containerId: id,
+    labels: spec.labels,
+    name: spec.name,
+    spec,
+  });
+  const { facets, remove } = attachContainer(handle, spec);
+  await handle.ensureDirectory(spec.workdir);
   return {
     ...facets,
-    native: instance.native,
+    native: handle.native,
     readTextFile: async (path: string) =>
       new TextDecoder().decode(await facets.files.readFile(path)),
     [Symbol.asyncDispose]: remove,

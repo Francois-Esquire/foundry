@@ -225,7 +225,7 @@ describe("package tiers and dependency graph", () => {
   });
 
   it("confines non-type microsandbox imports across packages/* to the VM adapter", () => {
-    const adapter = "packages/sandbox/src/node/microsandbox.ts";
+    const adapter = "packages/sandbox/src/providers/microsandbox.ts";
     const violations = sourceFiles(PACKAGES_DIR)
       .filter(
         (file) => !(TEST_OR_STORY_FILE.test(file) || TEST_DIRECTORY.test(file))

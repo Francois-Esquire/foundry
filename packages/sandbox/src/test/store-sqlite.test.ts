@@ -4,13 +4,13 @@ import { eq, getTableColumns, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import type { ContainerStoreWrite } from "../store/index";
 import type { ContainerRow } from "../store/schema";
 import { containerRowSchema } from "../store/schema";
 import { SqliteContainerStore } from "../store/sqlite";
 import { sandboxContainers } from "../store/tables";
-import { createFakeContainerRuntime } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const memory = libsqlDatabases("memory");
@@ -119,15 +119,14 @@ describe("the SQLite container store", () => {
     copyFileSync(at, copy);
     const client = createClient({ url: `file:${copy}` });
     try {
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const engineA = createContainers({
+        driver: runtime,
         instanceLabel: "marbles-w",
         report: () => undefined,
-        runtime,
         store: a,
       });
       const held = await engineA.start({
-        format: "foundry.sandbox.container/1",
         image: "docker.io/oven/bun:1",
       });
       const name = held.row.nativeId ?? "";
@@ -144,17 +143,15 @@ describe("the SQLite container store", () => {
         }),
       ]) {
         const other = createContainers({
+          driver: runtime,
           instanceLabel: "marbles-w",
           report: () => undefined,
-          runtime,
           store,
         });
         const swept = await other.sweep();
         expect([...swept]).toEqual([]);
         expect(swept.passedOver).toEqual([name]);
-        expect(runtime.instances.find((i) => i.id === name)?.removed).toBe(
-          false
-        );
+        expect(runtime.handles.find((i) => i.id === name)?.removed).toBe(false);
       }
       await held.close();
       await engineA.shutdown();
