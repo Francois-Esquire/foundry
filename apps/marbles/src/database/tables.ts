@@ -5,7 +5,6 @@ import {
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
-import { RESOURCE_KINDS } from "../lib/resources";
 
 export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   config: text(),
@@ -232,26 +231,6 @@ export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerStarted: text("owner_started"),
   scope: text().primaryKey(),
 });
-
-export const marblesResourceWorkspaces = sqliteTable(
-  "marbles_resource_workspaces",
-  {
-    associatedAt: text("associated_at").notNull(),
-    kind: text({ enum: RESOURCE_KINDS }).notNull(),
-    owner: text().notNull(),
-    resourceId: text("resource_id").notNull(),
-    workspace: text().notNull(),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.owner, table.kind, table.resourceId, table.workspace],
-    }),
-    index("marbles_resource_workspaces_kind_workspace").on(
-      table.kind,
-      table.workspace
-    ),
-  ]
-);
 
 export const marblesRecoveries = sqliteTable("marbles_recoveries", {
   at: text().notNull(),

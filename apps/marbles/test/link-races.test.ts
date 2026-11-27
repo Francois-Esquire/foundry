@@ -13,12 +13,10 @@ import {
 import {
   LinksPlacementError,
   linkName,
-  rebuildLinks,
   relinkArtifact,
 } from "~/database/links";
 import { artifactBlobs } from "~/database/local-artifacts";
 import { initializeDatabase } from "~/database/open";
-import type { ResourceView } from "~/database/resources";
 import { workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks } from "~/layout";
@@ -104,7 +102,6 @@ describe("links made and removed under a race", () => {
       files: [{ blob: "blob", path: "nested/file" }],
       ref: note,
       root,
-      workspace: "one",
     });
     expect(report?.refused).toEqual([".marbles/artifacts/note"]);
     expect(await real.readdir(outside)).toEqual([]);
@@ -128,7 +125,6 @@ describe("links made and removed under a race", () => {
       files: [{ blob: "blob", path: "nested/file" }],
       ref: note,
       root,
-      workspace: "one",
     });
     expect(made).toBe(true);
     expect(report?.refused).toEqual([".marbles/artifacts/note"]);
@@ -140,25 +136,22 @@ describe("links made and removed under a race", () => {
     const dir = resourceLinks(root, "artifact");
     const leaf = join(dir, "note");
     await real.mkdir(leaf);
-    await real.symlink(
-      join(artifacts, "workspaces", "one", "blobs", "blob"),
-      join(outside, "victim")
-    );
+    const blob = join(artifacts, "workspaces", "one", "blobs", "blob");
+    await real.symlink(blob, join(leaf, "victim"));
+    await real.symlink(blob, join(outside, "victim"));
     const swap = swapper(leaf, outside);
     hooks.current = async (kind, path) => {
-      if (kind === "readdir" && path === dir) {
+      if (kind === "readdir" && path === leaf) {
         await swap();
       }
     };
-    const report = await rebuildLinks({
+    const report = await relinkArtifact({
       artifacts,
+      files: [],
+      ref: note,
       root,
-      view: {
-        artifacts: () => Promise.resolve([]),
-      } as unknown as ResourceView,
-      workspace: "one",
     });
-    expect(report.refused).toEqual([".marbles/artifacts/note"]);
+    expect(report?.refused).toEqual([".marbles/artifacts/note"]);
     expect(await real.readdir(outside)).toEqual(["victim"]);
   });
 
@@ -178,7 +171,6 @@ describe("links made and removed under a race", () => {
       },
       ref: note,
       root,
-      workspace: "one",
     });
     await new Promise((settle) => setTimeout(settle, 100));
     expect(reads).toBe(1);
@@ -220,7 +212,6 @@ describe("the links lock", () => {
         files: [{ blob: "blob", path: "f" }],
         ref: note,
         root,
-        workspace: "one",
       })
     ).resolves.toMatchObject({ linked: 1 });
   });
@@ -239,7 +230,6 @@ describe("link names", () => {
           files: [{ blob: "blob", path: "f" }],
           ref: { ...note, id },
           root,
-          workspace: "one",
         })
       ).resolves.toMatchObject({ linked: 0, unlinkable: 1 });
     }
@@ -416,7 +406,6 @@ describe("a relink that ends early", () => {
         ref: note,
         root,
         signal: controller.signal,
-        workspace: "one",
       })
     ).rejects.toThrow("stopped");
     expect(await real.readdir(join(root, ".marbles"))).toEqual([]);
@@ -432,7 +421,6 @@ describe("a relink that ends early", () => {
       ref: note,
       root,
       signal: controller.signal,
-      workspace: "one",
     });
     await vi.waitFor(async () =>
       expect(await temporaryLinks(root)).toHaveLength(1)
@@ -454,7 +442,6 @@ describe("a relink that ends early", () => {
       ref: note,
       root,
       signal: controller.signal,
-      workspace: "one",
     });
     const stopped = expect(aborted).rejects.toThrow("stopped");
     await vi.waitFor(async () =>
@@ -476,7 +463,6 @@ describe("a relink that ends early", () => {
       },
       ref: { ...note, id: "memo" },
       root,
-      workspace: "one",
     });
     await expect(other).resolves.toMatchObject({ linked: 1, refused: [] });
     expect(reads).toBe(2);
@@ -492,18 +478,15 @@ describe("a relink that ends early", () => {
 
   it("leaves no temporary or stale link behind when the files read under the lock are gone", async () => {
     const { artifacts, root } = await arranged();
-    const shared = { ...note, owner: "two" };
     await relinkArtifact({
       artifacts,
       files: [{ blob: "blob", path: "f" }],
-      ref: shared,
+      ref: note,
       root,
-      workspace: "one",
     });
     expect(await entries(resourceLinks(root, "artifact"))).toEqual([
-      "@two",
-      join("@two", "note"),
-      join("@two", "note", "f"),
+      "note",
+      join("note", "f"),
     ]);
     let reads = 0;
     await relinkArtifact({
@@ -514,14 +497,13 @@ describe("a relink that ends early", () => {
           reads === 1 ? [{ blob: "blob", path: "nested/g" }] : []
         );
       },
-      ref: shared,
+      ref: note,
       root,
-      workspace: "one",
     });
     expect(reads).toBe(2);
     expect(await temporaryLinks(root)).toEqual([]);
     expect(await entries(resourceLinks(root, "artifact"))).not.toContain(
-      join("@two", "note", "f")
+      join("note", "f")
     );
   });
 
@@ -545,7 +527,6 @@ describe("a relink that ends early", () => {
           },
           ref: note,
           root,
-          workspace: "one",
         })
       ).rejects.toThrow("the disk failed");
     } finally {
@@ -580,7 +561,6 @@ describe("a relink that ends early", () => {
         },
         ref: note,
         root,
-        workspace: "one",
       })
     ).rejects.toThrow(LinksPlacementError);
     expect(swapped).toBe(true);
@@ -597,7 +577,6 @@ describe("a relink that ends early", () => {
         files: [],
         ref: note,
         root,
-        workspace: "one",
       })
     ).resolves.toMatchObject({ linked: 0 });
     expect(await real.readdir(resourceLinks(root, "artifact"))).toEqual([]);

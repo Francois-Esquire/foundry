@@ -17,11 +17,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { keepingLinks } from "~/database/artifact-links";
-import { DatabaseAssociationStore } from "~/database/associations";
-import { artifactPlace, linkName, rebuildLinks } from "~/database/links";
+import { linkName } from "~/database/links";
 import { artifactBlobs } from "~/database/local-artifacts";
-import { readResourceView } from "~/database/open";
-import { resourceAssociations } from "~/database/resources";
 import { workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks, workspaceLinks } from "~/layout";
@@ -67,7 +64,6 @@ async function arranged() {
     artifacts,
     machine,
     one: await workspace("one", true),
-    two: await workspace("two", true),
     unlinked: await workspace("three", false),
   };
 }
@@ -149,20 +145,10 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     expect(existsSync(workspaceLinks(unlinked.root))).toBe(false);
   });
 
-  it("link a shared artifact where it is shared, and unlink it everywhere once it is deleted", async () => {
-    const { artifacts, machine, one, two } = await arranged();
-    const { database } = machine.database;
+  it("unlink an artifact once it is deleted", async () => {
+    const { artifacts, machine, one } = await arranged();
     const lines: string[] = [];
-    const kept = new Artifacts({
-      files: blobFiles(artifactBlobs(artifacts, one.id)),
-      store: keepingLinks(workspaceStores(database, one.id).artifacts, {
-        artifacts,
-        database,
-        owner: one.id,
-        report: (line) => lines.push(line),
-        state: machine.root,
-      }),
-    });
+    const kept = manager(machine, artifacts, one, lines);
     const id = artifactIdSchema.parse("artifact#plan");
     await kept.create({
       entries: { "plan.md": { bytes: "# Plan\n", mime: "text/markdown" } },
@@ -170,87 +156,47 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       name: "plan",
       type: "text/markdown",
     });
-    const ref = { id, kind: "artifact", owner: one.id } as const;
-    const linkIn = ({ id: workspace, root }: typeof one) =>
-      join(
-        resourceLinks(root, "artifact"),
-        ...artifactPlace(ref, workspace),
-        "plan.md"
-      );
-    await settled(() => expect(existsSync(linkIn(one))).toBe(true));
-    await resourceAssociations(database, {
-      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
-    }).share({ id, kind: "artifact", owner: one.id }, two.id);
-    await kept.write({
-      artifactId: id,
-      changes: {
-        put: { "plan.md": { bytes: "# Plan, again\n", mime: "text/markdown" } },
-      },
-    });
-    await settled(async () =>
-      expect(await readFile(linkIn(two), "utf8")).toBe("# Plan, again\n")
+    const link = join(
+      resourceLinks(one.root, "artifact"),
+      linkName(id),
+      "plan.md"
     );
+    await settled(() => expect(existsSync(link)).toBe(true));
     await kept.delete(id);
-    await settled(() => {
-      expect(existsSync(linkIn(one))).toBe(false);
-      expect(existsSync(linkIn(two))).toBe(false);
-    });
+    await settled(() => expect(existsSync(link)).toBe(false));
     expect(lines).toEqual([]);
   });
 
-  it("report a workspace it cannot link, and still link the others, keeping the write", async () => {
-    const { artifacts, machine, one, two } = await arranged();
-    const { database } = machine.database;
+  it("report a workspace it cannot link, keeping the write", async () => {
+    const { artifacts, machine, one } = await arranged();
     const lines: string[] = [];
     const id = artifactIdSchema.parse("artifact#both");
-    await manager(machine, artifacts, one, lines).create({
+    const written = manager(machine, artifacts, one, lines);
+    await written.create({
       entries: { "a.md": { bytes: "# A\n", mime: "text/markdown" } },
       id,
       name: "both",
       type: "text/markdown",
     });
-    const ref = { id, kind: "artifact", owner: one.id } as const;
-    await resourceAssociations(database, {
-      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
-    }).share(ref, two.id);
-    const [broken, healthy] = [one, two].sort((a, b) => (a.id < b.id ? -1 : 1));
-    if (broken === undefined || healthy === undefined) {
-      throw new Error("two workspaces");
-    }
     await settled(() =>
       expect(
-        existsSync(
-          join(
-            resourceLinks(broken.root, "artifact"),
-            ...artifactPlace(ref, broken.id)
-          )
-        )
+        existsSync(join(resourceLinks(one.root, "artifact"), linkName(id)))
       ).toBe(true)
     );
-    await rm(resourceLinks(broken.root, "artifact"), {
+    await rm(resourceLinks(one.root, "artifact"), {
       force: true,
       recursive: true,
     });
-    await writeFile(resourceLinks(broken.root, "artifact"), "not a directory");
-    const written = manager(machine, artifacts, one, lines);
+    await writeFile(resourceLinks(one.root, "artifact"), "not a directory");
     await written.write({
       artifactId: id,
       changes: {
         put: { "a.md": { bytes: "# A, again\n", mime: "text/markdown" } },
       },
     });
-    const healthyLink = join(
-      resourceLinks(healthy.root, "artifact"),
-      ...artifactPlace(ref, healthy.id),
-      "a.md"
-    );
-    await settled(async () =>
-      expect(await readFile(healthyLink, "utf8")).toBe("# A, again\n")
-    );
     await settled(() => expect(lines.length).toBeGreaterThan(0));
     for (const line of lines) {
-      expect(line).toContain(broken.root);
-      expect(line).not.toContain(healthy.root);
+      expect(line).toContain(one.root);
     }
     expect(await written.get(id)).not.toBeNull();
   });
@@ -264,10 +210,9 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       store,
     });
     const id = artifactIdSchema.parse("artifact#held");
-    const ref = { id, kind: "artifact", owner: one.id } as const;
     const link = join(
       resourceLinks(one.root, "artifact"),
-      ...artifactPlace(ref, one.id),
+      linkName(id),
       "a.md"
     );
     await kept.create({
@@ -453,7 +398,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     expect(lines).toEqual([expect.stringMatching(REPAIRS)]);
   });
 
-  it("leave no link half made when a drain stops an update waiting on the lock, and relink makes what it left right", async () => {
+  it("leave no link half made when a drain stops an update waiting on the lock", async () => {
     const { artifacts, machine, one } = await arranged();
     const lines: string[] = [];
     const store = keeping(machine, artifacts, one, lines);
@@ -462,11 +407,7 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       store,
     });
     const id = artifactIdSchema.parse("artifact#halfway");
-    const ref = { id, kind: "artifact", owner: one.id } as const;
-    const place = join(
-      resourceLinks(one.root, "artifact"),
-      ...artifactPlace(ref, one.id)
-    );
+    const place = join(resourceLinks(one.root, "artifact"), linkName(id));
     await kept.create({
       entries: { "a.md": { bytes: "# First\n", mime: "text/markdown" } },
       id,
@@ -497,11 +438,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
     } finally {
       await release();
     }
-    await readResourceView(machine.root, { workspace: one.id }, (view) =>
-      rebuildLinks({ artifacts, root: one.root, view, workspace: one.id })
-    );
-    expect(await readFile(join(place, "a.md"), "utf8")).toBe("# Second\n");
-    expect(await readFile(join(place, "b.md"), "utf8")).toBe("# B\n");
   });
 
   it.each(["commit", "transaction"] as const)(
@@ -610,62 +546,6 @@ describe("links that follow artifact writes", { timeout: 30_000 }, () => {
       ".marbles/artifacts/notes goes through a link, a file or a path outside .marbles"
     );
     expect(readdirSync(outside)).toEqual([]);
-  });
-
-  it("list the shares once ahead of every workspace an update reaches, and again under each lock", async () => {
-    const { artifacts, machine, one, two } = await arranged();
-    const { database } = machine.database;
-    const fourRoot = join(one.root, "..", "four");
-    mkdirSync(workspaceLinks(fourRoot), { recursive: true });
-    const four = workspaceState(machine.root, fourRoot);
-    await new WorkspaceRegistry({
-      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
-      database,
-    }).touch(four, null);
-    const plain = workspaceStores(database, one.id).artifacts;
-    const id = artifactIdSchema.parse("artifact#plan");
-    await new Artifacts({
-      files: blobFiles(artifactBlobs(artifacts, one.id)),
-      store: plain,
-    }).create({
-      entries: { "plan.md": { bytes: "# Plan\n", mime: "text/markdown" } },
-      id,
-      name: "plan",
-      type: "text/markdown",
-    });
-    const ref = { id, kind: "artifact", owner: one.id } as const;
-    const associations = resourceAssociations(database, {
-      acceptWorkspace: (workspaceId) => insideState(machine.root, workspaceId),
-    });
-    await associations.share(ref, two.id);
-    await associations.share(ref, four.id);
-    const record = await plain.getArtifact(id);
-    if (record === null) {
-      throw new Error("the artifact was created");
-    }
-    const lines: string[] = [];
-    const store = keeping(machine, artifacts, one, lines);
-    const listed = vi.spyOn(DatabaseAssociationStore.prototype, "list");
-    try {
-      await store.commit({ putArtifacts: [record] });
-      await store.drainLinks(10_000);
-      expect(listed).toHaveBeenCalledTimes(3);
-    } finally {
-      listed.mockRestore();
-    }
-    expect(lines).toEqual([]);
-    for (const workspace of [two, four]) {
-      expect(
-        await readFile(
-          join(
-            resourceLinks(workspace.root, "artifact"),
-            ...artifactPlace(ref, workspace.id),
-            "plan.md"
-          ),
-          "utf8"
-        )
-      ).toBe("# Plan\n");
-    }
   });
 });
 

@@ -79,7 +79,6 @@ interface RunSummary {
   readonly createdAt: number;
   readonly id: string;
   readonly orphaned: boolean;
-  readonly sharedFrom?: string;
   readonly status: string;
   readonly step: string;
   readonly steps: readonly { readonly name: string; readonly status: string }[];
@@ -200,7 +199,7 @@ function readWorkspaceStatus(
     pid: host?.pid ?? null,
     recovery,
     root: record.root,
-    runs: runsStatus(record.id, shows.runs),
+    runs: runsStatus(shows.runs),
     schedules: schedules.map(scheduleStatus),
     sessions: shows.sessions,
   };
@@ -218,18 +217,14 @@ function scheduleStatus(stored: ScheduleSnapshot): ScheduleStatus {
   };
 }
 
-function runsStatus(
-  workspace: string,
-  shown: readonly Shown<RunResource>[]
-): RunsStatus {
+function runsStatus(shown: readonly Shown<RunResource>[]): RunsStatus {
   const runs = shown.map(
-    ({ ref, value: { owner, record } }): RunSummary => ({
+    ({ value: { owner, record } }): RunSummary => ({
       createdAt: record.timestamps.createdAt,
       id: record.id,
       orphaned:
         !TERMINAL_RUN_STATUSES.has(record.status) &&
         (owner === null || isGone(owner)),
-      ...(ref.owner === workspace ? {} : { sharedFrom: ref.owner }),
       status: record.status,
       step: record.step,
       steps: runSteps(record).map(({ name, status }) => ({ name, status })),

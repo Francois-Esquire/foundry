@@ -345,7 +345,6 @@ Everything Marbles keeps is under one Foundry home, `$FOUNDRY_ROOT`, else
     workspaces/<workspace-id>/blobs/   each artifact's bytes
 <workspace root>/
   .marbles/artifacts/<id>/<path>       links to its own artifacts' files
-  .marbles/artifacts/@<owner>/<id>/<path>   links to those other workspaces share with it
 ```
 
 The database holds the rest, for every workspace: its record, tasks and
@@ -374,15 +373,14 @@ Each kind of resource has its own command: `marbles workspaces`, `tasks`, `runs`
 `sessions`, `artifacts` and `sandboxes` support `list` (the default) and `get <id>`,
 with `--workspace <id|dir>` to target another workspace or `--all` to list across
 every workspace (`tasks` also supports `create` and `update`). The dashboard's
-run and trigger lists show this workspace's own (live) and those shared with it,
+run and trigger lists show this workspace's own (live),
 and `g` shows every workspace's; another workspace's runs and triggers are read
 only there, as are its Feed questions.
 
 `<workspace root>/.marbles/` holds links into the database's files for the
 resources a workspace shows: for now, one link per artifact file whose
-bytes a blob file holds, its own artifacts' under `artifacts/<id>/` and
-another workspace's under `artifacts/@<owner>/<id>/`, each name encoded so
-no two collide, case-insensitively too. Nothing reads them back.
+bytes a blob file holds, its own artifacts' under `artifacts/<id>/`, each
+name encoded so no two collide, case-insensitively too. Nothing reads them back.
 `marbles artifacts relink [--all]` makes them match the database: it removes the
 links Marbles made that no longer should be there and makes the missing
 ones, leaving anything else (a file, a link of your own) and reporting it.
@@ -392,9 +390,8 @@ file or elsewhere refuses that link, reported, and what was just made
 through a directory that moved meanwhile is removed again. A process that
 can write in your workspace can still swap a directory in the moment
 between a check and the change after it; nothing in the runtime closes
-that window. Once a workspace has links, they follow each artifact write
-after it lands, in the artifact's owner and every workspace it is shared
-with; a link that cannot be made is reported, never failing the write,
+that window. Once a workspace has links, they follow each of its artifact
+writes after it lands; a link that cannot be made is reported, never failing the write,
 and `marbles artifacts relink` repairs it. A closing engine takes no new link work and
 waits for the updates its writes queued; after five seconds it gives up
 those still waiting for a `.marbles/.lock` or their turn, reporting them
@@ -403,7 +400,7 @@ leaves links as they were or made, never half made. The five seconds are
 no deadline: a read of the database under way is waited for however long
 it takes, and only a generation's stop timeout bounds the close. A write
 that lands once the close has begun has its links left for `relink`,
-reported once. Every rebuild and update, in any process, holds
+reported once. Every update, in any process, holds
 `.marbles/.lock` and reads what each link should be from the database
 under it, so concurrent ones converge on what the database holds. A file
 the database holds inline (or in chunks), or whose name is too long for

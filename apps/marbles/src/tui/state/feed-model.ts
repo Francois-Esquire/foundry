@@ -85,9 +85,7 @@ export function scopedFeed(
 ): readonly FeedEntrySnapshot[] {
   return scope === ALL_WORKSPACES
     ? entries
-    : entries.filter((entry) =>
-        (entry.workspaces ?? [entry.workspace.id]).includes(scope)
-      );
+    : entries.filter((entry) => entry.workspace.id === scope);
 }
 
 export interface FeedModel {

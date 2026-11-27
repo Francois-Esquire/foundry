@@ -37,11 +37,6 @@ export function otherWorkspaces(
     database,
     scope: ALL_WORKSPACES,
   });
-  const here = new ResourceView({
-    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
-    database,
-    scope: { workspace },
-  });
   let last: { readonly at: number; readonly read: OtherWorkspaces } | undefined;
 
   async function read(now: number): Promise<OtherWorkspaces> {
@@ -53,26 +48,10 @@ export function otherWorkspaces(
     );
     const ownerOf = (id: string): OwnerWorkspace =>
       owners.get(id) ?? { id, name: id };
-    const shared = await here.sharedRuns();
-    const seen = new Set(
-      shared.map(({ ref }) => `${ref.owner}\u0000${ref.id}`)
-    );
-    const others = (await view.runs(RUNS)).filter(
-      ({ ref }) =>
-        ref.owner !== workspace && !seen.has(`${ref.owner}\u0000${ref.id}`)
-    );
-    const runs = [...shared, ...others]
-      .sort(
-        (a, b) =>
-          b.value.record.timestamps.createdAt -
-          a.value.record.timestamps.createdAt
-      )
-      .map(({ ref, value, workspaces }) =>
-        ownedElsewhere(
-          storedRunSnapshot(value.record, now),
-          ownerOf(ref.owner),
-          workspaces
-        )
+    const runs = (await view.runs(RUNS))
+      .filter(({ ref }) => ref.owner !== workspace)
+      .map(({ ref, value }) =>
+        ownedElsewhere(storedRunSnapshot(value.record, now), ownerOf(ref.owner))
       );
     const triggers: TriggerSnapshot[] = [];
     for (const owner of owners.values()) {
@@ -101,11 +80,7 @@ export function otherWorkspaces(
   };
 }
 
-function ownedElsewhere(
-  run: RunSnapshot,
-  owner: OwnerWorkspace,
-  workspaces: readonly string[]
-): RunSnapshot {
+function ownedElsewhere(run: RunSnapshot, owner: OwnerWorkspace): RunSnapshot {
   return {
     ...run,
     ...(run.logs === undefined
@@ -118,7 +93,6 @@ function ownedElsewhere(
         }),
     name: `${run.name} · ${owner.name}`,
     workspace: owner,
-    ...(workspaces.length > 1 ? { workspaces } : {}),
   };
 }
 

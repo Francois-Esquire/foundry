@@ -235,24 +235,22 @@ Source responsibilities and dependency boundaries:
   package's tables directly. `stores.ts` is a workspace's artifacts,
   sandbox containers and workspace catalogue: each package's SQLite store
   scoped by the workspace id, handed over as the package makes it, with
-  the recorder's hook alone, but the artifact store's, which also removes
-  a deleted artifact's shares, as the run store's does a Run's; each
+  the recorder's hook alone; each
   container row names its holder itself, which Marbles makes its process
   identity (`lib/sandbox/holders.ts`), so a start takes back the rows a
   gone process left. `artifact-links.ts` (`keepingLinks`, over
   `followingCommits`) follows the engine's artifact commits, after they
-  land, nested transactions included, to keep each linked workspace's
+  land, nested transactions included, to keep the owning workspace's
   links (`links.ts`) current, and the engine `createEngine` builds over it
   drains those updates (`drainLinks`, giving up after a bound only what
   waits: updates not begun, or waiting for a links lock) once disposed,
-  before its host closes the database; `links.ts` is the one routine a rebuild and
-  an update share, which reconciles disk with the database under
+  before its host closes the database; `links.ts` is the routine an update runs,
+  which reconciles an artifact's links with the database under
   `.marbles/.lock`, reading the database there, and checks each directory
   (`lstat` and `realpath` inside `.marbles`) right before each change and
   again after each creation; a writer in the workspace can still win the
   window between a check and a call. `keepingLinks` refuses a host-bound
-  store. Shares are checked and written in one transaction
-  (`associationTransaction`). Artifact blob files stay on disk, under
+  store. Artifact blob files stay on disk, under
   `<artifacts>/workspaces/<id>/blobs`. `runs.ts` is a workspace's run queue: `@foundry/queue`'s
   `SqliteQueueStore` scoped by the workspace id, whose `onCommit` hook
   files beside each workflow Run it puts Marbles' row in
@@ -288,11 +286,9 @@ Source responsibilities and dependency boundaries:
   process that keeps no handle open. Its settings may hold secrets: `initializeDatabase` keeps
   the database file and its side files mode 0600, and nothing the provider
   store throws quotes a setting.
-  `associations.ts` keeps which workspaces other than its owner each
-  resource is shared with (`marbles_resource_workspaces`), under the rules
-  `ResourceAssociations` in `lib/resources.ts` states; `resources.ts`
+  `resources.ts`
   (`ResourceView`) is what a workspace shows of the resources every
-  package store keeps, its own and those shared with it, or every
+  package store keeps, its own or every
   workspace's, each read through its owner's package store, leaving out
   what another workspace whose `<state>/<id>` is a link owns, as the
   registry does. `status`, the

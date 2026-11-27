@@ -39,7 +39,6 @@ export interface FeedEntrySnapshot {
   readonly step: string;
   readonly title: string;
   readonly workspace: { readonly id: string; readonly name: string };
-  readonly workspaces?: readonly string[];
 }
 
 export type FeedReader = (now?: Date) => Promise<FeedEntrySnapshot[]>;

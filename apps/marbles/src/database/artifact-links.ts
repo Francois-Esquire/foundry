@@ -3,14 +3,12 @@ import type {
   ArtifactStoreWrite,
 } from "@foundry/artifacts/store";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
-import { DatabaseAssociationStore } from "~/database/associations";
 import { relinkArtifact } from "~/database/links";
 import type { ArtifactFile } from "~/database/resources";
-import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
+import { ResourceView } from "~/database/resources";
 import type { StoreDatabase } from "~/database/types";
 import { WorkspaceRegistry } from "~/database/workspaces";
-import type { ResourceAssociation, ResourceRef } from "~/lib/resources";
-import { sameResource } from "~/lib/resources";
+import type { ResourceRef } from "~/lib/resources";
 import { insideState } from "~/lib/state/workspace";
 
 export interface KeptLinksOptions {
@@ -244,57 +242,35 @@ async function relinkTouched(
     acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
     database,
   }).list();
-  const view = new ResourceView({
-    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
-    database,
-    scope: ALL_WORKSPACES,
-  });
-  const shares = new DatabaseAssociationStore({ database });
-  let listedAhead: Promise<readonly ResourceAssociation[]> | undefined;
-  const sharesAhead = () => {
-    listedAhead ??= shares.list("artifact").catch((error: unknown) => {
-      listedAhead = undefined;
-      throw error;
-    });
-    return listedAhead;
-  };
+  const record = records.find((each) => each.id === owner);
+  if (record === undefined) {
+    return;
+  }
+  const view = new ResourceView({ database, scope: { workspace: owner } });
   for (const id of ids) {
     const ref: ResourceRef = { id, kind: "artifact", owner };
-    for (const record of records) {
-      let ahead = true;
-      const files = async (): Promise<readonly ArtifactFile[]> => {
-        live();
-        const first = ahead;
-        ahead = false;
-        const shown =
-          record.id === owner ||
-          (await (first ? sharesAhead() : shares.list("artifact"))).some(
-            (share) =>
-              sameResource(share.ref, ref) && share.workspace === record.id
-          );
-        live();
-        return shown ? view.artifactFiles(ref) : [];
-      };
-      try {
-        const done = await relinkArtifact({
-          artifacts,
-          files,
-          ref,
-          root: record.root,
-          signal,
-          workspace: record.id,
-        });
-        for (const path of done?.refused ?? []) {
-          report(
-            `[links] ${record.root}: ${path} goes through a link, a file or a path outside .marbles; artifact ${id} is not linked there`
-          );
-        }
-      } catch (error) {
-        if (error instanceof LinksAbandoned) {
-          throw error;
-        }
-        failed(`the links of artifact ${id} in ${record.root}`, error);
+    const files = (): Promise<readonly ArtifactFile[]> => {
+      live();
+      return view.artifactFiles(ref);
+    };
+    try {
+      const done = await relinkArtifact({
+        artifacts,
+        files,
+        ref,
+        root: record.root,
+        signal,
+      });
+      for (const path of done?.refused ?? []) {
+        report(
+          `[links] ${record.root}: ${path} goes through a link, a file or a path outside .marbles; artifact ${id} is not linked there`
+        );
       }
+    } catch (error) {
+      if (error instanceof LinksAbandoned) {
+        throw error;
+      }
+      failed(`the links of artifact ${id} in ${record.root}`, error);
     }
   }
 }

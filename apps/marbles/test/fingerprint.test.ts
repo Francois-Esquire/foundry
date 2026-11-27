@@ -1,8 +1,7 @@
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { rebuildLinks, relinkArtifact } from "~/database/links";
-import type { ResourceView } from "~/database/resources";
+import { relinkArtifact } from "~/database/links";
 import {
   FileDigests,
   fingerprintOf,
@@ -136,11 +135,13 @@ describe("a workspace's links", () => {
     const digest = () => sourceDigests(records, new Map()).get("w");
     const before = digest();
     const ref = { id: "notes", kind: "artifact", owner: "w" } as const;
-    const view = {
-      artifactFiles: () => Promise.resolve([{ blob: "old", path: "a.md" }]),
-      artifacts: () => Promise.resolve([{ ref }]),
-    } as unknown as ResourceView;
-    await rebuildLinks({ artifacts, root, view, workspace: "w" });
+    mkdirSync(join(root, ".marbles"));
+    await relinkArtifact({
+      artifacts,
+      files: [{ blob: "old", path: "a.md" }],
+      ref,
+      root,
+    });
     expect(
       existsSync(join(root, ".marbles", "artifacts", "notes", "a.md"))
     ).toBe(true);
@@ -150,10 +151,9 @@ describe("a workspace's links", () => {
       files: [{ blob: "new", path: "a.md" }],
       ref,
       root,
-      workspace: "w",
     });
     expect(digest()).toBe(before);
-    await relinkArtifact({ artifacts, files: [], ref, root, workspace: "w" });
+    await relinkArtifact({ artifacts, files: [], ref, root });
     expect(existsSync(join(root, ".marbles", "artifacts", "notes"))).toBe(
       false
     );

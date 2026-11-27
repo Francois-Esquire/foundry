@@ -6,7 +6,6 @@ import { queueJobs } from "@foundry/queue/store/tables";
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { z } from "zod";
-import { removeShares } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { removeAnnexes } from "~/database/executions";
@@ -67,7 +66,6 @@ export class DatabaseRunStore implements RunStore {
           runEventsOf(await this.#workflowEvents(transaction, write)),
           causes.get(write) ?? null
         );
-        await removeShares(transaction, "run", this.#scope, deleted);
         await removeAnnexes(transaction, this.#scope, deleted);
       },
       scope: this.#scope,

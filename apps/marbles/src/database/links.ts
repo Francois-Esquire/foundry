@@ -14,7 +14,7 @@ import { dirname, join, normalize, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/node/atomic-file";
 import { FileLockTimeoutError, tryFileLock } from "@foundry/lib/node/file-lock";
 import { artifactBlobs } from "~/database/local-artifacts";
-import type { ArtifactFile, ResourceView } from "~/database/resources";
+import type { ArtifactFile } from "~/database/resources";
 import { workspaceLinks } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
 
@@ -31,7 +31,6 @@ export class LinksPlacementError extends Error {
 
 const ARTIFACTS_DIR = "artifacts";
 const LOCK_FILE = ".lock";
-const SHARED_PREFIX = "@";
 const NAME_BYTES = 255;
 const LOCK_WAIT_MS = 60_000;
 const LOCK_RETRY_MS = 10;
@@ -54,45 +53,6 @@ function escaped(character: string): string {
     .join("");
 }
 
-export function artifactPlace(
-  ref: ResourceRef,
-  workspace: string
-): readonly string[] {
-  return ref.owner === workspace
-    ? [linkName(ref.id)]
-    : [`${SHARED_PREFIX}${linkName(ref.owner)}`, linkName(ref.id)];
-}
-
-export interface RebuildLinksOptions {
-  readonly artifacts: string;
-  readonly root: string;
-  readonly view: ResourceView;
-  readonly workspace: string;
-}
-
-const REBUILD_ROUNDS = 3;
-
-export async function rebuildLinks(
-  options: RebuildLinksOptions
-): Promise<LinksReport> {
-  const { artifacts, root, view, workspace } = options;
-  const tree = new LinkTree(root, artifacts);
-  await tree.open(true);
-  return tree.locked(async () => {
-    let wanted = await wantedLinks(view, workspace, artifacts);
-    let report = emptyReport();
-    for (let round = 0; round < REBUILD_ROUNDS; round += 1) {
-      report = await tree.reconcile([], wanted, new Map());
-      const again = await wantedLinks(view, workspace, artifacts);
-      if (sameLinks(again.links, wanted.links)) {
-        break;
-      }
-      wanted = again;
-    }
-    return report;
-  });
-}
-
 export interface RelinkArtifactOptions {
   readonly artifacts: string;
   readonly files:
@@ -101,21 +61,20 @@ export interface RelinkArtifactOptions {
   readonly ref: ResourceRef;
   readonly root: string;
   readonly signal?: AbortSignal;
-  readonly workspace: string;
 }
 
 export async function relinkArtifact(
   options: RelinkArtifactOptions
 ): Promise<LinksReport | undefined> {
-  const { artifacts, files, ref, root, signal, workspace } = options;
+  const { artifacts, files, ref, root, signal } = options;
   signal?.throwIfAborted();
   const tree = new LinkTree(root, artifacts);
-  if (!(await tree.open(false))) {
+  if (!(await tree.open())) {
     return;
   }
   const read =
     typeof files === "function" ? files : () => Promise.resolve(files);
-  const place = artifactPlace(ref, workspace);
+  const place = [linkName(ref.id)];
   const ahead = linksOf(place, artifacts, ref, await read());
   signal?.throwIfAborted();
   const prepared = await tree.prepare(ahead.links);
@@ -142,28 +101,6 @@ interface WantedLink {
 interface Wanted {
   readonly links: ReadonlyMap<string, WantedLink>;
   readonly unlinkable: number;
-}
-
-async function wantedLinks(
-  view: ResourceView,
-  workspace: string,
-  artifacts: string
-): Promise<Wanted> {
-  const links = new Map<string, WantedLink>();
-  let unlinkable = 0;
-  for (const { ref } of await view.artifacts()) {
-    const one = linksOf(
-      artifactPlace(ref, workspace),
-      artifacts,
-      ref,
-      await view.artifactFiles(ref)
-    );
-    for (const [key, link] of one.links) {
-      links.set(key, link);
-    }
-    unlinkable += one.unlinkable;
-  }
-  return { links, unlinkable };
 }
 
 function linksOf(
@@ -206,20 +143,6 @@ function isSegment(name: string): boolean {
   );
 }
 
-function sameLinks(
-  a: ReadonlyMap<string, WantedLink>,
-  b: ReadonlyMap<string, WantedLink>
-): boolean {
-  return (
-    a.size === b.size &&
-    [...a].every(([key, link]) => b.get(key)?.target === link.target)
-  );
-}
-
-function emptyReport(): LinksReport {
-  return { kept: [], linked: 0, refused: [], unlinkable: 0 };
-}
-
 class Refused extends Error {}
 
 interface Tally {
@@ -245,15 +168,11 @@ class LinkTree {
     this.#ours = `${join(resolve(artifacts), "workspaces")}${sep}`;
   }
 
-  async open(create: boolean): Promise<boolean> {
-    const top = await lstatOrUndefined(this.#top);
-    if (top === undefined && !create) {
+  async open(): Promise<boolean> {
+    if ((await lstatOrUndefined(this.#top)) === undefined) {
       return false;
     }
     try {
-      if (top === undefined) {
-        await makeDirectory(this.#top);
-      }
       const realRoot = await filesystem.realpath(this.#root);
       const found = await lstat(this.#top);
       const realTop = await filesystem.realpath(this.#top);
