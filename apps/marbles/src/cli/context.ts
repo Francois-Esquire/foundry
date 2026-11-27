@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
-import type { Hosted, TaskRunner } from "~/access/workspace";
-import { attachToProcess, withTasks } from "~/access/workspace";
-import { resolveWorkspaceTarget } from "~/cli/resources/commands";
+import { resolveWorkspaceTarget } from "~/cli/resource-runner";
 import type { Triggers } from "~/create";
 import { type Layout, layout as resolveLayout } from "~/layout";
+import type { Hosted, TaskRunner } from "~/process/access";
+import { attachToProcess, withTasks } from "~/process/access";
 import type { HostOptions, OpenedWorkspace } from "~/workspace/open";
 import {
   findWorkspace,

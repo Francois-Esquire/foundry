@@ -5,9 +5,9 @@ import type {
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { relinkArtifact } from "~/database/links";
-import type { StoreDatabase } from "~/database/open";
 import type { ArtifactFile } from "~/database/resources";
 import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
+import type { StoreDatabase } from "~/database/types";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { ResourceAssociation, ResourceRef } from "~/lib/resources";
 import { sameResource } from "~/lib/resources";

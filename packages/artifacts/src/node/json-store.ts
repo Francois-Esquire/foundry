@@ -1,11 +1,16 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { Page } from "@foundry/core/pagination";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { Turns } from "@foundry/lib/turns";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
-import { ownedListQuery } from "../listing";
+import {
+  ownedBlobPageQuery,
+  ownedContentPageQuery,
+  ownedListQuery,
+} from "../listing";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
   ArtifactListing,
@@ -13,7 +18,10 @@ import type {
   ArtifactStore,
   ArtifactStoreWrite,
   BlobListing,
+  BlobPageQuery,
   BlobReferences,
+  ContentLookup,
+  ContentPageQuery,
 } from "../store";
 import { MemoryArtifactStore } from "../store/memory";
 import { ownedWrite } from "../store/owned";
@@ -80,6 +88,17 @@ export class JsonArtifactStore implements ArtifactStore {
         findBlobByPath: (path) =>
           read((records) => records.findBlobByPath(path)),
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
+        findContent: (artifactId, by) => {
+          let owned: ContentLookup;
+          try {
+            owned = ownedContentLookup(by);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.findContent(artifactId, owned));
+        },
+        findContentByTag: (artifactId, tag) =>
+          read((records) => records.findContentByTag(artifactId, tag)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
         getBlob: (id) => read((records) => records.getBlob(id)),
@@ -94,8 +113,26 @@ export class JsonArtifactStore implements ArtifactStore {
           return read((records) => records.listArtifacts(owned));
         },
         listBlobs: () => read((records) => records.listBlobs()),
+        listBlobsPage: (query) => {
+          let owned: BlobPageQuery;
+          try {
+            owned = ownedBlobPageQuery(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.listBlobsPage(owned));
+        },
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
+        listContentsPage: (query) => {
+          let owned: ContentPageQuery;
+          try {
+            owned = ownedContentPageInput(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.listContentsPage(owned));
+        },
       };
       try {
         const result = await work(view);
@@ -116,6 +153,21 @@ export class JsonArtifactStore implements ArtifactStore {
 
   async findBlobs(digest: string): Promise<readonly Blob[]> {
     return (await this.#current()).findBlobs(digest);
+  }
+
+  async findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    const owned = ownedContentLookup(by);
+    return (await this.#current()).findContent(artifactId, owned);
+  }
+
+  async findContentByTag(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null> {
+    return (await this.#current()).findContentByTag(artifactId, tag);
   }
 
   async findReferences(id: BlobId): Promise<BlobReferences> {
@@ -143,8 +195,22 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).listBlobs();
   }
 
+  async listBlobsPage(
+    query?: BlobPageQuery
+  ): Promise<Page<BlobListing, BlobId>> {
+    const owned = ownedBlobPageQuery(query);
+    return (await this.#current()).listBlobsPage(owned);
+  }
+
   async listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return (await this.#current()).listContents(artifactId);
+  }
+
+  async listContentsPage(
+    query?: ContentPageQuery
+  ): Promise<Page<Content, ContentId>> {
+    const owned = ownedContentPageInput(query);
+    return (await this.#current()).listContentsPage(owned);
   }
 
   #locked<T>(work: () => Promise<T>): Promise<T> {
@@ -185,6 +251,23 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#version = version;
     return this.#memory;
   }
+}
+
+function ownedContentLookup(by: ContentLookup): ContentLookup {
+  return { messageId: by.messageId, sessionId: by.sessionId };
+}
+
+function ownedContentPageInput(
+  query: ContentPageQuery | undefined
+): ContentPageQuery {
+  const owned = ownedContentPageQuery(query);
+  return {
+    ...(owned.artifactId === undefined ? {} : { artifactId: owned.artifactId }),
+    ...(owned.cursor === undefined ? {} : { cursor: owned.cursor }),
+    limit: owned.limit,
+    ...(owned.states === undefined ? {} : { state: [...owned.states] }),
+    ...(owned.tagged === undefined ? {} : { tagged: owned.tagged }),
+  };
 }
 
 async function fileVersion(path: string): Promise<string | undefined> {

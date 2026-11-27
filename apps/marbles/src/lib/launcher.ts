@@ -1,7 +1,6 @@
 import { AsyncResource } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import type { ProcessIdentity } from "@foundry/lib/node/process-identity";
-import { sameProcess } from "@foundry/lib/node/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import { sameProcess } from "@foundry/lib/process-identity";
 import type { Job, RecoverySummary, RunOutcome } from "@foundry/queue";
 import type { QueueHandlerContext } from "@foundry/queue/client";
 import type { Container } from "@foundry/sandbox";
@@ -242,7 +241,7 @@ export class Launcher {
     if (existing !== undefined) {
       return existing as Launched<O>;
     }
-    const runId = `rn-${randomUUID()}`;
+    const runId = `rn-${crypto.randomUUID()}`;
     const submit = submitOptionsOf(
       runId,
       idempotencyKey,
@@ -760,7 +759,7 @@ export class Launcher {
           id,
           {
             ...observation,
-            id: observation.id ?? randomUUID(),
+            id: observation.id ?? crypto.randomUUID(),
             startedAt: observation.startedAt ?? new Date().toISOString(),
             status: observation.status ?? "complete",
           },

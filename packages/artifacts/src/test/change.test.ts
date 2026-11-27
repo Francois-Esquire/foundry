@@ -111,6 +111,33 @@ describe.each(STORE_KINDS)("%s store: Artifact change rules", (kind) => {
     reading.settle();
     await expect(reading.getArtifact(artifact.id)).rejects.toThrow("settled");
   });
+
+  it("finds another stored Content sharing a tag when the first match is excluded or shadowed", async () => {
+    const { artifact, content, store } = await seeded(kind);
+    const first = { ...content, tag: "v1" };
+    const second = {
+      ...content,
+      id: crypto.randomUUID() as typeof content.id,
+      tag: "v1",
+    };
+    await store.commit({ putContents: [first, second] });
+
+    const firstMatched = required(
+      await store.findContentByTag?.(artifact.id, "v1")
+    );
+    const other = firstMatched.id === first.id ? second : first;
+
+    const excluding = ArtifactChange.begin(store, { readOnly: true });
+    expect(
+      (await excluding.findContentByTag(artifact.id, "v1", firstMatched.id))?.id
+    ).toBe(other.id);
+
+    const shadowing = ArtifactChange.begin(store, {});
+    await shadowing.putContent({ ...firstMatched, tag: null });
+    expect((await shadowing.findContentByTag(artifact.id, "v1"))?.id).toBe(
+      other.id
+    );
+  });
 });
 
 describe.each(STORE_KINDS)("%s store: Artifact change listings", (kind) => {

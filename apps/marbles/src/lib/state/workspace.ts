@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { sha256HexSync } from "~/lib/hash";
 
 export interface Workspace {
   readonly dir: string;
@@ -20,7 +20,7 @@ export interface WorkspaceRecord {
 
 export function workspaceState(state: string, root: string): Workspace {
   const canonical = realpathSync(root);
-  const id = createHash("sha256").update(canonical).digest("hex").slice(0, 12);
+  const id = sha256HexSync(canonical).slice(0, 12);
   return workspaceAt(state, id, canonical);
 }
 

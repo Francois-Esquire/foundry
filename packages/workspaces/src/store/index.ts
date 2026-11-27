@@ -7,8 +7,20 @@ import type {
   WorkspaceRegistration,
 } from "../schema";
 
+export interface EntryCountQuery {
+  readonly type?: WorkspaceEntry["type"];
+}
+
+export interface EntryPageQuery extends PageInput<number> {
+  readonly type?: WorkspaceEntry["type"];
+}
+
 export interface WorkspaceStore {
   commit: (write: WorkspaceStoreWrite) => Promise<void>;
+  countEntries?: (
+    workspaceId: WorkspaceId,
+    query?: EntryCountQuery
+  ) => Promise<number>;
   findWorkspaceByPath: (path: string) => Promise<WorkspaceRegistration | null>;
   findWorkspaceBySourceId: (
     sourceId: string
@@ -21,6 +33,10 @@ export interface WorkspaceStore {
     workspaceId: WorkspaceId
   ) => Promise<WorkspaceRegistration | null>;
   listEntries: (workspaceId: WorkspaceId) => Promise<readonly WorkspaceEntry[]>;
+  listEntriesPage?: (
+    workspaceId: WorkspaceId,
+    input?: EntryPageQuery
+  ) => Promise<Page<WorkspaceEntry, number>>;
   listWorkspaces: (
     input?: PageInput<number>
   ) => Promise<Page<WorkspaceRegistration, number>>;

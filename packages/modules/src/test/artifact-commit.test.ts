@@ -1,7 +1,10 @@
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { describe, expect, it } from "vitest";
-import { ModuleCrossStoreError } from "../artifact-commit";
+import {
+  assertOwnsArtifactCommit,
+  ModuleCrossStoreError,
+} from "../artifact-commit";
 import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
 import { createModuleManagement } from "../management";
 import { Modules } from "../modules";
@@ -144,5 +147,37 @@ describe("Artifacts on their own", () => {
       source,
     });
     expect(created.idempotent).toBe(false);
+  });
+
+  it("refuses host-durability Artifacts immediately without relying on AsyncLocalStorage", async () => {
+    const store = new MemoryArtifactStore();
+    await store.transaction(async (view) => {
+      const hostArtifacts = new Artifacts({ store: view });
+      expect(hostArtifacts.durability).toBe("host");
+      await expect(
+        assertOwnsArtifactCommit(hostArtifacts, "Module project create")
+      ).rejects.toBeInstanceOf(ModuleCrossStoreError);
+    });
+  });
+
+  it("refuses a substrate that defers afterCommit without relying on AsyncLocalStorage", async () => {
+    const deferred: (() => Promise<void>)[] = [];
+    const joinedSubstrate = {
+      transaction: async <T>(
+        work: (
+          artifacts: never,
+          effects: { afterCommit(effect: () => Promise<void>): void }
+        ) => Promise<T>
+      ) =>
+        work(undefined as never, {
+          afterCommit: (effect) => {
+            deferred.push(effect);
+          },
+        }),
+    };
+    await expect(
+      assertOwnsArtifactCommit(joinedSubstrate, "Module delete")
+    ).rejects.toBeInstanceOf(ModuleCrossStoreError);
+    expect(deferred).toHaveLength(1);
   });
 });

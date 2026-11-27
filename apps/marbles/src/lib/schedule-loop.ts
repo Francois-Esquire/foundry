@@ -1,8 +1,12 @@
 import type { Schedule as StoredSchedule } from "@foundry/scheduling";
-import type { SchedulerClient } from "@foundry/scheduling/client";
-import { createNodeSchedulerClient } from "@foundry/scheduling/node";
+import {
+  createSchedulerClient,
+  type SchedulerClient,
+  type SchedulerClientOptions,
+} from "@foundry/scheduling/client";
 import { ScheduleStore } from "@foundry/scheduling/store";
 import { Layer } from "effect";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { registration } from "~/lib/schedule";
 import { ScheduleDispatcher } from "~/lib/schedule-dispatch";
@@ -13,6 +17,9 @@ const SETTLE_POLL_MS = 1000;
 
 export interface ScheduleLoopOptions {
   readonly cancel?: AbortSignal;
+  readonly claimTtlMs?: number;
+  readonly createClient?: (options: SchedulerClientOptions) => SchedulerClient;
+  readonly liveness?: OwnerLiveness;
   readonly print: (line: string) => void;
   readonly signal: AbortSignal;
 }
@@ -44,8 +51,16 @@ export async function runScheduler(
   });
   const stop = () => dispatcher.stop();
   signal.addEventListener("abort", stop, { once: true });
-  const client = createNodeSchedulerClient({
+  const { liveness } = options;
+  const createClient = options.createClient ?? createSchedulerClient;
+  const client = createClient({
+    ...(options.claimTtlMs === undefined
+      ? {}
+      : { claimTtlMs: options.claimTtlMs }),
     dispatch: dispatcher.layer,
+    ...(liveness === undefined
+      ? {}
+      : { identity: liveness.identity(), isOwnerGone: liveness.isGone }),
     settlePollMs: SETTLE_POLL_MS,
     store: Layer.succeed(ScheduleStore, store),
   });

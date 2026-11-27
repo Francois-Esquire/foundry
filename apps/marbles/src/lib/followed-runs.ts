@@ -4,9 +4,10 @@ import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
 import type { DispatchedRun } from "~/lib/launcher";
 import { observeSteps } from "~/lib/observe";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import type { AttachedWorkflow, RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
-import { RunOutput } from "~/lib/state/output";
+import { RunOutput, type RunOutputSink } from "~/lib/state/output";
 
 export class RunEndedError extends Error {
   override readonly name = "RunEndedError";
@@ -51,6 +52,8 @@ export interface TrackedRun {
 
 export interface FollowedRunsOptions {
   readonly executions: Pick<Executions, "progress">;
+  readonly liveness?: OwnerLiveness;
+  readonly outputSink?: RunOutputSink;
   readonly print: (line: string) => void;
   readonly queue: RunQueue;
   readonly router: FeedRouter;
@@ -177,9 +180,12 @@ export class FollowedRuns {
 
   #opened(followed: Followed): Opened {
     if (followed.opened === undefined) {
-      const { print, router, state } = this.#options;
+      const { liveness, outputSink, print, router, state } = this.#options;
       followed.opened = {
-        output: new RunOutput(state, followed.runId, followed.name, print),
+        output: new RunOutput(state, followed.runId, followed.name, print, {
+          ...(liveness === undefined ? {} : { liveness }),
+          ...(outputSink === undefined ? {} : { sink: outputSink }),
+        }),
         routed: router.observe(followed.name, followed.runId),
       };
     }

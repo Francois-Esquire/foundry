@@ -82,6 +82,7 @@ export { TERMINAL_RUN_STATUSES } from "./run-store";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
 export type { SandboxAuthority } from "./sandbox/session";
+export { FileRunOutputSink } from "./state/output";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,

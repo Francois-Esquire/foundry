@@ -13,20 +13,22 @@ import type { Client } from "@libsql/client";
 import { createClient } from "@libsql/client";
 import { _createClient } from "@libsql/client/sqlite3";
 import { drizzle } from "drizzle-orm/libsql";
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 import { serialClient } from "~/database/client";
 import { guardedClient } from "~/database/guard";
 import {
-  IncompatibleDatabaseError,
   MIGRATIONS,
   migrate,
-  type ShippedMigration,
   schemaState,
   shippedMigrations,
 } from "~/database/migrate";
+import {
+  IncompatibleDatabaseError,
+  type ShippedMigration,
+} from "~/database/migrate-core";
+import type { StoreDatabase } from "~/database/types";
 
-export type StoreDatabase = BaseSQLiteDatabase<"async", unknown>;
+export type { StoreDatabase } from "~/database/types";
 
 export interface MarblesDatabase {
   close(): void;

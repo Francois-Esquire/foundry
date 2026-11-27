@@ -1,7 +1,11 @@
+import type { PageInput } from "@foundry/core/pagination";
+import { pageLimit } from "@foundry/lib/pagination";
 import { isPlainObject } from "@foundry/lib/plain-json";
 import type {
+  InstallationIdPageQuery,
   InstallationListQuery,
   ManifestListQuery,
+  ModuleIdPageQuery,
   ModuleListQuery,
   ModuleStorePageQuery,
   ModuleStoreWrite,
@@ -49,11 +53,16 @@ export function capturedWrite(write: ModuleStoreWrite): ModuleStoreWrite {
   return captured as ModuleStoreWrite;
 }
 
-type AnyListQuery = InstallationListQuery & ManifestListQuery & ModuleListQuery;
+type AnyListQuery = InstallationIdPageQuery &
+  InstallationListQuery &
+  ManifestListQuery &
+  ModuleIdPageQuery &
+  ModuleListQuery;
 
 const QUERY_PROPERTIES = {
   after: true,
   artifactId: true,
+  cursor: true,
   limit: true,
   moduleId: true,
 } as const satisfies Record<keyof AnyListQuery, true>;
@@ -246,4 +255,17 @@ export function ownedQuery<Q extends ModuleStorePageQuery>(query: Q): Q {
     );
   }
   return owned;
+}
+
+export function ownedIdPageQuery<Q extends PageInput<string>>(
+  query: Q
+): Q & { readonly limit: number } {
+  const owned = structuredClone(query);
+  if (owned.cursor !== undefined && typeof owned.cursor !== "string") {
+    throw new RangeError("Page cursor is invalid");
+  }
+  return {
+    ...owned,
+    limit: pageLimit(owned.limit),
+  };
 }

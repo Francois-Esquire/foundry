@@ -7,7 +7,7 @@ import { marblesMonitorStates } from "~/database/tables";
 import { readStoredSchedules } from "~/database/triggers";
 import { stateDatabase } from "~/layout";
 import { runStoreEffect } from "~/lib/workflow-runs";
-import { readStatus } from "~/status/model";
+import { readStatus } from "~/process/status";
 import { otherWorkspaces } from "~/workspace/others";
 import { seedWorkspace } from "./helpers/registry";
 import { seedSchedules } from "./helpers/stored-runs";

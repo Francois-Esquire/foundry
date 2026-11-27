@@ -1,7 +1,7 @@
 import { eq, lt, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
 import { marblesHarnessActivities } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import type { ActivityRecord, ActivityStore } from "~/lib/sandbox/activities";
 import { activityRecordSchema } from "~/lib/sandbox/activities";
 

@@ -3,6 +3,7 @@ import type { Page, PageInput } from "@foundry/core/pagination";
 import { type CommitEffects, runAfterCommit } from "@foundry/core/storage";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { byCodeUnit } from "@foundry/lib/ordering";
+import { pageLimit } from "@foundry/lib/pagination";
 import { ReentrantCallError, Turns } from "@foundry/lib/turns";
 
 import type {
@@ -291,16 +292,29 @@ export class Modules {
 
   async listModules(input: PageInput = {}): Promise<Page<Module>> {
     const owned = ownedInput<PageInput>(input, PAGE);
-    return await this.#consistent(async (store) =>
-      page(
+    return await this.#consistent(async (store) => {
+      const { listModulesPage } = store;
+      if (listModulesPage !== undefined) {
+        const result = await mapPageErrors(() =>
+          listModulesPage.call(store, {
+            ...(owned.cursor === undefined ? {} : { cursor: owned.cursor }),
+            limit: pageLimit(owned.limit, { max: 100 }),
+          })
+        );
+        return Object.freeze({
+          ...result,
+          items: Object.freeze(result.items.map(copyModule)),
+        });
+      }
+      return page(
         (await everything((query) => store.listModules(query))).sort(
           byCodeUnit((module) => module.id)
         ),
         owned,
         (module) => module.id,
         copyModule
-      )
-    );
+      );
+    });
   }
 
   async deleteModule(input: DeleteModuleInput): Promise<void> {
@@ -336,8 +350,26 @@ export class Modules {
       input,
       { ...PAGE, moduleId: "value" }
     );
-    return await this.#consistent(async (store) =>
-      page(
+    return await this.#consistent(async (store) => {
+      const { listInstallationsPage } = store;
+      if (listInstallationsPage !== undefined) {
+        const result = await mapPageErrors(() =>
+          listInstallationsPage.call(store, {
+            ...(pageInput.cursor === undefined
+              ? {}
+              : { cursor: pageInput.cursor }),
+            limit: pageLimit(pageInput.limit, { max: 100 }),
+            ...(moduleId === undefined ? {} : { moduleId }),
+          })
+        );
+        return Object.freeze({
+          ...result,
+          items: Object.freeze(
+            result.items.map((stored) => copyInstallation(stored.installation))
+          ),
+        });
+      }
+      return page(
         (
           await everything((query) =>
             store.listInstallations(
@@ -350,8 +382,8 @@ export class Modules {
         pageInput,
         (installation) => installation.id,
         copyInstallation
-      )
-    );
+      );
+    });
   }
 
   async createInstallation(
@@ -737,6 +769,7 @@ function withoutTransaction(
   view: ModuleStore,
   durability: ModuleStoreDurability
 ): ModuleStore {
+  const { listInstallationsPage, listModulesPage } = view;
   return {
     commit: (write) => view.commit(write),
     durability: view.durability ?? durability,
@@ -744,9 +777,31 @@ function withoutTransaction(
     getManifest: (contentId) => view.getManifest(contentId),
     getModule: (id) => view.getModule(id),
     listInstallations: (query) => view.listInstallations(query),
+    ...(listInstallationsPage === undefined
+      ? {}
+      : {
+          listInstallationsPage: (query) =>
+            listInstallationsPage.call(view, query),
+        }),
     listManifests: (query) => view.listManifests(query),
     listModules: (query) => view.listModules(query),
+    ...(listModulesPage === undefined
+      ? {}
+      : {
+          listModulesPage: (query) => listModulesPage.call(view, query),
+        }),
   };
+}
+
+async function mapPageErrors<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof RangeError) {
+      throw new ModuleStoreConflictError(error.message, { cause: error });
+    }
+    throw error;
+  }
 }
 
 async function everything<T>(

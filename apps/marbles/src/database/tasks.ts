@@ -1,13 +1,10 @@
-import { randomUUID } from "node:crypto";
-import { sameProcess, thisProcess } from "@foundry/lib/node/process-identity";
+import { sameProcess } from "@foundry/lib/process-identity";
 import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
 import { and, eq } from "drizzle-orm";
-import { aroundCalls } from "~/database/busy";
+import { aroundCalls, busyError } from "~/database/busy";
 import { ChangeRecorder, DatabaseChangeLog } from "~/database/changes";
-import { busyError } from "~/database/client";
-import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import {
   CHANGED,
@@ -18,6 +15,7 @@ import {
   sameOwnerColumns,
 } from "~/database/owner";
 import { marblesDeliveryClaims } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import type { HostDatabaseOptions } from "~/database/workspaces";
 import { writeAsHost } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
@@ -25,6 +23,8 @@ import type { ChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { RecordsGate } from "~/lib/events/records";
 import { sourceKey, TASKS } from "~/lib/events/source";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 
 const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 
@@ -35,6 +35,7 @@ export class TaskStorageError extends Error {
 export interface DatabaseWorkspaceRecordsOptions {
   readonly changes?: ChangeRecorder;
   readonly database: StoreDatabase;
+  readonly liveness?: OwnerLiveness;
   readonly scope: string;
 }
 
@@ -44,7 +45,8 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   readonly changes: ChangeRecorder;
   readonly #database: StoreDatabase;
   readonly #scope: string;
-  readonly #owner = randomUUID();
+  readonly #liveness: OwnerLiveness;
+  readonly #owner = crypto.randomUUID();
   #claimed = false;
   readonly #gate = new RecordsGate();
 
@@ -52,6 +54,7 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     const { database, scope } = options;
     this.#database = database;
     this.#scope = scope;
+    this.#liveness = options.liveness ?? NODE_OWNER_LIVENESS;
     const changes = options.changes ?? new ChangeRecorder(scope);
     if (changes.scope !== scope) {
       throw new Error(
@@ -141,7 +144,7 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
       (seen) =>
         seen === undefined || seen.ownerId === this.#owner
           ? null
-          : heldBy(seen),
+          : heldBy(seen, this.#liveness),
       (seen, holder) =>
         this.#database.transaction(
           async (transaction): Promise<string | undefined | typeof CHANGED> => {
@@ -149,11 +152,11 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
               return CHANGED;
             }
             if (holder !== null) {
-              return sameProcess(holder, thisProcess())
+              return sameProcess(holder, this.#liveness.identity())
                 ? "another engine in this process"
                 : `pid ${String(holder.pid)}`;
             }
-            const owner = ownedHere(this.#owner);
+            const owner = ownedHere(this.#owner, this.#liveness);
             await transaction
               .insert(marblesDeliveryClaims)
               .values({ ...owner, scope: this.#scope })

@@ -3,9 +3,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect } from "vitest";
 import { z } from "zod";
-import { NotHostedError } from "~/access/workspace";
 import type { McpServerOptions } from "~/mcp/resources";
 import { createMcpServer } from "~/mcp/server";
+import { NotHostedError } from "~/model/errors";
 
 export type ToolResult = z.infer<typeof CallToolResultSchema>;
 

@@ -10,7 +10,7 @@ import { temporaryDirectory } from "./helpers/temporary";
 
 const shown = vi.hoisted(() => ({ backgrounds: [] as string[] }));
 
-vi.mock("~/tui/status/view", async () => {
+vi.mock("~/tui/views/status", async () => {
   const { theme } = await import("~/components/ui/theme");
   return {
     showStatus: () => {

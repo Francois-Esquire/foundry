@@ -1,18 +1,17 @@
-import {
-  isGone,
-  type ProcessIdentity,
-} from "@foundry/lib/node/process-identity";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import type { JobOutcome, Occurrence } from "@foundry/scheduling";
 import type { ScheduleStoreService } from "@foundry/scheduling/store";
 import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { readExecution } from "~/database/executions";
-import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesMonitorStates } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { stateDatabase } from "~/layout";
 import { RecordsGate } from "~/lib/events/records";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { outcomeOf, scheduledTarget } from "~/lib/schedule";
 import { refusedAt } from "~/lib/schedule-dispatch";
 import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
@@ -153,13 +152,17 @@ interface LatestOutcome {
 
 const isoOf = (at: number) => new Date(at).toISOString();
 
-const liveOwner = (owner: ProcessIdentity | undefined): number | null =>
-  owner === undefined || isGone(owner) ? null : owner.pid;
+const liveOwner = (
+  owner: ProcessIdentity | undefined,
+  liveness: OwnerLiveness
+): number | null =>
+  owner === undefined || liveness.isGone(owner) ? null : owner.pid;
 
 async function latestOutcomeOf(
   database: StoreDatabase,
   scope: string,
-  occurrence: Occurrence | undefined
+  occurrence: Occurrence | undefined,
+  liveness: OwnerLiveness
 ): Promise<LatestOutcome> {
   if (occurrence === undefined) {
     return { running: null };
@@ -173,7 +176,7 @@ async function latestOutcomeOf(
     };
   }
   if (state.kind === "claimed") {
-    return { running: liveOwner(state.lease.owner) };
+    return { running: liveOwner(state.lease.owner, liveness) };
   }
   if (state.kind !== "dispatched") {
     return { running: null };
@@ -192,7 +195,7 @@ async function latestOutcomeOf(
   }
   const outcome = outcomeOf(run.status);
   return outcome === undefined
-    ? { running: liveOwner(run.owner) }
+    ? { running: liveOwner(run.owner, liveness) }
     : {
         lastSettledAt: run.timestamps.settledAt ?? run.timestamps.updatedAt,
         lastStatus: outcome,
@@ -202,12 +205,13 @@ async function latestOutcomeOf(
 
 export async function readStoredSchedules(
   state: string,
-  scope: string
+  scope: string,
+  liveness: OwnerLiveness = NODE_OWNER_LIVENESS
 ): Promise<readonly ScheduleSnapshot[]> {
   return (
     (await asBusy(() =>
       readDatabase(stateDatabase(state), (database) =>
-        storedSchedules(database, scope)
+        storedSchedules(database, scope, liveness)
       )
     )) ?? []
   );
@@ -215,7 +219,8 @@ export async function readStoredSchedules(
 
 export function storedSchedules(
   database: StoreDatabase,
-  scope: string
+  scope: string,
+  liveness: OwnerLiveness = NODE_OWNER_LIVENESS
 ): Promise<readonly ScheduleSnapshot[]> {
   return asBusy(async () => {
     const store = makeSqliteScheduleStore({ database, scope });
@@ -245,7 +250,8 @@ export function storedSchedules(
       const latest = await latestOutcomeOf(
         database,
         scope,
-        occurrences.filter((each) => each.state.kind !== "skipped").at(-1)
+        occurrences.filter((each) => each.state.kind !== "skipped").at(-1),
+        liveness
       );
       const settled = cursor?.lastSettledAt;
       const nextDueAt = cursor?.nextDueAt ?? null;

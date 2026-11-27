@@ -1,5 +1,5 @@
 import type { Page } from "@foundry/core/pagination";
-import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
+import { collectPages, pageFromRows, pageLimit } from "@foundry/lib/pagination";
 import type { ArtifactId, BlobId, ContentId } from "./ids";
 import type { ArtifactCursor, ArtifactFilter } from "./listing";
 import {
@@ -11,7 +11,12 @@ import {
 } from "./listing";
 import type { ArtifactEvent, Blob } from "./schema";
 import { validateBlob } from "./schema";
-import type { ArtifactStore, ArtifactStoreWrite, BlobListing } from "./store";
+import type {
+  ArtifactStore,
+  ArtifactStoreWrite,
+  BlobListing,
+  ContentLookup,
+} from "./store";
 import type {
   Artifact,
   Content,
@@ -244,7 +249,7 @@ export class ArtifactChange {
     const states =
       typeof input.state === "string" ? [input.state] : input.state;
     return merged(
-      await this.#state.store.listContents(artifactId),
+      await this.#storedContents(artifactId, input),
       this.#state.contents
     )
       .filter(
@@ -254,6 +259,82 @@ export class ArtifactChange {
           (input.tagged === undefined || (row.tag !== null) === input.tagged)
       )
       .sort(compareCreated);
+  }
+
+  async findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    this.#assertActive();
+    const lookup = this.#state.store.findContent;
+    if (lookup === undefined) {
+      return (
+        [...(await this.listContents(artifactId))]
+          .reverse()
+          .find(
+            (row) =>
+              row.metadata.sessionId === by.sessionId &&
+              row.metadata.messageId === by.messageId
+          ) ?? null
+      );
+    }
+    const stored = await lookup.call(this.#state.store, artifactId, by);
+    if (stored !== null && this.#state.contents.has(stored.id)) {
+      return (
+        [...(await this.listContents(artifactId))]
+          .reverse()
+          .find(
+            (row) =>
+              row.metadata.sessionId === by.sessionId &&
+              row.metadata.messageId === by.messageId
+          ) ?? null
+      );
+    }
+    const candidates: Content[] = stored === null ? [] : [stored];
+    for (const pending of this.#state.contents.values()) {
+      if (
+        pending !== null &&
+        pending.artifactId === artifactId &&
+        pending.metadata.sessionId === by.sessionId &&
+        pending.metadata.messageId === by.messageId
+      ) {
+        candidates.push(structuredClone(pending));
+      }
+    }
+    return candidates.sort(compareCreated).at(-1) ?? null;
+  }
+
+  async findContentByTag(
+    artifactId: ArtifactId,
+    tag: string,
+    excludeId?: ContentId
+  ): Promise<Content | null> {
+    this.#assertActive();
+    for (const pending of this.#state.contents.values()) {
+      if (
+        pending !== null &&
+        pending.artifactId === artifactId &&
+        pending.tag === tag &&
+        pending.id !== excludeId
+      ) {
+        return structuredClone(pending);
+      }
+    }
+    const lookup = this.#state.store.findContentByTag;
+    if (lookup !== undefined) {
+      const stored = await lookup.call(this.#state.store, artifactId, tag);
+      if (stored === null) {
+        return null;
+      }
+      if (stored.id !== excludeId && !this.#state.contents.has(stored.id)) {
+        return stored;
+      }
+    }
+    return (
+      (await this.listContents(artifactId, { tagged: true })).find(
+        (other) => other.id !== excludeId && other.tag === tag
+      ) ?? null
+    );
   }
 
   async putContent(content: Content): Promise<void> {
@@ -310,7 +391,7 @@ export class ArtifactChange {
       const stored = await this.#state.store.findBlobByPath(path);
       return stored && !this.#state.blobs.has(stored.id) ? stored : null;
     }
-    const listed = (await this.#state.store.listBlobs()).find(
+    const listed = (await this.#storedBlobs()).find(
       (blob) => blob.path === path && !this.#state.blobs.has(blob.id)
     );
     return listed ? this.#state.store.getBlob(listed.id) : null;
@@ -318,7 +399,7 @@ export class ArtifactChange {
 
   async listBlobs(): Promise<readonly BlobListing[]> {
     this.#assertActive();
-    const listed: BlobListing[] = (await this.#state.store.listBlobs()).filter(
+    const listed: BlobListing[] = (await this.#storedBlobs()).filter(
       (blob) => !this.#state.blobs.has(blob.id)
     );
     for (const blob of this.#state.blobs.values()) {
@@ -330,6 +411,34 @@ export class ArtifactChange {
       }
     }
     return listed;
+  }
+
+  #storedBlobs(): Promise<readonly BlobListing[]> {
+    const paged = this.#state.store.listBlobsPage;
+    if (paged === undefined) {
+      return this.#state.store.listBlobs();
+    }
+    return collectPages<BlobListing, BlobId>((cursor) =>
+      paged.call(this.#state.store, cursor === undefined ? {} : { cursor })
+    );
+  }
+
+  #storedContents(
+    artifactId: ArtifactId | undefined,
+    input: ListContentsInput
+  ): Promise<readonly Content[]> {
+    const paged = this.#state.store.listContentsPage;
+    if (paged === undefined) {
+      return this.#state.store.listContents(artifactId);
+    }
+    return collectPages<Content, ContentId>((cursor) =>
+      paged.call(this.#state.store, {
+        ...(artifactId === undefined ? {} : { artifactId }),
+        ...(cursor === undefined ? {} : { cursor }),
+        ...(input.state === undefined ? {} : { state: input.state }),
+        ...(input.tagged === undefined ? {} : { tagged: input.tagged }),
+      })
+    );
   }
 
   async isBlobReferenced(

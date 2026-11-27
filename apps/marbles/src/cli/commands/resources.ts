@@ -5,7 +5,7 @@ import {
   getResource,
   listResources,
   type ResourceCommandContext,
-} from "~/cli/resources/commands";
+} from "~/cli/resource-runner";
 import type { ResourceKind } from "~/lib/resources";
 
 type ResourceCommandName = "artifacts" | "runs" | "sandboxes" | "sessions";

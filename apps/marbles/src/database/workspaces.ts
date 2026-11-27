@@ -2,7 +2,7 @@ import { join, resolve } from "node:path";
 import { holdsLock } from "@foundry/lib/node/file-lock";
 
 import { and, asc, eq } from "drizzle-orm";
-import { IncompatibleDatabaseError } from "~/database/migrate";
+import { IncompatibleDatabaseError } from "~/database/migrate-core";
 import type {
   MarblesDatabase,
   OpenDatabaseOptions,
@@ -25,17 +25,18 @@ export interface TouchOptions {
 }
 
 export interface WorkspaceRegistryOptions {
+  readonly acceptWorkspace?: (id: string) => boolean;
   readonly database: StoreDatabase;
-  readonly state: string;
+  readonly state?: string;
 }
 
 export class WorkspaceRegistry {
+  readonly #accepts: (id: string) => boolean;
   readonly #database: StoreDatabase;
-  readonly #state: string;
 
   constructor(options: WorkspaceRegistryOptions) {
     this.#database = options.database;
-    this.#state = resolve(options.state);
+    this.#accepts = workspaceAcceptance(options);
   }
 
   async touch(
@@ -105,8 +106,23 @@ export class WorkspaceRegistry {
   }
 
   #counts(record: Pick<WorkspaceRecord, "id">): boolean {
-    return insideState(this.#state, record.id);
+    return this.#accepts(record.id);
   }
+}
+
+export function workspaceAcceptance(options: {
+  readonly acceptWorkspace?: (id: string) => boolean;
+  readonly state?: string;
+}): (id: string) => boolean {
+  const { acceptWorkspace, state } = options;
+  if (acceptWorkspace !== undefined) {
+    return acceptWorkspace;
+  }
+  if (state === undefined) {
+    return () => true;
+  }
+  const root = resolve(state);
+  return (id) => insideState(root, id);
 }
 
 function registered(
