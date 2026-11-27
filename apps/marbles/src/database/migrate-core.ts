@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 
-import { BUNDLED_MIGRATIONS } from "~/database/bundled-migrations";
+import { BUNDLED_MIGRATIONS } from "~/database/migrations/bundled";
 import type { StoreDatabase } from "~/database/types";
 
 export const APPLIED = "__drizzle_migrations";
