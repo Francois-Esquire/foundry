@@ -105,7 +105,7 @@ async function openContainer(
     installationId: input.installationId,
     network:
       destinations === null
-        ? "disabled"
+        ? "none"
         : {
             destinations: destinations.map((destination) => ({
               ...destination,
@@ -153,25 +153,24 @@ function moduleRuntimeSpec(input: {
   readonly resources: ModuleProgramResources;
 }): ContainerSpecInput {
   return {
-    format: "foundry.sandbox.container/1",
+    expose: [{ port: MODULE_PROGRAM_PORT }],
     image: "docker.io/oven/bun:1-slim",
     labels: { "com.foundry.installation": input.installationId },
     mounts: [
       {
         access: "read-only",
         id: "program",
-        source: input.checkoutPath,
+        source: { kind: "host-directory", path: input.checkoutPath },
         target: MODULE_PROGRAM_ROOT,
       },
       {
         access: "read-write",
         id: "installation-files",
-        source: input.filesPath,
+        source: { kind: "host-directory", path: input.filesPath },
         target: MODULE_FILES_ROOT,
       },
     ],
     network: input.network,
-    ports: [MODULE_PROGRAM_PORT],
     publicEnvironment: {
       NODE_ENV: "production",
       PORT: String(MODULE_PROGRAM_PORT),

@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createContainers } from "../containers/containers";
 import type { ContainerSpecInput } from "../containers/spec";
-import { createMicrosandboxDriver } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 const SPEC: ContainerSpecInput = {
-  format: "foundry.sandbox.container/1",
+  expose: [{ port: 3000 }],
   image: "docker.io/oven/bun:1-slim",
-  network: "disabled",
-  ports: [3000],
+  network: "none",
 };
 
 const ECHO_SERVER = `
@@ -50,7 +49,7 @@ describe("real MicroSandbox port forward", () => {
         id: "echo",
         readiness: { kind: "tcp", port: 3000, timeoutMs: 60_000 },
       });
-      const binding = await container.ports?.hostPort(3000);
+      const binding = await container.ports?.endpoint(3000);
       if (binding === undefined) {
         throw new Error("port 3000 is not published");
       }

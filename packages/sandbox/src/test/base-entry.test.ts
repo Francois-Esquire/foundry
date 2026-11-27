@@ -15,7 +15,6 @@ it("publishes explicit canonical subpaths with no wildcard exports", () => {
   for (const canonical of [
     ".",
     "./node",
-    "./node/microsandbox",
     "./providers/microsandbox",
     "./store",
     "./store/memory",

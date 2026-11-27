@@ -145,14 +145,8 @@ export interface SandboxEndpoint {
   readonly url: string;
 }
 
-export interface SandboxPortBinding {
-  readonly host: string;
-  readonly port: number;
-}
-
 export interface SandboxPortsFacet {
   endpoint(port: number): Promise<SandboxEndpoint | undefined>;
-  hostPort(port: number): Promise<SandboxPortBinding | undefined>;
 }
 
 export interface SandboxService {

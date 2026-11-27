@@ -49,10 +49,9 @@ export async function createBuildRuntime(
       signal.throwIfAborted();
       const container = await containers.start(
         {
-          format: "foundry.sandbox.container/1",
           image: "docker.io/oven/bun:1-slim",
           mounts: [],
-          network: "unrestricted",
+          network: "open",
           resources: {
             cpus: 1,
             memoryBytes: 2 * 1024 * 1024 * 1024,

@@ -28,9 +28,6 @@ export const ACTIVE_CONTAINER_RESOURCE_STATUSES: ReadonlySet<DriverResourceStatu
 
 export const CONTAINER_PORTABLE_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 
-export const CONTAINER_SANDBOX_CONSTRAINTS_FORMAT =
-  "foundry.sandbox.container/1" as const;
-
 export const INVENTORY_PAGE_LIMIT = 100;
 
 export const MAX_INVENTORY_PAGES = 1000;

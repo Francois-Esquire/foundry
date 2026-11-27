@@ -85,7 +85,6 @@ describe("guest CLI preparation", () => {
       store: new MemoryContainerStore(),
     });
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "fixture",
     });
     try {

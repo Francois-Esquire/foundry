@@ -20,7 +20,6 @@ const OWNERSHIP_ERROR = /does not belong/i;
 const DATA_MOUNT_PATH = /\/foundry\/data/;
 
 const SPEC: ContainerSpecInput = {
-  format: "foundry.sandbox.container/1",
   image: "docker.io/oven/bun:1",
 };
 
@@ -238,7 +237,7 @@ describe("container scoped mounts", () => {
           {
             access: "read-write",
             id: "data",
-            source,
+            source: { kind: "host-directory", path: source },
             target: "/foundry/data",
           },
         ],
@@ -314,7 +313,7 @@ describe("container scoped mounts", () => {
           {
             access: "read-write",
             id: "home",
-            source: directory,
+            source: { kind: "host-directory", path: directory },
             target: "/home/user",
           },
         ],

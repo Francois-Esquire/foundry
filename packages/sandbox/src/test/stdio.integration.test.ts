@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Sandbox as MicroSandbox } from "microsandbox";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createMicrosandboxDriver } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { bootGuest } from "./helpers/guest";
 
 const PACKAGE_URL = new URL("../../", import.meta.url);
@@ -40,7 +40,7 @@ describe("real MicroSandbox command IO", () => {
         {
           access: "read-only",
           id: "package",
-          source,
+          source: { kind: "host-directory", path: source },
           target: GUEST_PACKAGE_PATH,
         },
       ],

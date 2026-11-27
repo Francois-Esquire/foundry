@@ -127,7 +127,6 @@ describe("the SQLite container store", () => {
         store: a,
       });
       const held = await engineA.start({
-        format: "foundry.sandbox.container/1",
         image: "docker.io/oven/bun:1",
       });
       const name = held.row.nativeId ?? "";

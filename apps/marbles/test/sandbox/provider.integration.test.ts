@@ -5,7 +5,7 @@ import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
 import { gatewayProvider } from "@foundry/models/providers/gateway";
 import { createContainers } from "@foundry/sandbox/node";
-import { createMicrosandboxDriver } from "@foundry/sandbox/node/microsandbox";
+import { createMicrosandboxDriver } from "@foundry/sandbox/providers/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
@@ -83,7 +83,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         image: "docker.io/oven/bun:1-slim",
         network:
           harness === "builtin"
-            ? "disabled"
+            ? "none"
             : {
                 destinations: [
                   {

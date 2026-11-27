@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createContainers } from "../containers/containers";
-import { createMicrosandboxDriver } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 it("executes workspace tools while preserving nosuid/nodev and config noexec", async () => {
@@ -19,16 +19,20 @@ it("executes workspace tools while preserving nosuid/nodev and config noexec", a
   });
   try {
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       mounts: [
         {
           access: "read-write",
           executable: true,
           id: "workspace",
-          source,
+          source: { kind: "host-directory", path: source },
           target: "/mounts/workspace",
         },
-        { access: "read-only", id: "config", source, target: "/mounts/config" },
+        {
+          access: "read-only",
+          id: "config",
+          source: { kind: "host-directory", path: source },
+          target: "/mounts/config",
+        },
       ],
     });
     expect(

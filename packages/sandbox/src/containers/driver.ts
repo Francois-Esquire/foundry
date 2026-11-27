@@ -57,7 +57,6 @@ export interface ContainerLifetime {
 
 export interface ContainerSpec {
   readonly cpus: number;
-  readonly detached: boolean;
   readonly env: Readonly<Record<string, string>>;
   readonly expose: readonly ExposePort[];
   readonly image: string;
@@ -68,20 +67,18 @@ export interface ContainerSpec {
   readonly name: string;
   readonly network: NetworkPolicy;
   readonly pidsLimit?: number;
-  readonly ports: readonly number[];
   readonly pull: PullPolicy;
   readonly secrets: readonly SecretBinding[];
   readonly workdir: string;
 }
 
 export interface ContainerDefaults {
-  readonly detached?: boolean;
   readonly env?: Readonly<Record<string, string>>;
+  readonly expose?: readonly ExposePort[];
   readonly image?: string;
   readonly labels?: Readonly<Record<string, string>>;
   readonly lifetime?: ContainerLifetime;
   readonly network?: NetworkPolicy;
-  readonly ports?: readonly number[];
   readonly pull?: PullPolicy;
   readonly resources?: SandboxResourceLimits;
   readonly workdir?: string;

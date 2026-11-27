@@ -123,7 +123,9 @@ export function createMicrosandboxDriver(
         spec.mounts,
         allowedMountRoots
       );
-      const ports = await reserveLoopbackPorts(spec.ports);
+      const ports = await reserveLoopbackPorts(
+        spec.expose.map((entry) => entry.port)
+      );
       const { Sandbox } = await sdk();
       const sandbox = await applySpec(
         Sandbox.builder(spec.name),
@@ -216,7 +218,7 @@ function applySpec(
     .memory(spec.memoryMib)
     .pullPolicy(PULL_POLICY[spec.pull])
     .ephemeral(true)
-    .detached(spec.detached)
+    .detached(spec.lifetime?.whenReleased === "keep")
     .quietLogs();
 
   if (Object.keys(spec.env).length > 0) {

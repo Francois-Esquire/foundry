@@ -133,7 +133,6 @@ describe("observing every source", () => {
       store: stores.containers,
     });
     const sandbox = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1",
     });
     await sandbox.close();
@@ -305,7 +304,6 @@ describe("a write the recorder hands a store", () => {
     const { database } = machine.database;
     const runtime = createFakeDriver() as never;
     const SPEC = {
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1",
     } as const;
     const now = new Date();

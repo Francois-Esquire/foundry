@@ -92,12 +92,10 @@ export type SandboxResources = NonNullable<ContainerSpecInput["resources"]>;
 interface SandboxOptions
   extends Pick<
     ContainerSpecInput,
-    | "detached"
     | "expose"
     | "labels"
     | "lifetime"
     | "network"
-    | "ports"
     | "publicEnvironment"
     | "secrets"
     | "workdir"

@@ -112,7 +112,7 @@ describe("Modules boundary", () => {
     }
     for (const specifier of [
       "@foundry/sandbox/node",
-      "@foundry/sandbox/node/microsandbox",
+      "@foundry/sandbox/providers/microsandbox",
       "@foundry/sandbox/store/memory",
       "@foundry/sandbox/testing",
       "@foundry/sandbox/tools",

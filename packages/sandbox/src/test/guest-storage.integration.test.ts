@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 
 import { createContainers } from "../containers/containers";
-import { createMicrosandboxDriver } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 it("uses guest storage over a mounted slice and enforces a read-only mount", async () => {
@@ -43,22 +43,21 @@ it("uses guest storage over a mounted slice and enforces a read-only mount", asy
   });
   try {
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       mounts: [
         {
           access: "read-write",
           id: "workspace",
-          source,
+          source: { kind: "host-directory", path: source },
           target: "/mounts/workspace",
         },
         {
           access: "read-only",
           id: "read-only",
-          source,
+          source: { kind: "host-directory", path: source },
           target: "/mounts/readonly",
         },
       ],
-      network: "disabled",
+      network: "none",
       workdir: "/mounts/workspace",
     });
     expect(await container.storage?.lstat("link")).toMatchObject({

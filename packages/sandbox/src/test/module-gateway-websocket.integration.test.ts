@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { createContainers } from "../containers/containers";
-import { createMicrosandboxDriver } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 import { MODULE_GATEWAY_SERVER } from "./helpers/module-gateway-server";
 
@@ -81,10 +81,9 @@ async function startVm(bunVersion: string): Promise<Endpoint> {
   });
   try {
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
+      expose: [{ port: 3000 }],
       image: `docker.io/oven/bun:${bunVersion}-slim`,
-      network: "disabled",
-      ports: [3000],
+      network: "none",
     });
     await container.services?.start({
       argv: ["bun", "-e", MODULE_GATEWAY_SERVER],
@@ -92,7 +91,7 @@ async function startVm(bunVersion: string): Promise<Endpoint> {
       id: "gateway",
       readiness: { kind: "tcp", port: 3000, timeoutMs: 60_000 },
     });
-    const binding = await container.ports?.hostPort(3000);
+    const binding = await container.ports?.endpoint(3000);
     if (binding === undefined) {
       throw new Error("Gateway port 3000 is not published");
     }

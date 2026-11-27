@@ -9,7 +9,6 @@ import { createFakeDriver } from "../testing/index";
 import { libsqlDatabases } from "./helpers/sqlite";
 
 const SPEC: ContainerSpecInput = {
-  format: "foundry.sandbox.container/1",
   image: "docker.io/oven/bun:1",
 };
 const REFUSED = /commit refused/;

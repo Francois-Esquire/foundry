@@ -53,9 +53,7 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         store: newStore(),
       });
 
-      const inherited = await containers.start({
-        format: "foundry.sandbox.container/1",
-      });
+      const inherited = await containers.start({});
       expect(runtime.handles[0]?.spec).toMatchObject({
         env: { NODE_ENV: "production", TZ: "UTC" },
         image: "docker.io/library/alpine:3",
@@ -65,7 +63,6 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       });
 
       const own = await containers.start({
-        format: "foundry.sandbox.container/1",
         image: "docker.io/oven/bun:1",
         labels: { team: "edge" },
         network: "none",
@@ -162,17 +159,16 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       await reopened.close();
     });
 
-    it("boots attached by default and detached only when the spec says so", async () => {
+    it("stops on release by default and retains only when lifetime.whenReleased is keep", async () => {
       const { runtime, containers } = fixture();
       const attached = await containers.start(CONTAINER_SPEC);
       const detached = await containers.start({
         ...CONTAINER_SPEC,
-        detached: true,
+        lifetime: { whenReleased: "keep" },
       });
-      expect(runtime.handles.map((i) => i.spec.detached)).toEqual([
-        false,
-        true,
-      ]);
+      expect(
+        runtime.handles.map((i) => i.spec.lifetime?.whenReleased === "keep")
+      ).toEqual([false, true]);
       await attached.close();
       await detached.close();
     });
@@ -199,7 +195,10 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         MISSING_CONTAINER_ERROR
       );
       await expect(
-        containers.start({ ...CONTAINER_SPEC, ports: [3000, 3000] })
+        containers.start({
+          ...CONTAINER_SPEC,
+          expose: [{ port: 3000 }, { port: 3000 }],
+        })
       ).rejects.toThrow(INVALID_SPEC_ERROR);
     });
   });
@@ -220,7 +219,7 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
 
       await containers.restart(a.id, {
         ...CONTAINER_SPEC,
-        ports: [3000, 5173],
+        expose: [{ port: 3000 }, { port: 5173 }],
       });
 
       expect(puts(writes)).toEqual([
@@ -230,11 +229,13 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       ]);
       expect(runtime.handles[0]?.removed).toBe(true);
       expect(runtime.handles[1]?.id).toBe(`${a.id}-2`);
-      expect(runtime.handles[1]?.spec.ports).toEqual([3000, 5173]);
+      expect(runtime.handles[1]?.spec.expose.map((e) => e.port)).toEqual([
+        3000, 5173,
+      ]);
       expect(a.files).not.toBe(before);
       expect(a.files).toBe(b.files);
       expect(JSON.parse((await store.get(a.id))?.spec ?? "")).toMatchObject({
-        ports: [3000, 5173],
+        expose: [{ port: 3000 }, { port: 5173 }],
       });
 
       await containers.restart(a.id);
@@ -355,11 +356,10 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         const mount = {
           access: "read-write" as const,
           id: "files",
-          source,
+          source: { kind: "host-directory" as const, path: source },
           target: "/foundry/files",
         };
         const spec: ContainerSpecInput = {
-          format: "foundry.sandbox.container/1",
           mounts: [mount],
         };
         const c = await containers.start(spec);
@@ -641,16 +641,19 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
       const c = await containers.start(CONTAINER_SPEC);
 
       await Promise.all([
-        containers.restart(c.id, { ...CONTAINER_SPEC, ports: [5173] }),
+        containers.restart(c.id, {
+          ...CONTAINER_SPEC,
+          expose: [{ port: 5173 }],
+        }),
         containers.restart(c.id),
       ]);
 
       expect(runtime.handles).toHaveLength(3);
       for (const instance of runtime.handles.slice(1)) {
-        expect(instance.spec.ports).toEqual([5173]);
+        expect(instance.spec.expose.map((e) => e.port)).toEqual([5173]);
       }
       expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
-        ports: [5173],
+        expose: [{ port: 5173 }],
       });
       await c.close();
     });

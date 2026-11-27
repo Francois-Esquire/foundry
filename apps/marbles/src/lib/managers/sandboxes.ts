@@ -6,7 +6,6 @@ import type {
   Containers,
 } from "@foundry/sandbox";
 import {
-  CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
   DEFAULT_SANDBOX_WORKING_DIRECTORY,
   SandboxError,
 } from "@foundry/sandbox";
@@ -83,7 +82,6 @@ export function constraintsFor(
     spec.mount !== "none" &&
     (options?.bindWorkspace ?? true);
   return {
-    format: CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
     ...passed,
     mounts: shouldBind
       ? [
@@ -91,7 +89,10 @@ export function constraintsFor(
             access: "read-write" as const,
             executable: spec.executable ?? false,
             id: "workspace",
-            source: mountSource(spec, dirs),
+            source: {
+              kind: "host-directory" as const,
+              path: mountSource(spec, dirs),
+            },
             target,
           },
         ]
@@ -101,13 +102,11 @@ export function constraintsFor(
 }
 
 const PASSED_THROUGH = [
-  "detached",
   "expose",
   "image",
   "labels",
   "lifetime",
   "network",
-  "ports",
   "publicEnvironment",
   "resources",
   "secrets",

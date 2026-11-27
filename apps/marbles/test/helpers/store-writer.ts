@@ -60,7 +60,6 @@ try {
       type: "text/plain",
     });
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       mounts: [],
       workdir: "/workspace",
     });

@@ -18,9 +18,9 @@ export interface ModuleProgramContainer {
   close(): Promise<void>;
   readonly id: string;
   readonly ports: {
-    hostPort(
+    endpoint(
       port: number
-    ): Promise<{ readonly host: string; readonly port: number } | undefined>;
+    ): Promise<{ readonly host?: string; readonly port?: number } | undefined>;
   };
   readonly services: {
     start(input: {
@@ -125,8 +125,8 @@ export function createModuleProgramRuntime(
         });
         serviceStarted = true;
 
-        const binding = await container.ports.hostPort(MODULE_PROGRAM_PORT);
-        if (binding === undefined) {
+        const binding = await container.ports.endpoint(MODULE_PROGRAM_PORT);
+        if (binding?.host === undefined || binding.port === undefined) {
           throw runtimeError(
             "port-unavailable",
             "Module Program guest port 3000 has no loopback host binding"

@@ -7,7 +7,6 @@ import {
   CONTAINER_MANAGED_BY_VALUE,
   CONTAINER_PORTABLE_ID_PATTERN,
   CONTAINER_SANDBOX_BASE_LABEL,
-  CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
   createContainers,
   DEFAULT_CONTAINER_CPUS,
   DEFAULT_CONTAINER_IMAGE,
@@ -102,14 +101,11 @@ it("exposes container defaults and toolkit building blocks", () => {
   }
 });
 
-it("exposes sandbox ownership labels and the persisted spec format", () => {
+it("exposes sandbox ownership labels", () => {
   expect(CONTAINER_SANDBOX_BASE_LABEL).toBe("com.foundry.sandbox");
   expect(CONTAINER_MANAGED_BY_LABEL).toBe("com.foundry.environment.managed-by");
   expect(CONTAINER_MANAGED_BY_VALUE).toBe("foundry-sandbox");
   expect(CONTAINER_ENVIRONMENT_ID_LABEL).toBe("com.foundry.environment.id");
-  expect(CONTAINER_SANDBOX_CONSTRAINTS_FORMAT).toBe(
-    "foundry.sandbox.container/1"
-  );
 });
 
 it("resolves source and built declarations for every explicit public export without wildcards", () => {

@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { createContainers } from "../containers/containers";
-import { createMicrosandboxDriver } from "../node/microsandbox";
 import { prepareSandboxProcess } from "../node/prepare-process";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 it("drives real public process pipes through the immediate hook and cancels them on close", async () => {
@@ -12,7 +12,6 @@ it("drives real public process pipes through the immediate hook and cancels them
   });
   try {
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1-slim",
     });
     const child = prepareSandboxProcess(() => {

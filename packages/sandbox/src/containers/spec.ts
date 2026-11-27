@@ -11,7 +11,6 @@ import {
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_PORTABLE_ID_PATTERN,
   CONTAINER_SANDBOX_BASE_LABEL,
-  CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
   DEFAULT_CONTAINER_CPUS,
   DEFAULT_CONTAINER_IMAGE,
   DEFAULT_CONTAINER_MEMORY_MIB,
@@ -22,9 +21,6 @@ import type {
   ContainerMount,
   ContainerSpec,
   DriverCapabilities,
-  ExposePort,
-  MountSource,
-  NetworkPolicy,
 } from "./driver";
 
 const MAX_TCP_PORT = 65_535;
@@ -90,7 +86,6 @@ const publicEnvironmentSchema = z
   });
 
 const mountSourceSchema = z.union([
-  z.string().min(1).max(4096),
   z
     .object({
       kind: z.literal("host-directory"),
@@ -176,9 +171,7 @@ const lifetimeSchema = z
 
 export const containerSpecSchema = z
   .object({
-    detached: z.boolean().optional(),
     expose: z.array(exposePortSchema).max(32).optional(),
-    format: z.literal(CONTAINER_SANDBOX_CONSTRAINTS_FORMAT).optional(),
     image: z.string().min(1).max(1024).optional(),
     labels: z
       .record(
@@ -189,14 +182,7 @@ export const containerSpecSchema = z
     lifetime: lifetimeSchema.optional(),
     mounts: z.array(mountSchema).max(8).optional(),
     network: z
-      .union([
-        z.enum(["none", "internet", "open", "disabled", "unrestricted"]),
-        allowlistSchema,
-      ])
-      .optional(),
-    ports: z
-      .array(z.number().int().min(1).max(MAX_TCP_PORT))
-      .max(32)
+      .union([z.enum(["none", "internet", "open"]), allowlistSchema])
       .optional(),
     publicEnvironment: publicEnvironmentSchema.optional(),
     resources: z
@@ -215,10 +201,6 @@ export const containerSpecSchema = z
   })
   .strict()
   .superRefine((spec, context) => {
-    const ports = spec.ports ?? [];
-    if (new Set(ports).size !== ports.length) {
-      context.addIssue({ code: "custom", message: "ports must be unique" });
-    }
     const exposePorts = (spec.expose ?? []).map((entry) => entry.port);
     if (new Set(exposePorts).size !== exposePorts.length) {
       context.addIssue({
@@ -259,30 +241,6 @@ export function parseContainerSpecInput(input: unknown): ContainerSpecInput {
   return Object.freeze(result.data);
 }
 
-export function normalizeNetworkPolicy(
-  policy: ContainerSpecInput["network"] | undefined,
-  fallback: NetworkPolicy = "none"
-): NetworkPolicy {
-  if (policy === undefined) {
-    return fallback;
-  }
-  if (policy === "disabled") {
-    return "none";
-  }
-  if (policy === "unrestricted") {
-    return "open";
-  }
-  return policy;
-}
-
-export function normalizeMountSource(
-  source: ContainerMountInput["source"]
-): MountSource {
-  return typeof source === "string"
-    ? Object.freeze({ kind: "host-directory", path: source })
-    : Object.freeze({ ...source });
-}
-
 export function resolveContainerSpec(options: {
   readonly defaults?: ContainerDefaults;
   readonly input: ContainerSpecInput;
@@ -291,29 +249,24 @@ export function resolveContainerSpec(options: {
   readonly name: string;
 }): ContainerSpec {
   const { defaults = {}, input, mountTargetRoot, name } = options;
-  assertGuestPorts(input.ports ?? defaults.ports ?? []);
-  assertGuestPorts((input.expose ?? []).map((entry) => entry.port));
-  const expose = mergeExposedPorts(input.expose, input.ports ?? defaults.ports);
-  const ports = expose.map((entry) => entry.port);
+  const expose = (input.expose ?? defaults.expose ?? []).map((entry) =>
+    Object.freeze({ ...entry })
+  );
+  assertGuestPorts(expose.map((entry) => entry.port));
 
   const mounts = resolvePortableMounts(input.mounts ?? [], mountTargetRoot);
   const cpus = input.resources?.cpus ?? defaults.resources?.cpus;
   const memoryBytes =
     input.resources?.memoryBytes ?? defaults.resources?.memoryBytes;
   const pidsLimit = input.resources?.pids ?? defaults.resources?.pids;
-  const network = normalizeNetworkPolicy(
-    input.network,
-    defaults.network ?? "none"
-  );
-  const detached = input.detached ?? defaults.detached ?? false;
-  const lifetime = mergeLifetime(defaults.lifetime, input.lifetime, detached);
+  const network = input.network ?? defaults.network ?? "none";
+  const lifetime = mergeLifetime(defaults.lifetime, input.lifetime);
 
   return Object.freeze({
     cpus:
       cpus === undefined
         ? DEFAULT_CONTAINER_CPUS
         : Math.max(1, Math.ceil(cpus)),
-    detached,
     env: Object.freeze({ ...defaults.env, ...input.publicEnvironment }),
     expose: Object.freeze(expose),
     image: input.image ?? defaults.image ?? DEFAULT_CONTAINER_IMAGE,
@@ -333,7 +286,6 @@ export function resolveContainerSpec(options: {
     name,
     network,
     ...(pidsLimit === undefined ? {} : { pidsLimit }),
-    ports: Object.freeze(ports),
     pull: defaults.pull ?? "missing",
     secrets: Object.freeze((input.secrets ?? []).map((s) => Object.freeze(s))),
     workdir: input.workdir ?? defaults.workdir ?? DEFAULT_CONTAINER_WORKDIR,
@@ -432,34 +384,11 @@ function assertLifetimeAndSecretsSupported(
   }
 }
 
-function mergeExposedPorts(
-  expose: readonly ExposePort[] | undefined,
-  ports: readonly number[] | undefined
-): readonly ExposePort[] {
-  const byPort = new Map<number, ExposePort>();
-  for (const port of ports ?? []) {
-    byPort.set(port, Object.freeze({ port }));
-  }
-  for (const entry of expose ?? []) {
-    byPort.set(entry.port, Object.freeze({ ...entry }));
-  }
-  return [...byPort.values()];
-}
-
 function mergeLifetime(
   base: ContainerSpec["lifetime"],
-  override: ContainerSpec["lifetime"],
-  detached: boolean
+  override: ContainerSpec["lifetime"]
 ): ContainerSpec["lifetime"] {
-  const merged = {
-    ...base,
-    ...override,
-    ...(override?.whenReleased === undefined &&
-    base?.whenReleased === undefined &&
-    detached
-      ? { whenReleased: "keep" as const }
-      : {}),
-  };
+  const merged = { ...base, ...override };
   return Object.keys(merged).length === 0 ? undefined : Object.freeze(merged);
 }
 
@@ -489,7 +418,7 @@ function resolvePortableMounts(
           ? {}
           : { executable: mount.executable }),
         id: mount.id,
-        source: normalizeMountSource(mount.source),
+        source: Object.freeze({ ...mount.source }),
         target: mount.target,
       })
     );

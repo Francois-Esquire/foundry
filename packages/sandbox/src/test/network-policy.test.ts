@@ -3,7 +3,6 @@ import { containerSpecSchema, resolveContainerSpec } from "../containers/spec";
 
 it("normalizes exact destinations and defaults unspecified egress to none", () => {
   const input = containerSpecSchema.parse({
-    format: "foundry.sandbox.container/1",
     network: {
       destinations: [{ host: "API.OpenAI.com", ports: [443] }],
       mode: "allowlist",
@@ -27,7 +26,7 @@ it("normalizes exact destinations and defaults unspecified egress to none", () =
   ).toBe("internet");
   expect(
     resolveContainerSpec({
-      input: { network: "unrestricted" },
+      input: { network: "open" },
       labels: {},
       name: "c4",
     }).network
@@ -44,7 +43,6 @@ it.each([
 ])("rejects a non-exact hostname %s", (host) => {
   expect(
     containerSpecSchema.safeParse({
-      format: "foundry.sandbox.container/1",
       network: { destinations: [{ host }], mode: "allowlist" },
     }).success
   ).toBe(false);

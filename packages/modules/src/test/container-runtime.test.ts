@@ -138,9 +138,7 @@ describe("Module container runtime", () => {
   it("composes Node adapters, management, Gateway, and supervision without owning the host registry", async () => {
     const f = await fixture();
     try {
-      const unrelated = await f.registry.start({
-        format: "foundry.sandbox.container/1",
-      });
+      const unrelated = await f.registry.start({});
       let resolveClosed = (): void => undefined;
       const closed = new Promise<void>((resolve) => {
         resolveClosed = resolve;
@@ -248,9 +246,7 @@ describe("Module container runtime", () => {
   it("stops an interrupted Installation's retained container and keeps its row", async () => {
     const f = await fixture();
     try {
-      const retained = await f.registry.start({
-        format: "foundry.sandbox.container/1",
-      });
+      const retained = await f.registry.start({});
       const [instance] = f.native.handles;
       if (instance === undefined) {
         throw new Error("Expected a booted instance");
@@ -607,8 +603,7 @@ describe("Module container runtime", () => {
     try {
       const containers = {
         ...f.options.containers,
-        start: () =>
-          f.registry.start({ format: "foundry.sandbox.container/1" }),
+        start: () => f.registry.start({}),
       };
       await expect(
         createContainerModuleProgramRuntime({ ...f.options, containers }).start(

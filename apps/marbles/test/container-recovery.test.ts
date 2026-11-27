@@ -15,7 +15,7 @@ import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
-const SPEC = { format: "foundry.sandbox.container/1", image: "x" } as const;
+const SPEC = { image: "x" } as const;
 const machines: TestMachine[] = [];
 const RUNS = () => Promise.resolve([]);
 

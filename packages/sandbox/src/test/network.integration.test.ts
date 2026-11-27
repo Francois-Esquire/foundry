@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { createMicrosandboxDriver } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { bootGuest } from "./helpers/guest";
 
 const request = (url: string) => [

@@ -350,7 +350,6 @@ describe("Strict foundry.module-manifest/1 Manifests", () => {
       [];
     expect(
       containerSpecSchema.parse({
-        format: "foundry.sandbox.container/1",
         network: { destinations, mode: "allowlist" },
       }).network
     ).toEqual({ destinations, mode: "allowlist" });

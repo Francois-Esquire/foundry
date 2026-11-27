@@ -22,9 +22,7 @@ it("exchanges binary input and separate output through the container process fac
     instanceLabel: "piped-process",
     store: new MemoryContainerStore(),
   });
-  const container = await containers.start({
-    format: "foundry.sandbox.container/1",
-  });
+  const container = await containers.start({});
   try {
     const child = await container.processes?.spawn?.(["echo-bytes"]);
     if (!child) {

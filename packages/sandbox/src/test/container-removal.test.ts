@@ -186,7 +186,6 @@ describe.each(CONTAINER_STORES)(
           name: `${left.id}-2`,
           spec: {
             cpus: 1,
-            detached: false,
             env: {},
             expose: [],
             image: "x",
@@ -195,7 +194,6 @@ describe.each(CONTAINER_STORES)(
             mounts: [],
             name: `${left.id}-2`,
             network: "open",
-            ports: [],
             pull: "missing",
             secrets: [],
             workdir: "/w",

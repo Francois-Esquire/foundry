@@ -5,14 +5,13 @@ import {
   CONTAINER_INSTANCE_LABEL,
 } from "../containers/defaults";
 import type { ContainerSpecInput } from "../containers/spec";
-import { createMicrosandboxDriver } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 const SPEC: ContainerSpecInput = {
-  format: "foundry.sandbox.container/1",
+  expose: [{ port: 3000 }],
   image: "docker.io/library/debian:trixie-slim",
-  network: "disabled",
-  ports: [3000],
+  network: "none",
 };
 
 describe("real MicroSandbox Containers", () => {
@@ -47,17 +46,20 @@ describe("real MicroSandbox Containers", () => {
       expect((await a.commands.exec(["echo", "one"])).stdout.trim()).toBe(
         "one"
       );
-      expect(await a.ports?.hostPort(5173)).toBe(undefined);
+      expect(await a.ports?.endpoint(5173)).toBe(undefined);
       expect((await inventory()).map((r) => r.name)).toEqual([`${a.id}-1`]);
 
-      await containers.restart(a.id, { ...SPEC, ports: [3000, 5173] });
+      await containers.restart(a.id, {
+        ...SPEC,
+        expose: [{ port: 3000 }, { port: 5173 }],
+      });
 
       expect((await store.get(a.id))?.status).toBe("running");
       expect((await inventory()).map((r) => r.name)).toEqual([`${a.id}-2`]);
       expect((await b.commands.exec(["echo", "two"])).stdout.trim()).toBe(
         "two"
       );
-      expect(await b.ports?.hostPort(5173)).toBeDefined();
+      expect(await b.ports?.endpoint(5173)).toBeDefined();
     } finally {
       await a.close();
       await b.close();

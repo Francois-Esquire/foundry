@@ -67,7 +67,7 @@ describe("cloud-native driver portability", () => {
       protocol: "https",
       url: "https://3000-sbx-1.cloud.sandbox.test",
     });
-    expect(await reconnected.ports?.hostPort(3000)).toBeUndefined();
+    expect((await reconnected.ports?.endpoint(3000))?.host).toBeUndefined();
 
     await reconnected.close();
     await workerB.stop(first.id);

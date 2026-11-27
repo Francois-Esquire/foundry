@@ -20,7 +20,6 @@ function row(id: string, status: ContainerRow["status"] = "stopped") {
     id,
     nativeId: `${id}-1`,
     spec: JSON.stringify({
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1",
     }),
     status,

@@ -8,9 +8,8 @@ import { createFakeDriver } from "../../testing/index";
 import { libsqlDatabases } from "./sqlite";
 
 export const CONTAINER_SPEC: ContainerSpecInput = {
-  format: "foundry.sandbox.container/1",
+  expose: [{ port: 3000 }],
   image: "docker.io/oven/bun:1",
-  ports: [3000],
 };
 
 const databases = {

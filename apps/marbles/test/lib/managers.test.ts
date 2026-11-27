@@ -462,14 +462,13 @@ describe("sandboxes", () => {
     const dirs = { cwd: root, root };
     const plain = constraintsFor({ image: "img:1" }, dirs);
     expect(plain).toEqual({
-      format: "foundry.sandbox.container/1",
       image: "img:1",
       mounts: [
         {
           access: "read-write",
           executable: false,
           id: "workspace",
-          source: root,
+          source: { kind: "host-directory", path: root },
           target: "/workspace",
         },
       ],
@@ -479,7 +478,10 @@ describe("sandboxes", () => {
       { image: "img:1", mount: site, resources: { cpus: 2 } },
       dirs
     );
-    expect(sized.mounts?.[0]?.source).toBe(join(tmp, "site"));
+    expect(sized.mounts?.[0]?.source).toEqual({
+      kind: "host-directory",
+      path: join(tmp, "site"),
+    });
     expect(sized.resources).toEqual({ cpus: 2 });
     const executable = constraintsFor(
       {
@@ -500,11 +502,11 @@ describe("sandboxes", () => {
     const inWorktree = { cwd: join(tmp, "wt"), root };
     expect(
       constraintsFor({ image: "img:1" }, inWorktree).mounts?.[0]?.source
-    ).toBe(join(tmp, "wt"));
+    ).toEqual({ kind: "host-directory", path: join(tmp, "wt") });
     expect(
       constraintsFor({ image: "img:1", mount: site }, inWorktree).mounts?.[0]
         ?.source
-    ).toBe(join(tmp, "site"));
+    ).toEqual({ kind: "host-directory", path: join(tmp, "site") });
     expect(allowedMountRoots([root, join(tmp, "site")])).toEqual([
       root,
       join(tmp, "site"),
@@ -516,18 +518,20 @@ describe("sandboxes", () => {
     expect(
       constraintsFor(
         {
+          expose: [{ port: 3000 }],
           image: "img:1",
           labels: { team: "design" },
-          ports: [3000],
           resources: { pids: 64 },
           target: "/src",
         },
         dirs
       )
     ).toMatchObject({
+      expose: [{ port: 3000 }],
       labels: { team: "design" },
-      mounts: [{ source: tmp, target: "/src" }],
-      ports: [3000],
+      mounts: [
+        { source: { kind: "host-directory", path: tmp }, target: "/src" },
+      ],
       resources: { pids: 64 },
       workdir: "/src",
     });
@@ -606,11 +610,14 @@ describe("sandboxes", () => {
     );
     const [row] = await containers.list();
     const spec = JSON.parse(row?.spec ?? "{}") as {
-      mounts?: readonly { id: string; source: string }[];
+      mounts?: readonly {
+        id: string;
+        source: { kind: string; path: string };
+      }[];
     };
-    expect(spec.mounts?.find((mount) => mount.id === "workspace")?.source).toBe(
-      worktree
-    );
+    expect(
+      spec.mounts?.find((mount) => mount.id === "workspace")?.source
+    ).toEqual({ kind: "host-directory", path: worktree });
     await env.close();
     await a.scope.settle();
     await containers.shutdown();
@@ -624,7 +631,6 @@ describe("sandboxes", () => {
       store: new MemoryContainerStore(),
     });
     const owned = await containers.start({
-      format: "foundry.sandbox.container/1",
       mounts: [],
       workdir: "/workspace",
     });
@@ -648,7 +654,6 @@ describe("sandboxes", () => {
       { cwd: root, root }
     );
     expect(scratch).toEqual({
-      format: "foundry.sandbox.container/1",
       image: "img:2",
       mounts: [],
       workdir: "/workspace",

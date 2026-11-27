@@ -17,9 +17,7 @@ const PORT_RANGE_ERROR = /1 through 65535/i;
 const DUPLICATE_PORT_ERROR = /must be unique/i;
 const REMOVED_CONTAINER_ERROR = /has been removed/;
 
-const SPEC: ContainerSpecInput = {
-  format: "foundry.sandbox.container/1",
-};
+const SPEC: ContainerSpecInput = {};
 
 async function started(
   defaults: ContainerDefaults = {},
@@ -88,13 +86,13 @@ describe("resolveContainerSpec", () => {
 
   it("validates guest ports and lets local drivers reserve distinct loopback ports", async () => {
     const spec = resolveContainerSpec({
-      input: { ports: [3000, 5173] },
+      input: { expose: [{ port: 3000 }, { port: 5173 }] },
       labels: {},
       name: "c4",
     });
 
-    expect(spec.ports).toEqual([3000, 5173]);
-    const mappings = await reserveLoopbackPorts(spec.ports);
+    expect(spec.expose.map((e) => e.port)).toEqual([3000, 5173]);
+    const mappings = await reserveLoopbackPorts(spec.expose.map((e) => e.port));
     expect(mappings.map((p) => p.guestPort)).toEqual([3000, 5173]);
     expect(mappings.map((p) => p.host)).toEqual(["127.0.0.1", "127.0.0.1"]);
     const hostPorts = mappings.map((p) => p.hostPort);
@@ -106,17 +104,25 @@ describe("resolveContainerSpec", () => {
 
   it("rejects invalid or repeated guest ports before assigning host ingress", () => {
     expect(() =>
-      resolveContainerSpec({ input: { ports: [0] }, labels: {}, name: "c5" })
+      resolveContainerSpec({
+        input: { expose: [{ port: 0 }] },
+        labels: {},
+        name: "c5",
+      })
     ).toThrow(PORT_RANGE_ERROR);
     expect(() =>
       resolveContainerSpec({
-        input: { ports: [3000, 3000] },
+        input: { expose: [{ port: 3000 }, { port: 3000 }] },
         labels: {},
         name: "c6",
       })
     ).toThrow(DUPLICATE_PORT_ERROR);
     try {
-      resolveContainerSpec({ input: { ports: [0] }, labels: {}, name: "c7" });
+      resolveContainerSpec({
+        input: { expose: [{ port: 0 }] },
+        labels: {},
+        name: "c7",
+      });
     } catch (error) {
       expect(error).toMatchObject({
         code: "invalid-contract",
@@ -129,7 +135,7 @@ describe("resolveContainerSpec", () => {
 describe("a container's facets", () => {
   it("reads back what it writes, and reports the mapped host port", async () => {
     const { container, containers } = await started({
-      ports: [3000],
+      expose: [{ port: 3000 }],
       workdir: "/workspace",
     });
 
@@ -140,11 +146,11 @@ describe("a container's facets", () => {
       ).toString()
     ).toBe("from the host");
 
-    expect(await container.ports?.hostPort(3000)).toEqual({
+    expect(await container.ports?.endpoint(3000)).toMatchObject({
       host: "127.0.0.1",
       port: 43_000,
     });
-    expect(await container.ports?.hostPort(9999)).toBeUndefined();
+    expect(await container.ports?.endpoint(9999)).toBeUndefined();
     await containers.shutdown();
   });
 
@@ -305,7 +311,12 @@ describe("a container's facets", () => {
     const container = await containers.start({
       ...SPEC,
       mounts: [
-        { access: "read-only", id: "data", source, target: "/workspace/data" },
+        {
+          access: "read-only",
+          id: "data",
+          source: { kind: "host-directory", path: source },
+          target: "/workspace/data",
+        },
       ],
     });
     const { commands, files, ports, processes, services, shell, volumes } =
@@ -342,7 +353,7 @@ describe("a container's facets", () => {
           () => undefined
         ),
       () => files.writeFile("a", "a"),
-      () => ports?.hostPort(3000),
+      () => ports?.endpoint(3000),
       () => processes?.spawn?.(["true"]),
       () => processes?.start(["true"]),
       () => services?.list(),

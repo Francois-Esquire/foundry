@@ -1,7 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import type { Container, Containers } from "@foundry/sandbox";
 import { createContainers, prepareSandboxProcess } from "@foundry/sandbox/node";
-import { createMicrosandboxDriver } from "@foundry/sandbox/node/microsandbox";
+import { createMicrosandboxDriver } from "@foundry/sandbox/providers/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { beforeAll, describe, expect, it } from "vitest";
 import { prepareGuest } from "~/lib/sandbox/prepare";
@@ -31,9 +31,8 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
       store: new MemoryContainerStore(),
     });
     container = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1-slim",
-      network: "disabled",
+      network: "none",
       workdir: "/",
     });
     const prepared = await container.commands.exec([

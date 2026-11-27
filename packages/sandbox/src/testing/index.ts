@@ -303,7 +303,7 @@ function createHandle(
     },
     disconnected: false,
     endpoint(guestPort) {
-      if (!spec.ports.includes(guestPort)) {
+      if (!spec.expose.some((entry) => entry.port === guestPort)) {
         return Promise.resolve(undefined);
       }
       if (options.endpointUrl !== undefined) {

@@ -55,7 +55,6 @@ describe.each(CONTAINER_STORES)(
           name: "harness-vm",
           spec: {
             cpus: 1,
-            detached: false,
             env: {},
             expose: [],
             image: "x",
@@ -64,7 +63,6 @@ describe.each(CONTAINER_STORES)(
             mounts: [],
             name: "harness-vm",
             network: "open",
-            ports: [],
             pull: "missing",
             secrets: [],
             workdir: "/w",
@@ -93,7 +91,6 @@ describe.each(CONTAINER_STORES)(
           name: "unlabelled",
           spec: {
             cpus: 1,
-            detached: false,
             env: {},
             expose: [],
             image: "test-image",
@@ -102,7 +99,6 @@ describe.each(CONTAINER_STORES)(
             mounts: [],
             name: "unlabelled",
             network: "none",
-            ports: [],
             pull: "missing",
             secrets: [],
             workdir: "/work",
@@ -322,7 +318,6 @@ describe.each(CONTAINER_STORES)(
               name: `${id}-1`,
               spec: {
                 cpus: 1,
-                detached: false,
                 env: {},
                 expose: [],
                 image: "test-image",
@@ -331,7 +326,6 @@ describe.each(CONTAINER_STORES)(
                 mounts: [],
                 name: `${id}-1`,
                 network: "none",
-                ports: [],
                 pull: "missing",
                 secrets: [],
                 workdir: "/work",

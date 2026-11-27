@@ -343,13 +343,6 @@ function buildContainerFacets(
       ? undefined
       : Object.freeze({
           endpoint: (port: number) => guest.endpoint(port),
-          async hostPort(port: number) {
-            const ep = await guest.endpoint(port);
-            if (ep?.host === undefined || ep.port === undefined) {
-              return;
-            }
-            return { host: ep.host, port: ep.port };
-          },
         });
 
   const processes: SandboxProcessesFacet | undefined =
