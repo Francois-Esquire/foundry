@@ -3,8 +3,8 @@ import { Models } from "@foundry/models";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { isCliHarness } from "~/lib/cli-harnesses";
 import { CLI_PROVIDER_FACTS } from "~/lib/harnesses";
-import type { MockOptions, Print, Reply } from "~/lib/models/echo";
-import { echoReply, replying } from "~/lib/models/echo";
+import type { MockOptions, Reply } from "~/lib/models/echo";
+import { replying } from "~/lib/models/echo";
 
 function mockProvider(
   executors: readonly TurnExecutorRef[],
@@ -41,11 +41,4 @@ export function mockModels(
       mockProvider(group, reply, options)
     ),
   });
-}
-
-export function echoModels(
-  executors: readonly TurnExecutorRef[],
-  print: Print
-): Models {
-  return mockModels(executors, echoReply(print));
 }

@@ -41,7 +41,7 @@ function cli(config: string, ...args: string[]) {
   );
 }
 
-function runDryStarter(
+function runStarter(
   dir: string,
   config: string,
   name: string,
@@ -49,16 +49,17 @@ function runDryStarter(
 ): string {
   const { artifacts, state } = currentHome().layout;
   const hostModule = resolve("src/workspace/host.ts");
+  const echoProviders = resolve("test/helpers/echo-providers.ts");
   return execFileSync(
     "bun",
     [
       "--no-env-file",
       "-e",
-      `import { hostWorkspace } from ${JSON.stringify(hostModule)};
+      `import ${JSON.stringify(echoProviders)};
+import { hostWorkspace } from ${JSON.stringify(hostModule)};
 const host = await hostWorkspace({
   artifacts: ${JSON.stringify(artifacts)},
   directory: ${JSON.stringify(dir)},
-  dry: true,
   print: () => undefined,
   source: ${JSON.stringify(config)},
   state: ${JSON.stringify(state)},
@@ -113,7 +114,7 @@ for (const starter of STARTERS) {
       expect(output).not.toContain("[run]");
       const input =
         starter.id === "design" ? { brief: "A search screen" } : undefined;
-      expect(runDryStarter(dir, config, starter.name, input)).toContain(
+      expect(runStarter(dir, config, starter.name, input)).toContain(
         "complete"
       );
     } finally {

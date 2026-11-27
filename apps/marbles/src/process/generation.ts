@@ -41,7 +41,6 @@ import type { SetupDraft } from "~/workspace/templates";
 
 interface GenerationArgs {
   readonly artifacts: string;
-  readonly dry: boolean;
   readonly socket: string;
   readonly spawned: string;
   readonly state: string;
@@ -50,12 +49,9 @@ interface GenerationArgs {
 
 function parseArgs(argv: readonly string[]): GenerationArgs {
   const values = new Map<string, string>();
-  let dry = false;
   const words = argv.values();
   for (const word of words) {
-    if (word === "--dry-run") {
-      dry = true;
-    } else if (word.startsWith("--")) {
+    if (word.startsWith("--")) {
       const { value } = words.next();
       if (value !== undefined) {
         values.set(word.slice(2), value);
@@ -72,7 +68,6 @@ function parseArgs(argv: readonly string[]): GenerationArgs {
   const { artifacts, spawned, state } = layout();
   return {
     artifacts,
-    dry,
     socket: required("socket"),
     spawned,
     state,
@@ -272,7 +267,6 @@ async function main(): Promise<void> {
     hosted ??= await HostedWorkspaces.open({
       artifacts: args.artifacts,
       askable: true,
-      dry: args.dry,
       prepare(engine: Engine) {
         registerSetupStep(engine);
       },
@@ -286,7 +280,7 @@ async function main(): Promise<void> {
           root,
         });
       },
-      ...(args.dry ? {} : { spawned: args.spawned }),
+      spawned: args.spawned,
       state: args.state,
     });
     return hosted;

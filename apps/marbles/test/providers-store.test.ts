@@ -17,7 +17,6 @@ import {
   identityKeyFrom,
   MemoryProviderStore,
   newIdentityKey,
-  readOnlyProviders,
 } from "~/lib/providers/store";
 
 const IDENTITY_KEY = /^[0-9a-f]{64}$/;
@@ -107,8 +106,8 @@ function describeProviderStore(
       expect(idsOf((await store.read()).machine)).toEqual(["a"]);
     });
 
-    it("re-reads before each edit, so overlapping edits keep each other's, also through the read-only view a dry run edits", async () => {
-      for (const store of [await open(), readOnlyProviders(await open())]) {
+    it("re-reads before each edit, so overlapping edits keep each other's", async () => {
+      for (const store of [await open()]) {
         await Promise.all(
           ["a", "b", "c"].map((id) =>
             store.update(undefined, (current) => ({
@@ -213,25 +212,6 @@ describe("provider configuration in the Marbles database", () => {
     expect(String(refusal)).toContain("SQLITE_READONLY");
     expect(String(refusal)).not.toContain("sk-secret-value");
     expect((refusal as Error).cause).toBeUndefined();
-  });
-
-  it("keeps a dry run's edits to itself, and makes no identity key for it", async () => {
-    const opened = await database();
-    const real = new DatabaseProviderStore({ database: opened.database });
-    await real.update(undefined, () => ({ machine: file("a") }));
-    const dry = readOnlyProviders(real);
-    const before = await dry.revision();
-    await dry.update("ws", () => ({
-      machine: file("a", "b"),
-      workspace: file("c"),
-    }));
-    expect(idsOf((await dry.read()).machine)).toEqual(["a", "b"]);
-    expect(idsOf((await dry.read()).workspace("ws"))).toEqual(["c"]);
-    expect(await dry.revision()).toBeGreaterThan(before);
-    expect(idsOf((await real.read()).machine)).toEqual(["a"]);
-    expect((await real.read()).workspaces).toEqual([]);
-    expect(await dry.identityKey(true)).toBeUndefined();
-    expect(await real.identityKey(false)).toBeUndefined();
   });
 });
 

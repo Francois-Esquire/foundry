@@ -46,7 +46,6 @@ export interface HostWorkspaceOptions {
   readonly cwd?: string;
   readonly database?: MarblesDatabase;
   readonly directory?: string;
-  readonly dry?: boolean;
   readonly onClose?: (closing: Promise<void>) => void;
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly prepare?: (engine: Engine) => void;
@@ -146,7 +145,6 @@ export async function stageWorkspace(
     ...(options.directory === undefined
       ? {}
       : { directory: options.directory }),
-    dry: options.dry ?? false,
     ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     state: options.state,
   };
@@ -156,7 +154,7 @@ export async function stageWorkspace(
     print,
     ...(options.read === undefined ? {} : { read: options.read }),
   });
-  const shared = hostOptions.dry ? undefined : options.database;
+  const shared = options.database;
   let own: MarblesDatabase | undefined;
   const unbind = (): void => {
     own?.close();
@@ -177,9 +175,9 @@ export async function stageWorkspace(
   let dispatches: BackgroundRuns;
   try {
     own =
-      hostOptions.dry || shared !== undefined
-        ? undefined
-        : await openHostDatabase(hostOptions.state);
+      shared === undefined
+        ? await openHostDatabase(hostOptions.state)
+        : undefined;
     opened = await asRegistered(
       shared ?? own,
       hostOptions,

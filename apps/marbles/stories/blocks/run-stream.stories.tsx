@@ -15,7 +15,7 @@ const transcript = [
   "",
   "Rebuilds each workspace's links under <root>/.marbles/ from the database.",
   "Checking the options table against parseArgs…",
-  "Adding --workspace and --dry-run rows.",
+  "Adding --workspace rows.",
   "Updating the table of contents.",
   "Writing docs/cli.md",
   "Done: 1 file changed, 18 insertions.",

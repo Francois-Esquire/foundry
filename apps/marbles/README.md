@@ -431,12 +431,6 @@ and follows the runs and their model-turn, tool-call and host observations. Task
 sessions and borrowed sandbox handles stop with the task; closing a borrowed
 handle leaves its container with its owner.
 
-An engine built with `dry: true`, through any entry (`Engine`,
-`hostWorkspace`, the CLI), keeps everything in memory: it writes nothing
-under its `state` directory and does not act on its `spawned` recovery
-records, whatever else it is given. Stores handed to it explicitly are
-the caller's: a dry run does not wrap them.
-
 The `spawned` option (`Engine`, `hostWorkspace`, `HostedWorkspaces.open`)
 names the directory of those recovery records. The engine reads them from
 there when it starts, and records each command a step runs on the host

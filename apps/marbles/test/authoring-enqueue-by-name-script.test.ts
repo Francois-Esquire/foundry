@@ -116,7 +116,6 @@ describe("step.enqueue(name) across a workspace's files", {
 const host = await hostWorkspace({
   artifacts: ${JSON.stringify(join(top, "home", "artifacts"))},
   directory: ${JSON.stringify(root)},
-  dry: true,
   print: () => undefined,
   source: ${JSON.stringify(source)},
   state: ${JSON.stringify(join(top, "home", "marbles"))},

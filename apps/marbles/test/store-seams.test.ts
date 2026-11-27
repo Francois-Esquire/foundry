@@ -134,7 +134,6 @@ describe("store seams", () => {
     };
     const engine = createEngine({
       catalog: new Catalog(),
-      dry: false,
       print: () => undefined,
       root: "/tmp/marbles-store-bundle-test",
       stores,

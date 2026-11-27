@@ -39,7 +39,6 @@ export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
   readonly directory?: string;
-  readonly dry: boolean;
   readonly spawned?: string;
   readonly state: string;
 }
@@ -118,12 +117,10 @@ async function loadSource(
   configPath: string,
   {
     catalog,
-    dry,
     read,
     workspaceId,
   }: {
     catalog: Catalog;
-    dry: boolean;
     read?: (file: string) => void;
     workspaceId: string;
   },
@@ -139,7 +136,7 @@ async function loadSource(
       created,
       locked,
       value: modules,
-    } = await runLoadScope({ dry, workspaceId }, async () => {
+    } = await runLoadScope({ workspaceId }, async () => {
       const loaded: ModuleSource[] = [];
       for (const file of files) {
         const real = realPathOf(file);
@@ -262,7 +259,6 @@ export async function openWorkspace(
       at.configPath,
       {
         catalog,
-        dry: args.dry,
         ...(read === undefined ? {} : { read }),
         workspaceId: workspaceState(resolve(args.state), at.root).id,
       },
@@ -272,11 +268,7 @@ export async function openWorkspace(
   if (files !== false) {
     return opened(args, before, environment, { catalog, cwd, files });
   }
-  if (
-    args.dry ||
-    onMissing === undefined ||
-    !(await onMissing(before.configPath))
-  ) {
+  if (onMissing === undefined || !(await onMissing(before.configPath))) {
     return opened(args, before, environment, { catalog, cwd });
   }
   const created = placed(args);
@@ -325,7 +317,6 @@ function workspaceEngine(
     askable: options.askable,
     catalog,
     cwd,
-    dry: args.dry,
     environment,
     ...(options.log ? { log: options.log } : {}),
     print: options.print,
@@ -345,7 +336,6 @@ export function hostTriggers(
   { catalog, workspace }: OpenedWorkspace
 ): Triggers {
   return readTriggers(catalog, {
-    dry: args.dry,
     stateRoot: resolve(args.state),
     workspaceId: workspace.id,
   });

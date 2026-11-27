@@ -72,7 +72,7 @@ function summaries(value: unknown) {
   return z.object({ items: summarySchema.array() }).parse(payload(value)).items;
 }
 
-it("dispatches workflows and agents through the MCP tools, over a workspace a dry-run host serves", async () => {
+it("dispatches workflows and agents through the MCP tools, over a workspace a host serves", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-"));
   const source = join(root, "marbles.ts");
   const schemaLibrary = createRequire(import.meta.url).resolve("zod");
@@ -89,7 +89,7 @@ export const greet = step("greet").input(z.object({ name: z.string() })).do(({ i
 export const greeting = workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new RecordedStdioTransport({
-    args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
+    args: ["--no-env-file", resolve("test/helpers/mcp-host.ts"), source],
     command: "bun",
     cwd: root,
     env: testHome().env,

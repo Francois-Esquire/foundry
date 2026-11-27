@@ -106,7 +106,6 @@ export interface CatalogIdentity {
 export interface EngineOptions {
   readonly activityStore?: ActivityStore;
   readonly approvals?: DeferredApprovalStore;
-  readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
   readonly artifacts: ArtifactSubstrate;
   readonly askable?: boolean;
   readonly automationStore?: AutomationStore;
@@ -118,7 +117,6 @@ export interface EngineOptions {
   readonly createMcpClient?: AgentsDeps["createMcpClient"];
   readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly cwd?: string;
-  readonly dry?: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly executionStore?: ExecutionStore;
   readonly git?: GitOptions;
@@ -230,12 +228,10 @@ export class Engine {
     return join(state ?? join(tmpdir(), "marbles"), "worktrees");
   }
 
-  static persistence(
-    options: Pick<EngineOptions, "dry" | "spawned" | "state">
-  ): { readonly spawned?: string; readonly state?: string } {
-    if (options.dry === true) {
-      return {};
-    }
+  static persistence(options: Pick<EngineOptions, "spawned" | "state">): {
+    readonly spawned?: string;
+    readonly state?: string;
+  } {
     const { spawned, state } = options;
     return {
       ...(spawned === undefined ? {} : { spawned }),
@@ -382,7 +378,6 @@ export class Engine {
     });
     this.artifacts = new ArtifactsManager({
       artifacts: options.artifacts,
-      ...(options.artifactReads ? { readThrough: options.artifactReads } : {}),
       workspaceId,
     });
     this.workspaces = new WorkspacesManager({

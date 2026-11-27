@@ -38,12 +38,11 @@ async function arranged() {
   await mkdir(join(root, "docs"), { recursive: true });
   await writeFile(join(root, "docs", "a.md"), "# A\n");
   const artifacts = join(machine.root, "artifacts");
-  const engine = (dry: boolean, workspaceId = "ws") => {
+  const engine = (workspaceId = "ws") => {
     const built = createEngine({
       artifacts,
       catalog: new Catalog(),
       database: machine.database.database,
-      dry,
       print: () => undefined,
       providers: [],
       root,
@@ -62,7 +61,6 @@ describe("an engine with no database handle", () => {
     const built = createEngine({
       artifacts,
       catalog: new Catalog(),
-      dry: false,
       print: () => undefined,
       providers: [],
       root,
@@ -82,7 +80,7 @@ describe("an engine with no database handle", () => {
 describe("an engine over the Marbles database", () => {
   it("keeps its artifacts' records there under its workspace id, and their bytes in its own blob directory", async () => {
     const { artifacts, engine, machine } = await arranged();
-    const real = engine(false);
+    const real = engine();
     const written = await real.artifacts.write(NOTES, { "a.md": "# Notes" });
 
     const id = artifactIdFor("ws", NOTES.name);
@@ -107,38 +105,20 @@ describe("an engine over the Marbles database", () => {
 
   it("never shows one workspace another's artifacts", async () => {
     const { engine } = await arranged();
-    const created = await engine(false, "ws").artifacts.create({
+    const created = await engine("ws").artifacts.create({
       entries: { "a.md": "# A" },
       name: "Shared?",
       type: "text/markdown",
     });
-    const other = engine(false, "other");
+    const other = engine("other");
     expect(
       await other.artifacts.get(artifactIdSchema.parse(created.artifactId))
     ).toBeNull();
   });
 
-  it("under dry, writes to memory and reads through to what real runs left there", async () => {
-    const { engine, machine } = await arranged();
-    await engine(false).artifacts.write(NOTES, { "a.md": "# Real" });
-
-    const dry = engine(true);
-    const latest = await dry.artifacts.latest(NOTES);
-    expect(await latest?.text("a.md")).toBe("# Real");
-    await dry.artifacts.write(NOTES, { "a.md": "# Dry" });
-    expect(await (await dry.artifacts.latest(NOTES))?.text("a.md")).toBe(
-      "# Dry"
-    );
-    const stored = await workspaceStores(
-      machine.database.database,
-      "ws"
-    ).artifacts.listContents(artifactIdFor("ws", NOTES.name));
-    expect(stored).toHaveLength(1);
-  });
-
   it("keeps its workspace catalogue there under its workspace id", async () => {
     const { engine, machine, root } = await arranged();
-    const files = await engine(false).workspaces.current.files();
+    const files = await engine().workspaces.current.files();
     expect(files.map((file) => file.path)).toContain("docs/a.md");
 
     const stored = workspaceStores(machine.database.database, "ws");
@@ -154,24 +134,5 @@ describe("an engine over the Marbles database", () => {
         "other"
       ).workspaces.findWorkspaceByPath(root)
     ).toBeNull();
-  });
-
-  it("under dry, reads through to nothing for an artifact no run wrote, and makes no directory", async () => {
-    const { artifacts, engine } = await arranged();
-    expect(await engine(true).artifacts.latest(NOTES)).toBeUndefined();
-    expect(existsSync(artifacts)).toBe(false);
-  });
-
-  it("keeps nothing there under dry", async () => {
-    const { engine, machine, root } = await arranged();
-    const dry = engine(true);
-    await dry.artifacts.write(NOTES, { "a.md": "# Dry" });
-    await dry.workspaces.current.files();
-
-    const stored = workspaceStores(machine.database.database, "ws");
-    expect(
-      await stored.artifacts.getArtifact(artifactIdFor("ws", NOTES.name))
-    ).toBeNull();
-    expect(await stored.workspaces.findWorkspaceByPath(root)).toBeNull();
   });
 });

@@ -34,7 +34,6 @@ import {
   InvalidStoredConfiguration,
   keptConfigurations,
   MemoryProviderStore,
-  readOnlyProviders,
 } from "~/lib/providers/store";
 import type {
   ReadEvent,
@@ -70,12 +69,10 @@ export type ScopedRecord = ProviderEntryRecord & {
 export type Proposal = ScopedRecord & { readonly taken?: string };
 
 export interface ProviderConfigurationOptions {
-  readonly echo?: (instance: Provider) => Provider;
   readonly environment: Readonly<Record<string, string>>;
   readonly fixed?: readonly Provider[];
   readonly models: Models;
   readonly plugins: readonly ProviderPlugin[];
-  readonly readOnly?: boolean;
   readonly store?: ProviderStore;
   readonly workspace?: ProviderWorkspace;
 }
@@ -133,7 +130,7 @@ export class ProviderConfiguration {
       options.fixed === undefined && options.store !== undefined
         ? options.store
         : new MemoryProviderStore();
-    this.#store = options.readOnly ? readOnlyProviders(store) : store;
+    this.#store = store;
     this.#machine = {
       kind: "machine",
       read: () => this.#view().machine,
@@ -305,7 +302,7 @@ export class ProviderConfiguration {
     }
     throw new ConfigurationError(
       "PROVIDERS_NOT_CONFIGURED",
-      `No model providers are configured. Run marbles${this.#options.readOnly ? " without --dry-run" : ""} in a terminal to set them up.`
+      "No model providers are configured. Run marbles in a terminal to set them up."
     );
   }
 
@@ -1046,10 +1043,7 @@ export class ProviderConfiguration {
     const served = plugin.ambient
       ? refusingWhenChanged(created.provider, patterns, env)
       : created.provider;
-    return {
-      ...created,
-      provider: this.#options.echo ? this.#options.echo(served) : served,
-    };
+    return { ...created, provider: served };
   }
 
   #create(
@@ -1084,7 +1078,7 @@ export class ProviderConfiguration {
 
   #digest(material: unknown): string {
     if (this.#key === undefined) {
-      if (this.#options.fixed === undefined && !this.#options.readOnly) {
+      if (this.#options.fixed === undefined) {
         throw new ConfigurationError(
           "CONFIGURATION_UNREADABLE",
           "an instance identity was asked for before the stored identity key was read"

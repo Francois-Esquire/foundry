@@ -44,7 +44,6 @@ function deps(
     automations: host.automations,
     containerOf: () => ({}) as ReturnType<AgentsDeps["containerOf"]>,
     defaultExecutor: () => CODEX,
-    dry: false,
     ...(executionOf ? { executionOf } : {}),
     cwd: process.cwd(),
     interactions: host.interactions,

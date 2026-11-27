@@ -164,18 +164,15 @@ describe("portable authoring and export-based registration", () => {
     let ping!: ReturnType<ReturnType<typeof step>["do"]>;
     let scheduled!: Promise<unknown>;
 
-    const loadPromise = runLoadScope(
-      { dry: false, workspaceId: "alpha" },
-      async () => {
-        ping = step("ping").do(() => "pong");
-        scheduled = new Promise<unknown>((done, fail) => {
-          setTimeout(() => {
-            ping.run().then(done, fail);
-          }, 25);
-        });
-        await paused;
-      }
-    );
+    const loadPromise = runLoadScope({ workspaceId: "alpha" }, async () => {
+      ping = step("ping").do(() => "pong");
+      scheduled = new Promise<unknown>((done, fail) => {
+        setTimeout(() => {
+          ping.run().then(done, fail);
+        }, 25);
+      });
+      await paused;
+    });
 
     const unrelated = step("unrelated").do(() => "ok");
     release();
@@ -338,7 +335,6 @@ export const check = step("check").do(async () => \`\${await privateHelper.run()
         {
           artifacts: home.layout.artifacts,
           config: marblesDir,
-          dry: true,
           state: home.layout.state,
         },
         { print: (line) => printed.push(line) }

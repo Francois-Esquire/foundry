@@ -142,7 +142,6 @@ function managerDeps(): AgentsDeps {
     },
     cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
-    dry: false,
     interactions: host.interactions,
     models: mockModels([CLAUDE_CODE, CODEX], ({ executor }) =>
       String(executor.provider)

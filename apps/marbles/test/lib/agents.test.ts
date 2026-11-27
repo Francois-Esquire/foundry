@@ -10,7 +10,7 @@ import type { ManagerArgs } from "~/lib/bindings";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager } from "~/lib/managers/agents";
-import { echoModels, mockModels } from "~/lib/models/mock";
+import { mockModels } from "~/lib/models/mock";
 import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition, SandboxHandle } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
@@ -45,7 +45,6 @@ function deps(warnings: string[] = []): AgentsDeps {
     },
     cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
-    dry: false,
     interactions: host.interactions,
     models,
     sessions: new MemorySessionStore(),
@@ -63,24 +62,6 @@ const reviewer: AgentDefinition = {
 };
 
 describe("agents.session", () => {
-  it("dry sandbox sessions use echo models without preparing a guest or reading credentials", async () => {
-    const a = args();
-    const session = await new AgentsManager({ ...deps(), dry: true })
-      .scoped(a)
-      .session(reviewer, {
-        sandbox: {
-          close: () => Promise.resolve(),
-          exec: () => {
-            throw new Error("Dry session must not execute guest commands");
-          },
-          id: "dry-sandbox",
-        } as unknown as SandboxHandle,
-      });
-    expect((await session.generate("Inspect the fixture")).text).toContain(
-      "Inspect the fixture"
-    );
-  });
-
   it("rejects sandbox-only permission and credential options on a host session", async () => {
     const agents = new AgentsManager(deps()).scoped(args());
     const authority = { policy: createMemoryAgentAuthorizer().authorizer };
@@ -130,27 +111,24 @@ describe("agents.session", () => {
     }
   });
 
-  it.each([false, true])(
-    "rejects widened sandbox options with maxTurns (dry=%s)",
-    async (dry) => {
-      const manager = new AgentsManager({ ...deps(), dry });
-      const sandbox = { id: "sandbox-turn-limit" } as unknown as SandboxHandle;
-      const widened = { maxTurns: 3, sandbox };
-      try {
-        // @ts-expect-error Exercise widened options from JavaScript callers.
-        await expect(manager.session(reviewer, widened)).rejects.toThrow(
-          "maxTurns is not supported for sandbox sessions"
-        );
-        // @ts-expect-error The scoped entry must reject the same invalid options.
-        const scoped = manager.scoped(args()).session(reviewer, widened);
-        await expect(scoped).rejects.toThrow(
-          "maxTurns is not supported for sandbox sessions"
-        );
-      } finally {
-        await manager.close();
-      }
+  it("rejects widened sandbox options with maxTurns", async () => {
+    const manager = new AgentsManager(deps());
+    const sandbox = { id: "sandbox-turn-limit" } as unknown as SandboxHandle;
+    const widened = { maxTurns: 3, sandbox };
+    try {
+      // @ts-expect-error Exercise widened options from JavaScript callers.
+      await expect(manager.session(reviewer, widened)).rejects.toThrow(
+        "maxTurns is not supported for sandbox sessions"
+      );
+      // @ts-expect-error The scoped entry must reject the same invalid options.
+      const scoped = manager.scoped(args()).session(reviewer, widened);
+      await expect(scoped).rejects.toThrow(
+        "maxTurns is not supported for sandbox sessions"
+      );
+    } finally {
+      await manager.close();
     }
-  );
+  });
 
   it("opens a session on the default provider in the frame's directory and streams text", async () => {
     const a = args();
@@ -435,19 +413,6 @@ describe("structured output", () => {
     ).rejects.toSatisfy(NoObjectGeneratedError.isInstance);
     const stored = await session.harness.store.listMessages(session.ref.id);
     expect(stored.at(-1)?.role).toBe("assistant");
-  });
-
-  it("answers a dry turn with the smallest value the schema accepts", async () => {
-    const printed: string[] = [];
-    const agents = new AgentsManager({
-      ...deps(),
-      dry: true,
-      models: echoModels([CLAUDE_CODE, CODEX], (line) => printed.push(line)),
-    }).scoped(args());
-    const session = await agents.session(reviewer);
-    const { output } = await session.generate("Review.", { output: verdict });
-    expect(output).toEqual({ approved: false, notes: [], severity: "low" });
-    expect(printed.at(-1)).toContain("→ { approved, notes, severity }");
   });
 });
 

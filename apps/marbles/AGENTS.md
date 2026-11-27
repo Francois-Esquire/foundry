@@ -54,8 +54,7 @@ Source responsibilities and dependency boundaries:
   (`database/tasks.ts`), and without one the `lib/` class keeps them in
   memory, whatever `state` is. The class the package publishes is
   `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`
-  and not `dry` (`Engine.persistence`, the one rule for where any engine
-  persists, which a dry engine does nowhere), it keeps every store it is
+  (`Engine.persistence`, the one rule for where any engine persists), it keeps every store it is
   not handed in the database, over one handle
   (`withWorkspaceDatabase` in `database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
@@ -210,7 +209,7 @@ Source responsibilities and dependency boundaries:
   `@foundry/<pkg>/store/tables`, one `export *` line per package. Marbles' own
   stores sit beside the tables. `stores.ts` provides portable
   `assembleSqliteWorkspaceStores`; `local-artifacts.ts` provides
-  `artifactBlobs` and `readArtifacts`. `WorkspaceRegistry` in `workspaces.ts`
+  `artifactBlobs`. `WorkspaceRegistry` in `workspaces.ts`
   and `ResourceView` accept an optional `acceptWorkspace` predicate;
   local hosts pass `insideState` to exclude linked workspace directories.
   Other stores include `changes.ts`, a workspace's change log: every change
@@ -254,8 +253,7 @@ Source responsibilities and dependency boundaries:
   window between a check and a call. `keepingLinks` refuses a host-bound
   store. Shares are checked and written in one transaction
   (`associationTransaction`). Artifact blob files stay on disk, under
-  `<artifacts>/workspaces/<id>/blobs`; `readArtifacts` is the read-only
-  view of them a dry run reads through to. `runs.ts` is a workspace's run queue: `@foundry/queue`'s
+  `<artifacts>/workspaces/<id>/blobs`. `runs.ts` is a workspace's run queue: `@foundry/queue`'s
   `SqliteQueueStore` scoped by the workspace id, whose `onCommit` hook
   files beside each workflow Run it puts Marbles' row in
   `marbles_workflow_runs`, what the run's scope recorded, so a later
@@ -326,7 +324,7 @@ Source responsibilities and dependency boundaries:
   `Engine.execute` runs direct definitions
   through the same orchestration as named launches; calls inside a step
   become dynamic children in that run. `createEngine` in `src/create.ts`
-  is the one place the Marbles defaults and what `--dry-run` echoes are
+  is the one place the Marbles defaults are
   decided, and where it persists, following `Engine.persistence`; it
   builds the instances, constructs the engine, and copies the catalog in.
   Given the host's `database`, it keeps the tasks, sessions, workflow
@@ -354,8 +352,7 @@ Source responsibilities and dependency boundaries:
   writer handle on the database (`openHostDatabase`) before it builds the
   engine, or is handed one, keeps it until the engine is disposed, and
   records the workspace's registration (root, source, where its work
-  starts) through it once the engine has started; under `--dry-run` it
-  opens none. Nothing under `workspace/` reads `process.cwd()`: the CLI
+  starts) through it once the engine has started. Nothing under `workspace/` reads `process.cwd()`: the CLI
   passes the directory it runs in (`directory`), and a workspace's
   registration says where its work starts (`cwd`). Each workspace loads
   into a `Catalog` of its own (`loadSource` in `workspace/open.ts`, through

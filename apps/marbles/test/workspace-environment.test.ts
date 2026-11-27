@@ -60,7 +60,6 @@ const lines = [];
 const args = {
   artifacts: ${JSON.stringify(home.layout.artifacts)},
   config: ${JSON.stringify(source)},
-  dry: false,
   state: ${JSON.stringify(home.layout.state)},
 };
 const opened = await openWorkspace(args, { print: (line) => lines.push(line) });

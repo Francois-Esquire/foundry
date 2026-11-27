@@ -228,7 +228,6 @@ export function buildContext<I>({
       bindings.exec?.(managerArgs) ??
       commandRunner({
         cwd: () => workingDirectory(scope.cwd),
-        dry: false,
         ...(bindings.context === undefined
           ? {}
           : { environment: bindings.context.environment }),

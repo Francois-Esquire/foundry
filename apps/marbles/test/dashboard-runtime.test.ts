@@ -31,7 +31,6 @@ const textFields = [
 function engineIn(root: string, catalog: Catalog, stateDir?: string) {
   return createEngine({
     catalog,
-    dry: false,
     pools: { default: 1 },
     print,
     root,

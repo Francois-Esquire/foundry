@@ -7,9 +7,9 @@ import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { workspaces } from "@foundry/workspaces/node";
-import { git } from "@foundry/workspaces/node/git";
+import { type GitRun, git } from "@foundry/workspaces/node/git";
 import { Catalog, type CollectInput } from "~/authoring/catalog";
-import { declareCatalog, echoGit } from "~/create";
+import { declareCatalog } from "~/create";
 import { Engine as DatabaseEngine } from "~/entries/engine";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import type { EngineOptions } from "~/lib/engine";
@@ -22,6 +22,13 @@ import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { Registry } from "~/lib/registry";
 
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");
+
+export function echoGit(print: (line: string) => void): GitRun {
+  return (cwd, args) => {
+    print(`[git] ${cwd}: git ${args.join(" ")}`);
+    return Promise.resolve("");
+  };
+}
 
 export interface TestEngineOptions extends Partial<EngineOptions> {
   readonly catalog?: Catalog;

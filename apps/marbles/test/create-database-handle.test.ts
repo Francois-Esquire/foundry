@@ -17,7 +17,6 @@ it("keeps its recovery report over the one handle it opens for a state dir", asy
   const lines: string[] = [];
   const engine = createEngine({
     catalog: new Catalog(),
-    dry: false,
     print: (line) => lines.push(line),
     providers: [],
     root: process.cwd(),

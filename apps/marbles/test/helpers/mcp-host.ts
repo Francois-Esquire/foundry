@@ -1,3 +1,4 @@
+import "./echo-providers";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { layout } from "~/layout";
 import { createMcpServer } from "~/mcp/server";
@@ -5,14 +6,13 @@ import { hostWorkspace } from "~/workspace/host";
 
 const [source] = process.argv.slice(2);
 if (source === undefined || process.env.FOUNDRY_ROOT === undefined) {
-  throw new Error("usage: FOUNDRY_ROOT=<dir> bun dry-mcp-host.ts <source>");
+  throw new Error("usage: FOUNDRY_ROOT=<dir> bun mcp-host.ts <source>");
 }
 const { artifacts, state } = layout();
 const host = await hostWorkspace({
   artifacts,
   askable: false,
   directory: process.cwd(),
-  dry: true,
   print: (line) => process.stderr.write(`${line}\n`),
   source,
   state,

@@ -106,7 +106,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         containerOf: (handle) => sandboxes.containerOf(handle),
         cwd: root,
         defaultExecutor: () => ({ harness, model: modelId, provider }),
-        dry: false,
         interactions: host.interactions,
         models,
         sessions: store,

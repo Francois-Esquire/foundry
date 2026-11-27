@@ -385,7 +385,7 @@ it("ignores unexported side-effect calls during load and keeps each workspace's 
     root,
     `const { openWorkspace } = await import(${JSON.stringify(join(SRC, "workspace/open.ts"))});
   const open = (dir, source) => openWorkspace(
-    { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, directory: dir, dry: true, state: ${JSON.stringify(join(root, "state"))} },
+    { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, directory: dir, state: ${JSON.stringify(join(root, "state"))} },
     { print: () => undefined }
   );
   const alpha = await open(${JSON.stringify(a.dir)}, ${JSON.stringify(a.source)});

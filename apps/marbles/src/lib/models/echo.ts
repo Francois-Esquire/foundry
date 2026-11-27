@@ -160,7 +160,7 @@ export function echoInstance(source: Provider, print: Print): Provider {
   };
 }
 
-export function echoReply(print: Print): Reply {
+function echoReply(print: Print): Reply {
   return ({ executor, prompt, cwd, schema }) => {
     const where = cwd ? ` in ${cwd}` : "";
     const text = `[${executor.provider}/${executor.model}]${where} ${prompt}`;

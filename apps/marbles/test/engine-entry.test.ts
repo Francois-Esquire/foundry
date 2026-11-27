@@ -176,7 +176,6 @@ describe("the published Engine", () => {
   it("is the class a hosted workspace's engine is built from", async () => {
     const engine = createEngine({
       catalog: new Catalog(),
-      dry: true,
       print: () => undefined,
       root: scratch(),
       workspaceId: "hosted-class",

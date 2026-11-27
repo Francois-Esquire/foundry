@@ -337,7 +337,6 @@ it("lists the gateway's models when the engine starts", async () => {
   await configure(baseURL);
   const engine = createEngine({
     catalog: new Catalog(),
-    dry: false,
     environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print: () => undefined,
@@ -375,7 +374,6 @@ it("adds a gateway entry and serves what its server lists", async () => {
 function engineOver(print: (line: string) => void): Engine {
   return createEngine({
     catalog: new Catalog(),
-    dry: false,
     environment: ENV,
     plugins: [pluginOf(gatewayPlugin), pluginOf(other)],
     print,
@@ -441,7 +439,6 @@ it("lists the gateway's models for definitions called outside a run", async () =
   vi.stubEnv("GW_KEY", "secret");
   const engine = createEngine({
     catalog: Catalog.collect([defineProvider(gatewayPlugin)]),
-    dry: false,
     print: () => undefined,
     root: state,
     stateRoot: join(home, "marbles"),
