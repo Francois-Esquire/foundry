@@ -32,7 +32,6 @@ export interface ArtifactsDeps {
     | "readRoot"
     | "revise"
   >;
-  readonly readThrough?: Pick<ArtifactOperations, "get" | "readFile">;
   readonly workspaceId: string;
 }
 
@@ -180,24 +179,22 @@ export class ArtifactsManager implements ScopedArtifacts {
 
   async latest(artifact: ArtifactRef): Promise<LatestArtifact | undefined> {
     const id = this.#idOf(artifact);
-    for (const source of [this.#deps.artifacts, this.#deps.readThrough]) {
-      const found = await source?.get(id);
-      if (source && found?.content) {
-        const { content } = found;
-        const bytes = async (path: string) =>
-          (await source.readFile(content.id, path))?.blob;
-        return {
-          bytes,
-          text: async (path) => {
-            const read = await bytes(path);
-            return read === undefined
-              ? undefined
-              : new TextDecoder().decode(read);
-          },
-          version: versionOf(content),
-        };
-      }
+    const source = this.#deps.artifacts;
+    const found = await source.get(id);
+    if (!found?.content) {
+      return;
     }
+    const { content } = found;
+    const bytes = async (path: string) =>
+      (await source.readFile(content.id, path))?.blob;
+    return {
+      bytes,
+      text: async (path) => {
+        const read = await bytes(path);
+        return read === undefined ? undefined : new TextDecoder().decode(read);
+      },
+      version: versionOf(content),
+    };
   }
 
   listContents(artifact: ArtifactRef) {

@@ -983,30 +983,6 @@ it("disables an entry that cannot load, and refuses to enable it again", async (
   });
 });
 
-it("keeps a read-only engine's edits in memory and writes nothing", async () => {
-  const models = new Models();
-  const config = new ProviderConfiguration({
-    environment: { PATH: "/bin" },
-    models,
-    plugins: PLUGINS,
-    readOnly: true,
-    store,
-    workspace: { dir: "/state/ws1", id: "ws1", root: "/repo" },
-  });
-  await config.add({ id: "codex", plugin: "codex" }, { scope: "machine" });
-  await config.replace([
-    { enabled: true, id: "codex", plugin: "codex", scope: "machine" },
-    { enabled: true, id: "vercel", plugin: "vercel", scope: "workspace" },
-  ]);
-  expect(await config.initialize([])).toBe(false);
-  expect(ids(models)).toEqual(["vercel", "codex"]);
-  expect(store.texts.has(MACHINE_SCOPE)).toBe(false);
-  expect(store.texts.has("ws1")).toBe(false);
-  await config.read();
-  expect(config.identityOf("codex")).toEqual(expect.any(String));
-  expect(store.key).toBeUndefined();
-});
-
 it("lets a disabled entry stand beside an enabled one with its id, and refuses to enable it", async () => {
   store.put(MACHINE_SCOPE, {
     providers: [{ enabled: true, id: "codex", plugin: "codex" }],
@@ -1353,19 +1329,6 @@ it("tells a configured instance with no execution from a host-supplied one", asy
   expect(fixed.executionOf("codex")).toBeUndefined();
 });
 
-it("builds stand-ins with the same id and catalog for a dry run", async () => {
-  store.put(MACHINE_SCOPE, {
-    providers: [{ enabled: true, id: "codex", plugin: "codex" }],
-  });
-  const echo = vi.fn((provider: Provider) => ({ ...provider }));
-  const { config, models } = configuration(undefined, { echo });
-  await loaded(config);
-  expect(echo).toHaveBeenCalledTimes(1);
-  expect(models.providers[0]?.models.map((row) => row.id)).toEqual([
-    "codex-model",
-  ]);
-});
-
 it("proposes what each plugin detects, at the scope it would use", () => {
   const { config } = configuration();
   expect(config.propose().map((entry) => `${entry.id}@${entry.scope}`)).toEqual(
@@ -1502,25 +1465,6 @@ describe("instance ownership", () => {
     expect(
       built.map((each) => vi.mocked(each.dispose)?.mock.calls.length)
     ).toEqual([1, 1]);
-  });
-
-  it("hands the real instance to the dry-run stand-in, which disposes it", async () => {
-    store.put(MACHINE_SCOPE, {
-      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
-    });
-    const { config, models } = configuration(undefined, {
-      echo: (real) => ({
-        available: true,
-        dispose: () => Promise.resolve(real.dispose?.()),
-        id: real.id,
-        languageModel: () => ({}) as never,
-        models: real.models,
-      }),
-      plugins: OWNED,
-    });
-    await loaded(config);
-    await models.dispose();
-    expect(built[0]?.dispose).toHaveBeenCalledTimes(1);
   });
 });
 

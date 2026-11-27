@@ -3,7 +3,7 @@ import { defineCommand } from "~/cli/command";
 import { UsageError } from "~/cli/errors";
 import { statusText, workspaceLines } from "~/cli/format/status";
 import { loadSettings, settingsPath } from "~/cli/settings";
-import { ResourceAssociationError } from "~/lib/resources";
+import { ResourceNotFoundError } from "~/lib/resources";
 import { readStatus } from "~/process/status";
 
 type WorkspacesArgs =
@@ -42,7 +42,7 @@ export const workspacesCommand = defineCommand({
           workspace.id === args.id || resolve(workspace.root) === targetPath
       );
       if (found === undefined) {
-        throw new ResourceAssociationError(`no workspace "${args.id}"`);
+        throw new ResourceNotFoundError(`no workspace "${args.id}"`);
       }
       ctx.output(found, (value) => workspaceLines(value).join("\n"));
       return;

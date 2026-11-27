@@ -147,7 +147,7 @@ describe("WorkspaceRegistry", () => {
     expect(
       (await recordedWorkspaces(state)).map((record) => record.id)
     ).toEqual([kept.id]);
-    const args = { artifacts: "", config: "", dry: false, state };
+    const args = { artifacts: "", config: "", state };
     expect((await recordedWorkspace(args, kept.id))?.workspace).toEqual(kept);
     expect(await recordedWorkspace(args, linked.id)).toBeUndefined();
     expect(await recordedWorkspace(args, "missing")).toBeUndefined();
@@ -157,7 +157,7 @@ describe("WorkspaceRegistry", () => {
 describe("a state root without a database", () => {
   it("records nothing, and is left without one", async () => {
     const state = scratch("marbles-state-");
-    const args = { artifacts: "", config: "", dry: false, state };
+    const args = { artifacts: "", config: "", state };
     expect(await recordedWorkspaces(state)).toEqual([]);
     expect(await recordedWorkspace(args, "any")).toBeUndefined();
     expect(existsSync(stateDatabase(state))).toBe(false);

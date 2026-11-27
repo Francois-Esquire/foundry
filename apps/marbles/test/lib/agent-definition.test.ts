@@ -13,10 +13,8 @@ import { agent, skills } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
 import type { ManagerArgs } from "~/lib/bindings";
 import type { Engine } from "~/lib/engine";
-import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager, buildDefinition } from "~/lib/managers/agents";
-import { mockModels } from "~/lib/models/mock";
 import { RunScope } from "~/lib/run-scope";
 import type {
   AgentLike,
@@ -27,6 +25,8 @@ import type {
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { dispatchSchema } from "~/workspace/dispatch";
 import { testEngine } from "../helpers/engine";
+import { CLAUDE_CODE, CODEX } from "../helpers/harnesses";
+import { mockModels } from "../helpers/mock";
 
 const HOUR = 3_600_000;
 const NO_PROMPT = /has no prompt/;
@@ -143,7 +143,6 @@ function managerDeps(): AgentsDeps {
     },
     cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
-    dry: false,
     interactions: host.interactions,
     models: mockModels([CLAUDE_CODE, CODEX], ({ executor }) =>
       String(executor.provider)

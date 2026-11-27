@@ -1,12 +1,11 @@
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { DatabaseBusyError } from "~/database/busy";
-import { LinksPlacementError } from "~/database/links";
 import { IncompatibleDatabaseError } from "~/database/migrate";
 import { UnreadableDatabaseError } from "~/database/open";
 import { TaskStorageError } from "~/database/tasks";
 import { RunEndedError } from "~/lib/engine";
 import { ConfigurationError } from "~/lib/providers/store";
-import { ResourceAssociationError } from "~/lib/resources";
+import { ResourceNotFoundError } from "~/lib/resources";
 import { RunOutputError } from "~/lib/state/output";
 import { NotHostedError, RecordsHeldError } from "~/model/errors";
 import {
@@ -29,7 +28,6 @@ export function isActionableError(error: unknown): error is Error {
     error instanceof DatabaseBusyError ||
     error instanceof IncompatibleDatabaseError ||
     error instanceof LaunchInputError ||
-    error instanceof LinksPlacementError ||
     error instanceof NoProcessError ||
     error instanceof NotHostedError ||
     error instanceof ProcessMismatchError ||
@@ -38,7 +36,7 @@ export function isActionableError(error: unknown): error is Error {
     error instanceof RecordsHeldError ||
     error instanceof ReentrantCallError ||
     error instanceof RemoteError ||
-    error instanceof ResourceAssociationError ||
+    error instanceof ResourceNotFoundError ||
     error instanceof RunEndedError ||
     error instanceof RunOutputError ||
     error instanceof TaskStorageError ||

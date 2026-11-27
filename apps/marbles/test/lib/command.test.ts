@@ -28,10 +28,9 @@ afterEach(async () => {
   await rm(root, { force: true, recursive: true });
 });
 
-async function start(collect: CollectInput, dry = false) {
+async function start(collect: CollectInput) {
   engine = await startEngine({
     collect,
-    dry,
     print: (line) => lines.push(line),
     root,
   });
@@ -75,19 +74,6 @@ describe("command steps", () => {
     await expect(
       host.run("listed", { words: ["one", "two"] })
     ).resolves.toMatchObject({ stdout: "one two\n" });
-  });
-
-  it("prints instead of running under a dry run", async () => {
-    const install = step("install")
-      .input(z.object({ pkg: z.string() }))
-      .exec("npm i $pkg");
-    const host = await start([install], true);
-    await expect(host.run("install", { pkg: "left pad" })).resolves.toEqual({
-      exitCode: 0,
-      stderr: "",
-      stdout: "",
-    });
-    expect(lines).toContain(`[exec] ${root}: npm i 'left pad'`);
   });
 
   it("checks the template when the module loads", () => {

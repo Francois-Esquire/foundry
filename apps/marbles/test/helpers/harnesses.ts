@@ -10,9 +10,6 @@ export const CLAUDE_CODE: TurnExecutorRef =
 export const CODEX: TurnExecutorRef = CLI_HARNESSES.codex.executor;
 export const PI: TurnExecutorRef = CLI_HARNESSES.pi.executor;
 
-// biome-ignore lint/performance/noBarrelFile: Preserve the public selector import while keeping the engine independent of CLI providers.
-export { selectExecutor } from "./executor";
-
 export const CLI_PROVIDER_FACTS: Readonly<
   Record<
     CliHarness,

@@ -29,8 +29,8 @@ async function source(files: Record<string, string>) {
     import { openWorkspace } from ${JSON.stringify(join(src, "workspace/open.ts"))};
     import { createEngine } from ${JSON.stringify(join(src, "create.ts"))};
     const root = ${JSON.stringify(root)};
-    const opened = await openWorkspace({ artifacts: root + "/artifacts", config: ${JSON.stringify(config)}, dry: true, state: root + "/state" }, { cwd: root, print: () => {} });
-    const engine = createEngine({ catalog: opened.catalog, root, dry: true, workspaceId: "ws", print: () => {} });
+    const opened = await openWorkspace({ artifacts: root + "/artifacts", config: ${JSON.stringify(config)}, state: root + "/state" }, { cwd: root, print: () => {} });
+    const engine = createEngine({ catalog: opened.catalog, root, workspaceId: "ws", print: () => {} });
     try {
       await engine.start();
       const launched = [];
@@ -150,7 +150,6 @@ it("programmatic pools override the hosted default", async () => {
   catalog.configure("config.ts", { pools: { default: 2 } });
   const engine = createEngine({
     catalog,
-    dry: true,
     pools: { default: 3 },
     print: () => undefined,
     root,

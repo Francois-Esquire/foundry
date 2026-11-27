@@ -36,7 +36,7 @@ const TOKEN_PART = /tokens|k in|out\)/;
 const INDENTED = /^ │ {3}\S/;
 const CATALOG_HINTS = [
   "Add schedule() or monitor() in .foundry/marbles when you want automatic runs.",
-  "Choose a starter during setup, or add a prebuilt step in .foundry/marbles.",
+  "Create the starter during setup, or add a step in .foundry/marbles.",
 ];
 
 function rows(frame: string): string[] {

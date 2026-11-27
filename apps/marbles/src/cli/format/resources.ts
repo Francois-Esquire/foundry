@@ -1,6 +1,6 @@
 import type { Artifact } from "@foundry/artifacts";
 import type { ContainerRow } from "@foundry/sandbox";
-import type { ArtifactFile, ResourceView, Shown } from "~/database/resources";
+import type { ArtifactFile, ResourceView } from "~/database/resources";
 import type { ResourceKind } from "~/lib/resources";
 import type { RunStep } from "~/lib/run-trace";
 import { runSteps } from "~/lib/run-trace";
@@ -9,7 +9,6 @@ import type { RunRecord } from "~/lib/workflow-runs";
 interface ResourceOwnership {
   readonly id: string;
   readonly owner: string;
-  readonly sharedWith: readonly string[];
 }
 
 interface ArtifactResourceItem extends ResourceOwnership {
@@ -133,14 +132,6 @@ export function resourceDetailLines(
   }
 }
 
-function ownership(shown: Shown<unknown>): {
-  readonly owner: string;
-  readonly sharedWith: readonly string[];
-} {
-  const [owner = "", ...sharedWith] = shown.workspaces;
-  return { owner, sharedWith };
-}
-
 export async function resourceItems(
   kind: ResourceKind,
   view: ResourceView
@@ -149,8 +140,8 @@ export async function resourceItems(
     case "artifact":
       return (await view.artifacts()).map((shown) => ({
         id: shown.ref.id,
-        ...ownership(shown),
         name: shown.value.name,
+        owner: shown.ref.owner,
         status: shown.value.status,
         type: shown.value.type,
         updatedAt: shown.value.updatedAt.toISOString(),
@@ -159,9 +150,9 @@ export async function resourceItems(
       return (await view.runs()).map((shown) => {
         const { record } = shown.value;
         return {
-          id: record.id,
-          ...ownership(shown),
           createdAt: new Date(record.timestamps.createdAt).toISOString(),
+          id: record.id,
+          owner: shown.ref.owner,
           status: record.status,
           step: record.step,
           steps: runSteps(record),
@@ -169,9 +160,9 @@ export async function resourceItems(
       });
     case "sandbox":
       return (await view.sandboxes()).map((shown) => ({
-        id: shown.ref.id,
-        ...ownership(shown),
         createdAt: new Date(shown.value.createdAt).toISOString(),
+        id: shown.ref.id,
+        owner: shown.ref.owner,
         status: shown.value.status,
       }));
     case "session": {
@@ -181,8 +172,8 @@ export async function resourceItems(
         const tally = tallies.get(shown.ref);
         return {
           id: shown.ref.id,
-          ...ownership(shown),
           messages: tally?.messages ?? 0,
+          owner: shown.ref.owner,
           summarized: Boolean(tally?.summarized),
           updatedAt: new Date(shown.value.updatedAt).toISOString(),
         };
@@ -218,10 +209,8 @@ function stepLines(steps: readonly RunStep[], indent: string): string[] {
 }
 
 function belongingItem(
-  item: Pick<ResourceItem, "owner" | "sharedWith">,
+  item: Pick<ResourceItem, "owner">,
   here: string
 ): string {
-  const from = item.owner === here ? "" : `  from ${item.owner}`;
-  const others = item.sharedWith.filter((workspace) => workspace !== here);
-  return `${from}${others.length === 0 ? "" : `  shared with ${others.join(", ")}`}`;
+  return item.owner === here ? "" : `  from ${item.owner}`;
 }

@@ -6,7 +6,7 @@ import { type Replay, ReplayKeys, type StoryKey } from "./replay-keys";
 
 const PATH = "/Users/someone/code/foundry/.foundry/marbles";
 const SUBMIT: StoryKey = { ctrl: true, name: "return", sequence: "\r" };
-const TO_REVIEW = ["return", SUBMIT];
+const TO_REVIEW = [SUBMIT];
 
 const created = () => Promise.resolve();
 const pending = () => new Promise<void>(() => undefined);
@@ -31,29 +31,14 @@ function onboarding(replay?: Replay, onCreate: () => Promise<void> = created) {
 export default defineStories({
   component: "OnboardingView",
   description:
-    "First-run setup: choose a starter, configure its step, then review and create the module.",
+    "First-run setup: configure the starter step, then review and create the module.",
   title: "Views/Onboarding",
 });
 
-export const Starter = story({
-  description: "The first stage: pick a starter; Enter configures it.",
-  name: "Choose a starter",
-  render: onboarding(),
-});
-
-export const OtherStarter = story({
-  description: "The Design starter, chosen with the up arrow.",
-  name: "Another starter chosen",
-  render: onboarding({ keys: ["up"], shows: "Choose a starter · Design" }),
-});
-
 export const Settings = story({
-  description: "The second stage: name the step and add instructions.",
+  description: "The first stage: name the step and add instructions.",
   name: "Configure the step",
-  render: onboarding({
-    keys: ["return"],
-    shows: "Configure your step · Product",
-  }),
+  render: onboarding(),
 });
 
 export const Review = story({
@@ -84,7 +69,7 @@ export const Refused = story({
 });
 
 export const Quitting = story({
-  description: "q on the first stage opens the quit dialog.",
+  description: "q on the review stage opens the quit dialog.",
   name: "Quit dialog",
-  render: onboarding({ keys: ["q"], shows: "Quit Marbles?" }),
+  render: onboarding({ keys: [...TO_REVIEW, "q"], shows: "Quit Marbles?" }),
 });

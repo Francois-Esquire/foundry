@@ -10,7 +10,7 @@ import {
 import { readResourceView, recordedWorkspaces } from "~/database/open";
 import { ALL_WORKSPACES, type ViewScope } from "~/database/resources";
 import type { ResourceKind } from "~/lib/resources";
-import { ResourceAssociationError } from "~/lib/resources";
+import { ResourceNotFoundError } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";
 import { workspaceState } from "~/lib/state/workspace";
 
@@ -65,7 +65,7 @@ export async function resolveWorkspaceTarget(
     const derived = workspaceState(state, resolvedPath);
     return { id: derived.id, root: derived.root };
   }
-  throw new ResourceAssociationError(`no workspace "${target}"`);
+  throw new ResourceNotFoundError(`no workspace "${target}"`);
 }
 
 export async function listResources(
@@ -109,7 +109,7 @@ export async function getResource(
     resourceDetail(kind, view, id)
   );
   if (found === undefined) {
-    throw new ResourceAssociationError(`no ${kind} "${id}"`);
+    throw new ResourceNotFoundError(`no ${kind} "${id}"`);
   }
   if (context.json) {
     context.print(JSON.stringify(found, null, 2));

@@ -10,13 +10,12 @@ import {
   parseInputs,
 } from "~/lib/inputs";
 import { createStarter } from "~/workspace/create";
-import { renderModule, type SetupDraft, STARTERS } from "~/workspace/templates";
+import { renderModule, type SetupDraft, STARTER } from "~/workspace/templates";
 import { type TestHome, testHome } from "./helpers/home";
 
 const draft: SetupDraft = {
   instructions: "",
   name: "summary",
-  template: "product",
 };
 let home: TestHome | undefined;
 
@@ -41,7 +40,7 @@ function cli(config: string, ...args: string[]) {
   );
 }
 
-function runDryStarter(
+function runStarter(
   dir: string,
   config: string,
   name: string,
@@ -49,16 +48,17 @@ function runDryStarter(
 ): string {
   const { artifacts, state } = currentHome().layout;
   const hostModule = resolve("src/workspace/host.ts");
+  const echoProviders = resolve("test/helpers/echo-providers.ts");
   return execFileSync(
     "bun",
     [
       "--no-env-file",
       "-e",
-      `import { hostWorkspace } from ${JSON.stringify(hostModule)};
+      `import ${JSON.stringify(echoProviders)};
+import { hostWorkspace } from ${JSON.stringify(hostModule)};
 const host = await hostWorkspace({
   artifacts: ${JSON.stringify(artifacts)},
   directory: ${JSON.stringify(dir)},
-  dry: true,
   print: () => undefined,
   source: ${JSON.stringify(config)},
   state: ${JSON.stringify(state)},
@@ -85,42 +85,37 @@ it("missing, empty, and import-only configs register no implicit definitions", a
     expect(cli(config, "list")).toBe("");
     await writeFile(config, "export {};\n");
     expect(cli(config, "list")).not.toContain("[step]");
-    await writeFile(config, 'import "@foundry.sh/marbles/prebuilt";\n');
+    await writeFile(config, 'import "@foundry.sh/marbles";\n');
     expect(cli(config, "list")).not.toContain("[step]");
   } finally {
     await rm(dir, { force: true, recursive: true });
   }
 }, 35_000);
 
-for (const starter of STARTERS) {
-  it(`generates a loadable ${starter.label} config with only the selected step`, async () => {
-    const dir = await mkdtemp(join(tmpdir(), "marbles-starter-"));
-    try {
-      const config = join(dir, "marbles.config.ts");
-      await createStarter(config, {
-        ...draft,
-        instructions: 'Use "quotes" and\nnewlines safely.',
-        name: starter.name,
-        template: starter.id,
-      });
-      const output = cli(config, "list");
-      expect(
-        output.split("\n").filter((line) => line.startsWith("[step]"))
-      ).toEqual([`[step] ${starter.name}`]);
-      expect(output).not.toContain("[workflow]");
-      expect(output).not.toContain("[schedule]");
-      expect(output).not.toContain("[monitor]");
-      expect(output).not.toContain("[run]");
-      const input =
-        starter.id === "design" ? { brief: "A search screen" } : undefined;
-      expect(runDryStarter(dir, config, starter.name, input)).toContain(
-        "complete"
-      );
-    } finally {
-      await rm(dir, { force: true, recursive: true });
-    }
-  }, 25_000);
-}
+it("generates a loadable starter config with only its step", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "marbles-starter-"));
+  try {
+    const config = join(dir, "marbles.config.ts");
+    await createStarter(config, {
+      ...draft,
+      instructions: 'Use "quotes" and\nnewlines safely.',
+      name: STARTER.name,
+    });
+    const output = cli(config, "list");
+    expect(
+      output.split("\n").filter((line) => line.startsWith("[step]"))
+    ).toEqual([`[step] ${STARTER.name}`]);
+    expect(output).not.toContain("[workflow]");
+    expect(output).not.toContain("[schedule]");
+    expect(output).not.toContain("[monitor]");
+    expect(output).not.toContain("[run]");
+    expect(runStarter(dir, config, STARTER.name, undefined)).toContain(
+      "complete"
+    );
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+}, 25_000);
 
 it("never overwrites a starter module, including concurrent creation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "marbles-exclusive-"));

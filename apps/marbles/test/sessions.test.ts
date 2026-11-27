@@ -7,12 +7,11 @@ import { z } from "zod";
 import { resourceLines } from "~/cli/format/resources";
 import { ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
-import { CLAUDE_CODE } from "~/lib/harnesses";
 import { insideState } from "~/lib/state/workspace";
-
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
 import { durableSessions } from "./helpers/durable-sessions";
+import { CLAUDE_CODE } from "./helpers/harnesses";
 import { launch } from "./helpers/launch";
 import { testMachine } from "./helpers/records";
 import { temporaryDirectory } from "./helpers/temporary";

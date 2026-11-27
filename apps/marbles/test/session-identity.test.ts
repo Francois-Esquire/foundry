@@ -89,7 +89,6 @@ async function engine(environment: Record<string, string> = {}) {
 function build(environment: Record<string, string>) {
   return createEngine({
     catalog: new Catalog(),
-    dry: false,
     environment: { ACCOUNT_HOME: "/accounts/personal", ...environment },
     plugins: [cli],
     print: () => undefined,

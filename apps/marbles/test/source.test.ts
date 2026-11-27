@@ -130,7 +130,7 @@ it("lists each observer with its source and types, and a monitor by the name it 
       config,
       `import { artifact, monitor, observe, tasks } from "@foundry.sh/marbles";
 export const triage = observe(tasks, () => undefined, { name: "triage" });
-export const shares = observe(artifact, () => undefined, { name: "shares", types: ["artifact.shared", "artifact.unshared"] });
+export const saved = observe(artifact, () => undefined, { name: "saved", types: ["artifact.created", "artifact.updated"] });
 export const docs = monitor("*.md").name("docs").every("5m").do(() => undefined);`
     );
     const listed = cli(root, "list", "--source", config)
@@ -139,7 +139,7 @@ export const docs = monitor("*.md").name("docs").every("5m").do(() => undefined)
     expect(listed).toEqual([
       `[source] ${config}`,
       "[monitor] docs files *.md every 5m",
-      "[observer] shares ← artifacts artifact.shared, artifact.unshared",
+      "[observer] saved ← artifacts artifact.created, artifact.updated",
       "[observer] triage ← tasks",
     ]);
   } finally {

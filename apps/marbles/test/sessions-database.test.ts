@@ -427,7 +427,6 @@ describe("an engine Marbles creates over a workspace's state", () => {
     return {
       engine: createEngine({
         catalog: new Catalog(),
-        dry: false,
         print: () => undefined,
         root: workspace.root,
         stateDir: workspace.dir,

@@ -112,9 +112,9 @@ test("first-run provider setup precedes workspace setup and can be skipped", asy
     await live.see("Set up model providers");
     await live.see("Codex");
     await live.see(dir);
-    expect(await live.emitted("Choose a starter")).toBe(false);
+    expect(await live.emitted("Configure your first step")).toBe(false);
     await live.send("\x1b");
-    await live.see("Choose a starter", 0, STARTUP_MS);
+    await live.see("Configure your first step", 0, STARTUP_MS);
     expect(await machine()).toBeUndefined();
   } finally {
     await live.dispose();
@@ -201,22 +201,21 @@ test("a missing authoring folder onboards against the Marbles process, which pos
   const dir = mkdtempSync(join(tmpdir(), "mb-"));
   const home = testHome();
   const config = join(dir, ".foundry", "marbles");
-  const file = join(config, "summarize-codebase.ts");
+  const file = join(config, "hello.ts");
   const terminal = openTestCli(home, config, []);
   try {
-    await terminal.see("Choose a starter", 0, STARTUP_MS);
+    await terminal.see("Configure your first step", 0, STARTUP_MS);
     expect(existsSync(config)).toBe(false);
-    await terminal.send("\r");
     await terminal.see("Step name");
     await terminal.send("\t");
     await terminal.send("\t");
     await terminal.send("\r");
-    await terminal.see("summarizeCodebase");
+    await terminal.see('step("hello")');
     expect(existsSync(config)).toBe(false);
     await terminal.send("\r");
     await terminal.see("Press Enter to enter", 0, STARTUP_MS);
     expect(readFileSync(file, "utf8")).toContain(
-      "@foundry.sh/marbles/prebuilt"
+      'import { agent, step } from "@foundry.sh/marbles";'
     );
     await terminal.send("\r");
     await terminal.see("Dashboard");
@@ -240,7 +239,7 @@ test("setup skip leaves the config absent and opens the empty dashboard", async 
   const config = join(dir, "marbles.config.ts");
   const terminal = openTestCli(testHome(), config, []);
   try {
-    await terminal.see("Choose a starter", 0, STARTUP_MS);
+    await terminal.see("Configure your first step", 0, STARTUP_MS);
     await terminal.send("\x1b");
     await terminal.see("setup skipped");
     await terminal.send("\r");

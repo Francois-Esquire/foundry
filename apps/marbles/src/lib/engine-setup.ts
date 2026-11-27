@@ -172,7 +172,6 @@ export function agentsOf(
       ? {}
       : { createMcpClient: options.createMcpClient }),
     defaultExecutor: () => selectExecutor(models),
-    dry: options.dry ?? false,
     executionOf: (provider) => providers?.executionOf(provider),
     ...(providers
       ? {
@@ -222,7 +221,6 @@ export function bindingsOf(
     exec: ({ frame, scope, write }) =>
       (options.commandRunner ?? commandRunner)({
         cwd: () => workingDirectory(scope.cwd),
-        dry: options.dry ?? false,
         environment: context.environment,
         print,
         ...(context.spawned === undefined ? {} : { spawned: context.spawned }),

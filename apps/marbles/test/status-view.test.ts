@@ -87,7 +87,6 @@ function report(orphaned = false): StatusReport {
               createdAt: 0,
               id: "rn-0",
               orphaned: false,
-              sharedFrom: "ws2",
               status: "complete",
               step: "review",
               steps: [],
@@ -170,11 +169,10 @@ describe("OpenTUI status", () => {
     expect(output).not.toContain("\u001b");
   });
 
-  test("lists each run's steps as its detail, and marks a run shared from another workspace", () => {
+  test("lists each run's steps as its detail", () => {
     const output = statusText(report(), "ws1");
     expect(output).toContain("artifacts: 3");
     expect(output).toContain("  steps: gather [complete] · write [complete]");
-    expect(output).toContain("review  [complete] shared from ws2");
   });
 });
 

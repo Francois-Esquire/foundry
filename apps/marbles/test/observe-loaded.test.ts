@@ -66,7 +66,7 @@ globalThis.observed = () => {
   observed += 1;
   if (observed === 3) observedAll();
 };
-const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, dry: false, state: ${JSON.stringify(state)} };
+const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, state: ${JSON.stringify(state)} };
 const opened = await openWorkspace(args, { print: () => undefined });
 const database = await openHostDatabase(${JSON.stringify(state)});
 const engine = await hostEngine(args, opened, { database, print: () => undefined });

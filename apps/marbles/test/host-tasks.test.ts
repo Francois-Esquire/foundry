@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -77,11 +77,10 @@ async function inHost(
 import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
-const open = async (source, state, dry = false) => {
-  const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, dry, state };
+const open = async (source, state) => {
+  const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, state };
   const opened = await openWorkspace(args, { print: () => undefined });
-  // As \`hostWorkspace\` does: one handle, opened under the state root's rule.
-  const database = dry ? undefined : await openHostDatabase(state);
+  const database = await openHostDatabase(state);
   const engine = await hostEngine(args, opened, { database, print: () => undefined });
   await engine.start();
   return { engine, opened };
@@ -207,26 +206,6 @@ await b.engine.dispose();`
   expect(report.two).toEqual(["in two"]);
 }, 120_000);
 
-it("keeps a dry run's tasks in memory and writes nothing to the state dir", async () => {
-  const root = await scratch();
-  const source = await workspace(root, "dry");
-  const state = join(root, "state");
-  const report = await inHost(
-    root,
-    `const { engine } = await open(${JSON.stringify(source)}, ${JSON.stringify(state)}, true);
-await tasks.create({ title: "dry" });
-report.listed = (await tasks.list()).items.map((task) => task.title);
-await engine.dispose();`
-  );
-  expect(report.listed).toEqual(["dry"]);
-  const files = existsSync(state)
-    ? readdirSync(state, { recursive: true }).map(String)
-    : [];
-  expect(files.filter((file) => file.endsWith("tasks.json"))).toEqual([]);
-  expect(files.filter((file) => file.includes("marbles.db"))).toEqual([]);
-  expect(files.filter((file) => file.includes("locks"))).toEqual([]);
-}, 120_000);
-
 it("loses no update when two OS processes change one workspace's tasks at once", async () => {
   const root = await scratch();
   const state = join(root, "state");
@@ -309,6 +288,7 @@ export const seenTitles = observe(tasks, function seenTitles(payload) {
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
   appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + (revision > 0 ? "\\n" : ""));
 });
+
 const titles = async () => (await tasks.list()).items.map((task) => task.title);
 export const add = step("add")
   .input(z.object({ title: z.string() }))

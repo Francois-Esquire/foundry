@@ -248,59 +248,6 @@ export function writtenTexts(
   return texts;
 }
 
-export function readOnlyProviders(store: ProviderStore): ProviderStore {
-  const own = new Map<string, string>();
-  let writes = 0;
-  const read = async (): Promise<ProviderConfigurations> => {
-    const kept = await store.read();
-    const revision = kept.revision + writes;
-    if (own.size === 0) {
-      return kept;
-    }
-    const texts = new Map(textsOf(kept));
-    for (const [scope, text] of own) {
-      texts.set(scope, text);
-    }
-    return keptConfigurations(texts, revision);
-  };
-  let edits: Promise<unknown> = Promise.resolve();
-  const editNow = async (
-    workspace: string | undefined,
-    edit: (current: ProviderConfigurations) => ProviderWrites
-  ): Promise<ProviderConfigurations> => {
-    const written = writtenTexts(workspace, edit(await read()));
-    for (const [scope, text] of written) {
-      own.set(scope, text);
-    }
-    writes += written.size > 0 ? 1 : 0;
-    return read();
-  };
-  return {
-    identityKey: () => store.identityKey(false),
-    read,
-    revision: async () => (await store.revision()) + writes,
-    update(workspace, edit) {
-      const landing = edits.then(() => editNow(workspace, edit));
-      edits = landing.catch(() => undefined);
-      return landing;
-    },
-  };
-}
-
-function textsOf(kept: ProviderConfigurations): ReadonlyMap<string, string> {
-  const texts = new Map<string, string>();
-  if (kept.machine !== undefined) {
-    texts.set(MACHINE_SCOPE, configurationText(kept.machine));
-  }
-  for (const id of kept.workspaces) {
-    const file = kept.workspace(id);
-    if (file !== undefined) {
-      texts.set(id, configurationText(file));
-    }
-  }
-  return texts;
-}
-
 export function empty(): ProvidersFile {
   return { providers: [], version: 1 };
 }

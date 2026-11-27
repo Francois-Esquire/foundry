@@ -66,7 +66,6 @@ describe("parseArgs", () => {
       command: "dashboard",
       config: "./.foundry/marbles",
       directory: process.cwd(),
-      dry: false,
       json: false,
       state: join(foundryRoot(), "marbles"),
     });

@@ -106,7 +106,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     const engine = createEngine({
       askable: true,
       catalog: Catalog.collect([coding]),
-      dry: false,
       print: () => undefined,
       providers:
         harness === "builtin"

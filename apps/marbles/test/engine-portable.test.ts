@@ -181,8 +181,15 @@ describe("portable Engine execution", () => {
   });
 });
 
-describe("database store import portability", () => {
-  it.each(["stores", "resources", "migrate-core"])(
+describe("import portability", () => {
+  it.each([
+    "database/stores",
+    "database/resources",
+    "database/migrate-core",
+    "authoring/index",
+    "authoring/providers",
+    "lib/execution-statuses",
+  ])(
     "bundles %s for the browser without Node or libsql imports",
     async (entry) => {
       const builtins = new Set(
@@ -190,12 +197,10 @@ describe("database store import portability", () => {
       );
       const forbidden: string[] = [];
       const built = await globalThis.Bun.build({
-        entrypoints: [
-          resolve(import.meta.dirname, `../src/database/${entry}.ts`),
-        ],
+        entrypoints: [resolve(import.meta.dirname, `../src/${entry}.ts`)],
         plugins: [
           {
-            name: "database-import-audit",
+            name: "import-audit",
             setup(build) {
               build.onResolve({ filter: ALL_IMPORTS }, (args) => {
                 if (

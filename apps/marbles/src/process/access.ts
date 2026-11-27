@@ -1,5 +1,3 @@
-import { Tasks } from "@foundry/tasks";
-
 import { changeTasks, readTasks } from "~/database/open";
 import { layout } from "~/layout";
 import { insideState } from "~/lib/state/workspace";
@@ -32,10 +30,6 @@ function withStoredTasks<T>(
   opened: OpenedWorkspace,
   work: (tasks: TaskRunner) => Promise<T>
 ): Promise<T> {
-  if (args.dry) {
-    const tasks = new Tasks();
-    return work((command) => runTaskCommand(tasks, command));
-  }
   const { state } = args;
   const { id } = opened.workspace;
   return work((command) =>
@@ -93,12 +87,12 @@ export async function withTasks<T>(
 ): Promise<T> {
   const { dir, id } = opened.workspace;
   const { state } = args;
-  if (!(args.dry || insideState(state, id))) {
+  if (!insideState(state, id)) {
     throw new Error(
       `the state of workspace ${id} at ${dir} is not a directory inside ${state}`
     );
   }
-  const hosted = args.dry ? undefined : await hostingGeneration(id);
+  const hosted = await hostingGeneration(id);
   if (hosted === undefined) {
     return withStoredTasks(args, opened, work);
   }
@@ -114,11 +108,6 @@ export async function withRunningWorkspace<T>(
   id: string,
   work: (workspace: WorkspaceConnection) => Promise<T>
 ): Promise<T> {
-  if (args.dry) {
-    throw new NotHostedError(
-      `dry mode joins no Marbles process, so no engine generation is reached for workspace ${id}; ${ATTACH_HINT}`
-    );
-  }
   const client = await joinProcess();
   if (client === undefined) {
     throw new NotHostedError(

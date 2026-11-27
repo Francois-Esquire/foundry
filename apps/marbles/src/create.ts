@@ -16,8 +16,6 @@ import type { Containers } from "@foundry/sandbox";
 import { createContainers } from "@foundry/sandbox/node";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
-import type { GitRun } from "@foundry/workspaces/node/git";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { Catalog } from "~/authoring/catalog";
 import {
@@ -26,10 +24,8 @@ import {
   setDefaultRoot,
   setDefaultRuntime,
 } from "~/authoring/runtime";
-import type { LinksKept } from "~/database/artifact-links";
-import { keepingLinks } from "~/database/artifact-links";
 import { ChangeRecorder } from "~/database/changes";
-import { artifactBlobs, readArtifacts } from "~/database/local-artifacts";
+import { artifactBlobs } from "~/database/local-artifacts";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
@@ -39,11 +35,9 @@ import type { WorkspaceStores } from "~/database/stores";
 import { assembleSqliteWorkspaceStores } from "~/database/stores";
 import { Engine as PublishedEngine } from "~/entries/engine";
 import { layout } from "~/layout";
-import { showArgv } from "~/lib/argv";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
-import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
@@ -56,7 +50,6 @@ import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localWorkspaces } from "~/lib/managers/workspaces";
-import { echoInstance } from "~/lib/models/echo";
 import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -100,7 +93,6 @@ export interface CreateEngineOptions {
   readonly cwd?: string;
   readonly database?: StoreDatabase;
   readonly databaseFile?: string;
-  readonly dry: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly home?: string;
   readonly leaseTtlMs?: number;
@@ -171,19 +163,16 @@ export interface Triggers {
 export function readTriggers(
   catalog: Catalog,
   {
-    dry,
     stateRoot,
     workspaceId,
-  }: Pick<CreateEngineOptions, "dry" | "stateRoot" | "workspaceId">
+  }: Pick<CreateEngineOptions, "stateRoot" | "workspaceId">
 ): Triggers {
   const registry = new Registry();
   declareCatalog(registry, catalog);
   const automations = new AutomationService({
     allowHttp: configuredMonitorUrl(registry),
     registry,
-    store: dry
-      ? new MemoryAutomationStore()
-      : readAutomations(stateRoot ?? layout().state, workspaceId),
+    store: readAutomations(stateRoot ?? layout().state, workspaceId),
   });
   return { automations, registry };
 }
@@ -196,24 +185,8 @@ function artifactsFor(
   stores: WorkspaceStores | undefined,
   injected: ArtifactStore | undefined,
   options: CreateEngineOptions
-): Pick<EngineOptions, "artifactReads" | "artifacts"> & {
-  readonly links?: LinksKept;
-} {
-  const { artifacts: dir, dry, workspaceId } = options;
-  if (dry) {
-    return {
-      artifacts: artifactsInMemory(),
-      ...(dir === undefined
-        ? {}
-        : {
-            artifactReads: readArtifacts(
-              options.stateRoot ?? layout().state,
-              dir,
-              workspaceId
-            ),
-          }),
-    };
-  }
+): Pick<EngineOptions, "artifacts"> {
+  const { artifacts: dir, workspaceId } = options;
   if (injected !== undefined) {
     return {
       artifacts: new Artifacts({
@@ -227,25 +200,13 @@ function artifactsFor(
   if (stores === undefined) {
     return { artifacts: artifactsInMemory() };
   }
-  const { database, print } = options;
-  const kept =
-    dir === undefined || database === undefined
-      ? undefined
-      : keepingLinks(stores.artifacts, {
-          artifacts: dir,
-          database,
-          owner: workspaceId,
-          report: print,
-          state: options.stateRoot ?? layout().state,
-        });
   return {
     artifacts: new Artifacts({
       ...(dir === undefined
         ? {}
         : { files: blobFiles(artifactBlobs(dir, workspaceId)) }),
-      store: kept ?? stores.artifacts,
+      store: stores.artifacts,
     }),
-    ...(kept === undefined ? {} : { links: kept }),
   };
 }
 
@@ -270,11 +231,10 @@ function providerStoreFor(
   options: CreateEngineOptions,
   fallback?: ProviderStore
 ): ProviderStore {
-  if (!options.dry && options.stores?.providers !== undefined) {
+  if (options.stores?.providers !== undefined) {
     return options.stores.providers;
   }
   if (
-    !options.dry &&
     options.stores !== undefined &&
     options.database === undefined &&
     options.stateRoot === undefined &&
@@ -282,7 +242,7 @@ function providerStoreFor(
   ) {
     return new MemoryProviderStore();
   }
-  if (options.database === undefined || options.dry) {
+  if (options.database === undefined) {
     return providerStoreForState(options.stateRoot ?? layout().state);
   }
   return fallback ?? new DatabaseProviderStore({ database: options.database });
@@ -296,17 +256,11 @@ function modelsFor(
   readonly providers: ProviderConfiguration;
 } {
   const models = new Models();
-  const echo = (provider: Provider) => echoInstance(provider, options.print);
-  const fixed =
-    options.dry && options.providers
-      ? options.providers.map(echo)
-      : options.providers;
+  const fixed = options.providers;
   const providers = new ProviderConfiguration({
     environment: options.environment ?? environmentSnapshot(),
-    ...(options.dry ? { echo } : {}),
     ...(fixed ? { fixed } : {}),
     models,
-    ...(options.dry ? { readOnly: true } : {}),
     plugins: pluginsFor(options),
     store: providerStoreFor(options, fallback),
     ...(options.stateDir
@@ -406,42 +360,15 @@ function recordsFor(
   };
 }
 
-const LINK_DRAIN_MS = 5000;
-
 function engineOver(
   options: EngineOptions,
   own: WorkspaceDatabase | undefined,
-  links: LinksKept | undefined,
   useDirectEngine: boolean
 ): Engine {
   if (own !== undefined) {
     return new OwnDatabaseEngine(options, own);
   }
-  if (links !== undefined) {
-    return new LinkKeepingEngine(options, links);
-  }
   return useDirectEngine ? new Engine(options) : new PublishedEngine(options);
-}
-
-class LinkKeepingEngine extends PublishedEngine {
-  readonly #links: LinksKept;
-  #disposed: Promise<void> | undefined;
-
-  constructor(options: EngineOptions, links: LinksKept) {
-    super(options);
-    this.#links = links;
-  }
-
-  override dispose(): Promise<void> {
-    this.#disposed ??= (async () => {
-      try {
-        await super.dispose();
-      } finally {
-        await this.#links.drainLinks(LINK_DRAIN_MS);
-      }
-    })();
-    return this.#disposed;
-  }
 }
 
 class OwnDatabaseEngine extends PublishedEngine {
@@ -462,16 +389,14 @@ class OwnDatabaseEngine extends PublishedEngine {
 }
 
 function containersFor(
-  { catalog, dry, liveness, print, root, workspaceId }: CreateEngineOptions,
+  { catalog, liveness, print, root, workspaceId }: CreateEngineOptions,
   worktreeHome: string,
   store: ContainerStore | undefined
 ): () => Promise<Containers> {
   const runtime = () =>
-    dry
-      ? Promise.resolve(createFakeContainerRuntime({ exec: echoExec(print) }))
-      : import("@foundry/sandbox/node/microsandbox").then(
-          ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
-        );
+    import("@foundry/sandbox/node/microsandbox").then(
+      ({ createMicrosandboxRuntime }) => createMicrosandboxRuntime()
+    );
   return async () => {
     mkdirSync(worktreeHome, { recursive: true });
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
@@ -518,16 +443,14 @@ function hostRuntimeOptions(
 }
 
 export function createEngine(options: CreateEngineOptions): Engine {
-  const { catalog, dry, print, root, workspaceId } = options;
+  const { catalog, print, root, workspaceId } = options;
   const home = options.home ?? homedir();
   const { spawned, state } = Engine.persistence({
-    dry,
     ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     ...(options.stateDir === undefined ? {} : { state: options.stateDir }),
   });
   const worktrees = Engine.worktreesFor(state);
-  const database = dry ? undefined : options.database;
-  const injected = dry ? undefined : options.stores;
+  const { database, stores: injected } = options;
   const assembled = databaseStoresFor(options, database);
   const { own, ...kept } = recordsFor(state, injected, options, assembled);
   const dbStores =
@@ -540,12 +463,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
         };
   const containerStore = injected?.containers ?? dbStores?.containers;
   const workspaceStore = injected?.workspaces ?? dbStores?.workspaces;
-  const git = dry ? { run: echoGit(print) } : {};
-  const { links, ...artifacts } = artifactsFor(
-    dbStores,
-    injected?.artifacts,
-    options
-  );
+  const artifacts = artifactsFor(dbStores, injected?.artifacts, options);
   const engineOptions: EngineOptions = {
     pools: {
       [DEFAULT_POOL]: DEFAULT_HOSTED_POOL_LIMIT,
@@ -557,8 +475,6 @@ export function createEngine(options: CreateEngineOptions): Engine {
     catalog,
     ...(containerStore === undefined ? {} : { containerRows: containerStore }),
     containers: containersFor(options, worktrees, containerStore),
-    dry,
-    git,
     home,
     ...hostRuntimeOptions(options),
     ...(options.log ? { log: options.log } : {}),
@@ -575,13 +491,12 @@ export function createEngine(options: CreateEngineOptions): Engine {
     workspaceId,
     ...(workspaceStore === undefined
       ? {}
-      : { workspaces: localWorkspaces(git, workspaceStore) }),
+      : { workspaces: localWorkspaces({}, workspaceStore) }),
     worktrees,
   };
   const engine = engineOver(
     engineOptions,
     own,
-    links,
     injected !== undefined && database === undefined && state === undefined
   );
   declareCatalog(engine, catalog);
@@ -624,13 +539,12 @@ function unrecordedObservers(
   }
 }
 
-function createDefaultEngine({ dry }: { readonly dry: boolean }): Engine {
+function createDefaultEngine(): Engine {
   const machine = layout();
   const { id, root } = machine.workspace(process.cwd());
   return createEngine({
     artifacts: machine.artifacts,
     catalog: new Catalog(),
-    dry,
     plugins: [...DEFAULT_PROVIDERS],
     print: (line) => {
       process.stderr.write(`${line}\n`);
@@ -646,9 +560,9 @@ export function installDefaultRuntime(): void {
   if (hasDefaultRuntime()) {
     return;
   }
-  setDefaultRuntime(async ({ dry }) => {
+  setDefaultRuntime(async () => {
     const [engine] = await Promise.all([
-      Promise.resolve(createDefaultEngine({ dry })),
+      Promise.resolve(createDefaultEngine()),
       initializeUsage(),
     ]);
     const problems =
@@ -666,26 +580,6 @@ export function installDefaultRuntime(): void {
 }
 
 installDefaultRuntime();
-
-function echoExec(print: (line: string) => void): (
-  command: readonly string[]
-) => {
-  exitCode: number;
-  stderr: string;
-  stdout: string;
-} {
-  return (command) => {
-    print(`[sandbox] ${showArgv(command)}`);
-    return { exitCode: 0, stderr: "", stdout: "" };
-  };
-}
-
-export function echoGit(print: (line: string) => void): GitRun {
-  return (cwd, args) => {
-    print(`[git] ${cwd}: git ${args.join(" ")}`);
-    return Promise.resolve("");
-  };
-}
 
 function databaseStoresFor(
   options: CreateEngineOptions,

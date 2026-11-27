@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { initializeDatabase } from "~/database/open";
-import { resourceAssociations } from "~/database/resources";
 import { marblesMonitorStates } from "~/database/tables";
 import { stateDatabase } from "~/layout";
-import { insideState } from "~/lib/state/workspace";
 import { otherWorkspaces } from "~/workspace/others";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns, seedSchedules } from "./helpers/stored-runs";
@@ -28,7 +26,7 @@ async function machine() {
   ]);
   await seedRuns(state, "ws2", [
     { createdAt: 2, id: "rn-two", owner: null, status: "failed" },
-    { createdAt: 3, id: "rn-shared", owner: null, status: "complete" },
+    { createdAt: 3, id: "rn-newer", owner: null, status: "complete" },
   ]);
   await seedSchedules(state, "ws2", [
     {
@@ -44,7 +42,7 @@ async function machine() {
 }
 
 describe("other workspaces on the dashboard", () => {
-  it("lists another workspace's runs and triggers, each carrying its owner, a shared run naming this workspace", async () => {
+  it("lists another workspace's runs and triggers, each carrying its owner", async () => {
     const state = await machine();
     const opened = await initializeDatabase(stateDatabase(state));
     try {
@@ -55,20 +53,15 @@ describe("other workspaces on the dashboard", () => {
         pending: { input: null, workflow: "refresh" },
         scope: "ws2",
       });
-      await resourceAssociations(database, {
-        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
-      }).share({ id: "rn-shared", kind: "run", owner: "ws2" }, "ws1");
       const read = otherWorkspaces({ database, state, workspace: "ws1" });
       const { runs, triggers } = await read(Date.now());
-      expect(runs.map((run) => run.id)).toEqual(["rn-shared", "rn-two"]);
+      expect(runs.map((run) => run.id)).toEqual(["rn-newer", "rn-two"]);
       expect(runs[0]).toMatchObject({
         definitionId: "guides",
         name: "guides · two",
         workspace: { id: "ws2", name: "two" },
-        workspaces: ["ws2", "ws1"],
       });
       expect(runs[1]).toMatchObject({ status: "failed" });
-      expect(runs[1]).not.toHaveProperty("workspaces");
       expect(triggers).toEqual([
         expect.objectContaining({
           description: "monitor in two · a launch of refresh waits",
@@ -92,7 +85,7 @@ describe("other workspaces on the dashboard", () => {
     }
   });
 
-  it("shows a run shared with this workspace however many newer runs its owner has, and caps the others per workspace", async () => {
+  it("caps the runs it lists per workspace", async () => {
     const state = await machine();
     await seedRuns(
       state,
@@ -106,19 +99,12 @@ describe("other workspaces on the dashboard", () => {
     );
     const opened = await initializeDatabase(stateDatabase(state));
     try {
-      const { database } = opened;
-      await resourceAssociations(database, {
-        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
-      }).share({ id: "rn-two", kind: "run", owner: "ws2" }, "ws1");
       const { runs } = await otherWorkspaces({
-        database,
+        database: opened.database,
         state,
         workspace: "ws1",
       })(Date.now());
-      expect(runs.find((run) => run.id === "rn-two")).toMatchObject({
-        workspaces: ["ws2", "ws1"],
-      });
-      expect(runs).toHaveLength(101);
+      expect(runs).toHaveLength(100);
     } finally {
       opened.close();
     }

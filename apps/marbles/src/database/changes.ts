@@ -146,10 +146,10 @@ export class ChangeRecorder {
       return;
     }
     this.#waking = true;
-    setImmediate(() => {
+    setTimeout(() => {
       this.#waking = false;
       this.#listeners.emit();
-    });
+    }, 0);
   }
 }
 

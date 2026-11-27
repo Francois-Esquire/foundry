@@ -1,14 +1,12 @@
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
-import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import { artifactBlobs } from "~/database/local-artifacts";
 import type { StoreDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { FeedEntrySnapshot, FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
-import type { ResourceAssociation } from "~/lib/resources";
 import { insideState } from "~/lib/state/workspace";
 
 export interface WorkspaceFeedOptions {
@@ -27,7 +25,6 @@ export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
     acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
     database,
   });
-  const associations = new DatabaseAssociationStore({ database });
   const readers = new Map<string, FeedReader>();
   const readerOf = (owner: string): FeedReader => {
     let reader = readers.get(owner);
@@ -53,48 +50,26 @@ export function workspaceFeed(options: WorkspaceFeedOptions): FeedReader {
     return entries;
   };
   let last:
-    | {
-        readonly at: number;
-        readonly others: readonly FeedEntrySnapshot[];
-        readonly shared: readonly ResourceAssociation[];
-      }
+    | { readonly at: number; readonly others: readonly FeedEntrySnapshot[] }
     | undefined;
-  const elsewhereAndShared = async (now: Date) => {
+  const cachedElsewhere = async (now: Date) => {
     if (last === undefined || now.getTime() - last.at >= ELSEWHERE_MS) {
       try {
         last = {
           at: now.getTime(),
           others: await asBusy(() => elsewhere(now)),
-          shared: await asBusy(() => associations.list("artifact")),
         };
       } catch {
-        last = { at: now.getTime(), others: [], shared: [] };
+        last = { at: now.getTime(), others: [] };
       }
     }
-    return last;
+    return last.others;
   };
   return async (now = new Date()) => {
     const mine = await own(now);
-    const { others, shared } = await elsewhereAndShared(now);
-    return [...mine, ...others]
-      .map((entry) => withWorkspaces(entry, shared))
-      .sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+    const others = await cachedElsewhere(now);
+    return [...mine, ...others].sort((a, b) =>
+      b.postedAt.localeCompare(a.postedAt)
+    );
   };
-}
-
-function withWorkspaces(
-  entry: FeedEntrySnapshot,
-  shared: readonly ResourceAssociation[]
-): FeedEntrySnapshot {
-  const owner = entry.workspace.id;
-  const others = shared
-    .filter(
-      (association) =>
-        association.ref.owner === owner && association.ref.id === entry.id
-    )
-    .map((association) => association.workspace)
-    .sort();
-  return others.length === 0
-    ? entry
-    : { ...entry, workspaces: [owner, ...others] };
 }

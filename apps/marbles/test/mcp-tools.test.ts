@@ -837,16 +837,15 @@ it("enqueues a workflow by name and key, dispatches an agent, and cancels a run 
   ).toContain("Input validation error");
 });
 
-it("answers every tool's refusal as {error: {code, message}}, keeping the dry-run hint", async () => {
-  const hint =
-    "A dry run of a workflow goes through `marbles run <name> --dry-run`.";
+it("answers every tool's refusal as {error: {code, message}}, keeping the hint", async () => {
+  const hint = "`marbles start` in its root hosts it.";
   const { connected } = {
     connected: await connectMcp({
       hosted: () =>
         Promise.reject(
           new (class extends Error {
             override readonly name = "NotHostedError";
-          })(`--dry-run joins no Marbles process. ${hint}`)
+          })(`no Marbles process runs. ${hint}`)
         ),
       tasks: () => Promise.reject(new Error("tasks broke")),
       workspaces: () => Promise.resolve(SUMMARIES),
