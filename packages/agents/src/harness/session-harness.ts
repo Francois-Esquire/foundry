@@ -1,6 +1,6 @@
+import type { Authorization } from "@foundry/authorization";
 import type { AgentModel, ModelRoute } from "@foundry/core/agents";
 import type { ModelMessage, Output, ProviderMetadata } from "ai";
-import type { AgentAuthorizer } from "../authorization/authorization";
 import { effectiveLimit, resolveBudget } from "../contexts/budget";
 import { cacheDirectivesFor, mergeProviderOptions } from "../contexts/cache";
 import { estimatingCounter } from "../contexts/counter";
@@ -51,7 +51,7 @@ export class SessionHarness {
   readonly agent: LoopAgent;
   readonly model: AgentModel;
   readonly route: ModelRoute;
-  readonly policy: AgentAuthorizer;
+  readonly authorization: Authorization;
   readonly agentId: string;
   readonly agentGeneration?: number;
   readonly sessionId: string;
@@ -79,7 +79,7 @@ export class SessionHarness {
     this.agent = harness.agent;
     this.model = harness.model;
     this.route = harness.route;
-    this.policy = harness.policy;
+    this.authorization = harness.authorization;
     this.agentId = harness.agentId;
     this.agentGeneration = harness.agentGeneration;
     this.sessionId = harness.sessionId;

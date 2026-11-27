@@ -136,6 +136,7 @@ function managerDeps(): AgentsDeps {
   engines.push(host);
   return {
     activities: host.activities,
+    authorization: host.authorization,
     automations: host.automations,
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");

@@ -25,7 +25,7 @@ export function createModuleProxy(
       return new Response(null, { status: 502 });
     }
     const target = new URL(origin);
-    target.pathname = address.pathname;
+    target.pathname = path;
     target.search = address.search;
     try {
       const response = await fetchImplementation(target, {
@@ -63,7 +63,11 @@ export function createModuleProxy(
 
 function modulePath(address: URL): string | null {
   try {
-    const path = decodeURIComponent(address.pathname);
+    const decoded = decodeURIComponent(address.pathname);
+    if (decoded.includes("%")) {
+      return null;
+    }
+    const path = decoded.replace(/\/{2,}/gu, "/");
     if (
       address.protocol !== "module-app:" ||
       path.includes("\\") ||

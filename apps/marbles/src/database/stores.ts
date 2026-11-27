@@ -1,17 +1,16 @@
 import type { BlobFiles } from "@foundry/artifacts";
 import { Artifacts } from "@foundry/artifacts";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
 import { DatabaseActivityStore } from "~/database/activities";
-import { DatabaseDeferredApprovalStore } from "~/database/approvals";
 import { DatabaseAutomationStore } from "~/database/automations";
 import { surfacingBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
-import { DatabaseGrantStorage } from "~/database/grants";
 import { DatabaseProviderStore } from "~/database/providers";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
@@ -97,14 +96,13 @@ export interface SqliteWorkspaceStoresOptions {
 
 export interface SqliteWorkspaceStores {
   readonly activities: DatabaseActivityStore;
-  readonly approvals: DatabaseDeferredApprovalStore;
   readonly artifactStore: SqliteArtifactStore;
   readonly artifacts: Artifacts;
+  readonly authorization: SqliteAuthorizationStore;
   readonly automations: DatabaseAutomationStore;
   readonly changes: ChangeRecorder;
   readonly containers: ContainerStore;
   readonly executions: DatabaseExecutionStore;
-  readonly grants: DatabaseGrantStorage;
   readonly providers: DatabaseProviderStore;
   readonly records: DatabaseWorkspaceRecords;
   readonly recoveryLog: DatabaseRecoveryLog;
@@ -134,17 +132,18 @@ export function assembleSqliteWorkspaceStores(
   });
   return {
     activities: new DatabaseActivityStore({ database, scope }),
-    approvals: new DatabaseDeferredApprovalStore({ database, scope }),
     artifactStore: stores.artifacts,
     artifacts: new Artifacts({
       ...(blobs ? { files: blobs } : {}),
       store: stores.artifacts,
     }),
+    authorization: surfacingBusy(
+      new SqliteAuthorizationStore({ database, scope })
+    ),
     automations: new DatabaseAutomationStore({ database, scope }),
     changes,
     containers: stores.containers,
     executions: new DatabaseExecutionStore({ database, scope }),
-    grants: new DatabaseGrantStorage({ database, scope }),
     providers: new DatabaseProviderStore({ database }),
     records,
     recoveryLog: new DatabaseRecoveryLog({ database, scope }),

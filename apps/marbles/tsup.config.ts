@@ -4,6 +4,7 @@ import { defineConfig } from "tsup";
 const INTERNAL = [
   "agents",
   "artifacts",
+  "authorization",
   "core",
   "lib",
   "models",

@@ -13,7 +13,6 @@ function module(id: string): Module {
 
 function installation(id: InstallationId, owner: Module): StoredInstallation {
   return {
-    grants: [],
     installation: {
       containerId: null,
       contentId: "content" as ContentId,

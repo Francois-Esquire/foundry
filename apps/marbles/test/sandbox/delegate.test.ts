@@ -1,4 +1,11 @@
-import { createMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import {
+  agentPrincipal,
+  agentPrincipalMatcher,
+  capabilityToAccessRequest,
+  capabilityToScope,
+  createMemoryAuthorization,
+  HOST_APPROVER,
+} from "@foundry/agents/authorization";
 import type {
   AgentModel,
   HarnessQuestionRequest,
@@ -43,7 +50,7 @@ function settings(): SandboxSessionSettings {
     instructions: "Parent instructions",
     modelId: "model",
     options: {
-      authority: { policy: createMemoryAgentAuthorizer().authorizer },
+      authority: { authorization: createMemoryAuthorization() },
       profile: {
         allowedTools: ["Read", "delegate"],
         disallowedTools: ["Bash"],
@@ -388,4 +395,63 @@ it("records a delegated child's tool calls on the owning run, under the child's 
     sessionId: "child",
     status: "complete",
   });
+});
+
+it("issues parent-linked attenuated grants for the child so revoking a parent aborts child permits", async () => {
+  const parent = settings();
+  const { authorization } = parent.options.authority;
+  const parentGrant = await authorization.grant({
+    canDelegate: true,
+    holder: agentPrincipalMatcher(parent.agentId),
+    issuer: HOST_APPROVER,
+    requestedBy: agentPrincipal(parent.agentId),
+    scope: capabilityToScope({
+      kind: "tool.call",
+      source: "builtin",
+      tool: "grep",
+    }),
+  });
+  let permitSignal: AbortSignal | undefined;
+  let observedChildAgentId = "";
+  const open = vi.fn(async (childSettings: SandboxSessionSettings) => {
+    observedChildAgentId = childSettings.agentId;
+    const childGrants = await authorization.listGrants({
+      parentId: parentGrant.id,
+      state: "active",
+    });
+    expect(childGrants).toHaveLength(1);
+    expect(childGrants[0]?.parentIds).toEqual([parentGrant.id]);
+    const outcome = await authorization.authorize(
+      capabilityToAccessRequest({
+        agentId: childSettings.agentId,
+        capability: { kind: "tool.call", source: "builtin", tool: "grep" },
+        invocationId: "child-call-1",
+        sessionId: childSettings.authoritySessionId,
+      }),
+      "child-call-1",
+      { openPending: false }
+    );
+    expect(outcome.kind).toBe("permitted");
+    if (outcome.kind !== "permitted") {
+      throw new Error("expected child permit");
+    }
+    permitSignal = outcome.permit.signal;
+    expect(permitSignal.aborted).toBe(false);
+    await authorization.revoke(
+      { grantId: parentGrant.id, kind: "grant" },
+      "parent revoked"
+    );
+    expect(permitSignal.aborted).toBe(true);
+    outcome.permit.release();
+    return child();
+  });
+
+  await invoke(delegationTool(parent, open));
+
+  expect(observedChildAgentId).toContain(`${parent.agentId}:delegate:`);
+  const remaining = await authorization.listGrants({
+    principal: agentPrincipal(observedChildAgentId),
+    state: "active",
+  });
+  expect(remaining).toEqual([]);
 });

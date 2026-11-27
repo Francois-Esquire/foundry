@@ -201,19 +201,6 @@ export const marblesIdentityKeys = sqliteTable("marbles_identity_keys", {
   key: text().notNull(),
 });
 
-export const marblesAgentGrants = sqliteTable("marbles_agent_grants", {
-  grants: text().notNull(),
-  scope: text().primaryKey(),
-});
-
-export const marblesDeferredApprovals = sqliteTable(
-  "marbles_deferred_approvals",
-  {
-    approvals: text({ mode: "json" }).$type<unknown>().notNull(),
-    scope: text().primaryKey(),
-  }
-);
-
 export const marblesHarnessActivities = sqliteTable(
   "marbles_harness_activities",
   {

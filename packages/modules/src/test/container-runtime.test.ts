@@ -424,13 +424,23 @@ describe("Module container runtime", () => {
     ) {
       const f = await fixture(manifest);
       if (grant) {
-        await f.options.store.replaceInstallationGrants({
-          expectedGeneration: 0,
-          grants: [
-            { ...NETWORK_GRANT, constraintsDigest: await digestJson(grant) },
-          ],
-          installationId: f.input.installationId,
-          now: new Date(),
+        await f.options.store.authorization.grant({
+          holder: {
+            kind: "exact",
+            principal: {
+              id: f.input.installationId,
+              kind: "module.installation",
+            },
+          },
+          requestedBy: { id: "host", kind: "module.host" },
+          scope: {
+            action: "module.capability",
+            constraintsDigest: await digestJson(grant),
+            target: {
+              kind: "exact",
+              value: `${NETWORK_GRANT.capability}@${NETWORK_GRANT.version}`,
+            },
+          },
         });
       }
       const handle = await createContainerModuleProgramRuntime(f.options).start(
@@ -466,11 +476,16 @@ describe("Module container runtime", () => {
           mode: "allowlist",
         });
         await handle.stop("stopped");
-        await f.options.store.revokeInstallationGrant({
-          capability: NETWORK_GRANT.capability,
-          expectedGeneration: 0,
-          installationId: f.input.installationId,
-        });
+        await f.options.store.authorization.revoke(
+          {
+            kind: "principal",
+            principal: {
+              id: f.input.installationId,
+              kind: "module.installation",
+            },
+          },
+          "network revoked"
+        );
         const again = await createContainerModuleProgramRuntime(
           f.options
         ).start(f.input);
@@ -478,6 +493,29 @@ describe("Module container runtime", () => {
         expect(f.native.instances[1]?.spec.disableNetwork).toBe(true);
         expect(f.native.instances[1]?.spec.network).toBe("disabled");
         await again.stop("stopped");
+      } finally {
+        await f.cleanup();
+      }
+    });
+
+    it("cuts live container egress when the network grant is revoked while running", async () => {
+      const { f, handle } = await startWith(STRICT_MANIFEST, declared);
+      try {
+        const stopSpy = vi.spyOn(f.options.containers, "stop");
+        await f.options.store.authorization.revoke(
+          {
+            kind: "principal",
+            principal: {
+              id: f.input.installationId,
+              kind: "module.installation",
+            },
+          },
+          "network revoked while running"
+        );
+        await vi.waitFor(() => {
+          expect(stopSpy).toHaveBeenCalledWith(handle.runtimeInstanceId);
+        });
+        await handle.stop("stopped");
       } finally {
         await f.cleanup();
       }

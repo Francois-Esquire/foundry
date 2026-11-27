@@ -16,6 +16,7 @@ import type {
 import { Sessions } from "@foundry/agents/session";
 import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
+import type { Authorization } from "@foundry/authorization";
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { ModelSelection, Models, Resolution } from "@foundry/models";
 import { observeAgentTurn } from "@foundry/models";
@@ -84,6 +85,7 @@ import {
 export interface AgentsDeps {
   readonly activities: HarnessActivities;
   readonly agentIdOf?: (agent: AgentLike<Output.Output>) => string | undefined;
+  readonly authorization: Authorization;
   readonly automations: AutomationService;
   readonly containerOf: (sandbox: SandboxHandle) => Container;
   readonly context?: ExecutionContext;
@@ -426,15 +428,12 @@ function validateSessionOptions(options: SessionOptions): void {
   }
 }
 
-async function interactionOptions(
+function interactionOptions(
   interactions: HarnessInteractions,
   source: Source,
-  agentId: string,
-  sessionId: string,
   options: SandboxAgentOptions
-): Promise<SandboxSessionOptions> {
+): SandboxSessionOptions {
   const authority = interactions.authority(source, options.authority);
-  await interactions.registerSession({ agentId, sessionId, source }, authority);
   return {
     ...options,
     authority,
@@ -847,13 +846,7 @@ async function openSandboxSession(
     resolution.hold();
     site.retain({ close: () => resolution.release() });
   }
-  const sessionOptions = await interactionOptions(
-    deps.interactions,
-    source,
-    definition.id,
-    id,
-    options
-  );
+  const sessionOptions = interactionOptions(deps.interactions, source, options);
   const harness = await createSandboxSession({
     agentId: definition.id,
     container: deps.containerOf(sandbox),
@@ -869,11 +862,6 @@ async function openSandboxSession(
     onChildSession: (sessionId, session) =>
       deps.activities.attach(sessionId, session, { delegated: true }),
     provider: executor.provider,
-    registerChildSession: (sessionId) =>
-      deps.interactions.registerSession(
-        { agentId: definition.id, sessionId, source },
-        sessionOptions.authority
-      ),
     ...(guest ? {} : { model: heldText(resolution, site) }),
     instructions: [prompt, ...skills.map((skill) => skill.instructions ?? "")]
       .filter(Boolean)
@@ -920,7 +908,10 @@ async function openLocalSession(
     ...(provider === undefined ? {} : { provider }),
     skills: skills.map((skill) => skill.name),
   };
+  const authorization =
+    (options.sandbox ? undefined : options.authorization) ?? deps.authorization;
   return await createAgentPreset(spec, {
+    authorization,
     mcp: (ids) =>
       Promise.resolve(
         composeTools(
@@ -934,6 +925,7 @@ async function openLocalSession(
     skills: () => Promise.resolve(skills),
     store: deps.sessions,
   }).createSession({
+    authorization,
     compaction: resolveCompaction(options.compaction, model),
     model,
     sessionId: id,

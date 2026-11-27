@@ -51,6 +51,15 @@ export {
   resolveHarnessApproval,
   summarizeHarnessInput,
 } from "./permission";
+export type {
+  CompiledHarnessProfile,
+  CompileHarnessProfileOptions,
+} from "./permission-profile";
+export {
+  applyHarnessProfile,
+  compileHarnessProfile,
+  compileHarnessRule,
+} from "./permission-profile";
 export type { HarnessQuestionToolSettings } from "./question";
 export { createHarnessQuestionTool, isHarnessQuestionTool } from "./question";
 export type {
@@ -66,13 +75,13 @@ export type {
   TransformOptions,
 } from "./stream-transform";
 export { transformStream } from "./stream-transform";
-export type { ToolAuthorizationContext } from "./tool-compiler";
+export type { ToolAccessRequestArgs } from "./tool-compiler";
 export {
   compileTools,
+  deriveInvocationId,
   isPolicyDeniedOutput,
   registerToolCall,
-  toolAuthorizationContext,
-  toolAuthorizationRequest,
+  toolAccessRequest,
 } from "./tool-compiler";
 export type {
   AgentInvocationContext,

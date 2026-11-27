@@ -102,6 +102,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       const host = testEngine({ root, sessions: store });
       const session = await new AgentsManager({
         activities: host.activities,
+        authorization: host.authorization,
         automations: host.automations,
         containerOf: (handle) => sandboxes.containerOf(handle),
         cwd: root,

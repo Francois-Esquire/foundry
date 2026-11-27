@@ -1,6 +1,7 @@
 import { isHarnessQuestionTool } from "@foundry/core/agents";
 import { asSchema, type Tool } from "ai";
 import { z } from "zod";
+import { toolPermissionMeta } from "../harness/tool-meta";
 import type { DriverRun, ReportTool } from "../harness/tool-report";
 
 const TOOL_NAME = /^[a-zA-Z0-9_.-]+$/;
@@ -33,7 +34,8 @@ export async function piTools(run: DriverRun): Promise<PiToolDefinition[]> {
 export async function executePiTool(
   run: DriverRun,
   report: ReportTool,
-  request: { input: unknown; toolCallId: string; toolName: string }
+  request: { input: unknown; toolCallId: string; toolName: string },
+  agentId = ""
 ): Promise<{ success: boolean; text: string }> {
   const tool =
     run.tools && Object.hasOwn(run.tools, request.toolName)
@@ -49,6 +51,12 @@ export async function executePiTool(
       ? { behavior: "allow" as const }
       : await run.permission({
           ...request,
+          ...toolPermissionMeta(tool, {
+            agentId,
+            input: request.input,
+            sessionId: run.sessionId,
+            toolCallId: request.toolCallId,
+          }),
           sessionId: run.sessionId,
           signal: run.signal,
         });
@@ -115,9 +123,11 @@ export function piExtension(
     const key = process.env.FOUNDRY_PI_API_KEY;
     if (key) pi.registerProvider(${JSON.stringify(provider)}, { apiKey: key });
     ${instructions ? `pi.on("before_agent_start", () => ({ systemPrompt: ${JSON.stringify(instructions)} }));` : ""}
-    const native = ${JSON.stringify(nativeTools)};
+    const host = new Set(${JSON.stringify(tools.map((tool) => tool.name))});
+    const native = new Set(${JSON.stringify(nativeTools)});
     pi.on("tool_call", async (event, ctx) => {
-      if (!native.includes(event.toolName)) return;
+      if (host.has(event.toolName)) return;
+      if (!native.has(event.toolName)) return { block: true, reason: "Unknown Pi tool" };
       const value = await ctx.ui.input("foundry.permission", JSON.stringify({ toolName: event.toolName, toolCallId: event.toolCallId, input: event.input }), { signal: ctx.signal });
       if (value === undefined) return { block: true, reason: "Host permission canceled" };
       const result = JSON.parse(value);

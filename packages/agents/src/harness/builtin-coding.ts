@@ -15,7 +15,9 @@ export type BuiltinCodingSettings = Omit<
   SessionHarnessSettings,
   "tools" | "stopWhen"
 > &
-  Required<Pick<SessionHarnessSettings, "agentId" | "policy" | "tools">> & {
+  Required<
+    Pick<SessionHarnessSettings, "agentId" | "authorization" | "tools">
+  > & {
     maxSteps: number;
   };
 

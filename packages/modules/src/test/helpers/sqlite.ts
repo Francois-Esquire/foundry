@@ -1,4 +1,9 @@
 import {
+  authorizationClaims,
+  authorizationGrants,
+  authorizationRestrictions,
+} from "@foundry/authorization/store/tables";
+import {
   type DatabaseLocation,
   type LibsqlDatabases,
   libsqlDatabases as openLibsqlDatabases,
@@ -18,6 +23,14 @@ export type {
 export function libsqlDatabases(location: DatabaseLocation): LibsqlDatabases {
   return openLibsqlDatabases(location, {
     name: "modules",
-    tables: [modules, moduleManifests, moduleInstallations, modulePositions],
+    tables: [
+      modules,
+      moduleManifests,
+      moduleInstallations,
+      modulePositions,
+      authorizationGrants,
+      authorizationRestrictions,
+      authorizationClaims,
+    ],
   });
 }

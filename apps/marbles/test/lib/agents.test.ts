@@ -1,4 +1,4 @@
-import { createMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import { createMemoryAuthorization } from "@foundry/agents/authorization";
 import type { SessionEvent } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
@@ -39,6 +39,7 @@ function deps(warnings: string[] = []): AgentsDeps {
   );
   return {
     activities: host.activities,
+    authorization: host.authorization,
     automations: host.automations,
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
@@ -64,7 +65,7 @@ const reviewer: AgentDefinition = {
 describe("agents.session", () => {
   it("rejects sandbox-only permission and credential options on a host session", async () => {
     const agents = new AgentsManager(deps()).scoped(args());
-    const authority = { policy: createMemoryAgentAuthorizer().authorizer };
+    const authority = { authorization: createMemoryAuthorization() };
     for (const options of [
       { authority },
       { apiKey: "explicit-key" },

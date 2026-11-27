@@ -1,4 +1,5 @@
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
+import type { AuthorizationStore } from "@foundry/authorization/store";
 import type { Page, PageInput } from "@foundry/core/pagination";
 
 import type { InstallationId, ModuleId } from "../domain";
@@ -64,5 +65,6 @@ export interface ModuleStore {
   listManifests(query?: ManifestListQuery): Promise<readonly StoredManifest[]>;
   listModules(query: ModuleListQuery): Promise<ModuleStorePage<Module>>;
   listModulesPage?(query?: ModuleIdPageQuery): Promise<Page<Module, string>>;
+  openAuthorizationStore?(): AuthorizationStore;
   transaction?<T>(work: (view: ModuleStore) => Promise<T>): Promise<T>;
 }

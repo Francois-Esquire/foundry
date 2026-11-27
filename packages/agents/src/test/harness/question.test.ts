@@ -7,12 +7,13 @@ import type {
 import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { createBuiltinCodingHarness } from "../../harness/builtin-coding";
 import { createDriverSession } from "../../harness/driver-session";
 import type { DriverSessionSettings } from "../../harness/harness-session";
 import { createHarnessQuestionTool } from "../../harness/question";
 import { MemorySessionStore } from "../../store/memory";
+import { denyAction } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -31,8 +32,8 @@ const questions: [HarnessQuestion] = [
 function settings(): DriverSessionSettings {
   return {
     agentId: "coder",
+    authorization: createMemoryAuthorization(),
     model: { harness: "native", id: "model" },
-    policy: createMemoryAgentAuthorizer().authorizer,
     profile: {
       allowedTools: [],
       disallowedTools: [],
@@ -195,14 +196,18 @@ describe("harness questions", () => {
         textStreamResult("I need a user answer before proceeding."),
       ],
     });
+    const denyAll = async () => {
+      const auth = createMemoryAuthorization();
+      await denyAction(auth, "tool.call");
+      return auth;
+    };
     const harness = createBuiltinCodingHarness(
       {
         agentId: "coder",
+        authorization: await denyAll(),
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
-          .authorizer,
         tools: {
           ask_user: createHarnessQuestionTool({ sessionId: "builtin" }),
         },
@@ -227,14 +232,15 @@ describe("harness questions", () => {
     const model = createScriptedMockModel({
       stream: [toolCallStreamResult("ask", "ask_user", { questions })],
     });
+    const authorization = createMemoryAuthorization();
+    await denyAction(authorization, "tool.call");
     const harness = createBuiltinCodingHarness(
       {
         agentId: "coder",
+        authorization,
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
-          .authorizer,
         tools: {
           ask_user: createHarnessQuestionTool({
             question,
@@ -267,14 +273,15 @@ describe("harness questions", () => {
         textStreamResult("continued"),
       ],
     });
+    const authorization = createMemoryAuthorization();
+    await denyAction(authorization, "tool.call");
     const harness = createBuiltinCodingHarness(
       {
         agentId: "coder",
+        authorization,
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
-          .authorizer,
         tools: {
           ask_user: createHarnessQuestionTool({
             question,
@@ -293,9 +300,12 @@ describe("harness questions", () => {
     });
     expect(result.parts).toContainEqual({ text: "continued", type: "text" });
     const execute = vi.fn(async () => "should not execute");
+    const deniedAuth = createMemoryAuthorization();
+    await denyAction(deniedAuth, "tool.call");
     const ordinary = createBuiltinCodingHarness(
       {
         agentId: "coder",
+        authorization: deniedAuth,
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model: createScriptedMockModel({
@@ -304,8 +314,6 @@ describe("harness questions", () => {
             textStreamResult("denied"),
           ],
         }),
-        policy: createMemoryAgentAuthorizer({ policy: { global: "deny" } })
-          .authorizer,
         tools: { ask_user: tool({ execute, inputSchema: z.object({}) }) },
       },
       { sessionId: "ordinary" }

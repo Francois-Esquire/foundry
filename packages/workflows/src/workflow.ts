@@ -646,10 +646,17 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Effect.Effect<void> {
     return Effect.promise(() =>
-      this.root.resolveOccurrence(stepPath, name, occurrence, value)
+      this.root.resolveOccurrence(
+        stepPath,
+        name,
+        occurrence,
+        value,
+        correlationId
+      )
     );
   }
 
@@ -657,10 +664,11 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Promise<void> {
     return runEffectPromise(
-      this.#resolveOccurrence(stepPath, name, occurrence, value)
+      this.#resolveOccurrence(stepPath, name, occurrence, value, correlationId)
     );
   }
 
@@ -684,11 +692,18 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Effect.Effect<void> {
     const self = this;
     return Effect.gen(function* () {
-      yield* self.#resolveOccurrence(stepPath, name, occurrence, value);
+      yield* self.#resolveOccurrence(
+        stepPath,
+        name,
+        occurrence,
+        value,
+        correlationId
+      );
       yield* SubscriptionRef.set(self.#status, "queued");
       yield* SubscriptionRef.update(self.#state, (row) => ({
         ...row,
@@ -701,10 +716,11 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Promise<void> {
     return runEffectPromise(
-      this.#resumeOccurrence(stepPath, name, occurrence, value)
+      this.#resumeOccurrence(stepPath, name, occurrence, value, correlationId)
     );
   }
 

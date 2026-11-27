@@ -1,17 +1,16 @@
-import { encodeAddress } from "@foundry/lib/authorization";
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_ASK_BY_DEFAULT,
-  agentAddressing,
-  agentCapabilityAddress,
+  agentPrincipal,
+  agentPrincipalMatcher,
   agentSubject,
-  createAgentAuthorizer,
-  createMemoryAgentAuthorizer,
+  agentSubjectToPrincipal,
+  capabilityToAccessRequest,
+  capabilityToScope,
+  createMemoryAuthorization,
+  HOST_APPROVER,
 } from "../../authorization/authorization";
 import type { Capability } from "../../authorization/capability";
-
-const CHAT = agentSubject("chat");
-const CANVAS = agentSubject("canvas");
+import { grantCapability } from "../helpers/authorizer";
 
 const WEB: Capability = { domain: "example.com", kind: "web.fetch" };
 const TOOL: Capability = {
@@ -20,47 +19,34 @@ const TOOL: Capability = {
   tool: "search",
 };
 
-function key(subject: typeof CHAT, capability: Capability): string {
-  return encodeAddress(agentAddressing.addressOf(subject, capability));
-}
-
-describe("agentCapabilityAddress", () => {
-  it("gives every capability kind its own namespace", () => {
-    const kinds = [
-      agentCapabilityAddress(WEB),
-      agentCapabilityAddress({ kind: "mcp.tool", serverId: "s", tool: "t" }),
-      agentCapabilityAddress({
-        kind: "fs.read",
-        projectId: "p",
-        root: "/tmp/p",
+describe("capabilityToScope", () => {
+  it("gives every capability kind its own action", () => {
+    const actions = [
+      capabilityToScope(WEB),
+      capabilityToScope({ kind: "mcp.tool", serverId: "s", tool: "t" }),
+      capabilityToScope({ kind: "fs.read", projectId: "p", root: "/tmp/p" }),
+      capabilityToScope({
+        command: { id: "start", version: 1 },
+        domain: "runs",
+        effect: "write",
+        kind: "domain.command",
+        target: { projectId: "p", scope: "s" },
       }),
-      agentCapabilityAddress(TOOL),
-    ].map((address) => address.namespace);
+      capabilityToScope(TOOL),
+    ].map((scope) => scope.action);
 
-    expect(new Set(kinds).size).toBe(kinds.length);
+    expect(new Set(actions).size).toBe(actions.length);
   });
 
-  it("carries the command catalog's own version for domain.command", () => {
-    const address = agentCapabilityAddress({
-      command: { id: "start", version: 3 },
-      domain: "runs",
-      effect: "write",
-      kind: "domain.command",
-      target: { projectId: "p", scope: "s" },
-    });
-
-    expect(address.version).toBe(3);
-  });
-
-  it("cannot collide a domain containing the separator with another pair", () => {
-    const a = agentCapabilityAddress({
+  it("cannot collide a domain containing a slash with another domain/command pair", () => {
+    const a = capabilityToScope({
       command: { id: "x", version: 1 },
       domain: "runs/start",
       effect: "read",
       kind: "domain.command",
       target: { projectId: "p", scope: "s" },
     });
-    const b = agentCapabilityAddress({
+    const b = capabilityToScope({
       command: { id: "start/x", version: 1 },
       domain: "runs",
       effect: "read",
@@ -68,113 +54,100 @@ describe("agentCapabilityAddress", () => {
       target: { projectId: "p", scope: "s" },
     });
 
-    expect(a.id).not.toBe(b.id);
+    expect(a.target).not.toEqual(b.target);
   });
 
   it("separates capabilities that differ only in a constraint", () => {
-    const one = agentCapabilityAddress({
+    const one = capabilityToScope({
       kind: "fs.read",
       projectId: "p",
       root: "/one",
     });
-    const two = agentCapabilityAddress({
+    const two = capabilityToScope({
       kind: "fs.read",
       projectId: "p",
       root: "/two",
     });
 
-    expect(one.constraintsDigest).not.toBe(two.constraintsDigest);
+    expect(one.constraints).not.toEqual(two.constraints);
   });
 });
 
-describe("agentAddressing", () => {
-  it("keeps two presets exposing the same tool name apart", () => {
-    expect(key(CHAT, TOOL)).not.toBe(key(CANVAS, TOOL));
-  });
-
-  it("keeps two generations of one preset apart", () => {
-    expect(key(agentSubject("chat", 1), WEB)).not.toBe(
-      key(agentSubject("chat", 2), WEB)
-    );
-  });
-
-  it("addresses an ungenerated preset stably", () => {
-    expect(key(CHAT, WEB)).toBe(key(agentSubject("chat"), WEB));
-  });
-});
-
-describe("createAgentAuthorizer", () => {
-  it("asks by default rather than allowing or silently denying", async () => {
-    const { authorizer } = createMemoryAgentAuthorizer();
-
-    await expect(
-      authorizer.decide({
-        capability: WEB,
-        invocationId: "i-1",
-        subject: CHAT,
-      })
-    ).resolves.toMatchObject({ kind: "requires-approval" });
-  });
-
-  it("fails closed on tool.call under a blanket allow that never named it", async () => {
-    const { authorizer } = createMemoryAgentAuthorizer({
-      policy: { global: "allow" },
+describe("agentSubject and agentPrincipal", () => {
+  it("maps subject identity and generation onto Principal", () => {
+    expect(agentSubjectToPrincipal(agentSubject("chat", 2))).toEqual({
+      id: "chat",
+      kind: "agent",
+      version: "2",
     });
+    expect(agentSubjectToPrincipal(agentSubject("chat"))).toEqual({
+      id: "chat",
+      kind: "agent",
+    });
+  });
+
+  it("keeps two generations of one agent apart", async () => {
+    const authorization = createMemoryAuthorization();
+    await grantCapability(authorization, "chat", WEB, { agentGeneration: 1 });
 
     await expect(
-      authorizer.decide({ capability: WEB, invocationId: "i", subject: CHAT })
+      authorization.check(
+        capabilityToAccessRequest({
+          agentGeneration: 1,
+          agentId: "chat",
+          capability: WEB,
+        })
+      )
     ).resolves.toMatchObject({ kind: "allow" });
-    const denied = await authorizer.decide({
-      capability: TOOL,
-      invocationId: "i",
-      subject: CHAT,
-    });
-    expect(denied.kind).toBe("deny");
-    expect(denied.kind === "deny" && denied.reason).toContain('tool "search"');
+    await expect(
+      authorization.check(
+        capabilityToAccessRequest({
+          agentGeneration: 2,
+          agentId: "chat",
+          capability: WEB,
+        })
+      )
+    ).resolves.toMatchObject({ kind: "ask" });
+  });
+});
+
+describe("Authorization over agent capabilities", () => {
+  it("asks by default rather than allowing or silently denying", async () => {
+    const authorization = createMemoryAuthorization();
+
+    await expect(
+      authorization.check(
+        capabilityToAccessRequest({ agentId: "chat", capability: WEB })
+      )
+    ).resolves.toMatchObject({ kind: "ask" });
   });
 
-  it("lets the safe default reach a human for an unclassified tool", async () => {
-    const { authorizer } = createMemoryAgentAuthorizer({
-      policy: AGENT_ASK_BY_DEFAULT,
-    });
+  it("allows from a Grant, and only for the agent that holds it", async () => {
+    const authorization = createMemoryAuthorization();
+    await grantCapability(authorization, "chat", TOOL);
 
     await expect(
-      authorizer.decide({ capability: TOOL, invocationId: "i", subject: CHAT })
-    ).resolves.toMatchObject({ kind: "requires-approval" });
-  });
-
-  it("allows from a Grant, and only for the Subject that holds it", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, TOOL);
-
+      authorization.check(
+        capabilityToAccessRequest({ agentId: "chat", capability: TOOL })
+      )
+    ).resolves.toMatchObject({ kind: "allow" });
     await expect(
-      policy.authorizer.decide({
-        capability: TOOL,
-        invocationId: "i",
-        subject: CHAT,
-      })
-    ).resolves.toMatchObject({ kind: "allow", source: "grant" });
-    await expect(
-      policy.authorizer.decide({
-        capability: TOOL,
-        invocationId: "i",
-        subject: CANVAS,
-      })
-    ).resolves.toMatchObject({ kind: "requires-approval" });
+      authorization.check(
+        capabilityToAccessRequest({ agentId: "canvas", capability: TOOL })
+      )
+    ).resolves.toMatchObject({ kind: "ask" });
   });
 
   it("stops allowing once the Grant is revoked", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, WEB);
-    await policy.revoke(CHAT, WEB);
+    const authorization = createMemoryAuthorization();
+    const grant = await grantCapability(authorization, "chat", WEB);
+    await authorization.revoke({ grantId: grant.id, kind: "grant" });
 
     await expect(
-      policy.authorizer.decide({
-        capability: WEB,
-        invocationId: "i",
-        subject: CHAT,
-      })
-    ).resolves.toMatchObject({ kind: "requires-approval" });
+      authorization.check(
+        capabilityToAccessRequest({ agentId: "chat", capability: WEB })
+      )
+    ).resolves.toMatchObject({ kind: "ask" });
   });
 
   it("does not let a command Grant reach another project, scope, effect, or version", async () => {
@@ -185,8 +158,8 @@ describe("createAgentAuthorizer", () => {
       kind: "domain.command",
       target: { projectId: "p1", scope: "s1" },
     };
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, granted);
+    const authorization = createMemoryAuthorization();
+    await grantCapability(authorization, "chat", granted);
 
     const neighbours: Capability[] = [
       { ...granted, target: { projectId: "p2", scope: "s1" } },
@@ -196,173 +169,99 @@ describe("createAgentAuthorizer", () => {
     ];
 
     await expect(
-      policy.authorizer.decide({
-        capability: granted,
-        invocationId: "i",
-        subject: CHAT,
-      })
-    ).resolves.toMatchObject({ kind: "allow", source: "grant" });
+      authorization.check(
+        capabilityToAccessRequest({ agentId: "chat", capability: granted })
+      )
+    ).resolves.toMatchObject({ kind: "allow" });
     for (const capability of neighbours) {
       await expect(
-        policy.authorizer.decide({
-          capability,
-          invocationId: "i",
-          subject: CHAT,
-        })
-      ).resolves.toMatchObject({ kind: "requires-approval" });
+        authorization.check(
+          capabilityToAccessRequest({ agentId: "chat", capability })
+        )
+      ).resolves.toMatchObject({ kind: "ask" });
     }
   });
 
-  it("honors an exact deny over authority the Subject already holds", async () => {
-    const { grants } = createMemoryAgentAuthorizer();
-    const authorizer = createAgentAuthorizer({
-      grants,
-      policy: {
-        exactDenies: [
-          { capability: WEB, reason: "Blocked by the host.", subject: CHAT },
-        ],
-        global: "allow",
-      },
-    });
-    await grants.issue({
-      address: agentAddressing.addressOf(CHAT, WEB),
-      capability: WEB,
-      lifetime: { kind: "persistent" },
-      provenance: "human",
+  it("honors a deny restriction over authority the agent already holds", async () => {
+    const authorization = createMemoryAuthorization();
+    await grantCapability(authorization, "chat", WEB);
+    await authorization.restrict({
+      holder: agentPrincipalMatcher("chat"),
+      kind: "deny",
+      reason: "Blocked by the host.",
+      scope: capabilityToScope(WEB),
     });
 
     await expect(
-      authorizer.decide({ capability: WEB, invocationId: "i", subject: CHAT })
+      authorization.check(
+        capabilityToAccessRequest({ agentId: "chat", capability: WEB })
+      )
     ).resolves.toMatchObject({ kind: "deny", reason: "Blocked by the host." });
   });
-});
 
-describe("decide versus claim", () => {
-  it("does not consume a one-shot Grant by deciding", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, WEB, { kind: "once" });
-    const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
+  it("does not consume a one-shot Grant by checking, spends it at authorize, and refuses another invocation", async () => {
+    const authorization = createMemoryAuthorization();
+    await grantCapability(authorization, "chat", WEB, { usesRemaining: 1 });
+    const first = capabilityToAccessRequest({
+      agentId: "chat",
+      capability: WEB,
+      invocationId: "call-1",
+    });
 
-    await expect(policy.authorizer.decide(request)).resolves.toMatchObject({
+    await expect(authorization.check(first)).resolves.toMatchObject({
       kind: "allow",
-      source: "grant",
     });
-    await expect(policy.authorizer.decide(request)).resolves.toMatchObject({
+    await expect(authorization.check(first)).resolves.toMatchObject({
       kind: "allow",
-      source: "grant",
     });
-  });
 
-  it("spends the one-shot at the claim, then denies the next call", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, WEB, { kind: "once" });
-    const first = { capability: WEB, invocationId: "call-1", subject: CHAT };
-
-    const decision = await policy.authorizer.decide(first);
-    await expect(
-      policy.authorizer.claim(first, decision)
-    ).resolves.toMatchObject({ kind: "authorized" });
-
-    await expect(policy.authorizer.decide(first)).resolves.toMatchObject({
-      kind: "requires-approval",
+    const outcome = await authorization.authorize(first, "call-1", {
+      openPending: false,
     });
-  });
-
-  it("lets the spending invocation replay its own claim", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, WEB, { kind: "once" });
-    const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
-
-    const decision = await policy.authorizer.decide(request);
-    await policy.authorizer.claim(request, decision);
+    expect(outcome.kind).toBe("permitted");
+    if (outcome.kind === "permitted") {
+      outcome.permit.release();
+    }
 
     await expect(
-      policy.authorizer.claim(request, decision)
-    ).resolves.toMatchObject({ kind: "authorized" });
-  });
-
-  it("refuses a second invocation the same one-shot authority", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, WEB, { kind: "once" });
-    const first = { capability: WEB, invocationId: "call-1", subject: CHAT };
-    const second = { capability: WEB, invocationId: "call-2", subject: CHAT };
-
-    const decision = await policy.authorizer.decide(first);
-    await policy.authorizer.claim(first, decision);
-
-    await expect(
-      policy.authorizer.claim(second, decision)
+      authorization.authorize(
+        capabilityToAccessRequest({
+          agentId: "chat",
+          capability: WEB,
+          invocationId: "call-2",
+        }),
+        "call-2",
+        { openPending: false }
+      )
     ).resolves.toMatchObject({ kind: "denied" });
   });
 
-  it("denies at the effect boundary when authority was revoked mid-call", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    await policy.allow(CHAT, WEB);
-    const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
+  it("opens a pending grant and activates it on approval", async () => {
+    const authorization = createMemoryAuthorization();
+    const request = capabilityToAccessRequest({
+      agentId: "chat",
+      capability: WEB,
+      invocationId: "call-1",
+    });
+    const pending = await authorization.authorize(request, "call-1");
+    expect(pending.kind).toBe("pending");
+    if (pending.kind !== "pending") {
+      throw new Error("expected pending");
+    }
 
-    const decision = await policy.authorizer.decide(request);
-    await policy.revoke(CHAT, WEB);
-
-    await expect(
-      policy.authorizer.claim(request, decision)
-    ).resolves.toMatchObject({ kind: "denied" });
-  });
-
-  it("refuses an unresolved approval that reaches the effect boundary", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
-
-    const decision = await policy.authorizer.decide(request);
-    expect(decision).toMatchObject({ kind: "requires-approval" });
-    await expect(
-      policy.authorizer.claim(request, decision)
-    ).resolves.toMatchObject({ kind: "denied" });
-  });
-});
-
-describe("resolveApproval", () => {
-  it("persists a preset-scoped Grant for an always answer", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
-
-    await policy.authorizer.resolveApproval(request, {
-      approved: true,
-      lifetime: "persistent",
+    await authorization.approve(pending.grant.id, {
+      approver: HOST_APPROVER,
+      rootAuthority: true,
+      usesRemaining: 1,
     });
 
-    await expect(
-      policy.authorizer.decide({ ...request, invocationId: "call-2" })
-    ).resolves.toMatchObject({ kind: "allow", source: "grant" });
-    await expect(
-      policy.authorizer.decide({
-        capability: WEB,
-        invocationId: "call-3",
-        subject: CANVAS,
-      })
-    ).resolves.toMatchObject({ kind: "requires-approval" });
-  });
-
-  it("writes nothing durable for a once answer", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
-
-    await expect(
-      policy.authorizer.resolveApproval(request, { approved: true })
-    ).resolves.toEqual({ kind: "allow", source: "approval" });
-    await expect(
-      policy.authorizer.decide({ ...request, invocationId: "call-2" })
-    ).resolves.toMatchObject({ kind: "requires-approval" });
-  });
-
-  it("leaves no authority behind when the human refuses", async () => {
-    const policy = createMemoryAgentAuthorizer();
-    const request = { capability: WEB, invocationId: "call-1", subject: CHAT };
-
-    await expect(
-      policy.authorizer.resolveApproval(request, { approved: false })
-    ).resolves.toMatchObject({ kind: "deny", source: "approval" });
-    await expect(
-      policy.authorizer.decide({ ...request, invocationId: "call-2" })
-    ).resolves.toMatchObject({ kind: "requires-approval" });
+    const permitted = await authorization.authorize(request, "call-1", {
+      openPending: false,
+    });
+    expect(permitted.kind).toBe("permitted");
+    if (permitted.kind === "permitted") {
+      permitted.permit.release();
+    }
+    expect(agentPrincipal("chat").kind).toBe("agent");
   });
 });

@@ -77,11 +77,10 @@ Source responsibilities and dependency boundaries:
   (`lib/execution-store.ts`), each write in the order it was made.
   Agent-created triggers are
   kept in an `AutomationStore` (`lib/automation/store.ts`) and usage facts
-  in a `UsageStore` (`lib/usage-store.ts`). Agent grants are one validated
-  document in a `GrantDocumentStorage` (`@foundry/lib`), deferred approvals
-  are kept in a `DeferredApprovalStore` (`lib/sandbox/deferred-approvals.ts`)
-  and harness activities in an `ActivityStore` (`lib/sandbox/activities.ts`),
-  each in memory without one. Which engine delivers a workspace's
+  in a `UsageStore` (`lib/usage-store.ts`). Agent grants, restrictions, and
+  pending approvals live in `@foundry/authorization` (`SqliteAuthorizationStore`
+  in `database/stores.ts`), and harness activities in an `ActivityStore`
+  (`lib/sandbox/activities.ts`), each in memory without one. Which engine delivers a workspace's
   changes is a claim its `records` grant (`claimDelivery`, the
   `DeliveryLease` seam); `lib/events/delivery.ts` hands each observer,
   known by workspace, source and name, the facts of its source from the
@@ -263,10 +262,11 @@ Source responsibilities and dependency boundaries:
   commit that records `job.removed`. `automations.ts` is the triggers agents created, one
   row of `marbles_automations` each, an edit a transaction that reads
   first; `usage.ts` is each agent turn's usage fact, a row of
-  `marbles_usage_facts` by turn. `grants.ts`, `approvals.ts` and
-  `activities.ts` are a workspace's agent grants (one document the grant
-  repository validates), deferred approvals (one document) and harness
-  activities (a row each, replaced only by a higher revision); the
+  `marbles_usage_facts` by turn. Workspace authorization state (grants,
+  restrictions, pending approvals, and invocation claims) lives in
+  `@foundry/authorization`'s `SqliteAuthorizationStore` (`stores.ts` /
+  `managed.ts`), and `activities.ts` keeps harness activities (a row each,
+  replaced only by a higher revision); the
   workspace's records (`tasks.ts`) keep who delivers its changes in
   `marbles_delivery_claims`, a claim a transaction on that row. `providers.ts` is the machine's provider configuration, a row
   per scope with a revision the configuration's watcher polls, and the
@@ -312,12 +312,12 @@ Source responsibilities and dependency boundaries:
   decided, and where it persists, following `Engine.persistence`; it
   builds the instances, constructs the engine, and copies the catalog in.
   Given the host's `database`, it keeps the tasks, sessions, workflow
-  runs, Execution Runs, trigger state, automations, usage, grants,
-  deferred approvals, activities, provider configuration, artifacts,
+  runs, Execution Runs, trigger state, automations, usage, authorization
+  state, activities, provider configuration, artifacts,
   sandbox containers and workspace catalogue there;
   given only a state dir, the engine opens one handle of its own for its
   tasks, sessions, runs, Execution Runs, trigger state, automations,
-  usage, grants, deferred approvals and activities
+  usage, authorization state and activities
   (`openWorkspaceDatabase` in `database/managed.ts`), reads and writes its
   provider configuration per call (`DatabaseProviderStore.forState`),
   keeps its artifacts, containers and catalogue in memory, and closes the handle after

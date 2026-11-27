@@ -1,4 +1,10 @@
 import {
+  type Authorization,
+  AuthorizationDeniedError,
+  type Principal,
+  withPermit,
+} from "@foundry/authorization";
+import {
   type FieldState,
   findVaultField,
   VAULT_OWNERS,
@@ -10,18 +16,30 @@ import {
 import { EncryptionUnavailableError } from "./secure-store";
 import type { KeyValueStore } from "./store";
 
+export const VAULT_CREDENTIAL_RELEASE_ACTION = "credential.release";
+
 export interface VaultStores {
   secure: KeyValueStore;
   settings: KeyValueStore;
 }
 
 export interface VaultOptions {
+  authorization?: Authorization;
   env?: Readonly<Record<string, string | undefined>>;
+}
+
+export interface VaultReleaseInput {
+  readonly invocationId: string;
+  readonly key: string;
+  readonly ownerId: VaultOwnerId;
+  readonly principal: Principal;
+  readonly signal?: AbortSignal;
 }
 
 export type VaultListener = (status: VaultStatus) => void;
 
 export class Vault {
+  readonly #authorization: Authorization | undefined;
   readonly #stores: VaultStores;
   readonly #env: Readonly<Record<string, string | undefined>>;
   readonly #values = new Map<string, string>();
@@ -32,11 +50,13 @@ export class Vault {
   private constructor(
     stores: VaultStores,
     env: Readonly<Record<string, string | undefined>>,
-    encryption: VaultStatus["encryption"]
+    encryption: VaultStatus["encryption"],
+    authorization: Authorization | undefined
   ) {
     this.#stores = stores;
     this.#env = env;
     this.#encryption = encryption;
+    this.#authorization = authorization;
   }
 
   static async open(
@@ -64,7 +84,7 @@ export class Vault {
       }
     }
 
-    const vault = new Vault(stores, env, encryption);
+    const vault = new Vault(stores, env, encryption, options.authorization);
     for (const [key, value] of loaded) {
       vault.#values.set(key, value);
     }
@@ -93,6 +113,34 @@ export class Vault {
       this.#envValue(match.field) ??
       match.field.fallback ??
       null
+    );
+  }
+
+  release(input: VaultReleaseInput): Promise<string | null> {
+    const match = findVaultField(input.ownerId, input.key);
+    if (!match) {
+      return Promise.resolve(null);
+    }
+    if (this.#authorization === undefined) {
+      return Promise.reject(
+        new AuthorizationDeniedError(
+          "Vault credential release requires an Authorization control plane"
+        )
+      );
+    }
+    return withPermit(
+      this.#authorization,
+      {
+        action: VAULT_CREDENTIAL_RELEASE_ACTION,
+        principal: input.principal,
+        target: vaultStoreKey(input.ownerId, input.key),
+      },
+      input.invocationId,
+      () => Promise.resolve(this.resolve(input.ownerId, input.key)),
+      {
+        openPending: false,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+      }
     );
   }
 

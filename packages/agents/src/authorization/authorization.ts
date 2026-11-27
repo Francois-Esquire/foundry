@@ -1,25 +1,23 @@
 import type {
-  AuthorizationAddressing,
-  AuthorizationDecision,
-  AuthorizationPolicy,
-  AuthorizationPolicySource,
-  AuthorizationRequest,
-  Authorizer,
-  CapabilityAddress,
-  GrantLifetime,
-  GrantRepository,
-  GrantSpecification,
-} from "@foundry/lib/authorization";
+  AccessRequest,
+  AuthorizationOptions,
+  JsonPrimitive,
+  Principal,
+  PrincipalMatcher,
+  Scope,
+} from "@foundry/authorization";
+import { Authorization } from "@foundry/authorization";
+import { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
+import type { JsonValue } from "@foundry/lib/json";
 
-import {
-  authorizationAddress,
-  createAuthorizer,
-  createMemoryGrantRepository,
-} from "@foundry/lib/authorization";
-
-import type { Capability, CapabilityKind } from "./capability";
+import type { Capability } from "./capability";
 
 export const AGENT_SUBJECT_NAMESPACE = "agent";
+
+export const HOST_APPROVER: Principal = {
+  id: "host",
+  kind: "human",
+};
 
 export interface AgentSubject {
   readonly id: string;
@@ -35,169 +33,170 @@ export function agentSubject(id: string, generation?: number): AgentSubject {
   };
 }
 
-const AGENT_CAPABILITY_VERSION = 1;
+export function agentPrincipal(
+  id: string,
+  generation?: number,
+  attributes?: Readonly<Record<string, JsonValue>>
+): Principal {
+  return {
+    ...(attributes === undefined ? {} : { attributes }),
+    id,
+    kind: AGENT_SUBJECT_NAMESPACE,
+    ...(generation === undefined ? {} : { version: String(generation) }),
+  };
+}
 
-export function agentCapabilityAddress(
-  capability: Capability
-): CapabilityAddress {
+export function agentPrincipalMatcher(
+  id: string,
+  generation?: number
+): PrincipalMatcher {
+  return {
+    kind: "exact",
+    principal: {
+      id,
+      kind: AGENT_SUBJECT_NAMESPACE,
+      ...(generation === undefined ? {} : { version: String(generation) }),
+    },
+  };
+}
+
+export function agentSubjectToPrincipal(
+  subject: AgentSubject,
+  attributes?: Readonly<Record<string, JsonValue>>
+): Principal {
+  return agentPrincipal(subject.id, subject.version, attributes);
+}
+
+export type ApprovalLifetime = "once" | "session" | "persistent";
+
+export interface ApprovalResolution {
+  readonly approved: boolean;
+  readonly approver?: Principal;
+  readonly lifetime?: ApprovalLifetime;
+  readonly reason?: string;
+}
+
+export function extractCommandInput(input: unknown): string | undefined {
+  if (!input || typeof input !== "object" || !("command" in input)) {
+    return undefined;
+  }
+  return typeof input.command === "string" ? input.command : undefined;
+}
+
+function describeCapability(capability: Capability): {
+  readonly attributes?: Readonly<Record<string, JsonPrimitive>>;
+  readonly target: string;
+} {
   switch (capability.kind) {
     case "web.fetch":
-      return {
-        id: capability.domain,
-        namespace: capability.kind,
-        version: AGENT_CAPABILITY_VERSION,
-      };
+      return { target: capability.domain };
     case "mcp.tool":
       return {
-        constraintsDigest: JSON.stringify([capability.tool]),
-        id: capability.serverId,
-        namespace: capability.kind,
-        version: AGENT_CAPABILITY_VERSION,
+        attributes: { tool: capability.tool },
+        target: capability.serverId,
       };
     case "fs.read":
       return {
-        constraintsDigest: JSON.stringify([capability.root]),
-        id: capability.projectId,
-        namespace: capability.kind,
-        version: AGENT_CAPABILITY_VERSION,
+        attributes: { root: capability.root },
+        target: capability.projectId,
       };
     case "domain.command":
       return {
-        constraintsDigest: JSON.stringify([
-          capability.effect,
-          capability.target.projectId,
-          capability.target.scope,
+        attributes: {
+          effect: capability.effect,
+          projectId: capability.target.projectId,
+          scope: capability.target.scope,
+        },
+        target: JSON.stringify([
+          capability.domain,
+          capability.command.id,
+          capability.command.version,
         ]),
-        id: JSON.stringify([capability.domain, capability.command.id]),
-        namespace: capability.kind,
-        version: capability.command.version,
       };
     case "tool.call":
       return {
-        constraintsDigest: JSON.stringify([capability.source]),
-        id: capability.tool,
-        namespace: capability.kind,
-        version: AGENT_CAPABILITY_VERSION,
+        attributes: { source: capability.source },
+        target: capability.tool.toLowerCase(),
       };
     default:
-      break;
+      return undefined as never;
   }
-  return undefined as never;
 }
 
-export const agentAddressing: AuthorizationAddressing<
-  AgentSubject,
-  Capability
-> = {
-  addressOf: (subject, capability) =>
-    authorizationAddress(subject, agentCapabilityAddress(capability)),
-};
-
-export type AgentAuthorizer = Authorizer<AgentSubject, Capability>;
-export type AgentGrantRepository = GrantRepository<AgentSubject, Capability>;
-export type AgentAuthorizationRequest = AuthorizationRequest<
-  AgentSubject,
-  Capability
->;
-export type AgentAuthorizationDecision = AuthorizationDecision;
-export type AgentAuthorizationPolicy = AuthorizationPolicy<
-  AgentSubject,
-  Capability,
-  CapabilityKind
->;
-export type AgentAuthorizationPolicySource = AuthorizationPolicySource<
-  AgentSubject,
-  Capability,
-  CapabilityKind
->;
-export type AgentGrantSpecification = GrantSpecification<Capability>;
-
-export const AGENT_FAIL_CLOSED_KINDS: readonly CapabilityKind[] = ["tool.call"];
-
-export function agentFailClosedReason(capability: Capability): string {
-  const tool =
-    capability.kind === "tool.call" ? capability.tool : capability.kind;
-  return `No policy classification for tool "${tool}"; unclassified tool calls fail closed.`;
+export function capabilityToScope(capability: Capability): Scope {
+  const { attributes, target } = describeCapability(capability);
+  return {
+    action: capability.kind,
+    ...(attributes === undefined
+      ? {}
+      : {
+          constraints: Object.fromEntries(
+            Object.entries(attributes).map(([key, value]) => [
+              key,
+              { op: "eq", value } as const,
+            ])
+          ),
+        }),
+    target: { kind: "exact", value: target },
+  };
 }
 
-export const AGENT_ASK_BY_DEFAULT: AgentAuthorizationPolicy = {
-  byKind: { "tool.call": "ask" },
-  failClosed: AGENT_FAIL_CLOSED_KINDS,
-  global: "ask",
-};
-
-export interface CreateAgentAuthorizerOptions {
-  readonly grants: AgentGrantRepository;
-  readonly now?: () => number;
-  readonly policy?: AgentAuthorizationPolicy | AgentAuthorizationPolicySource;
+export interface CapabilityAccessRequestArgs {
+  readonly agentGeneration?: number;
+  readonly agentId: string;
+  readonly capability: Capability;
+  readonly input?: unknown;
+  readonly invocationId?: string;
+  readonly principalAttributes?: Readonly<Record<string, JsonValue>>;
+  readonly sessionId?: string;
 }
 
-export function createAgentAuthorizer(
-  options: CreateAgentAuthorizerOptions
-): AgentAuthorizer {
-  const configured = options.policy ?? AGENT_ASK_BY_DEFAULT;
-  const withFailClosed = (
-    policy: AgentAuthorizationPolicy
-  ): AgentAuthorizationPolicy => ({
-    ...policy,
-    failClosed: [
-      ...AGENT_FAIL_CLOSED_KINDS,
-      ...(policy.failClosed ?? []).filter(
-        (kind) => !AGENT_FAIL_CLOSED_KINDS.includes(kind)
-      ),
-    ],
-  });
+export function capabilityToAccessRequest(
+  args: CapabilityAccessRequestArgs
+): AccessRequest {
+  const command = extractCommandInput(args.input);
+  const principalAttributes: Record<string, JsonValue> = {
+    ...args.principalAttributes,
+    agentId: args.agentId,
+    ...(args.agentGeneration === undefined
+      ? {}
+      : { agentGeneration: args.agentGeneration }),
+    ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
+  };
+  const principal = agentPrincipal(
+    args.agentId,
+    args.agentGeneration,
+    principalAttributes
+  );
+  const { attributes: baseAttributes, target } = describeCapability(
+    args.capability
+  );
 
-  return createAuthorizer<AgentSubject, Capability, CapabilityKind>({
-    addressing: agentAddressing,
-    failClosedReason: agentFailClosedReason,
-    grants: options.grants,
-    kindOf: (capability) => capability.kind,
-    now: options.now,
-    policy:
-      "current" in configured
-        ? { current: () => withFailClosed(configured.current()) }
-        : withFailClosed(configured),
-  });
-}
-
-export interface MemoryAgentAuthorizer {
-  allow(
-    subject: AgentSubject,
-    capability: Capability,
-    lifetime?: GrantLifetime
-  ): Promise<void>;
-  readonly authorizer: AgentAuthorizer;
-  readonly grants: AgentGrantRepository;
-  revoke(subject: AgentSubject, capability: Capability): Promise<void>;
-}
-
-export function createMemoryAgentAuthorizer(
-  options: Omit<CreateAgentAuthorizerOptions, "grants"> = {}
-): MemoryAgentAuthorizer {
-  const now = options.now ?? Date.now;
-  const grants = createMemoryGrantRepository<AgentSubject, Capability>({
-    now,
-  });
-  const authorizer = createAgentAuthorizer({ ...options, grants });
+  const attributes: Record<string, JsonValue> | undefined =
+    baseAttributes !== undefined || command !== undefined
+      ? {
+          ...baseAttributes,
+          ...(command === undefined ? {} : { command }),
+        }
+      : undefined;
 
   return {
-    async allow(subject, capability, lifetime = { kind: "persistent" }) {
-      await grants.issue({
-        address: agentAddressing.addressOf(subject, capability),
-        capability,
-        lifetime,
-        provenance: "human",
-      });
-    },
-    authorizer,
-    grants,
-    async revoke(subject, capability) {
-      const address = agentAddressing.addressOf(subject, capability);
-      const live = await grants.find(address, now());
-      for (const grant of live) {
-        await grants.revoke(grant.id);
-      }
-    },
+    action: args.capability.kind,
+    ...(attributes === undefined ? {} : { attributes }),
+    ...(args.invocationId === undefined
+      ? {}
+      : { invocationId: args.invocationId }),
+    principal,
+    ...(args.sessionId === undefined ? {} : { sessionId: args.sessionId }),
+    target,
   };
+}
+
+export function createMemoryAuthorization(
+  options: Omit<AuthorizationOptions, "store"> = {}
+): Authorization {
+  return new Authorization({
+    ...options,
+    store: new MemoryAuthorizationStore(),
+  });
 }

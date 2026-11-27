@@ -2,22 +2,17 @@ import { tool } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import type { AgentAuthorizer } from "../../authorization/authorization";
-import { agentSubject } from "../../authorization/authorization";
+import { capabilityToAccessRequest } from "../../authorization/authorization";
 import { AgentHarness } from "../../harness/agent-harness";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
 import { MemorySessionStore } from "../../store/memory";
-import { fakeAuthorizer } from "../helpers/authorizer";
+import { createPermissiveAuthorization } from "../helpers/authorizer";
 import {
   createScriptedMockModel,
   textStreamResult,
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
-
-function allowPolicy(): AgentAuthorizer {
-  return fakeAuthorizer(() => ({ kind: "allow", source: "grant" }));
-}
 
 function contextCapturingTool() {
   const seen: { context?: unknown } = {};
@@ -54,42 +49,44 @@ async function drain(stream: AsyncIterable<SessionEvent>): Promise<void> {
   await Array.fromAsync(stream);
 }
 
-describe("AgentHarness.policy", () => {
-  it("exposes the configured policy as the same instance the tools are gated by", () => {
-    const policy = allowPolicy();
+describe("AgentHarness.authorization", () => {
+  it("exposes the configured authorization as the same instance the tools are gated by", async () => {
+    const authorization = await createPermissiveAuthorization();
     const harness = new AgentHarness({
+      authorization,
       instructions: "x",
       model: createScriptedMockModel({}),
-      policy,
     });
 
-    expect(harness.policy).toBe(policy);
+    expect(harness.authorization).toBe(authorization);
   });
 
-  it("falls back to a real policy — never undefined — when none is configured", async () => {
+  it("defaults to a fail-closed empty authorization with no grants when none is configured", async () => {
     const harness = new AgentHarness({
       instructions: "x",
       model: createScriptedMockModel({}),
     });
 
     await expect(
-      harness.policy.decide({
-        capability: { kind: "tool.call", source: "declared", tool: "probe" },
-        invocationId: "probe-1",
-        subject: agentSubject("agent"),
-      })
-    ).resolves.toMatchObject({ kind: "allow" });
+      harness.authorization.check(
+        capabilityToAccessRequest({
+          agentId: "agent",
+          capability: { kind: "tool.call", source: "declared", tool: "probe" },
+          invocationId: "probe-1",
+        })
+      )
+    ).resolves.toMatchObject({ kind: "ask" });
   });
 });
 
 describe("AgentHarness — tool context", () => {
   it("hands a tool call with no caller context an empty object", async () => {
-    const policy = allowPolicy();
+    const authorization = await createPermissiveAuthorization();
     const { tools, seen } = contextCapturingTool();
     const harness = new AgentHarness({
+      authorization,
       instructions: "x",
       model: probingModel(),
-      policy,
       tools,
     });
 
@@ -100,13 +97,13 @@ describe("AgentHarness — tool context", () => {
   });
 
   it("hands the tool the caller's own context object, unchanged", async () => {
-    const policy = allowPolicy();
+    const authorization = await createPermissiveAuthorization();
     const { tools, seen } = contextCapturingTool();
     const callerContext = { db: "the-db", sessionId: "s1" };
     const harness = new AgentHarness({
+      authorization,
       instructions: "x",
       model: probingModel(),
-      policy,
       tools,
       toolsContext: callerContext,
     });
@@ -122,12 +119,12 @@ describe("AgentHarness — tool context", () => {
     const callerContext = Object.freeze({ db: "the-db" });
     branded.add(callerContext);
 
-    const policy = allowPolicy();
+    const authorization = await createPermissiveAuthorization();
     const { tools, seen } = contextCapturingTool();
     const harness = new AgentHarness({
+      authorization,
       instructions: "x",
       model: probingModel(),
-      policy,
       tools,
       toolsContext: callerContext,
     });
@@ -142,9 +139,9 @@ describe("AgentHarness — tool context", () => {
     const { tools, seen } = contextCapturingTool();
     const callerContext = { db: "the-db" };
     const harness = new AgentHarness({
+      authorization: await createPermissiveAuthorization(),
       instructions: "x",
       model: probingModel(),
-      policy: allowPolicy(),
       tools,
       toolsContext: callerContext,
     });
@@ -157,28 +154,28 @@ describe("AgentHarness — tool context", () => {
   });
 });
 
-describe("SessionHarness — policy and tool context", () => {
-  it("runs under the same policy instance as the agent harness it wraps", () => {
-    const policy = allowPolicy();
+describe("SessionHarness — authorization and tool context", () => {
+  it("runs under the same authorization instance as the agent harness it wraps", async () => {
+    const authorization = await createPermissiveAuthorization();
     const harness = new SessionHarness({
+      authorization,
       instructions: "x",
       model: createScriptedMockModel({}),
-      policy,
       sessionId: "s1",
       store: new MemorySessionStore(),
     });
 
-    expect(harness.policy).toBe(policy);
+    expect(harness.authorization).toBe(authorization);
   });
 
   it("hands every turn's tools the caller's own context object, unchanged", async () => {
-    const policy = allowPolicy();
+    const authorization = await createPermissiveAuthorization();
     const { tools, seen } = contextCapturingTool();
     const callerContext = { db: "the-db", sessionId: "s1" };
     const harness = new SessionHarness({
+      authorization,
       instructions: "x",
       model: probingModel(),
-      policy,
       sessionId: "s1",
       store: new MemorySessionStore(),
       tools,
