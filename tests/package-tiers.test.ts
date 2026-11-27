@@ -322,6 +322,9 @@ describe("package tiers and dependency graph", () => {
         extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs"],
         skipDirs: [...SKIP_DIRS, "fixtures"],
       })) {
+        if (!readFileSync(file, "utf8").includes("../")) {
+          continue;
+        }
         for (const { line, specifier } of parseModuleImports(file)) {
           if (!specifier.startsWith(".")) {
             continue;

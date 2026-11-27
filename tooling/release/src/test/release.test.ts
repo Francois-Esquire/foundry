@@ -363,8 +363,7 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   const commandsOf = (id: string) =>
     job(id).steps.flatMap(({ run }) => (run ? [run] : []));
   const work = ["docs", "release", "test", "test-spyglass", "validate"];
-  const allJobs = [...work, "spyglass-changes"].sort();
-  expect(Object.keys(ci.jobs).sort()).toEqual([...allJobs, "verify"].sort());
+  expect(Object.keys(ci.jobs).sort()).toEqual([...work, "verify"].sort());
   for (const id of Object.keys(ci.jobs)) {
     expect(job(id).permissions).toBeUndefined();
     for (const command of ["check", "lint:deps", "typecheck", "dead-code"]) {
@@ -376,9 +375,9 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   const verify = job("verify");
   expect(verify.name).toBe("Verify");
   expect(verify.if).toBe("always()");
-  expect([...(verify.needs ?? [])].sort()).toEqual(allJobs);
+  expect([...(verify.needs ?? [])].sort()).toEqual(work);
   expect(commandsOf("verify").join("\n")).toContain(
-    'all(to_entries[]; .value.result == "success" or ((.key == "spyglass-changes" or .key == "test-spyglass") and .value.result == "skipped"))'
+    'all(.[]; .result == "success")'
   );
 
   const setup = YAML.parse(
@@ -404,35 +403,27 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
 
   expect(commandsOf("validate")).toContain("bun run validate");
 
-  const testSteps = job("test").steps;
-  expect(
-    testSteps.find(
-      ({ run }) =>
-        run ===
-        "bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always"
-    )?.if
-  ).toBe("github.event_name == 'pull_request'");
-  expect(
-    testSteps.find(
-      ({ run }) =>
-        run ===
-        "bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always"
-    )?.if
-  ).toBe("github.event_name != 'pull_request'");
-
-  const spyglassChanges = job("spyglass-changes");
-  expect(spyglassChanges.if).toBe("github.event_name == 'pull_request'");
-  expect(commandsOf("spyglass-changes").join("\n")).toContain("apps/spyglass");
-
+  const testSteps = {
+    test: [
+      "bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
+      "bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always",
+    ],
+    "test-spyglass": [
+      "bun run turbo run test --affected --filter=@foundry.sh/spyglass -- --shard=$SHARD/3",
+      "bun run turbo run test --filter=@foundry.sh/spyglass -- --shard=$SHARD/3",
+    ],
+  };
+  for (const [id, [affected, all]] of Object.entries(testSteps)) {
+    const { steps } = job(id);
+    expect(steps.find(({ run }) => run === affected)?.if).toBe(
+      "github.event_name == 'pull_request'"
+    );
+    expect(steps.find(({ run }) => run === all)?.if).toBe(
+      "github.event_name != 'pull_request'"
+    );
+  }
   const spyglass = job("test-spyglass");
-  expect(spyglass.needs).toEqual(["spyglass-changes"]);
-  expect(spyglass.if).toBe(
-    "always() && (github.event_name != 'pull_request' || needs.spyglass-changes.outputs.run == 'true')"
-  );
   expect(spyglass.strategy?.matrix).toEqual({ shard: [1, 2, 3] });
-  expect(commandsOf("test-spyglass")).toContain(
-    "bun run turbo run test --filter=@foundry.sh/spyglass -- --shard=$SHARD/3"
-  );
   for (const { run, env } of spyglass.steps) {
     if (run?.includes("--shard")) {
       expect(env?.SHARD).toBe(actionExpression("matrix.shard"));
