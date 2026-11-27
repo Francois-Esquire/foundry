@@ -16,7 +16,6 @@ import { type TestHome, testHome } from "./helpers/home";
 const draft: SetupDraft = {
   instructions: "",
   name: "summary",
-  template: STARTER.id,
 };
 let home: TestHome | undefined;
 

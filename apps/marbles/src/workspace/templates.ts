@@ -1,7 +1,5 @@
 export const STARTER = {
   description: "An agent introduces this repository",
-  id: "starter",
-  label: "Starter",
   name: "hello",
 } as const;
 
@@ -11,13 +9,11 @@ export const STARTER_GUIDE =
 export interface SetupDraft {
   readonly instructions: string;
   readonly name: string;
-  readonly template: typeof STARTER.id;
 }
 
 export const DEFAULT_DRAFT: SetupDraft = {
   instructions: "",
   name: STARTER.name,
-  template: STARTER.id,
 };
 const STEP_NAME = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const IDENTIFIER_PART = /[-_]+([a-zA-Z0-9])/g;

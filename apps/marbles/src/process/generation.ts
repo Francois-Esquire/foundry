@@ -37,7 +37,6 @@ import {
   type SetupInput,
 } from "~/workspace/setup-step";
 import { taskCommandSchema, taskOutcome } from "~/workspace/tasks";
-import type { SetupDraft } from "~/workspace/templates";
 
 interface GenerationArgs {
   readonly artifacts: string;
@@ -255,7 +254,7 @@ async function main(): Promise<void> {
   const postSetup = (host: WorkspaceHost, draft: SetupDraftParams): void => {
     const input: SetupInput = {
       configPath: host.configPath,
-      draft: draft as SetupDraft,
+      draft,
       root: host.root,
     };
     host.engine
