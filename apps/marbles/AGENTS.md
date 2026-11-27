@@ -344,8 +344,7 @@ Source responsibilities and dependency boundaries:
   loading and the engine builder (`open.ts`), the schedule loop
   (`loop.ts`, over `lib/schedule-loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
   every workspace (`feed.ts`) and its usage
-  totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), source
-  watching (`watch.ts`), starter templates and creation, background agent
+  totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), starter templates and creation, background agent
   dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
   `hostWorkspace()` in `host.ts`, which ties them into the
   `WorkspaceConnection` every host is written against. A host opens one
@@ -458,7 +457,7 @@ Source responsibilities and dependency boundaries:
   or starts one; and the claim (`instance.ts`). Apart from the generation and
   client-side `access.ts` (never imported by `daemon.ts`), `src/process/`
   imports only `lib/`, `database/`, `layout.ts`, `model/` and the pure
-  discovery and digests in `workspace/source.ts` and `workspace/watch.ts`,
+  discovery and digests in `workspace/source.ts`,
   so the daemon never loads an authoring module and survives any of them.
 - `src/process/access.ts` is how CLI and MCP commands reach stored or
   hosted workspaces. It can read stored state, join the running process,
