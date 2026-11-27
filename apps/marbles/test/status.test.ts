@@ -12,7 +12,9 @@ import { DatabaseSessionStore } from "~/database/sessions";
 import { marblesMonitorStates } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { writeJson } from "~/lib/state/json";
+import { insideState } from "~/lib/state/workspace";
 import { startedAt } from "~/process/spawned";
 import { readStatus } from "~/process/status";
 import { seedWorkspace } from "./helpers/registry";
@@ -120,6 +122,7 @@ describe("readStatus", () => {
     try {
       const records = new DatabaseWorkspaceRecords({
         database: database.database,
+        liveness: NODE_OWNER_LIVENESS,
         scope: "ws1",
       });
       expect(await records.claimDelivery()).toBeUndefined();
@@ -188,6 +191,7 @@ describe("readStatus", () => {
     try {
       const generations = new GenerationRecords({
         database: database.database,
+        liveness: NODE_OWNER_LIVENESS,
       });
       const dead = await generations.begin("before");
       await generations.spawned(dead, spawnSync("true").pid, null);
@@ -233,6 +237,7 @@ describe("readStatus", () => {
     try {
       const generations = new GenerationRecords({
         database: database.database,
+        liveness: NODE_OWNER_LIVENESS,
       });
       const dead = spawnSync("true").pid;
       const proved = await generations.begin("proved");
@@ -362,10 +367,9 @@ describe("readStatus", () => {
     ]);
     const opened = await initializeDatabase(stateDatabase(state));
     try {
-      await resourceAssociations(opened.database, state).share(
-        { id: "rn-two", kind: "run", owner: "ws2" },
-        "ws1"
-      );
+      await resourceAssociations(opened.database, {
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      }).share({ id: "rn-two", kind: "run", owner: "ws2" }, "ws1");
     } finally {
       opened.close();
     }

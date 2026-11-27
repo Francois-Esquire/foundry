@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import type { ModelKind } from "@foundry/models";
 import { z } from "zod";
 
@@ -71,7 +70,7 @@ export interface ProviderWrites {
 }
 
 export interface ProviderStore {
-  identityKey(make: boolean): Promise<Buffer | undefined>;
+  identityKey(make: boolean): Promise<Uint8Array | undefined>;
   read(): Promise<ProviderConfigurations>;
   revision(): Promise<number>;
   update(
@@ -167,16 +166,20 @@ function unreadable(what: string, why: string): ConfigurationError {
 const KEY = /^[0-9a-f]{64}$/;
 
 export function newIdentityKey(): string {
-  return randomBytes(32).toString("hex");
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
 }
 
-export function identityKeyFrom(text: string): Buffer {
+export function identityKeyFrom(text: string): Uint8Array {
   if (!KEY.test(text)) {
     throw new InvalidStoredConfiguration(
       "the identity key in the Marbles database is not one; remove it to start new sessions everywhere"
     );
   }
-  return Buffer.from(text, "hex");
+  return Uint8Array.from(text.match(/../g) ?? [], (byte) =>
+    Number.parseInt(byte, 16)
+  );
 }
 
 export class MemoryProviderStore implements ProviderStore {
@@ -184,7 +187,7 @@ export class MemoryProviderStore implements ProviderStore {
   #key: string | undefined;
   #revision = 0;
 
-  identityKey(make: boolean): Promise<Buffer | undefined> {
+  identityKey(make: boolean): Promise<Uint8Array | undefined> {
     if (make) {
       this.#key ??= newIdentityKey();
     }

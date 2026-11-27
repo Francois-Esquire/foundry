@@ -1,5 +1,6 @@
 import { Tasks } from "@foundry/tasks";
-import { changeTasks, readTasks } from "~/database/tasks";
+
+import { changeTasks, readTasks } from "~/database/open";
 import { layout } from "~/layout";
 import { insideState } from "~/lib/state/workspace";
 import type { WorkspaceConnection } from "~/model/connection";

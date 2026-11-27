@@ -18,7 +18,7 @@ import { initializeDatabase, readDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
-import { workspaceState } from "~/lib/state/workspace";
+import { insideState, workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { recordSpawned } from "~/process/spawned";
 import { hostWorkspace } from "~/workspace/host";
@@ -128,7 +128,10 @@ await host.close();
     const record = await readDatabase(
       stateDatabase(state),
       (database) =>
-        new WorkspaceRegistry({ database, state }).read(workspace.id),
+        new WorkspaceRegistry({
+          acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+          database,
+        }).read(workspace.id),
       { migrations: next }
     );
     expect(record?.id).toBe(workspace.id);

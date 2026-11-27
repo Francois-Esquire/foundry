@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { expectHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
-import { openHostDatabase } from "~/database/workspaces";
+
+import { openHostDatabase } from "~/database/open";
 import type { Engine } from "~/lib/engine";
 import type { FeedReader } from "~/lib/feed/read";
 import { rollSchedule } from "~/lib/schedule";

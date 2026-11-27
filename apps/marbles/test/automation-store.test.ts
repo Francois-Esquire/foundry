@@ -2,11 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import {
-  DatabaseAutomationStore,
-  readAutomations,
-} from "~/database/automations";
-import { initializeDatabase } from "~/database/open";
+import { DatabaseAutomationStore } from "~/database/automations";
+import { initializeDatabase, readAutomations } from "~/database/open";
 import { stateDatabase } from "~/layout";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import {

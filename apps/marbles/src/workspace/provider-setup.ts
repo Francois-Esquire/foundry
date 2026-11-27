@@ -1,5 +1,5 @@
 import { Models } from "@foundry/models";
-import { DatabaseProviderStore } from "~/database/providers";
+import { providerStoreForState } from "~/database/open";
 import { environmentSnapshot } from "~/lib/environment";
 import type { Proposal } from "~/lib/providers/configuration";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -29,7 +29,7 @@ export async function discoverProviderSetup(options: DiscoveryOptions) {
       environment: environmentSnapshot(),
       models: new Models(),
       plugins,
-      store: DatabaseProviderStore.forState(options.state),
+      store: providerStoreForState(options.state),
       ...(options.workspace ? { workspace: options.workspace } : {}),
     });
   const discovery = configure();

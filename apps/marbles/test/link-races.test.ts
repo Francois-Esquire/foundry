@@ -22,6 +22,7 @@ import type { ResourceView } from "~/database/resources";
 import { workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks } from "~/layout";
+import { insideState } from "~/lib/state/workspace";
 import { temporaryDirectory } from "./helpers/temporary";
 
 type Hook = (kind: string, path: string) => Promise<void>;
@@ -251,10 +252,10 @@ describe("keepers of one workspace's links", () => {
     const state = join(home, "state");
     const opened = await initializeDatabase(join(state, "marbles.db"));
     const { database } = opened;
-    await new WorkspaceRegistry({ database, state }).touch(
-      { dir: join(state, "one"), id: "one", root },
-      null
-    );
+    await new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      database,
+    }).touch({ dir: join(state, "one"), id: "one", root }, null);
     return { artifacts, database, opened, root, state };
   }
 

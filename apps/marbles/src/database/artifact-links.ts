@@ -11,6 +11,7 @@ import type { StoreDatabase } from "~/database/types";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { ResourceAssociation, ResourceRef } from "~/lib/resources";
 import { sameResource } from "~/lib/resources";
+import { insideState } from "~/lib/state/workspace";
 
 export interface KeptLinksOptions {
   readonly artifacts: string;
@@ -239,8 +240,15 @@ async function relinkTouched(
     return;
   }
   live();
-  const records = await new WorkspaceRegistry({ database, state }).list();
-  const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
+  const records = await new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+    database,
+  }).list();
+  const view = new ResourceView({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+    database,
+    scope: ALL_WORKSPACES,
+  });
   const shares = new DatabaseAssociationStore({ database });
   let listedAhead: Promise<readonly ResourceAssociation[]> | undefined;
   const sharesAhead = () => {

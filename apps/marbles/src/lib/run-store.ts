@@ -3,7 +3,7 @@ import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
 import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
 import { Effect } from "effect";
 
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import { storableJson } from "~/lib/json-data";
 import type { RecordedScope } from "~/lib/run-scope";
 import { commitEffect, runStoreEffect, storeEffect } from "~/lib/workflow-runs";

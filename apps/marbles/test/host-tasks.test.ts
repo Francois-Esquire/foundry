@@ -12,6 +12,7 @@ import { readDatabase } from "~/database/open";
 import { marblesChangeLogs, marblesObservers } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
@@ -73,7 +74,7 @@ async function inHost(
   await writeFile(
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
-import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
 const open = async (source, state, dry = false) => {
@@ -232,13 +233,13 @@ it("loses no update when two OS processes change one workspace's tasks at once",
   const rounds = 15;
   const seeded = await inHost(
     root,
-    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 report.id = (await changeTasks(${JSON.stringify(state)}, "shared", (tasks) => tasks.create({ metadata: { count: 0 }, title: "counter" }))).id;`
   );
   const counter = join(root, "counter.ts");
   await writeFile(
     counter,
-    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 const [name] = process.argv.slice(2);
 let refused = 0;
 for (let round = 0; round < ${String(rounds)}; round += 1) {
@@ -279,7 +280,11 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
   await Promise.all([run("a"), run("b")]);
 
   const after = await readDatabase(stateDatabase(state), async (database) => {
-    const records = new DatabaseWorkspaceRecords({ database, scope: "shared" });
+    const records = new DatabaseWorkspaceRecords({
+      database,
+      liveness: NODE_OWNER_LIVENESS,
+      scope: "shared",
+    });
     const { tasks: all } = await records.taskStore.snapshot();
     return {
       changes: (await records.log.read({ after: 0, source: "tasks" })).length,

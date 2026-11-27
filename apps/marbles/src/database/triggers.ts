@@ -5,13 +5,11 @@ import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { readExecution } from "~/database/executions";
-import { readDatabase } from "~/database/open";
 import { marblesMonitorStates } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import { stateDatabase } from "~/layout";
-import { RecordsGate } from "~/lib/events/records";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import { RecordsGate } from "~/lib/events/records-gate";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 import { outcomeOf, scheduledTarget } from "~/lib/schedule";
 import { refusedAt } from "~/lib/schedule-dispatch";
 import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
@@ -203,24 +201,10 @@ async function latestOutcomeOf(
       };
 }
 
-export async function readStoredSchedules(
-  state: string,
-  scope: string,
-  liveness: OwnerLiveness = NODE_OWNER_LIVENESS
-): Promise<readonly ScheduleSnapshot[]> {
-  return (
-    (await asBusy(() =>
-      readDatabase(stateDatabase(state), (database) =>
-        storedSchedules(database, scope, liveness)
-      )
-    )) ?? []
-  );
-}
-
 export function storedSchedules(
   database: StoreDatabase,
   scope: string,
-  liveness: OwnerLiveness = NODE_OWNER_LIVENESS
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
 ): Promise<readonly ScheduleSnapshot[]> {
   return asBusy(async () => {
     const store = makeSqliteScheduleStore({ database, scope });

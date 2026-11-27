@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MarblesDatabase } from "~/database/open";
-import { initializeDatabase } from "~/database/open";
+import { initializeDatabase, recordedWorkspaces } from "~/database/open";
 import { transaction } from "~/database/transaction";
-import { recordedWorkspaces, WorkspaceRegistry } from "~/database/workspaces";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import { workspaceState } from "~/lib/state/workspace";
+import { insideState, workspaceState } from "~/lib/state/workspace";
 import { recordedWorkspace } from "~/workspace/open";
 
 function scratch(prefix: string): string {
@@ -22,7 +22,10 @@ describe("WorkspaceRegistry", () => {
   beforeEach(async () => {
     state = scratch("marbles-state-");
     opened = await initializeDatabase(stateDatabase(state));
-    registry = new WorkspaceRegistry({ database: opened.database, state });
+    registry = new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      database: opened.database,
+    });
   });
 
   afterEach(() => {
@@ -104,8 +107,8 @@ describe("WorkspaceRegistry", () => {
     opened.close();
     opened = await initializeDatabase(stateDatabase(state));
     const reopened = new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
       database: opened.database,
-      state,
     });
     expect((await reopened.read(workspace.id))?.root).toBe(workspace.root);
   });
@@ -114,14 +117,17 @@ describe("WorkspaceRegistry", () => {
     const kept = workspaceState(state, scratch("marbles-ws-"));
     const dropped = workspaceState(state, scratch("marbles-ws-"));
     await transaction(opened.database, (tx) =>
-      new WorkspaceRegistry({ database: tx, state }).touch(kept, null)
+      new WorkspaceRegistry({
+        acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+        database: tx,
+      }).touch(kept, null)
     );
     await expect(
       transaction(opened.database, async (tx) => {
-        await new WorkspaceRegistry({ database: tx, state }).touch(
-          dropped,
-          null
-        );
+        await new WorkspaceRegistry({
+          acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+          database: tx,
+        }).touch(dropped, null);
         throw new Error("the change failed");
       })
     ).rejects.toThrow("the change failed");

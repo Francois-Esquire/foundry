@@ -8,13 +8,13 @@ import {
   openWorkspaceDatabase,
   withWorkspaceDatabase,
 } from "~/database/managed";
-import { initializeDatabase } from "~/database/open";
-import { readLastRecovery } from "~/database/recoveries";
+import { initializeDatabase, readLastRecovery } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseUsageStore } from "~/database/usage";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { MemoryExecutionStore } from "~/lib/execution-store";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { MemoryRunStore } from "~/lib/run-store";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
@@ -390,9 +390,14 @@ describe("who delivers a workspace's task changes", () => {
           return typeof value === "function" ? value.bind(target) : value;
         },
       });
-      const first = new DatabaseWorkspaceRecords({ database, scope: "ws" });
+      const first = new DatabaseWorkspaceRecords({
+        database,
+        liveness: NODE_OWNER_LIVENESS,
+        scope: "ws",
+      });
       const second = new DatabaseWorkspaceRecords({
         database: opened.database,
+        liveness: NODE_OWNER_LIVENESS,
         scope: "ws",
       });
       expect(await first.claimDelivery()).toBeUndefined();
@@ -414,6 +419,7 @@ describe("who delivers a workspace's task changes", () => {
       const records = () =>
         new DatabaseWorkspaceRecords({
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: "ws",
         });
       const first = records();
@@ -432,6 +438,7 @@ describe("who delivers a workspace's task changes", () => {
       const records = () =>
         new DatabaseWorkspaceRecords({
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: "ws",
         });
       const [first, second] = [records(), records()];
@@ -443,6 +450,7 @@ describe("who delivers a workspace's task changes", () => {
       expect(
         await new DatabaseWorkspaceRecords({
           database: opened.database,
+          liveness: NODE_OWNER_LIVENESS,
           scope: "other",
         }).claimDelivery()
       ).toBeUndefined();
