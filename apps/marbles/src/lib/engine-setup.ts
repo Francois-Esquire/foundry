@@ -164,6 +164,9 @@ export function agentsOf(
     automations: parts.automations,
     containerOf: (sandbox) => parts.sandboxes.containerOf(sandbox),
     context: parts.context,
+    ...(options.createMcpClient === undefined
+      ? {}
+      : { createMcpClient: options.createMcpClient }),
     defaultExecutor: () => selectExecutor(models),
     dry: options.dry ?? false,
     executionOf: (provider) => providers?.executionOf(provider),
@@ -184,7 +187,9 @@ export function agentsOf(
       parts.executions.observe(runId, observation),
     requireProviders: () => providers?.require(),
     sessions,
-    skills: skillResolver({ home: options.home ?? homedir(), workspace: root }),
+    skills:
+      options.skills ??
+      skillResolver({ home: options.home ?? homedir(), workspace: root }),
     undefinedProvider: (id) => providers?.undefinedProvider(id),
     usage: { ledger: parts.usage, workspaceId },
     warn: (message) => print(`[agents] ${message}`),
@@ -211,7 +216,7 @@ export function bindingsOf(
     artifacts: (args) => parts.artifacts.scoped(args),
     context,
     exec: ({ frame, scope, write }) =>
-      commandRunner({
+      (options.commandRunner ?? commandRunner)({
         cwd: () => workingDirectory(scope.cwd),
         dry: options.dry ?? false,
         environment: context.environment,

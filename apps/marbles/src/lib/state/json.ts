@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   mkdirSync,
   readFileSync,
@@ -18,7 +17,7 @@ export {
 
 export function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
-  const temp = `${path}.${randomUUID()}.tmp`;
+  const temp = `${path}.${crypto.randomUUID()}.tmp`;
   try {
     writeFileSync(temp, JSON.stringify(value, null, 2), { flag: "wx" });
     renameSync(temp, path);

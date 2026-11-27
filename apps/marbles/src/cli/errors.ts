@@ -1,5 +1,4 @@
 import { ReentrantCallError } from "@foundry/lib/turns";
-import { NotHostedError, RecordsHeldError } from "~/access/workspace";
 import { DatabaseBusyError } from "~/database/client";
 import { LinksPlacementError } from "~/database/links";
 import { IncompatibleDatabaseError } from "~/database/migrate";
@@ -9,6 +8,7 @@ import { RunEndedError } from "~/lib/engine";
 import { ConfigurationError } from "~/lib/providers/store";
 import { ResourceAssociationError } from "~/lib/resources";
 import { RunOutputError } from "~/lib/state/output";
+import { NotHostedError, RecordsHeldError } from "~/model/errors";
 import {
   NoProcessError,
   ProcessMismatchError,

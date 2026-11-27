@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type {
   LanguageModelV4,
   LanguageModelV4Middleware,
@@ -156,7 +155,7 @@ function usageTap(usage: TurnUsage): LanguageModelV4Middleware {
 
 export function runTurnObserver(record: RecordObservation): ObserveTurn {
   return ({ model, sessionId }) => {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const startedAt = new Date().toISOString();
     const usage = new TurnUsage();
     const base = {
@@ -230,7 +229,7 @@ export function observeCliTurn(
   }
 ): void {
   const base = {
-    id: randomUUID(),
+    id: crypto.randomUUID(),
     kind: "model-turn" as const,
     model: turn.model,
     ...(turn.provider === undefined ? {} : { provider: turn.provider }),

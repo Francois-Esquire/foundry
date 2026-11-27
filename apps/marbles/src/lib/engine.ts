@@ -1,5 +1,6 @@
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
@@ -18,8 +19,11 @@ import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
+import type { CommandSite } from "~/lib/command";
+import type { Exec } from "~/lib/command-error";
 import {
   CrashRecovery,
+  type CrashRecoveryOptions,
   type RecoveryLog,
   type RecoveryReport,
 } from "~/lib/crash-recovery";
@@ -57,13 +61,14 @@ import type {
 } from "~/lib/launcher";
 import { idempotencyKeyOf, Launcher } from "~/lib/launcher";
 import type { LogLevel, LogOrigin } from "~/lib/log";
-import type { AgentsManager } from "~/lib/managers/agents";
+import type { AgentsDeps, AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
 import type { RunQuery, RunsSource, RunView } from "~/lib/managers/runs";
 import { engineRuns } from "~/lib/managers/runs";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
 import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
 import { localWorkspaces, WorkspacesManager } from "~/lib/managers/workspaces";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import { QueuedWorkflows } from "~/lib/queued-workflows";
 import type {
@@ -71,7 +76,7 @@ import type {
   DefinitionRegistration,
   MonitorRecord,
 } from "~/lib/registry";
-import type { Factory } from "~/lib/run-queue";
+import type { Factory, RunQueueOptions } from "~/lib/run-queue";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
 import { RunScopes } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
@@ -80,12 +85,12 @@ import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
-import { removeRunOutput } from "~/lib/state/output";
+import { type RunOutputSink, removeRunOutput } from "~/lib/state/output";
 import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
 import type { TriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
-import type { AgentLike } from "~/lib/types";
+import type { AgentLike, SkillSet } from "~/lib/types";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
 import type { ReconciledRun } from "~/lib/usage-evidence";
@@ -107,8 +112,11 @@ export interface EngineOptions {
   readonly automationStore?: AutomationStore;
   readonly catalog?: CatalogIdentity;
   readonly changeRetention?: number;
+  readonly commandRunner?: (site: CommandSite) => Exec;
   readonly containerRows?: Pick<ContainerStore, "list">;
   readonly containers: Containers | (() => Promise<Containers>);
+  readonly createMcpClient?: AgentsDeps["createMcpClient"];
+  readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly cwd?: string;
   readonly dry?: boolean;
   readonly environment?: Readonly<Record<string, string>>;
@@ -117,19 +125,24 @@ export interface EngineOptions {
   readonly grants?: GrantDocumentStorage;
   readonly handlerTimeout?: number;
   readonly home?: string;
+  readonly leaseTtlMs?: number;
+  readonly liveness?: OwnerLiveness;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
   readonly models: Models;
+  readonly outputSink?: RunOutputSink;
   readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print?: (line: string) => void;
   readonly providers?: ProviderConfiguration;
+  readonly readFeedMedia?: (path: string) => Promise<Uint8Array>;
   readonly records?: WorkspaceRecords;
   readonly recoveryLog?: RecoveryLog;
   readonly root: string;
   readonly runs?: RunStore;
   readonly sessions: SessionStore;
+  readonly skills?: (set?: SkillSet) => Promise<Skill[]>;
   readonly spawned?: string;
   readonly state?: string;
-
+  readonly stopOrphans?: CrashRecoveryOptions["stopOrphans"];
   readonly triggers?: TriggerStore;
   readonly usageStore?: UsageStore;
   readonly workspaceId: string;
@@ -166,7 +179,11 @@ export class Engine {
 
   readonly #askable: boolean;
   #catalog: CatalogIdentity | undefined;
+  readonly #createQueueClient: RunQueueOptions["createClient"] | undefined;
   readonly #evidence: UsageEvidence;
+  readonly #leaseTtlMs: number | undefined;
+  readonly #liveness: OwnerLiveness | undefined;
+  readonly #outputSink: RunOutputSink | undefined;
   readonly #publisher: FeedPublisher;
   readonly #feedEntries: Pick<ArtifactSubstrate, "get">;
   readonly #print: (line: string) => void;
@@ -274,7 +291,14 @@ export class Engine {
       resolveAgentId
     );
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
+    this.#createQueueClient = options.createQueueClient;
+    this.#leaseTtlMs = options.leaseTtlMs;
+    this.#liveness = options.liveness;
+    this.#outputSink = options.outputSink;
     this.#executions = new Executions({
+      ...(options.liveness === undefined
+        ? {}
+        : { ownerIdentity: options.liveness.identity }),
       ...(options.pools === undefined ? {} : { pools: options.pools }),
       removed: (run) => this.#removeRun(run),
       store: executions,
@@ -308,11 +332,22 @@ export class Engine {
     const catalogue = options.workspaces ?? localWorkspaces(options.git ?? {});
     this.#askable = askable;
     this.#print = print;
-    this.#publisher = feedPublisher(options.artifacts, {
-      id: workspaceId,
-      name: basename(root),
-      root,
-    });
+    this.#publisher = feedPublisher(
+      options.artifacts,
+      {
+        id: workspaceId,
+        name: basename(root),
+        root,
+      },
+      {
+        ...(options.liveness === undefined
+          ? {}
+          : { liveness: options.liveness }),
+        ...(options.readFeedMedia === undefined
+          ? {}
+          : { readMedia: options.readFeedMedia }),
+      }
+    );
     this.feed = feedReader(options.artifacts);
     this.#feedEntries = options.artifacts;
     this.activities = new HarnessActivities({
@@ -374,7 +409,9 @@ export class Engine {
     if (run.kind !== "workflow") {
       return;
     }
-    if (this.state !== undefined) {
+    if (this.#outputSink !== undefined) {
+      this.#outputSink.remove(run.id);
+    } else if (this.state !== undefined) {
       removeRunOutput(this.state, run.id);
     }
     this.#running?.unlisted(run.id);
@@ -458,7 +495,7 @@ export class Engine {
     options: EngineOptions,
     print: (line: string) => void
   ): CrashRecovery {
-    const { containerRows } = options;
+    const { containerRows, liveness, stopOrphans } = options;
     const { spawned } = Engine.persistence(options);
     return new CrashRecovery({
       activities: this.activities,
@@ -466,8 +503,10 @@ export class Engine {
       ...(containerRows === undefined ? {} : { containerRows }),
       containers: () => this.sandboxes.containers(),
       executions: () => this.#executions.list(),
+      ...(liveness === undefined ? {} : { liveness }),
       print,
       ...(spawned === undefined ? {} : { spawned }),
+      ...(stopOrphans === undefined ? {} : { stopOrphans }),
     });
   }
 
@@ -497,11 +536,21 @@ export class Engine {
       );
       running = await QueuedWorkflows.open({
         askable,
+        ...(this.#createQueueClient === undefined
+          ? {}
+          : { createQueueClient: this.#createQueueClient }),
         durable: this.#runs.durable,
         executions: this.#executions,
         feed,
         feedEntries: this.#feedEntries,
         follow: (runId, dispatched) => this.#launcher.follow(runId, dispatched),
+        ...(this.#leaseTtlMs === undefined
+          ? {}
+          : { leaseTtlMs: this.#leaseTtlMs }),
+        ...(this.#liveness === undefined ? {} : { liveness: this.#liveness }),
+        ...(this.#outputSink === undefined
+          ? {}
+          : { outputSink: this.#outputSink }),
         pools: this.#executions.initialPools(),
         print,
         registered: (name) => this.#definitions.registered(name),

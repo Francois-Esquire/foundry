@@ -72,16 +72,20 @@ import type { LogLevel, LogOrigin } from "~/lib/log";
 import { allowedMountRoots } from "~/lib/managers/sandboxes";
 import { localWorkspaces } from "~/lib/managers/workspaces";
 import { echoInstance } from "~/lib/models/echo";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
 import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 import type { ProviderStore } from "~/lib/providers/store";
 import { MemoryProviderStore } from "~/lib/providers/store";
 import { Registry } from "~/lib/registry";
+import type { RunQueueOptions } from "~/lib/run-queue";
 import type { RunStore } from "~/lib/run-store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
 import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
 import { containerHolder } from "~/lib/sandbox/holders";
+import type { RunOutputSink } from "~/lib/state/output";
 import type { TriggerStore } from "~/lib/trigger-store";
 import type { UsageStore } from "~/lib/usage-store";
 import { initializeUsage } from "~/workspace/node-usage";
@@ -109,13 +113,17 @@ export interface CreateEngineOptions {
   readonly artifacts?: string;
   readonly askable?: boolean;
   readonly catalog: Catalog;
+  readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly cwd?: string;
   readonly database?: StoreDatabase;
   readonly databaseFile?: string;
   readonly dry: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly home?: string;
+  readonly leaseTtlMs?: number;
+  readonly liveness?: OwnerLiveness;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
+  readonly outputSink?: RunOutputSink;
   readonly plugins?: readonly ProviderPlugin[];
   readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print: (line: string) => void;
@@ -474,7 +482,7 @@ class OwnDatabaseEngine extends PublishedEngine {
 }
 
 function containersFor(
-  { catalog, dry, print, root, workspaceId }: CreateEngineOptions,
+  { catalog, dry, liveness, print, root, workspaceId }: CreateEngineOptions,
   worktreeHome: string,
   store: ContainerStore | undefined
 ): () => Promise<Containers> {
@@ -489,7 +497,7 @@ function containersFor(
     const declared = [...catalog.workspaces].map((path) => resolve(root, path));
     return createContainers({
       allowedMountRoots: allowedMountRoots([root, worktreeHome, ...declared]),
-      holder: containerHolder(),
+      holder: containerHolder(liveness),
       instanceLabel: `marbles-${workspaceId}`,
       report: (line) => print(`[sandbox] ${line}`),
       runtime: await runtime(),
@@ -507,6 +515,26 @@ function realPath(file: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function hostRuntimeOptions(
+  options: CreateEngineOptions
+): Pick<
+  EngineOptions,
+  "createQueueClient" | "leaseTtlMs" | "liveness" | "outputSink"
+> {
+  return {
+    ...(options.createQueueClient === undefined
+      ? {}
+      : { createQueueClient: options.createQueueClient }),
+    ...(options.leaseTtlMs === undefined
+      ? {}
+      : { leaseTtlMs: options.leaseTtlMs }),
+    liveness: options.liveness ?? NODE_OWNER_LIVENESS,
+    ...(options.outputSink === undefined
+      ? {}
+      : { outputSink: options.outputSink }),
+  };
 }
 
 export function createEngine(options: CreateEngineOptions): Engine {
@@ -555,6 +583,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     dry,
     git,
     home,
+    ...hostRuntimeOptions(options),
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options),
     print,

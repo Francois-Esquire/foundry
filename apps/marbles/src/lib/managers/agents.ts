@@ -87,6 +87,7 @@ export interface AgentsDeps {
   readonly automations: AutomationService;
   readonly containerOf: (sandbox: SandboxHandle) => Container;
   readonly context?: ExecutionContext;
+  readonly createMcpClient?: typeof createNodeMcpClient;
   readonly cwd: string;
   readonly defaultExecutor: () => TurnExecutorRef;
   readonly dry: boolean;
@@ -526,6 +527,7 @@ function sessionInput(
 }
 
 async function connectServers(
+  deps: AgentsDeps,
   definition: AgentDefinition<Output.Output>,
   site: SessionSite
 ): Promise<McpClient[]> {
@@ -537,7 +539,7 @@ async function connectServers(
     );
   }
   const clients = servers.map((server) =>
-    createNodeMcpClient({ ...server, enabled: true })
+    (deps.createMcpClient ?? createNodeMcpClient)({ ...server, enabled: true })
   );
   for (const client of clients) {
     site.retain(client);
@@ -735,7 +737,11 @@ async function openUnentered<OUTPUT extends Output.Output>(
   }
   const mcp = deps.dry
     ? []
-    : await connectServers(definition as AgentDefinition<Output.Output>, site);
+    : await connectServers(
+        deps,
+        definition as AgentDefinition<Output.Output>,
+        site
+      );
   try {
     site.signal().throwIfAborted();
     return await openBuilt(deps, site, definition, options, mcp, input);

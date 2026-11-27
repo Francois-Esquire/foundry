@@ -2,7 +2,6 @@ import { resolve } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   joinProcess,
-  NotHostedError,
   withRunningWorkspace,
   withTasks,
 } from "~/access/workspace";
@@ -13,6 +12,7 @@ import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import type { McpServerOptions } from "~/mcp/resources";
 import { createMcpServer } from "~/mcp/server";
 import type { WorkspaceSummary } from "~/model/connection";
+import { NotHostedError } from "~/model/errors";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { findWorkspace, recordedWorkspace } from "~/workspace/open";
 

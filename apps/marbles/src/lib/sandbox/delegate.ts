@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   createHarnessActivityRecorder,
   type HarnessSession,
@@ -52,7 +51,7 @@ export function delegationTool(
       signal.throwIfAborted();
       scope.budget.started += 1;
       scope.budget.active += 1;
-      const id = randomUUID();
+      const id = crypto.randomUUID();
       let child: HarnessSession | undefined;
       try {
         await new Sessions({ store: settings.store }).createSession({

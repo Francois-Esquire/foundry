@@ -36,6 +36,7 @@ import {
 import { ScheduleStore } from "./store/index";
 
 export interface SchedulerOptions {
+  readonly claimTtlMs?: number;
   readonly identity?: ProcessIdentity;
   readonly instanceId?: string;
   readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
@@ -133,6 +134,9 @@ const makeScheduler = (options: SchedulerOptions) =>
       }).pipe(Effect.uninterruptible);
 
     const { evaluate, triggerNow: fireNow } = makeEvaluator({
+      ...(options.claimTtlMs === undefined
+        ? {}
+        : { claimTtlMs: options.claimTtlMs }),
       commit,
       dispatch,
       isOwnerGone: options.isOwnerGone ?? neverGone,
