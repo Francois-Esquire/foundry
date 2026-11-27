@@ -1,19 +1,36 @@
 import type { TaskEvent, TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { MemoryTaskStore } from "@foundry/tasks/store/memory";
-import { hostTaskStore, inLoad } from "~/authoring/runtime";
+import { hostTaskStore } from "~/authoring/runtime";
 import type { Observable } from "~/lib/events/source";
 import { observable, TASKS } from "~/lib/events/source";
 
-const unhosted = new MemoryTaskStore();
-
-function current(): TaskStore {
-  return hostTaskStore() ?? unhosted;
+interface TasksState {
+  readonly byStore: WeakMap<TaskStore, Tasks>;
+  readonly unhosted: MemoryTaskStore;
 }
 
-const byStore = new WeakMap<TaskStore, Tasks>();
+const TASKS_STATE_KEY = Symbol.for("marbles.tasks.state.v1");
+
+function tasksState(): TasksState {
+  const holder = globalThis as Record<symbol, TasksState | undefined>;
+  let state = holder[TASKS_STATE_KEY];
+  if (state === undefined) {
+    state = {
+      byStore: new WeakMap<TaskStore, Tasks>(),
+      unhosted: new MemoryTaskStore(),
+    };
+    holder[TASKS_STATE_KEY] = state;
+  }
+  return state;
+}
+
+function current(): TaskStore {
+  return hostTaskStore() ?? tasksState().unhosted;
+}
 
 function tasksOver(store: TaskStore): Tasks {
+  const { byStore } = tasksState();
   let over = byStore.get(store);
   if (over === undefined) {
     over = new Tasks({ store });
@@ -22,7 +39,7 @@ function tasksOver(store: TaskStore): Tasks {
   return over;
 }
 
-const calling = new Proxy(new Tasks({ store: unhosted }), {
+const calling = new Proxy(new Tasks({ store: tasksState().unhosted }), {
   get(target, key, receiver) {
     const value: unknown = Reflect.get(target, key, receiver);
     if (typeof value !== "function") {
@@ -42,25 +59,3 @@ const calling = new Proxy(new Tasks({ store: unhosted }), {
 });
 
 export const tasks: Tasks & Observable<TaskEvent> = observable(calling, TASKS);
-
-const ofLoads = new Map<number, Tasks & Observable<TaskEvent>>();
-
-export function tasksOfLoad(load: number): Tasks & Observable<TaskEvent> {
-  let bound = ofLoads.get(load);
-  if (bound === undefined) {
-    bound = new Proxy(tasks, {
-      get(target, key, receiver) {
-        const value: unknown = Reflect.get(target, key, receiver);
-        if (typeof value !== "function") {
-          return value;
-        }
-        return (...args: unknown[]): unknown =>
-          inLoad(load, () =>
-            (value as (...given: unknown[]) => unknown).apply(target, args)
-          );
-      },
-    });
-    ofLoads.set(load, bound);
-  }
-  return bound;
-}

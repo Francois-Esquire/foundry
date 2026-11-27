@@ -5,6 +5,7 @@ import { Workspaces } from "@foundry/workspaces";
 import { directory } from "@foundry/workspaces/node";
 import { git } from "@foundry/workspaces/node/git";
 import {
+  Catalog,
   schedule as declareSchedule,
   monitor,
   step,
@@ -12,7 +13,6 @@ import {
 } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import { defaultWorkspaceTriggers } from "~/database/managed";
 import type { AnyDefinition } from "~/lib/definition";
 import type { EngineOptions } from "~/lib/engine";
@@ -49,7 +49,6 @@ const REQUEST_PATTERN = /only an http or https source sends a request/;
 const catalogues: LocalWorkspaces[] = [];
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.all(catalogues.splice(0).map((open) => open.closeAll()));
 });
 
@@ -223,10 +222,10 @@ describe("files detector", () => {
     const root = temporaryDirectory("marbles-mon-");
     writeFileSync(join(root, "guide.md"), "one\n");
     const { changes, contexts, handler } = recorder();
-    monitor("**/*.md").do(handler);
+    const collected = Catalog.collect([monitor("**/*.md").do(handler)]);
     hostIn(root);
-    const [key] = [...catalog.monitors.keys()] as [string];
-    const guides = declared().definitions.get(key);
+    const [key] = [...collected.monitors.keys()] as [string];
+    const guides = declared(collected).definitions.get(key);
     if (!guides) {
       throw new Error("expected the detector step");
     }
@@ -247,12 +246,13 @@ describe("files detector", () => {
     const ship = step("ship")
       .input(z.object({ task: z.string() }))
       .do(({ input }) => input.task);
-    monitor("**/*.md").do(({ files }) =>
+    const watched = monitor("**/*.md").do(({ files }) =>
       ship({}, { task: files?.added[0]?.path ?? "" })
     );
+    const collected = Catalog.collect([ship, watched]);
     hostIn(root);
-    const [key] = [...catalog.monitors.keys()] as [string];
-    const detect = declared().definitions.get(key) as AnyDefinition;
+    const [key] = [...collected.monitors.keys()] as [string];
+    const detect = declared(collected).definitions.get(key) as AnyDefinition;
 
     await expect(launch(detect)).resolves.toEqual({
       changed: true,
@@ -299,17 +299,19 @@ describe("files detector", () => {
         attempts += 1;
         throw new Error(`cannot ship ${input.task}`);
       });
-    monitor("**/*.md").do(({ files }) =>
+    const watched = monitor("**/*.md").do(({ files }) =>
       ship({}, { task: files?.added[0]?.path ?? "" })
     );
+    const collected = Catalog.collect([ship, watched]);
     hostIn(root, state);
-    const [key] = [...catalog.monitors.keys()] as [string];
-    const schedule = declared().schedules.get(key);
+    const [key] = [...collected.monitors.keys()] as [string];
+    const schedule = declared(collected).schedules.get(key);
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
     const engine = await startEngine({
       ...hosted,
+      catalog: collected,
       print: () => undefined,
     });
     await expect(
@@ -334,14 +336,15 @@ describe("files detector", () => {
       const state = temporaryDirectory("marbles-mon-state-");
       writeFileSync(join(root, "guide.md"), "one\n");
       let shipped = 0;
-      step("ship").do(() => {
+      const ship = step("ship").do(() => {
         shipped += 1;
       });
-      step("tidy").do(() => "tidied");
-      monitor("**/*.md").do(() => undefined);
+      const tidy = step("tidy").do(() => "tidied");
+      const watched = monitor("**/*.md").do(() => undefined);
+      const collected = Catalog.collect([ship, tidy, watched]);
       hostIn(root, persisted ? state : undefined);
-      const [key] = [...catalog.monitors.keys()] as [string];
-      const watching = declared().schedules.get(key);
+      const [key] = [...collected.monitors.keys()] as [string];
+      const watching = declared(collected).schedules.get(key);
       if (!watching) {
         throw new Error("expected the monitor's schedule");
       }
@@ -351,6 +354,7 @@ describe("files detector", () => {
       });
       const engine = await startEngine({
         ...hosted,
+        catalog: collected,
         print: () => undefined,
       });
       const scheduled = {
@@ -374,12 +378,12 @@ describe("files detector", () => {
   it("registers a declared schedule as a schedule's and a monitor as a monitor's", () => {
     const root = temporaryDirectory("marbles-mon-");
     const tidy = step("tidy").do(() => "tidied");
-    declareSchedule(tidy({})).every("1h");
-    monitor("**/*.md").do(() => undefined);
+    const scheduled = declareSchedule(tidy({})).every("1h");
+    const watched = monitor("**/*.md").do(() => undefined);
     hostIn(root);
-    const kinds = [...declared().schedules.values()].map(
-      (scheduled) => registration(scheduled, undefined, 0)?.target.input
-    );
+    const kinds = [
+      ...declared([tidy, scheduled, watched]).schedules.values(),
+    ].map((entry) => registration(entry, undefined, 0)?.target.input);
     expect(kinds).toEqual([
       expect.objectContaining({ kind: "schedule", label: "tidy" }),
       expect.objectContaining({ kind: "monitor", label: "**/*.md" }),
@@ -422,10 +426,11 @@ describe("files detector", () => {
     const root = temporaryDirectory("marbles-mon-");
     const state = temporaryDirectory("marbles-mon-state-");
     writeFileSync(join(root, "guide.md"), "one\n");
-    monitor("**/*.md").do(() => undefined);
+    const watched = monitor("**/*.md").do(() => undefined);
+    const collected = Catalog.collect([watched]);
     hostIn(root, state);
-    const [key] = [...catalog.monitors.keys()] as [string];
-    const schedule = declared().schedules.get(key);
+    const [key] = [...collected.monitors.keys()] as [string];
+    const schedule = declared(collected).schedules.get(key);
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
@@ -435,6 +440,7 @@ describe("files detector", () => {
     });
     const engine = await startEngine({
       ...hosted,
+      catalog: collected,
       print: () => undefined,
     });
     await expect(
@@ -465,18 +471,20 @@ describe("files detector", () => {
       return ship({});
     });
     let handled = 0;
-    monitor("**/*.md").do(() => {
+    const watched = monitor("**/*.md").do(() => {
       handled += 1;
       return flaky({});
     });
+    const collected = Catalog.collect([ship, flaky, watched]);
     hostIn(root, state);
-    const [key] = [...catalog.monitors.keys()] as [string];
-    const schedule = declared().schedules.get(key);
+    const [key] = [...collected.monitors.keys()] as [string];
+    const schedule = declared(collected).schedules.get(key);
     if (!schedule) {
       throw new Error("expected the monitor's schedule");
     }
     const engine = await startEngine({
       ...hosted,
+      catalog: collected,
       print: () => undefined,
     });
     await expect(
@@ -500,10 +508,11 @@ describe("files detector", () => {
     const b = step("b")
       .input(z.object({ a: z.number() }))
       .do(({ input }) => input.a);
-    monitor("**/*.md").do(() => b({ a: a({}) }));
+    const watched = monitor("**/*.md").do(() => b({ a: a({}) }));
+    const collected = Catalog.collect([a, b, watched]);
     hostIn(root);
-    const [key] = [...catalog.monitors.keys()] as [string];
-    const detect = declared().definitions.get(key) as AnyDefinition;
+    const [key] = [...collected.monitors.keys()] as [string];
+    const detect = declared(collected).definitions.get(key) as AnyDefinition;
     await expect(launch(detect)).rejects.toThrow(WRAP_PATTERN);
   });
 });
@@ -735,20 +744,26 @@ describe("monitor factory", () => {
   const handler = () => Promise.resolve(null);
 
   it("routes a glob to files and a URL to http, keyed by source", () => {
-    monitor("**/CLAUDE.md").do(handler);
-    monitor("https://example.test/releases").every("5m").do(handler);
-    const [guides, releases] = [...catalog.monitors.keys()] as [string, string];
+    const first = monitor("**/CLAUDE.md").do(handler);
+    const second = monitor("https://example.test/releases")
+      .every("5m")
+      .do(handler);
+    const collected = Catalog.collect([first, second]);
+    const [guides, releases] = [...collected.monitors.keys()] as [
+      string,
+      string,
+    ];
     expect(guides).toMatch(KEY_PATTERN);
     expect(guides.startsWith("claude-md-")).toBe(true);
-    expect(catalog.monitors.get(guides)?.source).toEqual({
+    expect(collected.monitors.get(guides)?.source).toEqual({
       glob: "**/CLAUDE.md",
       kind: "files",
     });
-    expect(catalog.monitors.get(releases)?.source).toEqual({
+    expect(collected.monitors.get(releases)?.source).toEqual({
       kind: "http",
       url: "https://example.test/releases",
     });
-    const registry = declared();
+    const registry = declared(collected);
     expect(registry.definitions.has(guides)).toBe(true);
     expect(registry.schedules.get(guides)).toEqual({
       input: null,
@@ -766,9 +781,9 @@ describe("monitor factory", () => {
   });
 
   it("gives the same source a second key", () => {
-    monitor("*.md").do(handler);
-    monitor("*.md").do(handler);
-    const keys = [...catalog.monitors.keys()];
+    const first = monitor("*.md").do(handler);
+    const second = monitor("*.md").do(handler);
+    const keys = [...Catalog.collect([first, second]).monitors.keys()];
     expect(keys[1]).toBe(`${keys[0] as string}-2`);
   });
 
@@ -781,11 +796,12 @@ describe("monitor factory", () => {
     expect(() => monitor("*.md").request({ method: "POST" })).toThrow(
       REQUEST_PATTERN
     );
-    monitor("https://example.test/b")
+    const withRequest = monitor("https://example.test/b")
       .request({ headers: { Authorization: "Bearer secret" } })
       .every("5m")
       .do(handler);
-    const [sent] = [...catalog.monitors.values()];
+    const first = Catalog.collect([withRequest]);
+    const [sent] = [...first.monitors.values()];
     expect(sent?.source).toEqual({
       kind: "http",
       url: "https://example.test/b",
@@ -795,10 +811,11 @@ describe("monitor factory", () => {
     });
     expect(sent?.trigger).toEqual({ kind: "interval", ms: 300_000 });
     expect(
-      JSON.stringify(declared().schedules.get(sent?.key ?? ""))
+      JSON.stringify(declared(first).schedules.get(sent?.key ?? ""))
     ).not.toContain("secret");
-    catalog.reset();
-    monitor("https://example.test/b").do(handler);
-    expect([...catalog.monitors.keys()]).toEqual([sent?.key]);
+    const plain = Catalog.collect([
+      monitor("https://example.test/b").do(handler),
+    ]);
+    expect([...plain.monitors.keys()]).toEqual([sent?.key]);
   });
 });

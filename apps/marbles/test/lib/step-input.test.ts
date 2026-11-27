@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import { commandRunner } from "~/lib/command";
 import type { Engine } from "~/lib/engine";
@@ -34,7 +33,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await engine?.stop();
   engine = undefined;
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -58,11 +56,15 @@ function liveIn(host: Engine, runId: string): LiveWork | undefined {
 
 describe("input to live work in a step", () => {
   it("a command started in a step takes a line of input through the step and finishes", async () => {
-    step("greet").do(async ({ exec }) => {
+    const greet = step("greet").do(async ({ exec }) => {
       const result = await exec([process.execPath, "-e", GREETER]);
       return result.stdout;
     });
-    engine = await startEngine({ print: () => undefined, root });
+    engine = await startEngine({
+      collect: [greet],
+      print: () => undefined,
+      root,
+    });
     const launched = await engine.launch<string>("greet", {});
     const live = await eventually(() => liveIn(engine as Engine, launched.id));
     expect(live).toMatchObject({
@@ -77,8 +79,12 @@ describe("input to live work in a step", () => {
   });
 
   it("refuses input once the command has ended, and for a run that is not here", async () => {
-    step("quick").do(({ exec }) => exec(["true"]));
-    engine = await startEngine({ print: () => undefined, root });
+    const quick = step("quick").do(({ exec }) => exec(["true"]));
+    engine = await startEngine({
+      collect: [quick],
+      print: () => undefined,
+      root,
+    });
     const launched = await engine.launch("quick", {});
     await launched.result;
     expect(() =>
@@ -90,11 +96,15 @@ describe("input to live work in a step", () => {
   });
 
   it("leaving the stream does not stop the command, and input still reaches it", async () => {
-    step("greet").do(async ({ exec }) => {
+    const greet = step("greet").do(async ({ exec }) => {
       const result = await exec([process.execPath, "-e", GREETER]);
       return result.stdout;
     });
-    engine = await startEngine({ print: () => undefined, root });
+    engine = await startEngine({
+      collect: [greet],
+      print: () => undefined,
+      root,
+    });
     const launched = await engine.launch<string>("greet", {});
     const live = await eventually(() => liveIn(engine as Engine, launched.id));
     const attached = new AbortController();
@@ -109,11 +119,15 @@ describe("input to live work in a step", () => {
   });
 
   it("pausing a step still stops its command, and input aimed at it is refused", async () => {
-    step("greet").do(async ({ exec }) => {
+    const greet = step("greet").do(async ({ exec }) => {
       const result = await exec([process.execPath, "-e", GREETER]);
       return result.stdout;
     });
-    engine = await startEngine({ print: () => undefined, root });
+    engine = await startEngine({
+      collect: [greet],
+      print: () => undefined,
+      root,
+    });
     const launched = await engine.launch<string>("greet", {});
     const live = await eventually(() => liveIn(engine as Engine, launched.id));
     expect(engine.pause(launched.id, "greet", "hold")).toBe(true);
@@ -187,13 +201,14 @@ describe("input to live work in a step", () => {
       { hold: ({ prompt }) => prompt.endsWith("count slowly"), root }
     );
     const reviewer = agent({ prompt: "Review." });
-    step("review").do(async ({ agents }) => {
+    const review = step("review").do(async ({ agents }) => {
       const session = await agents.session(reviewer);
       const reply = await session.generate("count slowly");
       return reply.text;
     });
     engine = await startEngine({
       ...mock.instances,
+      collect: [reviewer, review],
       print: () => undefined,
       root,
     });

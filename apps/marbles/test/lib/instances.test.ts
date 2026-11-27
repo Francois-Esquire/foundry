@@ -7,7 +7,6 @@ import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent, artifact, sandbox, workspace } from "~/authoring/resources";
 import { dispose, setDefaultRuntime, setHost } from "~/authoring/runtime";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
@@ -28,7 +27,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
   await dispose();
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -101,7 +99,7 @@ describe("an agent", () => {
     const designer = agent({ name: "designer", prompt: "Design." });
     const reviewer = agent({ name: "reviewer", prompt: "Review." });
     const sessions: string[] = [];
-    step("sketch").do(async ({ agents, ask }) => {
+    const sketch = step("sketch").do(async ({ agents, ask }) => {
       const { text } = await designer.generate("Sketch a logo.");
       const session = await agents.session(reviewer);
       sessions.push(session.ref.id);
@@ -112,6 +110,7 @@ describe("an agent", () => {
     const engine = await startEngine({
       artifacts: store.artifacts,
       askable: true,
+      collect: [designer, reviewer, sketch],
       print: () => undefined,
       reply: ({ prompt }) => {
         prompts.push(prompt);
@@ -164,7 +163,7 @@ describe("a step or workflow", () => {
       inner += 1;
       return "counted";
     });
-    step("outer").do(async ({ ask }) => {
+    const outer = step("outer").do(async ({ ask }) => {
       const value = await count.run();
       await ask.approval({ title: "Go on?" });
       return value;
@@ -173,6 +172,7 @@ describe("a step or workflow", () => {
     const engine = await startEngine({
       artifacts: store.artifacts,
       askable: true,
+      collect: [count, outer],
       print: () => undefined,
       root,
     });
@@ -272,10 +272,13 @@ describe("a workspace, a sandbox, or an artifact", () => {
 
   it("an artifact adds a version per write, in a body or outside one", async () => {
     const report = artifact({ name: "Weekly", type: "text/markdown" });
-    step("weekly").do(() => report.write({ "report.md": "# Two" }));
+    const weekly = step("weekly").do(() =>
+      report.write({ "report.md": "# Two" })
+    );
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine({
       artifacts: store.artifacts,
+      collect: [report, weekly],
       print: () => undefined,
       root,
     });

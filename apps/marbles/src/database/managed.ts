@@ -436,6 +436,15 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
     };
     const store = async () => (await this.#records.get()).taskStore;
     this.taskStore = {
+      children: (parentId) =>
+        this.#gate.run(async () => {
+          const inner = await store();
+          return inner.children === undefined
+            ? (await inner.snapshot()).tasks.filter(
+                (task) => task.parentId === parentId
+              )
+            : inner.children(parentId);
+        }),
       commit: (write) => {
         let owned: TaskStoreWrite;
         try {
@@ -445,7 +454,31 @@ class ManagedWorkspaceRecords implements WorkspaceRecords {
         }
         return this.#gate.run(async () => (await store()).commit(owned));
       },
+      dependenciesOf: (ids) =>
+        this.#gate.run(async () => {
+          const inner = await store();
+          if (inner.dependenciesOf !== undefined) {
+            return inner.dependenciesOf(ids);
+          }
+          const wanted = new Set(ids);
+          return (await inner.snapshot()).dependencies.filter(
+            (edge) => wanted.has(edge.taskId) || wanted.has(edge.dependsOnId)
+          );
+        }),
       get: (id) => this.#gate.run(async () => (await store()).get(id)),
+      list: (query) =>
+        this.#gate.run(async () => {
+          const inner = await store();
+          if (inner.list !== undefined) {
+            return inner.list(query);
+          }
+          return (await inner.snapshot()).tasks.filter(
+            (task) =>
+              (query?.status === undefined || task.status === query.status) &&
+              (query?.parentId === undefined ||
+                task.parentId === query.parentId)
+          );
+        }),
       snapshot: () => this.#gate.run(async () => (await store()).snapshot()),
       transaction: (work) =>
         this.#gate.run(async () => {

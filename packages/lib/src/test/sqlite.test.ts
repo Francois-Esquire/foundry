@@ -13,6 +13,7 @@ import {
   joinFieldPath,
   RecordFault,
   replacing,
+  SQLITE_D1_MAX_PARAMETERS,
   SQLITE_MAX_PARAMETERS,
   storableNumber,
   storableText,
@@ -135,8 +136,10 @@ describe("batches", () => {
     expect(batches([], 10)).toEqual([]);
   });
 
-  test("keeps the SQLite bound parameter limit", () => {
+  test("keeps the SQLite bound parameter limits", () => {
     expect(SQLITE_MAX_PARAMETERS).toBe(32_766);
+    expect(SQLITE_D1_MAX_PARAMETERS).toBe(100);
+    expect(batches([1, 2, 3])).toEqual([[1, 2, 3]]);
   });
 });
 

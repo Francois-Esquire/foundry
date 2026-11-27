@@ -1,7 +1,6 @@
 import { Output } from "ai";
-import { afterEach, expect, expectTypeOf, it } from "vitest";
+import { expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type {
   Agent,
@@ -10,10 +9,6 @@ import type {
   DeferredAgent,
   Session,
 } from "~/lib/types";
-
-afterEach(() => {
-  catalog.reset();
-});
 
 const verdict = Output.object({ schema: z.object({ approved: z.boolean() }) });
 

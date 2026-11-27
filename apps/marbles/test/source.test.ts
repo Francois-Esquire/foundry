@@ -10,9 +10,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { beforeEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { DatabaseAutomationStore } from "~/database/automations";
 import { initializeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
@@ -28,13 +27,9 @@ beforeEach(() => {
   home = testHome();
 });
 
-afterEach(() => {
-  catalog.reset();
-});
-
 const CLI = resolve("src/cli.ts");
 function cli(root: string, ...args: string[]): string {
-  return execFileSync("bun", [CLI, ...args], {
+  return execFileSync(process.execPath, [CLI, ...args], {
     cwd: root,
     encoding: "utf8",
     env: home.env,
@@ -106,17 +101,16 @@ it("loads the default folder, imports ignored helpers, and operates on the proje
       join(source, "inspect.ts"),
       `import { step } from "@foundry.sh/marbles";
 import { value } from "./_helper";
-import "./nested/second";
-step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }));`
+export const inspect = step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }));`
     );
     await writeFile(
       join(source, "nested", "second.ts"),
-      'import { step } from "@foundry.sh/marbles"; step("second").do(() => "second");'
+      'import { step } from "@foundry.sh/marbles"; export const second = step("second").do(() => "second");'
     );
     const listed = cli(root, "list");
     expect(
       listed.split("\n").filter((line) => line.startsWith("[step]"))
-    ).toEqual(["[step] second", "[step] inspect"]);
+    ).toEqual(["[step] inspect", "[step] second"]);
     const result = cli(root, "trigger", "inspect");
     expect(result).toContain(root);
     expect(result).toContain("helper imported");
@@ -135,9 +129,9 @@ it("lists each observer with its source and types, and a monitor by the name it 
     await writeFile(
       config,
       `import { artifact, monitor, observe, tasks } from "@foundry.sh/marbles";
-observe(tasks, () => undefined, { name: "triage" });
-observe(artifact, () => undefined, { name: "shares", types: ["artifact.shared", "artifact.unshared"] });
-monitor("*.md").name("docs").every("5m").do(() => undefined);`
+export const triage = observe(tasks, () => undefined, { name: "triage" });
+export const shares = observe(artifact, () => undefined, { name: "shares", types: ["artifact.shared", "artifact.unshared"] });
+export const docs = monitor("*.md").name("docs").every("5m").do(() => undefined);`
     );
     const listed = cli(root, "list", "--source", config)
       .split("\n")
@@ -145,8 +139,8 @@ monitor("*.md").name("docs").every("5m").do(() => undefined);`
     expect(listed).toEqual([
       `[source] ${config}`,
       "[monitor] docs files *.md every 5m",
-      "[observer] triage ← tasks",
       "[observer] shares ← artifacts artifact.shared, artifact.unshared",
+      "[observer] triage ← tasks",
     ]);
   } finally {
     await rm(root, { force: true, recursive: true });
@@ -159,14 +153,14 @@ it("lists what agents created from the same triggers, and leaves the state root 
     const config = join(root, "marbles.config.ts");
     await writeFile(
       config,
-      'import { step } from "@foundry.sh/marbles"; step("target").do(() => 1);'
+      'import { step } from "@foundry.sh/marbles"; export const target = step("target").do(() => 1);'
     );
     const { state } = home.layout;
     const { dir } = workspaceState(state, root);
-    step("target").do(() => 1);
+    const target = step("target").do(() => 1);
     const opened = await initializeDatabase(stateDatabase(state));
     const automations = new AutomationService({
-      registry: declared(),
+      registry: declared({ target }),
       store: new DatabaseAutomationStore({
         database: opened.database,
         scope: workspaceState(state, root).id,

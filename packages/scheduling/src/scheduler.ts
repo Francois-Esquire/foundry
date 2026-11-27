@@ -46,6 +46,11 @@ export interface SchedulerOptions {
   readonly syncIntervalMs?: number;
 }
 
+export interface TickResult {
+  readonly decided: readonly Occurrence[];
+  readonly soonest: Instant | undefined;
+}
+
 export interface SchedulerService {
   readonly cursor: (
     id: ScheduleId
@@ -68,6 +73,7 @@ export interface SchedulerService {
     Scope.Scope
   >;
   readonly tick: Effect.Effect<readonly Occurrence[], ScheduleError>;
+  readonly tickWithNext: Effect.Effect<TickResult, ScheduleError>;
   readonly triggerNow: (
     id: ScheduleId
   ) => Effect.Effect<Occurrence, ScheduleError>;
@@ -327,6 +333,10 @@ const makeScheduler = (options: SchedulerOptions) =>
         });
       });
 
+    const tickWithNext = changed(
+      evaluateAll((error) => Effect.fail(error), false)
+    );
+
     return Scheduler.of({
       cursor: store.getCursor,
       get: store.getSchedule,
@@ -336,12 +346,8 @@ const makeScheduler = (options: SchedulerOptions) =>
       register: (input) => changed(register(input)),
       resume: (id) => setState(id, "active"),
       subscribe: Stream.fromPubSub(hub, { scoped: true }),
-      tick: changed(
-        Effect.map(
-          evaluateAll((error) => Effect.fail(error), false),
-          (result) => result.decided
-        )
-      ),
+      tick: Effect.map(tickWithNext, (result) => result.decided),
+      tickWithNext,
       triggerNow: (id) => changed(triggerNow(id)),
       unregister: (id) => changed(unregister(id)),
     });

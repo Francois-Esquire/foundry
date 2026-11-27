@@ -142,6 +142,18 @@ it("never overwrites a starter module, including concurrent creation", async () 
       createStarter(join(dir, "missing", "marbles.config.ts"), draft)
     ).resolves.toBe(join(dir, "missing", "marbles.config.ts"));
     expect(() => renderModule({ ...draft, name: "unsafe name" })).toThrow();
+    for (const keyword of [
+      "delete",
+      "class",
+      "default",
+      "return",
+      "import",
+      "export",
+    ]) {
+      const rendered = renderModule({ ...draft, name: keyword });
+      expect(rendered).toContain(`export const ${keyword}Step =`);
+      expect(rendered).toContain(`name: ${JSON.stringify(keyword)},`);
+    }
   } finally {
     await rm(dir, { force: true, recursive: true });
   }

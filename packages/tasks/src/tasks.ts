@@ -34,6 +34,7 @@ import { MemoryTaskStore } from "./store/memory";
 
 export interface TasksOptions {
   readonly clock?: () => Date;
+  readonly id?: () => string;
   readonly inUse?: (id: TaskId) => Promise<boolean>;
   readonly parentGate?: boolean;
   readonly store?: TaskStore;
@@ -49,6 +50,7 @@ export class Tasks {
   readonly #inUse: ((id: TaskId) => Promise<boolean>) | undefined;
   readonly #parentGate: boolean;
   readonly #clock: () => Date;
+  readonly #id: () => string;
   #lastInstant = 0;
   #tail: Promise<unknown> = Promise.resolve();
 
@@ -57,6 +59,7 @@ export class Tasks {
     this.#inUse = options.inUse;
     this.#parentGate = options.parentGate ?? false;
     this.#clock = options.clock ?? (() => new Date());
+    this.#id = options.id ?? (() => crypto.randomUUID());
   }
 
   async get(id: string, options: DepthOptions = {}): Promise<TaskNode | null> {
@@ -72,6 +75,18 @@ export class Tasks {
 
   async list(query: TaskQuery = {}): Promise<Page<TaskNode, number>> {
     const depth = requireDepth(query.depth);
+    if (depth === 0 && this.#store.list !== undefined) {
+      const listed = (
+        await this.#store.list({
+          ...(query.parentId === undefined ? {} : { parentId: query.parentId }),
+          ...(query.status === undefined ? {} : { status: query.status }),
+        })
+      ).map(withTags);
+      const matching = ordered(listed).filter((task) =>
+        hasTags(task, query.tags)
+      );
+      return sliceRanked(matching, pageLimit(query.limit), query.cursor ?? 0);
+    }
     const { tasks } = await this.#snapshot();
     const matching = ordered(tasks).filter(
       (task) =>
@@ -111,6 +126,21 @@ export class Tasks {
     options: DepthOptions = {}
   ): Promise<readonly TaskNode[]> {
     const depth = requireDepth(options.depth);
+    if (depth === 0 && this.#store.children !== undefined) {
+      return this.#transaction(async (store) => {
+        const parent = await store.get(taskId(id));
+        if (parent === null) {
+          throw new TaskError("not_found", `Task ${id} not found`);
+        }
+        const rows =
+          store.children === undefined
+            ? (await this.#snapshot(store)).tasks.filter(
+                (item) => item.parentId === parent.id
+              )
+            : await store.children(parent.id);
+        return ordered(rows.map(withTags));
+      });
+    }
     const { tasks } = await this.#snapshot();
     const parent = requireTask(tasks, id);
     const index = childrenOf(tasks);
@@ -122,6 +152,16 @@ export class Tasks {
     options: DepthOptions = {}
   ): Promise<(TaskNode & TaskRelations) | null> {
     const depth = requireDepth(options.depth);
+    if (depth === 0 && this.#store.dependenciesOf !== undefined) {
+      return this.#transaction(async (store) => {
+        const task = await store.get(taskId(id));
+        if (task === null) {
+          return null;
+        }
+        const relations = await this.#relationsFor(store, task.id);
+        return { ...withTags(task), ...relations };
+      });
+    }
     const snapshot = await this.#snapshot();
     const task = snapshot.tasks.find((item) => item.id === id);
     if (task === undefined) {
@@ -135,6 +175,15 @@ export class Tasks {
   }
 
   async dependencies(id: string): Promise<TaskRelations> {
+    if (this.#store.dependenciesOf !== undefined) {
+      return this.#transaction(async (store) => {
+        const task = await store.get(taskId(id));
+        if (task === null) {
+          throw new TaskError("not_found", `Task ${id} not found`);
+        }
+        return this.#relationsFor(store, task.id);
+      });
+    }
     const snapshot = await this.#snapshot();
     const task = requireTask(snapshot.tasks, id);
     return relationsOf(snapshot, task.id);
@@ -144,9 +193,13 @@ export class Tasks {
     return this.#mutation(async (store) => {
       const snapshot = await this.#snapshot(store);
       this.#lastInstant = Math.max(this.#lastInstant, latestInstant(snapshot));
-      const applied = applyChange(snapshot, change, () => this.#now(), {
-        parentGate: this.#parentGate,
-      });
+      const applied = applyChange(
+        snapshot,
+        change,
+        () => this.#now(),
+        { parentGate: this.#parentGate },
+        this.#id
+      );
       await store.commit(applied.write);
       return { changed: applied.changed, tasks: applied.tasks };
     });
@@ -236,7 +289,8 @@ export class Tasks {
       [{ after: null, before: task, id: task.id }],
       [],
       dropped,
-      this.#now()
+      this.#now(),
+      this.#id
     );
     await store.commit(
       event === undefined ? write : { ...write, events: [event] }
@@ -271,6 +325,34 @@ export class Tasks {
   async #snapshot(store: TaskStore = this.#store): Promise<TaskSnapshot> {
     const snapshot = await store.snapshot();
     return { ...snapshot, tasks: snapshot.tasks.map(withTags) };
+  }
+
+  async #relationsFor(store: TaskStore, id: TaskId): Promise<TaskRelations> {
+    const edges = (await store.dependenciesOf?.([id])) ?? [];
+    const dependentIds = edges
+      .filter((edge) => edge.dependsOnId === id)
+      .map((edge) => edge.taskId);
+    const dependsOnIds = edges
+      .filter((edge) => edge.taskId === id)
+      .map((edge) => edge.dependsOnId);
+    const uniqueIds = [...new Set([...dependentIds, ...dependsOnIds])];
+    const fetched = await Promise.all(
+      uniqueIds.map(async (relatedId) => {
+        const found = await store.get(relatedId);
+        return found === null ? null : ([relatedId, withTags(found)] as const);
+      })
+    );
+    const byId = new Map(
+      fetched.filter(
+        (entry): entry is readonly [TaskId, Task] => entry !== null
+      )
+    );
+    const pick = (ids: readonly TaskId[]): readonly Task[] =>
+      ordered(ids.flatMap((item) => byId.get(item) ?? []));
+    return {
+      dependents: pick(dependentIds),
+      dependsOn: pick(dependsOnIds),
+    };
   }
 
   #mutation<T>(work: (store: TaskStore) => Promise<T>): Promise<T> {

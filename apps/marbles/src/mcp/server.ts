@@ -28,7 +28,7 @@ const OFFLINE =
 const listOutput = z.looseObject({
   items: z.array(z.record(z.string(), z.unknown())),
   nextCursor: z.int().min(0).optional(),
-  total: z.int().min(0),
+  total: z.int().min(0).optional(),
 });
 
 const getOutput = z.looseObject({

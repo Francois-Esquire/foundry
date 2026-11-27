@@ -110,14 +110,13 @@ it("serves the workspace's tasks: a CLI change logged before any observer, tags,
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
-observe(tasks, (payload) => {
+export const seenObserver = observe(tasks, (payload) => {
   appendFileSync(${JSON.stringify(seen)}, JSON.stringify(payload) + "\\n");
 }, { name: "seen" });
-// Keeps failing, so it stays where it started.
-observe(tasks, () => {
+export const failingObserver = observe(tasks, () => {
   throw new Error("not yet");
 }, { name: "failing" });
-step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
+export const titles = step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],

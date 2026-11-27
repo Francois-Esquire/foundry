@@ -1,4 +1,4 @@
-import { inLoad, ownRun, readingRuntime } from "~/authoring/runtime";
+import { ownRun, readingRuntime } from "~/authoring/runtime";
 import type { RunQuery, RunView } from "~/lib/managers/runs";
 
 export interface RunReads {
@@ -50,17 +50,3 @@ export const runs: RunReads = Object.freeze({
     );
   },
 });
-
-const ofLoads = new Map<number, RunReads>();
-
-export function runsOfLoad(load: number): RunReads {
-  let bound = ofLoads.get(load);
-  if (bound === undefined) {
-    bound = Object.freeze({
-      get: (runId: string) => inLoad(load, () => runs.get(runId)),
-      list: (query?: RunQuery) => inLoad(load, () => runs.list(query)),
-    });
-    ofLoads.set(load, bound);
-  }
-  return bound;
-}

@@ -5,7 +5,6 @@ import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import { agent, artifact } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
 
@@ -23,7 +22,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await engine?.dispose();
   engine = undefined;
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 

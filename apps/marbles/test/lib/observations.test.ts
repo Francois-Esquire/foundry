@@ -15,7 +15,6 @@ import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
 import type {
@@ -39,7 +38,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
   await rm(root, { force: true, recursive: true });
 });
@@ -217,11 +215,15 @@ it("records a CLI harness's own tool events, and closes calls a turn left open",
 
 it("records a workflow step's agent turns on its run", async () => {
   const reviewer = agent({ prompt: "Review in private." });
-  step("review").do(async ({ agents }) => {
+  const review = step("review").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     return (await session.generate("look at the private tests")).text;
   });
-  const engine = testEngine({ root, state: join(root, "state") });
+  const engine = testEngine({
+    collect: [reviewer, review],
+    root,
+    state: join(root, "state"),
+  });
   engines.push(engine);
   await engine.start();
   const launched = await engine.launch<string>("review", {});
@@ -246,10 +248,10 @@ it("records a workflow step's agent turns on its run", async () => {
 
 it("records an agent definition's one-turn call on its workflow run", async () => {
   const reviewer = agent({ prompt: "Review in private." });
-  step("one-turn-review").do(
+  const oneTurn = step("one-turn-review").do(
     async () => (await reviewer.generate("look at the private tests")).text
   );
-  const engine = testEngine({ root });
+  const engine = testEngine({ collect: [reviewer, oneTurn], root });
   engines.push(engine);
   await engine.start();
   const launched = await engine.launch<string>("one-turn-review", {});

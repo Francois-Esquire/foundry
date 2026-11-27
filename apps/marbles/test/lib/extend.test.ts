@@ -1,7 +1,7 @@
 import { Output } from "ai";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { agent, skills } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
 import type { Agent } from "~/lib/types";
@@ -12,7 +12,6 @@ const engines: { dispose(): Promise<void> }[] = [];
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
   await dispose();
-  catalog.reset();
 });
 
 const DIFFERENT_PROMPT = /different prompt/;
@@ -181,17 +180,23 @@ describe("an agent's id and the catalog", () => {
   });
 
   it("does not conflict for two declarations differing only in route", () => {
-    agent({ name: "reviewer", prompt: "Review.", provider: "claude-code" });
-    expect(() =>
-      agent({ name: "reviewer", prompt: "Review.", provider: "codex" })
-    ).not.toThrow();
+    const first = agent({
+      name: "reviewer",
+      prompt: "Review.",
+      provider: "claude-code",
+    });
+    const second = agent({
+      name: "reviewer",
+      prompt: "Review.",
+      provider: "codex",
+    });
+    expect(() => Catalog.collect([first, second])).not.toThrow();
   });
 
   it("still conflicts for a different prompt", () => {
-    agent({ name: "reviewer", prompt: "Review." });
-    expect(() => agent({ name: "reviewer", prompt: "Rewrite." })).toThrow(
-      DIFFERENT_PROMPT
-    );
+    const first = agent({ name: "reviewer", prompt: "Review." });
+    const second = agent({ name: "reviewer", prompt: "Rewrite." });
+    expect(() => Catalog.collect([first, second])).toThrow(DIFFERENT_PROMPT);
   });
 
   it("keeps the declared agent, not its extensions", () => {
@@ -200,7 +205,8 @@ describe("an agent's id and the catalog", () => {
     expect(() =>
       reviewer.extend({ provider: "codex" }).extend({ model: "gpt-5.5" })
     ).not.toThrow();
-    expect(catalog.agents.get("reviewer")).toBe(reviewer);
-    expect(catalog.agents.size).toBe(1);
+    const collected = Catalog.collect([reviewer]);
+    expect(collected.agents.get("reviewer")).toBe(reviewer);
+    expect(collected.agents.size).toBe(1);
   });
 });

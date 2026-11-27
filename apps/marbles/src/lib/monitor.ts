@@ -63,8 +63,6 @@ export interface Detection {
   readonly launch?: Launch;
 }
 
-export const DEFAULT_EVERY = "60s";
-
 export function describeMonitor(spec: MonitorSpec): string {
   return spec.kind === "files" ? `files ${spec.glob}` : `http ${spec.url}`;
 }

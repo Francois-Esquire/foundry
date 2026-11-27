@@ -46,7 +46,9 @@ import {
 } from "./transaction";
 
 export interface ArtifactsOptions {
+  readonly clock?: () => Date;
   readonly files?: BlobFiles;
+  readonly id?: () => string;
   readonly maxFileBytes?: number;
   readonly maxTreeBytes?: number;
   readonly store?: ArtifactStore;
@@ -81,7 +83,9 @@ export class Artifacts implements ArtifactSubstrate {
     this.#store = options.store ?? new MemoryArtifactStore();
     this.#held = this.#store.durability === "host";
     this.#limits = {
+      ...(options.clock ? { clock: options.clock } : {}),
       ...(options.files ? { files: options.files } : {}),
+      ...(options.id ? { id: options.id } : {}),
       maxFileBytes: options.maxFileBytes ?? MAX_FILE_BYTES,
       maxTreeBytes: options.maxTreeBytes ?? MAX_TREE_BYTES,
     };
@@ -130,7 +134,10 @@ export class Artifacts implements ArtifactSubstrate {
     try {
       try {
         result = await this.#exclusive(async (store) => {
-          const change = ArtifactChange.begin(store, {});
+          const change = ArtifactChange.begin(store, {
+            ...(this.#limits.clock ? { clock: this.#limits.clock } : {}),
+            ...(this.#limits.id ? { id: this.#limits.id } : {}),
+          });
           try {
             const transaction = new ArtifactTransaction(
               change,

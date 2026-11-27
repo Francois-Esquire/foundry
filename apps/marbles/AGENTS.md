@@ -349,35 +349,37 @@ Five buckets, each importing only what sits below it:
   opens none. Nothing under `workspace/` reads `process.cwd()`: the CLI
   passes the directory it runs in (`directory`), and a workspace's
   registration says where its work starts (`cwd`). Each workspace loads
-  into a `Catalog` of its own (`loadSource`, through `loadInto` in
-  `authoring/runtime.ts`; loads may overlap). Each load imports
-  copies of its own of every module and data file its source imports by
-  path (`copies.ts`: anything but packages and Marbles' own code; it
-  rewrites only import specifiers, found with `oxc-parser`, leaves one that
-  does not resolve as written, rejects a computed `import()` that does not
-  resolve from the importing file, and a file that does not parse, or is
-  CommonJS, fails the load), and those
-  copies import a library bound to the load (`authoring/bound.ts`): every
-  word that declares or routes runs in the load's scope (`inLoad`), and
-  builders and instances keep whom they answer to (`captureScope`: the
-  load, or the binding of the engine whose run made them, never that run). Each engine bound to its workspace (`setHost`) is a
-  binding, keyed by the execution context its runs and observers run in
-  (`Engine.context`, `lib/execution-context.ts`); a load takes the
-  binding of the engine that takes its catalog. Work answers to its own
-  binding's engine and catalog until that engine is disposed, whatever
-  engine is bound to the workspace after it, and is refused
-  (`WorkspaceReleasedError`) once it is. A released binding keeps
-  neither engine nor catalog, and the loads it took are dropped, only
-  their numbers kept so late calls from them are refused; a host lets
-  its engine go as soon as it disposed it (`releaseEngine`), and any
-  other disposed engine is let go when the next engine is bound or load
-  begins. Work without a
-  binding reaches an engine only while one engine alone is alive for the
-  workspace: a load no engine has taken yet, or work naming nothing in a
-  process hosting one workspace; with two alive it is refused
-  (`AmbiguousWorkspaceError`), as is a run of an engine no host here
-  bound whose workspace another engine is bound to. Nothing reads the
-  stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
+  into a `Catalog` of its own (`loadSource` in `workspace/open.ts`, through
+  `openLoadSession` in `workspace/loader.ts` and `runLoadScope` in
+  `authoring/runtime.ts`). Each load session resolves `@foundry.sh/marbles*`
+  to the host's own modules, rejects CommonJS local workspace modules, tracks
+  local dependencies for fingerprinting, and collects exported declarations
+  into the workspace `Catalog` (`Catalog.collect` / `defineWorkspace`).
+  Authoring words (`step`, `workflow`, `agent`, `artifact`, `sandbox`,
+  `workspace`, `schedule`, `monitor`, `observe`, `defineProvider`,
+  `defineConfig`) return pure, immutable values without ambient catalog
+  mutation or runtime AST inspection; builders and instances capture their
+  execution scope (`captureScope`: the load's workspace or the binding of
+  the engine whose run made them, never that run). On Node 22.18+,
+  `module.registerHooks` propagates `?marbles-load=` across local imports and
+  `AsyncLocalStorage` carries the active `LoadingRoute` across `import()`; on
+  Bun, a minimal `Bun.plugin` maps `@foundry.sh/marbles*` and tracks local
+  imports. Each engine bound to its workspace (`setHost`) is a binding, keyed
+  by the execution context its runs and observers run in (`Engine.context`,
+  `lib/execution-context.ts`); pending workspaces remain in `pendingHostings`
+  between `runLoadScope` completion and `setHost` so early callbacks fail with
+  `WorkspaceLoadingError` instead of falling back to script mode. Work answers
+  to its own binding's engine and catalog until that engine is disposed,
+  whatever engine is bound to the workspace after it, and is refused
+  (`WorkspaceReleasedError`) once it is. A released binding keeps neither
+  engine nor catalog; a host lets its engine go as soon as it disposed it
+  (`releaseEngine`), and any other disposed engine is let go when the next
+  engine is bound or load begins. Work without a binding reaches an engine only
+  while one engine alone is alive for the workspace: a load whose workspace now
+  has a live host, or work naming nothing in a process hosting one workspace;
+  with two alive it is refused (`AmbiguousWorkspaceError`), as is a run of an
+  engine no host here bound whose workspace another engine is bound to. Nothing
+  reads the stack for it. `hosted.ts` (`HostedWorkspaces`) hosts several
   workspaces in one process over one database handle, refuses work that
   names no workspace, shares one registration of a workspace between
   callers, addresses what each declared by workspace id and local name
@@ -432,8 +434,8 @@ Five buckets, each importing only what sits below it:
   (`Engine.adoptQueued`), both the queue's `recover`. The fingerprint
   (`process/fingerprint.ts`) is taken before a generation loads: every
   file under each workspace's root, by relative path and content, and
-  every file the generation reports reading outside it (`onRead` in
-  `workspace/copies.ts`), recorded as it was when read. On load refusal,
+  every file the generation reports reading outside it (`read` in
+  `workspace/loader.ts`), recorded as it was when read. On load refusal,
   `watching` keeps the outside paths the preceding generation read, with
   their digests at the failed attempt. Restoring one of those files can
   trigger a fresh load even when the candidate never read it.

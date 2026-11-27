@@ -44,7 +44,13 @@ import type {
 } from "~/lib/usage";
 import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
 import type { ManagerArgs } from "../bindings";
-import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "../handles";
+import {
+  AGENT_DEFINITION,
+  AGENT_META,
+  AGENT_PROMPT,
+  SANDBOX_HANDLE,
+} from "../handles";
+import { inputSnapshot } from "../json-data";
 import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
@@ -77,6 +83,7 @@ import {
 
 export interface AgentsDeps {
   readonly activities: HarnessActivities;
+  readonly agentIdOf?: (agent: AgentLike<Output.Output>) => string | undefined;
   readonly automations: AutomationService;
   readonly containerOf: (sandbox: SandboxHandle) => Container;
   readonly context?: ExecutionContext;
@@ -444,57 +451,35 @@ async function interactionOptions(
 
 type DefinitionBuilder = (
   route: AgentRoute,
-  input: unknown
+  input: unknown,
+  resolvedId?: string
 ) => Promise<AgentDefinition<Output.Output>>;
 
 export async function buildDefinition<OUTPUT extends Output.Output>(
   agent: AgentLike<OUTPUT>,
   route: AgentRoute = {},
-  input: unknown = (agent as { readonly input?: unknown }).input
+  input: unknown = (agent as { readonly input?: unknown }).input,
+  resolvedId?: string
 ): Promise<AgentDefinition<OUTPUT>> {
   const build = Reflect.get(agent, AGENT_DEFINITION) as
     | DefinitionBuilder
     | undefined;
   if (build) {
-    return (await build(route, input)) as AgentDefinition<OUTPUT>;
+    return (await build(route, input, resolvedId)) as AgentDefinition<OUTPUT>;
   }
+  const id = resolvedId ?? agent.id;
   if (typeof agent.prompt !== "string") {
-    throw new Error(`agent "${agent.id}" has no prompt`);
+    throw new Error(`agent "${id}" has no prompt`);
   }
-  return agent as AgentDefinition<OUTPUT>;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value === "object" && value !== null) {
-    for (const child of Object.values(value)) {
-      deepFreeze(child);
-    }
-    Object.freeze(value);
+  if (id === agent.id) {
+    return agent as AgentDefinition<OUTPUT>;
   }
-  return value;
-}
-
-function rejectHoles(value: unknown): void {
-  if (typeof value !== "object" || value === null) {
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      if (!(index in value)) {
-        throw new Error(`an array has no item at index ${index}`);
-      }
-      rejectHoles(value[index]);
-    }
-    return;
-  }
-  for (const child of Object.values(value)) {
-    rejectHoles(child);
-  }
-}
-
-export function inputSnapshot(value: unknown): unknown {
-  rejectHoles(value);
-  return deepFreeze(JSON.parse(canonicalizeJson(value)));
+  const promptRender = (agent as AgentDefinition<Output.Output>)[AGENT_PROMPT];
+  return {
+    ...(agent as AgentDefinition<OUTPUT>),
+    ...(promptRender === undefined ? {} : { [AGENT_PROMPT]: promptRender }),
+    id,
+  };
 }
 
 type KeptInput = Pick<SessionRef, "input" | "noInput">;
@@ -517,7 +502,8 @@ function keptInput(kept: SessionRef | undefined): KeptInput {
 
 function sessionInput(
   agent: AgentLike<Output.Output>,
-  kept: SessionRef | undefined
+  kept: SessionRef | undefined,
+  agentId: string
 ): KeptInput {
   const held = keptInput(kept);
   if (!Reflect.has(agent, AGENT_DEFINITION)) {
@@ -533,7 +519,7 @@ function sessionInput(
       canonicalizeJson(kept.input) !== canonicalizeJson(given))
   ) {
     throw new Error(
-      `agent "${agent.id}": session ${kept.id} was opened with another input; open a new session for this one`
+      `agent "${agentId}": session ${kept.id} was opened with another input; open a new session for this one`
     );
   }
   return { input: given };
@@ -703,11 +689,12 @@ async function openSession<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
   agent: AgentLike<OUTPUT>,
-  options: SessionOptions
+  options: SessionOptions,
+  agentId: string
 ): Promise<Session<OUTPUT>> {
   const { context } = deps;
   const session = await withinContext(context, () =>
-    openUnentered(deps, site, agent, options)
+    openUnentered(deps, site, agent, options, agentId)
   );
   if (context === undefined) {
     return session;
@@ -725,17 +712,20 @@ async function openUnentered<OUTPUT extends Output.Output>(
   deps: AgentsDeps,
   site: SessionSite,
   agent: AgentLike<OUTPUT>,
-  options: SessionOptions
+  options: SessionOptions,
+  agentId: string
 ): Promise<Session<OUTPUT>> {
   const recordedOn = site.recorded?.provider;
   const input = sessionInput(
     agent,
-    site.recorded ?? (options.session ? refOf(options.session) : undefined)
+    site.recorded ?? (options.session ? refOf(options.session) : undefined),
+    agentId
   );
   const definition = await buildDefinition(
     agent,
     recordedOn === undefined ? {} : { provider: recordedOn },
-    input.input
+    input.input,
+    agentId
   );
   site.signal().throwIfAborted();
   if (options.sandbox && definition.mcp?.length) {
@@ -1020,6 +1010,7 @@ export class AgentsManager implements Agents {
   readonly #deps: AgentsDeps;
   readonly #closing = new AbortController();
   readonly #held = new Set<Closable>();
+  readonly #seenFunctionAgents = new Map<string, object>();
 
   constructor(deps: AgentsDeps) {
     this.#deps = deps;
@@ -1033,16 +1024,35 @@ export class AgentsManager implements Agents {
     return this.#deps.sessions;
   }
 
+  #agentId(definition: AgentLike<Output.Output>): string {
+    const id = this.#deps.agentIdOf?.(definition) ?? definition.id;
+    const meta = (
+      definition as { readonly [AGENT_META]?: { readonly define?: object } }
+    )[AGENT_META];
+    if (meta?.define !== undefined) {
+      const seen = this.#seenFunctionAgents.get(id);
+      if (seen !== undefined && seen !== meta.define) {
+        throw new Error(
+          `agent "${id}" already declared by another function; an agent declared with a function is identified by its export or explicit name, not by the values it closes over, so these two would share approvals and triggers. Name each with agent("name", fn) or export each with its own name`
+        );
+      }
+      this.#seenFunctionAgents.set(id, meta.define);
+    }
+    return id;
+  }
+
   async session<OUTPUT extends Output.Output = never>(
     definition: AgentLike<OUTPUT>,
     options: SessionOptions = {}
   ): Promise<Session<OUTPUT>> {
     validateSessionOptions(options);
+    const agentId = this.#agentId(definition);
     return await openSession(
       this.#deps,
-      this.#directSite(definition, (closable) => this.#held.add(closable)),
+      this.#directSite(agentId, (closable) => this.#held.add(closable)),
       definition,
-      options
+      options,
+      agentId
     );
   }
 
@@ -1052,13 +1062,13 @@ export class AgentsManager implements Agents {
     retain(closable: Closable): void;
     readonly signal: AbortSignal;
   }): Agents {
-    return this.#agents((definition) =>
+    return this.#agents((agentId) =>
       hostSite({
         consume: consumer(
           this.#deps,
           inRun(
             { definition: run.name, path: [run.name], runId: run.id },
-            definition.id
+            agentId
           )
         ),
         cwd: this.#deps.cwd,
@@ -1090,8 +1100,8 @@ export class AgentsManager implements Agents {
         }
       },
       stream: (definition, input, options) => {
-        const turn = open(definition);
         const opening = (async () => {
+          const turn = open(definition);
           const replayed = await turn.replayed();
           if (replayed) {
             return replayedStream(replyOf(replayed));
@@ -1114,19 +1124,20 @@ export class AgentsManager implements Agents {
   }
 
   #turn(definition: AgentLike<Output.Output>, args?: ManagerArgs) {
+    const agentId = this.#agentId(definition);
     const held = new Set<Closable>();
     const claim = args?.scope.claim(args.frame, TURN_KIND);
     const recorded = claim && args?.scope.ledger.get<RecordedTurn>(claim.key);
     const source: Source | undefined = args && {
-      definition: args.frame.path[0] ?? definition.id,
+      definition: args.frame.path[0] ?? agentId,
       path: [...args.frame.path],
       runId: args.scope.id,
     };
     const site: SessionSite =
       args && source
         ? {
-            agent: definition.id,
-            consume: consumer(this.#deps, inRun(source, definition.id)),
+            agent: agentId,
+            consume: consumer(this.#deps, inRun(source, agentId)),
             ...this.#observing(args.scope.id),
             cwd: args.scope.cwd,
             parent: args.scope.session.id,
@@ -1138,7 +1149,7 @@ export class AgentsManager implements Agents {
             work: args.frame.work,
             write: args.write,
           }
-        : this.#directSite(definition, (closable) => held.add(closable));
+        : this.#directSite(agentId, (closable) => held.add(closable));
     return {
       close: async () => {
         await Promise.allSettled([...held].map((closable) => closable.close()));
@@ -1146,7 +1157,7 @@ export class AgentsManager implements Agents {
       record: (message: SessionMessage) => {
         if (claim && message.status === "complete") {
           args?.scope.ledger.set(claim.key, {
-            agent: definition.id,
+            agent: agentId,
             message: message.id,
             path: [...args.frame.path],
             session: message.sessionId,
@@ -1162,21 +1173,21 @@ export class AgentsManager implements Agents {
         );
         return messages.find((message) => message.id === recorded.message);
       },
-      session: () => openSession(this.#deps, site, definition, {}),
+      session: () => openSession(this.#deps, site, definition, {}, agentId),
     };
   }
 
   #directSite(
-    definition: AgentLike<Output.Output>,
+    agentId: string,
     retain: (closable: Closable) => void
   ): SessionSite {
     return {
-      consume: consumer(this.#deps, { agentId: definition.id }),
+      consume: consumer(this.#deps, { agentId }),
       cwd: this.#deps.cwd,
       record: () => undefined,
       retain,
       signal: () => this.#closing.signal,
-      source: { definition: definition.id, path: [], runId: DIRECT },
+      source: { definition: agentId, path: [], runId: DIRECT },
       takeResume: () => undefined,
       write: () => undefined,
     };
@@ -1184,22 +1195,22 @@ export class AgentsManager implements Agents {
 
   scoped(args: ManagerArgs): Agents {
     const { observe } = this.#observing(args.scope.id);
-    return this.#agents((definition) =>
-      frameSite(this.#deps, args, definition.id, observe)
+    return this.#agents((agentId) =>
+      frameSite(this.#deps, args, agentId, observe)
     );
   }
 
-  #agents(
-    siteFor: (definition: AgentLike<Output.Output>) => SessionSite
-  ): Agents {
+  #agents(siteFor: (agentId: string) => SessionSite): Agents {
     return {
       session: async (definition, options = {}) => {
         validateSessionOptions(options);
+        const agentId = this.#agentId(definition);
         return await openSession(
           this.#deps,
-          siteFor(definition),
+          siteFor(agentId),
           definition,
-          options
+          options,
+          agentId
         );
       },
     };

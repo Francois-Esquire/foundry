@@ -1,7 +1,7 @@
 import { current } from "~/lib/run-scope";
 import type { RunRecord } from "~/lib/workflow-runs";
 import type { ManagerArgs } from "../bindings";
-import type { AnyDefinition, NamedDefinition } from "../definition";
+import type { AnyDefinition } from "../definition";
 import type { ExecutionRun } from "../execution-record";
 import type { ExecutionStatus } from "../execution-statuses";
 import { DEFINITION_IDENTITY } from "../handles";
@@ -33,10 +33,11 @@ export interface Runs {
   ): Promise<Launched<unknown>>;
   get(runId: string): Promise<RunView | null>;
   list(query?: RunQuery): Promise<readonly RunView[]>;
-  named(name: string): NamedDefinition | undefined;
+  named(name: string): AnyDefinition | undefined;
 }
 
 export interface RunsSource {
+  declaredName?(definition: AnyDefinition): string | undefined;
   enqueue(
     definition: AnyDefinition,
     input: unknown,
@@ -44,11 +45,12 @@ export interface RunsSource {
   ): Promise<Launched<unknown>>;
   execution(runId: string): ExecutionRun | undefined;
   executions(): readonly ExecutionRun[];
-  named(name: string): NamedDefinition | undefined;
+  named(name: string): AnyDefinition | undefined;
   nameOf(name: string): string;
   resultOf(runId: string): Promise<unknown>;
   stored(runId: string): Promise<RunRecord | undefined>;
   storedAll(): Promise<readonly RunRecord[]>;
+  structuralIdentityOf?(definition: AnyDefinition): string | undefined;
 }
 
 const LAUNCH_KIND = "launch";
@@ -58,9 +60,17 @@ interface RecordedLaunch {
   readonly run: string;
 }
 
-function definitionIdentity(definition: AnyDefinition): string {
-  if (definition.name !== undefined) {
-    return `name:${definition.name}`;
+function definitionIdentity(
+  definition: AnyDefinition,
+  source: Pick<RunsSource, "declaredName" | "structuralIdentityOf">
+): string {
+  const named = source.declaredName?.(definition) ?? definition.name;
+  if (named !== undefined) {
+    return `name:${named}`;
+  }
+  const structural = source.structuralIdentityOf?.(definition);
+  if (structural !== undefined) {
+    return `anon:${structural}`;
   }
   const constructed = (definition as { [DEFINITION_IDENTITY]?: string })[
     DEFINITION_IDENTITY
@@ -162,7 +172,7 @@ export function scopedRuns(source: RunsSource, args: ManagerArgs): Runs {
     async enqueue(definition, input, options) {
       const { key } = args.scope.claim(args.frame, LAUNCH_KIND);
       const recorded = args.scope.ledger.get<RecordedLaunch>(key);
-      const identity = definitionIdentity(definition);
+      const identity = definitionIdentity(definition, source);
       if (recorded !== undefined && recorded.definition === identity) {
         return { id: recorded.run, result: source.resultOf(recorded.run) };
       }

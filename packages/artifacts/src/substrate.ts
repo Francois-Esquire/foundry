@@ -43,6 +43,13 @@ export type FileInput = { readonly type?: "file" } & (
       readonly digest: string;
       readonly bytes: number;
       readonly mime?: string | null;
+      readonly path?: undefined;
+    }
+  | {
+      readonly path: string;
+      readonly digest: string;
+      readonly bytes: number;
+      readonly mime?: string | null;
     }
   | {
       readonly source: AsyncIterable<Uint8Array>;

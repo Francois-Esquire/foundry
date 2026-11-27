@@ -219,20 +219,23 @@ async function twoTurns(models: () => Promise<Models>) {
   vi.stubEnv("FOUNDRY_MODELS_DEV_URL", "");
   vi.resetModules();
   const built = await models();
-  const { catalog } = await import("~/authoring/catalog");
   const { agent } = await import("~/authoring/resources");
   const { step } = await import("~/authoring/builder");
   const { startEngine } = await import("./helpers/engine");
   const { totalOf } = await import("~/workspace/usage");
   const { costCell } = await import("~/tui/state/usage-format");
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
-  step("review").do(async ({ agents }) => {
+  const review = step("review").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     await session.generate("first");
     await session.generate("second");
     return "done";
   });
-  const engine = await startEngine({ models: built, print: () => undefined });
+  const engine = await startEngine({
+    collect: [reviewer, review],
+    models: built,
+    print: () => undefined,
+  });
   try {
     await (await engine.launch("review", {})).result;
     const facts = (await engine.usage.read()).facts.toSorted(
@@ -244,7 +247,6 @@ async function twoTurns(models: () => Promise<Models>) {
     };
   } finally {
     await engine.dispose();
-    catalog.reset();
     vi.doUnmock("ai-sdk-provider-claude-code");
   }
 }

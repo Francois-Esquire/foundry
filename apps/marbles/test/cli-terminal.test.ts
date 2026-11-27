@@ -43,11 +43,11 @@ test("piped startup attaches to the Marbles process and SIGTERM detaches cleanly
     `
     import { writeFileSync } from "node:fs";
     import { step, schedule } from "@foundry.sh/marbles";
-    const task = step("plain-step").do(() => {
+    export const task = step("plain-step").do(() => {
       writeFileSync(${JSON.stringify(marker)}, "ran");
       return "done";
     });
-    schedule(task).every("1s");
+    export const taskSchedule = schedule(task).every("1s");
   `
   );
   const child = spawn(
@@ -270,11 +270,11 @@ test("manual workflow launch uses typed arguments while scheduled runs continue"
 import { writeFileSync, appendFileSync } from "node:fs";
 import { step, workflow, schedule } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(ZOD)};
-const tick = step("tick").do(() => { appendFileSync(${JSON.stringify(ticks)}, "tick\\n"); });
-schedule(tick).every("1s");
+export const tick = step("tick").do(() => { appendFileSync(${JSON.stringify(ticks)}, "tick\\n"); });
+export const tickSchedule = schedule(tick).every("1s");
 const message = z.object({ message: z.string(), enabled: z.boolean().default(false), count: z.number().default(0) });
 const echo = step("echo").input(message).do(({ input }) => { writeFileSync(${JSON.stringify(marker)}, JSON.stringify(input)); return input; });
-workflow("manual").input(message).do(({ input }) => echo({}, input));
+export const manual = workflow("manual").input(message).do(({ input }) => echo({}, input));
 `
   );
   const terminal = openTestCli(testHome(), config, []);
@@ -286,8 +286,6 @@ workflow("manual").input(message).do(({ input }) => echo({}, input));
     await until(() => existsSync(ticks), STARTUP_MS);
     const before = readFileSync(ticks, "utf8").length;
     await terminal.send("2");
-    await terminal.send("\x1b[B");
-    await terminal.send("\x1b[B");
     await terminal.send("\r");
     await terminal.send("l");
     await terminal.see("Launch manual");
@@ -326,11 +324,11 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     `
     import { appendFileSync } from "node:fs";
     import { schedule, step } from "@foundry.sh/marbles";
-    const tick = step("remote-step").do(() => {
+    export const tick = step("remote-step").do(() => {
       appendFileSync(${JSON.stringify(ticks)}, "tick\\n");
       return "ticked";
     });
-    schedule(tick).every("1s");
+    export const tickSchedule = schedule(tick).every("1s");
   `
   );
   const tickCount = () =>
@@ -349,7 +347,7 @@ test("the dashboard attaches to the Marbles process, which keeps hosting after i
     mkdirSync(other, { recursive: true });
     writeFileSync(
       join(other, "marbles.config.ts"),
-      'import { step } from "@foundry.sh/marbles";\nstep("other-step").do(() => "other");\n'
+      'import { step } from "@foundry.sh/marbles";\nexport const otherStep = step("other-step").do(() => "other");\n'
     );
     const follower = spawn(
       [
@@ -399,7 +397,7 @@ test("on a terminal, trigger <name> runs it in the Marbles process and exits, an
   const config = join(dir, "marbles.config.ts");
   writeFileSync(
     config,
-    'import { step } from "@foundry.sh/marbles";\nstep("hello-now").do(() => ({ said: "hello" }));\n'
+    'import { step } from "@foundry.sh/marbles";\nexport const helloNow = step("hello-now").do(() => ({ said: "hello" }));\n'
   );
   const terminal = openTestCli(testHome(), config, ["trigger", "hello-now"]);
   try {
@@ -470,8 +468,8 @@ test("trigger explains bad input in one line", () => {
     config,
     `import { schedule, step } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(ZOD)};
-const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => input.name);
-schedule(greet({}, { name: "Ada" })).every("1h");`
+export const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => input.name);
+export const greetSchedule = schedule(greet({}, { name: "Ada" })).every("1h");`
   );
   const runNow = (...args: string[]) =>
     spawnSync(

@@ -1243,8 +1243,8 @@ function undefinedProvider(plugin: string): string {
   const name = OPT_IN[plugin];
   const fix =
     name === undefined
-      ? 'pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source'
-      : `add to the workspace's source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { ${name} } from "@foundry.sh/marbles/providers/${plugin}"; defineProvider(${name});`;
+      ? 'pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", and export it from the workspace\'s source'
+      : `add to the workspace's source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { ${name} } from "@foundry.sh/marbles/providers/${plugin}"; export const ${name}Provider = defineProvider(${name});`;
   return `provider "${plugin}" is unavailable: this workspace does not define it; to use it, ${fix}`;
 }
 

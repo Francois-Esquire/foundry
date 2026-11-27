@@ -6,6 +6,7 @@ import {
 import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Models } from "@foundry/models";
+import type { Output } from "ai";
 import type { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
 import { MemoryAutomationStore } from "~/lib/automation/store";
@@ -36,6 +37,7 @@ import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
 import { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { TriggerStore } from "~/lib/trigger-store";
 import { MemoryTriggerStore } from "~/lib/trigger-store";
+import type { AgentLike } from "~/lib/types";
 import type { UsageLedger } from "~/lib/usage";
 import type { RunRecorded, SessionListing } from "~/lib/usage-evidence";
 import { listsSessions } from "~/lib/usage-evidence";
@@ -45,9 +47,11 @@ import { MemoryUsageStore } from "~/lib/usage-store";
 export function contextOf(
   options: EngineOptions,
   spawned: string | undefined,
-  currentModels: () => Models | undefined
+  currentModels: () => Models | undefined,
+  agentIdOf?: (agent: AgentLike<Output.Output>) => string | undefined
 ): ExecutionContext {
   return {
+    ...(agentIdOf === undefined ? {} : { agentIdOf }),
     cwd: options.cwd ?? options.root,
     environment: options.environment ?? environmentSnapshot(),
     get models() {
@@ -141,6 +145,9 @@ export function agentsOf(
   options: EngineOptions,
   parts: {
     readonly activities: HarnessActivities;
+    readonly agentIdOf?: (
+      agent: AgentLike<Output.Output>
+    ) => string | undefined;
     readonly automations: AutomationService;
     readonly context: ExecutionContext;
     readonly executions: Executions;
@@ -153,6 +160,7 @@ export function agentsOf(
   const print = options.print ?? (() => undefined);
   return new AgentsManager({
     activities: parts.activities,
+    ...(parts.agentIdOf === undefined ? {} : { agentIdOf: parts.agentIdOf }),
     automations: parts.automations,
     containerOf: (sandbox) => parts.sandboxes.containerOf(sandbox),
     context: parts.context,

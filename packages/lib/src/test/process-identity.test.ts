@@ -2,7 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   compareStarts,
   groupIdTaken,
@@ -467,5 +467,23 @@ console.log(JSON.stringify({ calledOnImport, pid: self.pid }));`
     expect(parsed.pid).toBeGreaterThan(0);
   } finally {
     rmSync(dir, { force: true, recursive: true });
+  }
+});
+
+it("gives portableProcess a unique non-colliding started token even when Date.now() returns 0", async () => {
+  const spy = vi.spyOn(Date, "now").mockReturnValue(0);
+  try {
+    vi.resetModules();
+    const first = (await import("../process-identity")).portableProcess();
+    vi.resetModules();
+    const second = (await import("../process-identity")).portableProcess();
+    expect(first.pid).toBe(0);
+    expect(second.pid).toBe(0);
+    expect(first.started).not.toBe("1970-01-01T00:00:00.000Z");
+    expect(first.started).not.toBe(second.started);
+    expect(sameProcess(first, second)).toBe(false);
+    expect(sameProcess(first, first)).toBe(true);
+  } finally {
+    spy.mockRestore();
   }
 });

@@ -27,12 +27,17 @@ function treeLines(nodes: readonly TaskNode[], depth: number): string[] {
 
 function pageLines(page: Page<TaskNode, number>): string[] {
   if (page.items.length === 0) {
-    return [`no tasks (${page.total} matching)`];
+    return [
+      page.total === undefined
+        ? "no tasks"
+        : `no tasks (${page.total} matching)`,
+    ];
   }
-  return [
-    ...treeLines(page.items, 0),
-    `${page.items.length} shown of ${page.total}`,
-  ];
+  const summary =
+    page.total === undefined
+      ? `${page.items.length} shown`
+      : `${page.items.length} shown of ${page.total}`;
+  return [...treeLines(page.items, 0), summary];
 }
 
 function detailLines(task: TaskNode): string[] {

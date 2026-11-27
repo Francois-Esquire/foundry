@@ -251,9 +251,16 @@ let portable: ProcessIdentity | undefined;
 export function portableProcess(): ProcessIdentity {
   portable ??= Object.freeze({
     pid: 0,
-    started: new Date().toISOString(),
+    started: portableStarted(),
   });
   return portable;
+}
+
+function portableStarted(): string {
+  const now = Date.now();
+  return now > 0
+    ? `${new Date(now).toISOString()}:${crypto.randomUUID()}`
+    : `portable:${crypto.randomUUID()}`;
 }
 
 export function neverGone(_owner?: ProcessIdentity): boolean {

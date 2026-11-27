@@ -57,6 +57,11 @@
       "import": "./src/glob.ts",
       "default": "./src/glob.ts"
     },
+    "./id": {
+      "types": "./dist/id.d.ts",
+      "import": "./src/id.ts",
+      "default": "./src/id.ts"
+    },
     "./instance-identity": {
       "types": "./dist/instance-identity.d.ts",
       "import": "./src/instance-identity.ts",

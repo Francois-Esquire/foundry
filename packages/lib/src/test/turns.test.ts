@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { createPassThroughAsyncScope } from "../async-scope";
+import {
+  createPassThroughAsyncScope,
+  asyncScope as defaultAsyncScope,
+} from "../async-scope";
 import { createNodeAsyncScope } from "../node/async-scope";
 import { ReentrantCallError, Turns } from "../turns";
 
@@ -153,5 +156,37 @@ describe("Turns", () => {
     });
 
     await expect(queued).resolves.toBe("after-outer");
+  });
+
+  test("keeps AsyncScope diagnostics-only when constructed with the default pass-through asyncScope()", async () => {
+    const turns = new Turns(advice, defaultAsyncScope());
+    const order: string[] = [];
+
+    const first = turns.run(async () => {
+      order.push("first-start");
+      await Promise.resolve();
+      order.push("first-end");
+      return "one";
+    });
+    const failed = turns.run(async () => {
+      order.push("second-start");
+      await Promise.resolve();
+      throw new Error("boom");
+    });
+    const third = turns.run(async () => {
+      order.push("third-start");
+      await Promise.resolve();
+      return "three";
+    });
+
+    await expect(first).resolves.toBe("one");
+    await expect(failed).rejects.toThrow("boom");
+    await expect(third).resolves.toBe("three");
+    expect(order).toEqual([
+      "first-start",
+      "first-end",
+      "second-start",
+      "third-start",
+    ]);
   });
 });

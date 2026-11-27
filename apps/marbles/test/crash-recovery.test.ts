@@ -27,15 +27,16 @@ function phase(home: TestHome, name: string, body: string): string {
   const state = join(home.path, "state");
   writeFileSync(
     script,
-    `import { step } from ${JSON.stringify(join(SRC, "authoring/index.ts"))};
+    `import { Catalog, step } from ${JSON.stringify(join(SRC, "authoring/index.ts"))};
 import { testEngine } from ${JSON.stringify(join(HELPERS, "engine.ts"))};
-step("hold").do(async ({ exec }) => {
+const hold = step("hold").do(async ({ exec }) => {
   await exec(["sleep", "300"]);
   return "done";
 });
 const lines = [];
 const killOn = process.env.MARBLES_TEST_KILL_ON;
 const engine = testEngine({
+  catalog: Catalog.collect([hold]),
   print: (line) => {
     lines.push(line);
     // Dies right after this point of recovery, as a crash would.

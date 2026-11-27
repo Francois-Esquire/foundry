@@ -1,4 +1,3 @@
-import { sameInstance } from "@foundry/lib/instance-identity";
 import type { JsonValue } from "@foundry/lib/json";
 import {
   Clock,
@@ -26,18 +25,13 @@ import {
 import { type Ledger, retryOnConflict } from "./ledger";
 import type { RunContext, RunHandler } from "./service";
 import type { Settlement } from "./settlement";
-import { availableAt, starting } from "./transitions";
+import { availableAt, heldBy, leaseExpiry, starting } from "./transitions";
 
 const LOOP_RETRY_MS = 1000;
 
 const settleRetries = Schedule.exponential(Duration.millis(50)).pipe(
   Schedule.intersect(Schedule.recurs(6))
 );
-
-const heldBy = (run: Run | undefined, lease: Lease): run is Run =>
-  run?.state.kind === "running" &&
-  run.state.lease.claimedAt === lease.claimedAt &&
-  sameInstance(run.state.lease.owner, lease.owner);
 
 const withTimeout =
   (timeoutMs: number | undefined) =>
@@ -55,6 +49,7 @@ const withTimeout =
 export interface DispatcherOptions {
   readonly capacity: Capacity;
   readonly handlers: ReadonlyMap<string, RunHandler>;
+  readonly leaseTtlMs?: number;
   readonly ledger: Ledger;
   readonly self: QueueOwner;
   readonly settlement: Settlement;
@@ -63,6 +58,7 @@ export interface DispatcherOptions {
 export const makeDispatcher = ({
   capacity,
   handlers,
+  leaseTtlMs,
   ledger,
   self,
   settlement,
@@ -85,11 +81,24 @@ export const makeDispatcher = ({
             const run = yield* store.getRun(runId);
             if (heldBy(run, lease)) {
               const now = yield* Clock.currentTimeMillis;
+              const expiresAt = leaseExpiry(now, leaseTtlMs);
+              const state =
+                expiresAt === undefined
+                  ? run.state
+                  : {
+                      ...run.state,
+                      lease: { ...run.state.lease, expiresAt },
+                    };
               yield* commit(now, {
                 facts: [],
                 write: {
                   runs: [
-                    { ...run, checkpoint: value, revision: run.revision + 1 },
+                    {
+                      ...run,
+                      checkpoint: value,
+                      revision: run.revision + 1,
+                      state,
+                    },
                   ],
                 },
               });
@@ -235,7 +244,9 @@ export const makeDispatcher = ({
 
     const start = (job: Job, run: Run, handler: RunHandler, now: Instant) =>
       Effect.gen(function* () {
+        const expiresAt = leaseExpiry(now, leaseTtlMs);
         const { active, change, running } = starting({
+          ...(expiresAt === undefined ? {} : { expiresAt }),
           job,
           now,
           owner: self,

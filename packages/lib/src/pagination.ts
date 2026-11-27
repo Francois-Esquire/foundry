@@ -22,14 +22,14 @@ export function pageLimit(
 export function pageFromRows<T, Cursor>(
   rows: readonly T[],
   limit: number,
-  total: number,
+  total: number | undefined,
   cursor: (item: T) => Cursor
 ): Page<T, Cursor> {
   const items = rows.slice(0, limit);
   const last = items.at(-1);
   return {
     items,
-    total,
+    ...(total === undefined ? {} : { total }),
     ...(rows.length > limit && last !== undefined
       ? { nextCursor: cursor(last) }
       : {}),
@@ -61,13 +61,13 @@ export function buildPage<Row, Item>(
   rows: readonly Row[],
   limit: number,
   offset: number,
-  total: number,
+  total: number | undefined,
   hydrate: (row: Row) => Item
 ): Page<Item, number> {
   const items = rows.slice(0, limit).map(hydrate);
   return {
     items,
-    total,
+    ...(total === undefined ? {} : { total }),
     ...(rows.length > limit ? { nextCursor: offset + items.length } : {}),
   };
 }

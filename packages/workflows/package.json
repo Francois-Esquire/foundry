@@ -8,47 +8,58 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./src/index.ts"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./approval": {
       "types": "./dist/approval.d.ts",
-      "import": "./src/approval.ts"
+      "import": "./src/approval.ts",
+      "default": "./src/approval.ts"
     },
     "./channels": {
       "types": "./dist/channels.d.ts",
-      "import": "./src/channels.ts"
+      "import": "./src/channels.ts",
+      "default": "./src/channels.ts"
     },
     "./definitions": {
       "types": "./dist/definitions.d.ts",
-      "import": "./src/definitions.ts"
+      "import": "./src/definitions.ts",
+      "default": "./src/definitions.ts"
     },
     "./executable": {
       "types": "./dist/executable.d.ts",
-      "import": "./src/executable.ts"
+      "import": "./src/executable.ts",
+      "default": "./src/executable.ts"
     },
     "./queue-handler": {
       "types": "./dist/queue-handler.d.ts",
-      "import": "./src/queue-handler.ts"
+      "import": "./src/queue-handler.ts",
+      "default": "./src/queue-handler.ts"
     },
     "./snapshot": {
       "types": "./dist/snapshot.d.ts",
-      "import": "./src/snapshot.ts"
+      "import": "./src/snapshot.ts",
+      "default": "./src/snapshot.ts"
     },
     "./step": {
       "types": "./dist/step.d.ts",
-      "import": "./src/step.ts"
+      "import": "./src/step.ts",
+      "default": "./src/step.ts"
     },
     "./step-hooks": {
       "types": "./dist/step-hooks.d.ts",
-      "import": "./src/step-hooks.ts"
+      "import": "./src/step-hooks.ts",
+      "default": "./src/step-hooks.ts"
     },
     "./types": {
       "types": "./dist/types.d.ts",
-      "import": "./src/types.ts"
+      "import": "./src/types.ts",
+      "default": "./src/types.ts"
     },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
-      "import": "./src/workflow.ts"
+      "import": "./src/workflow.ts",
+      "default": "./src/workflow.ts"
     }
   },
   "scripts": {

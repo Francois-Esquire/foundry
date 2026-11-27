@@ -74,15 +74,35 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     const committing = <T>(call: () => Promise<T>): Promise<T> =>
       this.#call(call);
     this.taskStore = {
+      children: (parentId) => this.#call(() => store.children(parentId)),
       commit: (write) => committing(() => storing(store.commit(write))),
+      dependenciesOf: (ids) => this.#call(() => store.dependenciesOf(ids)),
       get: (id) => this.#call(() => store.get(id)),
+      list: (query) => this.#call(() => store.list(query)),
       snapshot: () => this.#call(() => store.snapshot()),
       transaction: (work) =>
         committing(() =>
           store.transaction((view) =>
             work({
+              ...(view.children === undefined
+                ? {}
+                : {
+                    children: (parentId) =>
+                      view.children?.(parentId) ?? Promise.resolve([]),
+                  }),
               commit: (write) => storing(view.commit(write)),
+              ...(view.dependenciesOf === undefined
+                ? {}
+                : {
+                    dependenciesOf: (ids) =>
+                      view.dependenciesOf?.(ids) ?? Promise.resolve([]),
+                  }),
               get: (id) => view.get(id),
+              ...(view.list === undefined
+                ? {}
+                : {
+                    list: (query) => view.list?.(query) ?? Promise.resolve([]),
+                  }),
               snapshot: () => view.snapshot(),
             })
           )

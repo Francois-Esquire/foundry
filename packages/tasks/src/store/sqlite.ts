@@ -10,7 +10,15 @@ import {
   UNSTORABLE_TEXT,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import { and, eq, getTableColumns, inArray, max, or } from "drizzle-orm";
+import {
+  and,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  max,
+  or,
+} from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import type {
   Task,
@@ -19,7 +27,8 @@ import type {
   TaskSnapshot,
   TaskStoreWrite,
 } from "../schema";
-import type { TaskStore } from "./index";
+import { edgeKey } from "../schema";
+import type { TaskStore, TaskStoreListQuery } from "./index";
 import { taskDependencies, tasks } from "./tables";
 
 export type TaskDatabase = SqliteDatabase;
@@ -110,6 +119,95 @@ export class SqliteTaskStore implements TaskStore {
         .where(and(eq(tasks.scope, this.#scope), eq(tasks.id, id)));
       return task ?? null;
     });
+  }
+
+  list(query: TaskStoreListQuery = {}): Promise<readonly Task[]> {
+    return this.#turns.run(() =>
+      this.#database.transaction(async (transaction) => {
+        if (
+          (query.status !== undefined && !storableText(query.status)) ||
+          (query.parentId !== undefined &&
+            query.parentId !== null &&
+            !storableText(query.parentId))
+        ) {
+          return [];
+        }
+        let parentCondition:
+          | ReturnType<typeof eq>
+          | ReturnType<typeof isNull>
+          | undefined;
+        if (query.parentId === null) {
+          parentCondition = isNull(tasks.parentId);
+        } else if (query.parentId !== undefined) {
+          parentCondition = eq(tasks.parentId, query.parentId);
+        }
+        return await transaction
+          .select(taskColumns)
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.scope, this.#scope),
+              query.status === undefined
+                ? undefined
+                : eq(tasks.status, query.status),
+              parentCondition
+            )
+          )
+          .orderBy(tasks.position);
+      })
+    );
+  }
+
+  children(parentId: TaskId): Promise<readonly Task[]> {
+    return this.list({ parentId });
+  }
+
+  dependenciesOf(ids: readonly TaskId[]): Promise<readonly TaskDependency[]> {
+    return this.#turns.run(() =>
+      this.#database.transaction(async (transaction) => {
+        const valid = [...new Set(ids)].filter(storableText);
+        if (valid.length === 0) {
+          return [];
+        }
+        const seen = new Map<
+          string,
+          { readonly edge: TaskDependency; readonly position: number }
+        >();
+        const batchSize = Math.floor((SQLITE_MAX_PARAMETERS - 1) / 2);
+        for (const batch of batches(valid, batchSize)) {
+          const rows = await transaction
+            .select({
+              dependsOnId: taskDependencies.dependsOnId,
+              position: taskDependencies.position,
+              taskId: taskDependencies.taskId,
+            })
+            .from(taskDependencies)
+            .where(
+              and(
+                eq(taskDependencies.scope, this.#scope),
+                or(
+                  inArray(taskDependencies.taskId, batch),
+                  inArray(taskDependencies.dependsOnId, batch)
+                )
+              )
+            )
+            .orderBy(taskDependencies.position);
+          for (const row of rows) {
+            const edge: TaskDependency = {
+              dependsOnId: row.dependsOnId,
+              taskId: row.taskId,
+            };
+            const key = edgeKey(edge);
+            if (!seen.has(key)) {
+              seen.set(key, { edge, position: row.position });
+            }
+          }
+        }
+        return [...seen.values()]
+          .sort((a, b) => a.position - b.position)
+          .map((entry) => entry.edge);
+      })
+    );
   }
 
   snapshot(): Promise<TaskSnapshot> {

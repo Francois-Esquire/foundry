@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gatewayProvider } from "@foundry/models/providers/gateway";
-import { afterEach, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { DatabaseAutomationStore } from "~/database/automations";
 import { openDatabase } from "~/database/open";
@@ -14,9 +14,6 @@ import { rollSchedule } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { declared } from "../helpers/engine";
 
-afterEach(() => {
-  catalog.reset();
-});
 for (const harness of ["builtin", "claude-code", "codex"] as const) {
   it(`${harness} exposes real child activity and creates a durable schedule through MicroSandbox`, async () => {
     const parent = await mkdtemp(
@@ -29,37 +26,10 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     const nativeMarker = `native-${crypto.randomUUID()}`;
     await writeFile(join(root, "evidence.txt"), nativeMarker);
     let fired = 0;
-    step("automation-proof").do(async () => {
+    const proof = step("automation-proof").do(async () => {
       fired += 1;
       await writeFile(join(root, "scheduled.txt"), "ran");
       return "ran";
-    });
-    const engine = createEngine({
-      askable: true,
-      catalog,
-      dry: false,
-      print: () => undefined,
-      providers:
-        harness === "builtin"
-          ? [
-              gatewayProvider({
-                config: {
-                  apiKey: process.env.AI_GATEWAY_API_KEY,
-                  baseURL: "https://ai-gateway.vercel.sh/v1",
-                },
-                models: [
-                  {
-                    id: "openai/gpt-5-mini",
-                    kind: "text",
-                    modelId: "openai/gpt-5-mini",
-                  },
-                ],
-              }),
-            ]
-          : [],
-      root,
-      stateDir: state,
-      workspaceId: `activities-${harness}`,
     });
     const model = {
       builtin: "openai/gpt-5-mini",
@@ -71,7 +41,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     let nativeApprovals = 0;
     let parentReply = "";
     let bodyCount = 0;
-    step("activity-coding").do(async ({ agents, sandboxes }) => {
+    const coding = step("activity-coding").do(async ({ agents, sandboxes }) => {
       bodyCount += 1;
       const sandbox = await sandboxes.start({
         executable: true,
@@ -143,6 +113,34 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         ).text;
       }
       return parentReply;
+    });
+    const collected = Catalog.collect([proof, coding]);
+    const engine = createEngine({
+      askable: true,
+      catalog: collected,
+      dry: false,
+      print: () => undefined,
+      providers:
+        harness === "builtin"
+          ? [
+              gatewayProvider({
+                config: {
+                  apiKey: process.env.AI_GATEWAY_API_KEY,
+                  baseURL: "https://ai-gateway.vercel.sh/v1",
+                },
+                models: [
+                  {
+                    id: "openai/gpt-5-mini",
+                    kind: "text",
+                    modelId: "openai/gpt-5-mini",
+                  },
+                ],
+              }),
+            ]
+          : [],
+      root,
+      stateDir: state,
+      workspaceId: `activities-${harness}`,
     });
     await engine.start();
     let passed = false;
@@ -258,7 +256,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
           scope: `activities-${harness}`,
         });
       const restored = new AutomationService({
-        registry: declared(),
+        registry: declared(collected),
         store: stored(),
       });
       const schedule = (await restored.schedules()).find(
@@ -278,7 +276,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       await restored.delete(schedule.key);
       expect(
         await new AutomationService({
-          registry: declared(),
+          registry: declared(collected),
           store: stored(),
         }).list()
       ).toHaveLength(0);

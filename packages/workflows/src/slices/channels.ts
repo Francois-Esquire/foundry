@@ -91,6 +91,10 @@ export class Channels<S = unknown> {
     this.#onLog?.(entry);
   }
 
+  get snapshot(): Snapshot {
+    return this.#snapshot;
+  }
+
   /** @internal */
   static make<Chunk = unknown>(
     snapshot: Snapshot
@@ -104,27 +108,6 @@ export class Channels<S = unknown> {
         PubSub.unbounded<ChannelChunk<Chunk>>(),
         (h) => PubSub.shutdown(h)
       );
-
-      const events: PubSubChannel<ChannelEvent> = {
-        publish: (event) =>
-          Effect.gen(function* () {
-            yield* snapshot.applyEventEffect(event);
-            yield* PubSub.publish(eventsPubSub, event);
-          }),
-        pubsub: eventsPubSub,
-        push: (event) => {
-          snapshot.applyEvent(event);
-          Effect.runSync(PubSub.publish(eventsPubSub, event));
-        },
-        stream: Stream.fromPubSub(eventsPubSub),
-      };
-
-      const chunks: PubSubChannel<ChannelChunk<Chunk>> = {
-        publish: (chunk) => PubSub.publish(chunksPubSub, chunk),
-        pubsub: chunksPubSub,
-        push: (chunk) => Effect.runSync(PubSub.publish(chunksPubSub, chunk)),
-        stream: Stream.fromPubSub(chunksPubSub),
-      };
 
       let controller: ReadableStreamDefaultController<
         ChannelMessage<Chunk>
@@ -145,20 +128,35 @@ export class Channels<S = unknown> {
         }
       };
 
-      yield* Effect.forkScoped(
-        Stream.runForEach(events.stream, (event) =>
-          Effect.sync(() => {
+      const events: PubSubChannel<ChannelEvent> = {
+        publish: (event) =>
+          Effect.gen(function* () {
+            yield* snapshot.applyEventEffect(event);
             enqueue({ _tag: "event", event });
-          })
-        )
-      );
-      yield* Effect.forkScoped(
-        Stream.runForEach(chunks.stream, (chunk) =>
+            yield* PubSub.publish(eventsPubSub, event);
+          }),
+        pubsub: eventsPubSub,
+        push: (event) => {
+          snapshot.applyEvent(event);
+          enqueue({ _tag: "event", event });
+          Effect.runSync(PubSub.publish(eventsPubSub, event));
+        },
+        stream: Stream.fromPubSub(eventsPubSub),
+      };
+
+      const chunks: PubSubChannel<ChannelChunk<Chunk>> = {
+        publish: (chunk) =>
           Effect.sync(() => {
             enqueue({ _tag: "chunk", chunk });
-          })
-        )
-      );
+          }).pipe(Effect.zipRight(PubSub.publish(chunksPubSub, chunk))),
+        pubsub: chunksPubSub,
+        push: (chunk) => {
+          enqueue({ _tag: "chunk", chunk });
+          Effect.runSync(PubSub.publish(chunksPubSub, chunk));
+        },
+        stream: Stream.fromPubSub(chunksPubSub),
+      };
+
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           closed = true;

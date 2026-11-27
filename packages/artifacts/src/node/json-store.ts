@@ -77,6 +77,8 @@ export class JsonArtifactStore implements ArtifactStore {
           return read((records) => records.commit(copy));
         },
         durability: "host",
+        findBlobByPath: (path) =>
+          read((records) => records.findBlobByPath(path)),
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
@@ -106,6 +108,10 @@ export class JsonArtifactStore implements ArtifactStore {
         open = false;
       }
     });
+  }
+
+  async findBlobByPath(path: string): Promise<Blob | null> {
+    return (await this.#current()).findBlobByPath(path);
   }
 
   async findBlobs(digest: string): Promise<readonly Blob[]> {

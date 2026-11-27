@@ -10,7 +10,6 @@ import type { Job, JobId, Run, RunId } from "@foundry/queue";
 import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { Effect } from "effect";
 import { afterEach, beforeEach } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import { readExecution } from "~/database/executions";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase, readDatabase } from "~/database/open";
@@ -27,7 +26,6 @@ export function executionFixture() {
     root = await mkdtemp(join(tmpdir(), "marbles-executions-"));
   });
   afterEach(async () => {
-    catalog.reset();
     await Promise.allSettled(
       engines.splice(0).map((engine) => engine.dispose())
     );

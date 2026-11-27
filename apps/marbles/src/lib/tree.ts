@@ -5,6 +5,7 @@ import type { RetryPolicy } from "@foundry/workflows/types";
 import { isBail } from "@foundry/workflows/types";
 
 import type { Bindings } from "./bindings";
+import { timeoutMs } from "./cadence";
 import { asRun } from "./calling-run";
 import { buildContext } from "./context";
 import type {
@@ -24,7 +25,6 @@ import {
   setupCounters,
   workingDirectory,
 } from "./run-scope";
-import { parseEvery } from "./schedule";
 import { notJson, validate } from "./schema";
 
 type Input = Readonly<Record<string, unknown>>;
@@ -319,18 +319,6 @@ async function childInput(
       ? await validate(definition.input, raw ?? {}, `${where} input`)
       : (raw ?? {})
   ) as Input;
-}
-
-export function timeoutMs(timeout: number | string): number {
-  if (typeof timeout === "number") {
-    if (!(Number.isSafeInteger(timeout) && timeout > 0)) {
-      throw new Error(
-        `a timeout must be a positive number of milliseconds, not ${timeout}`
-      );
-    }
-    return timeout;
-  }
-  return parseEvery(timeout);
 }
 
 function startTimeout(

@@ -1,11 +1,11 @@
 import { expect, it } from "vitest";
 import { agent, models } from "~/authoring";
-import { libraryOfLoad } from "~/authoring/bound";
 import { Catalog } from "~/authoring/catalog";
-import { loadInto, releaseEngine, setHost } from "~/authoring/runtime";
+import { captureScope, releaseEngine, setHost } from "~/authoring/runtime";
+import { inContext } from "~/lib/execution-context";
 import { testEngine } from "./helpers/engine";
 
-it("checks the engine bound to the importing load, including after a replacement", async () => {
+it("checks the engine bound to the active context or captured scope, including after a replacement", async () => {
   const workspaceId = "model-availability";
   const first = new Catalog();
   const second = new Catalog();
@@ -17,27 +17,23 @@ it("checks the engine bound to the importing load, including after a replacement
     executors: [{ harness: "codex", model: "second-only", provider: "codex" }],
     workspaceId,
   });
-  const bind = (into: Catalog) =>
-    loadInto(workspaceId, into, (load) =>
-      Promise.resolve(libraryOfLoad({ models }, load).models as typeof models)
-    );
 
   try {
-    const prior = await bind(first);
-    expect(prior.available("codex/first-only")).toBe(false);
+    expect(models.available("codex/first-only")).toBe(false);
     setHost(original, first);
-    const later = await bind(second);
+    const priorScope = inContext(original.context, captureScope);
     setHost(replacement, second);
+    const laterScope = inContext(replacement.context, captureScope);
 
-    expect(prior.available("codex/first-only")).toBe(true);
-    expect(prior.available("second-only")).toBe(false);
-    expect(later.available("codex/second-only")).toBe(true);
-    expect(later.available("first-only")).toBe(false);
+    expect(priorScope(() => models.available("codex/first-only"))).toBe(true);
+    expect(priorScope(() => models.available("second-only"))).toBe(false);
+    expect(laterScope(() => models.available("codex/second-only"))).toBe(true);
+    expect(laterScope(() => models.available("first-only"))).toBe(false);
     await original.dispose();
     releaseEngine(original);
-    expect(() => prior.available("codex/first-only")).toThrow(
-      "no longer hosted"
-    );
+    expect(() =>
+      priorScope(() => models.available("codex/first-only"))
+    ).toThrow("no longer hosted");
   } finally {
     await Promise.all([original.dispose(), replacement.dispose()]);
     releaseEngine(original);

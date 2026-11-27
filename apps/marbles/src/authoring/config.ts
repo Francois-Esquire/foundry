@@ -1,9 +1,14 @@
 import { z } from "zod";
 import {
   AGENT_DEFINITION,
+  AGENT_META,
   AGENT_PROMPT,
   DEFINITION_IDENTITY,
+  MONITOR_META,
+  OBSERVER_META,
+  PROVIDER_DECLARATION,
   SANDBOX_HANDLE,
+  SCHEDULE_META,
 } from "~/lib/handles";
 
 export type PoolConfig = number | { readonly limit: number };
@@ -37,6 +42,18 @@ const schema = z.strictObject({
     .optional(),
 });
 
+const NON_CONFIG_MARKERS = [
+  AGENT_DEFINITION,
+  AGENT_META,
+  AGENT_PROMPT,
+  DEFINITION_IDENTITY,
+  MONITOR_META,
+  OBSERVER_META,
+  PROVIDER_DECLARATION,
+  SANDBOX_HANDLE,
+  SCHEDULE_META,
+] as const;
+
 export function configOf(
   file: string,
   value: unknown
@@ -47,9 +64,7 @@ export function configOf(
     (Object.getPrototypeOf(value) !== Object.prototype &&
       Object.getPrototypeOf(value) !== null) ||
     "kind" in value ||
-    [AGENT_DEFINITION, AGENT_PROMPT, DEFINITION_IDENTITY, SANDBOX_HANDLE].some(
-      (marker) => marker in value
-    )
+    NON_CONFIG_MARKERS.some((marker) => marker in value)
   ) {
     return;
   }
