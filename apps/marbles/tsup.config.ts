@@ -105,7 +105,10 @@ export default defineConfig([
       options.chunkNames = "node-[hash]";
     },
     onSuccess: async () => {
-      cpSync("src/database/migrations", "dist/migrations", { recursive: true });
+      cpSync("src/database/migrations", "dist/migrations", {
+        filter: (src) => !src.endsWith("bundled.ts"),
+        recursive: true,
+      });
     },
     platform: "node",
   },

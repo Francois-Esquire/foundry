@@ -4,13 +4,13 @@ import { fileURLToPath } from "node:url";
 
 import type { Client } from "@libsql/client";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import { BUNDLED_MIGRATIONS } from "~/database/bundled-migrations";
 import {
   applyMigrations,
   schemaState as coreSchemaState,
   type SchemaState,
   type ShippedMigration,
 } from "~/database/migrate-core";
+import { BUNDLED_MIGRATIONS } from "~/database/migrations/bundled";
 import type { StoreDatabase } from "~/database/types";
 
 export type { SchemaState, ShippedMigration } from "~/database/migrate-core";
