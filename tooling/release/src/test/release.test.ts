@@ -362,7 +362,8 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
   };
   const commandsOf = (id: string) =>
     job(id).steps.flatMap(({ run }) => (run ? [run] : []));
-  const work = ["docs", "release", "test", "test-spyglass", "validate"];
+  const bunWork = ["docs", "release", "test", "test-spyglass", "validate"];
+  const work = ["build-binaries", "changes", ...bunWork].sort();
   expect(Object.keys(ci.jobs).sort()).toEqual([...work, "verify"].sort());
   for (const id of Object.keys(ci.jobs)) {
     expect(job(id).permissions).toBeUndefined();
@@ -372,12 +373,44 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
     expect(commandsOf(id)).not.toContain("bun run docs:typecheck");
   }
 
+  const buildBinaries = job("build-binaries");
+  expect(buildBinaries.needs).toEqual(["changes"]);
+  expect(buildBinaries.if).toBe(
+    actionExpression("needs.changes.outputs.binaries == 'true'")
+  );
+  expect(buildBinaries.strategy?.matrix?.include).toHaveLength(4);
+  expect(
+    buildBinaries.steps.find(({ uses }) => uses?.startsWith("actions/cache@"))
+      ?.if
+  ).toBe("github.event_name == 'pull_request'");
+  expect(
+    buildBinaries.steps.find(({ run }) =>
+      run?.includes("cargo clippy --workspace --locked")
+    )?.if
+  ).toBe("matrix.name == 'linux-x64'");
+  expect(
+    buildBinaries.steps.find(
+      ({ run }) => run === "cargo test --workspace --locked"
+    )?.if
+  ).toBe("matrix.name == 'linux-x64'");
+  expect(
+    buildBinaries.steps.find(
+      ({ run }) => run === "cargo test --workspace --locked -- --ignored"
+    )?.if
+  ).toBe("matrix.name == 'linux-x64'");
+  expect(
+    buildBinaries.steps.find(({ uses }) => uses === "./.github/actions/setup")
+      ?.if
+  ).toBe("matrix.name == 'linux-x64'");
+  expect(job("test").needs).toEqual(["changes", "build-binaries"]);
+  expect(job("release").needs).toEqual(["changes", "build-binaries"]);
+
   const verify = job("verify");
   expect(verify.name).toBe("Verify");
   expect(verify.if).toBe("always()");
   expect([...(verify.needs ?? [])].sort()).toEqual(work);
   expect(commandsOf("verify").join("\n")).toContain(
-    'all(.[]; .result == "success")'
+    'all(.[]; .result == "success" or .result == "skipped")'
   );
 
   const setup = YAML.parse(
@@ -392,7 +425,7 @@ test("CI runs parallel jobs behind one Verify check, main keeps its tested archi
       ({ run }) => run === "bun install --frozen-lockfile"
     )
   ).toHaveLength(1);
-  for (const id of work) {
+  for (const id of bunWork) {
     expect(
       job(id).steps.filter(({ uses }) => uses === "./.github/actions/setup")
     ).toHaveLength(1);

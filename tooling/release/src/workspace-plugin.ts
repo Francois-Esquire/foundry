@@ -8,6 +8,8 @@ import { LinkedVersions } from "release-please/build/src/plugins/linked-versions
 import type { Release } from "release-please/build/src/release";
 import type { Scm } from "release-please/build/src/scm";
 import { PackageJson } from "release-please/build/src/updaters/node/package-json";
+import { CargoLock } from "release-please/build/src/updaters/rust/cargo-lock";
+import { DAEMON_DIRECTORY, DAEMON_RELEASE_PATHS } from "./daemon";
 import { bundledPaths, readReleaseCommits } from "./history";
 import { libraryGroup } from "./library-group";
 import { discoverWorkspaces } from "./release";
@@ -43,17 +45,20 @@ export class WorkspacePlugin extends ManifestPlugin {
     const workspaces = discoverWorkspaces(this.root);
     for (const path of Object.keys(strategies)) {
       const workspace = workspaces.find(({ directory }) => directory === path);
+      const daemon = path === DAEMON_DIRECTORY;
       const extension = path === "tooling/vscode-extension";
       const publicPackage =
         (path.startsWith("apps/") || path.startsWith("packages/")) &&
         workspace?.manifest.private !== true;
-      if (!(workspace && (extension || publicPackage))) {
+      if (!(daemon || (workspace && (extension || publicPackage)))) {
         throw new Error(
-          `Release component ${path} must be a public app or library workspace, or the VS Code extension`
+          `Release component ${path} must be a public app or library workspace, the VS Code extension, or the marbles daemon`
         );
       }
-      let paths = [path];
-      if (path.startsWith("packages/")) {
+      let paths: string[] = [path];
+      if (daemon) {
+        paths = [...DAEMON_RELEASE_PATHS];
+      } else if (path.startsWith("packages/")) {
         paths = ["packages"];
       } else if (!extension) {
         paths = bundledPaths(path, workspaces);
@@ -82,7 +87,21 @@ export class WorkspacePlugin extends ManifestPlugin {
       }
     }
     const releases = await this.libraries.run(candidates);
-    for (const { pullRequest } of releases) {
+    for (const candidate of releases) {
+      const { pullRequest } = candidate;
+      if (candidate.path === DAEMON_DIRECTORY && pullRequest.version) {
+        const subLock = `${DAEMON_DIRECTORY}/Cargo.lock`;
+        pullRequest.updates = pullRequest.updates.filter(
+          (update) => update.path !== subLock && update.path !== "Cargo.lock"
+        );
+        pullRequest.updates.push({
+          createIfMissing: false,
+          path: "Cargo.lock",
+          updater: new CargoLock(
+            new Map([["marbles-daemon", pullRequest.version]])
+          ),
+        });
+      }
       const manifest = pullRequest.updates.find(
         (update) => update.path === ".release-please-manifest.json"
       );

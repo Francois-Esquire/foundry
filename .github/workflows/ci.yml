@@ -18,6 +18,34 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      binaries: ${{ steps.detect.outputs.binaries }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check whether binary crates or dependent packages changed
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "binaries=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -qE '^(crates/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|apps/marbles/|packages/|tooling/release/|\.github/workflows/ci\.yml$)'; then
+            echo "binaries=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "binaries=false" >> "$GITHUB_OUTPUT"
+          fi
+
   validate:
     name: Validate
     runs-on: ubuntu-latest
@@ -69,8 +97,97 @@ jobs:
         with:
           turbo-cache: test-spyglass-${{ matrix.shard }}
 
+  build-binaries:
+    name: Build binaries (${{ matrix.name }})
+    needs: [changes]
+    if: ${{ needs.changes.outputs.binaries == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: darwin-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            musl: false
+            native: true
+          - name: darwin-x64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            musl: false
+            native: false
+          - name: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            musl: true
+            native: true
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            musl: true
+            native: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install musl C compiler
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Add Rust target
+        run: rustup target add "${{ matrix.target }}"
+      - name: Cache Cargo on pull requests
+        if: github.event_name == 'pull_request'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-binaries-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-binaries-${{ matrix.target }}-
+      - name: Check Rust formatting and Clippy
+        if: matrix.name == 'linux-x64'
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --locked --all-targets -- -D warnings
+      - name: Run Rust workspace tests
+        if: matrix.name == 'linux-x64'
+        run: cargo test --workspace --locked
+      - name: Build release binaries
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build --workspace --bins --release --locked --target "${{ matrix.target }}"
+      - name: Verify release binaries run
+        if: matrix.native
+        run: '"target/${{ matrix.target }}/release/marbles-daemon" --help'
+      - name: Verify release binaries are statically linked
+        if: matrix.musl
+        run: file "target/${{ matrix.target }}/release/marbles-daemon" | grep -qE "statically linked|static-pie linked"
+      - name: Stage release binaries
+        run: |
+          mkdir -p ".cache/binaries/${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/marbles-daemon" ".cache/binaries/${{ matrix.target }}/marbles-daemon"
+          chmod 755 ".cache/binaries/${{ matrix.target }}/marbles-daemon"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: binaries-${{ matrix.target }}
+          path: .cache/binaries
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+      - uses: ./.github/actions/setup
+        if: matrix.name == 'linux-x64'
+      - name: Run cross-language contract tests
+        if: matrix.name == 'linux-x64'
+        run: cargo test --workspace --locked -- --ignored
+
   test:
     name: Test packages
+    needs: [changes, build-binaries]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -81,14 +198,25 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           turbo-cache: test
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: ${{ needs.changes.outputs.binaries == 'true' }}
+        with:
+          name: binaries-x86_64-unknown-linux-musl
+          path: .cache/binaries
+      - name: Mark binaries executable
+        if: ${{ needs.changes.outputs.binaries == 'true' }}
+        run: chmod 755 .cache/binaries/x86_64-unknown-linux-musl/marbles-daemon
       - name: Test affected packages
         if: github.event_name == 'pull_request'
         env:
+          MARBLES_DAEMON_BIN: ${{ needs.changes.outputs.binaries == 'true' && format('{0}/.cache/binaries/x86_64-unknown-linux-musl/marbles-daemon', github.workspace) || '' }}
           TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
           TURBO_SCM_HEAD: ${{ github.sha }}
         run: bun run test --affected --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
       - name: Test all packages on main and manual runs
         if: github.event_name != 'pull_request'
+        env:
+          MARBLES_DAEMON_BIN: ${{ github.workspace }}/.cache/binaries/x86_64-unknown-linux-musl/marbles-daemon
         run: bun run test --filter=!@foundry.sh/spyglass --concurrency=2 --continue=always
       - uses: ./.github/actions/save-turbo-cache
         if: always()
@@ -97,6 +225,8 @@ jobs:
 
   release:
     name: Release archives
+    needs: [changes, build-binaries]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -108,6 +238,15 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: git merge-base --is-ancestor HEAD origin/main
       - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        if: ${{ needs.changes.outputs.binaries == 'true' }}
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: .cache/binaries
+      - name: Mark binaries executable
+        if: ${{ needs.changes.outputs.binaries == 'true' }}
+        run: chmod 755 .cache/binaries/*/marbles-daemon
       - name: Build packages
         run: bun run build
       - name: Test the packaged extension
@@ -127,7 +266,13 @@ jobs:
       - name: Check public packages
         run: bun run release:check
       - name: Pack and test public packages
+        if: ${{ needs.changes.outputs.binaries == 'true' }}
+        env:
+          DAEMON_BINARIES_DIR: ${{ github.workspace }}/.cache/binaries
         run: bun run release:pack
+      - name: Pack and test unaffected JS release packages
+        if: ${{ needs.changes.outputs.binaries != 'true' }}
+        run: bun run release:pack --package spyglass
       - name: Keep the tested archives of this commit for release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -163,7 +308,7 @@ jobs:
 
   verify:
     name: Verify
-    needs: [validate, test-spyglass, test, release, docs]
+    needs: [changes, validate, build-binaries, test-spyglass, test, release, docs]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -173,4 +318,4 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")' > /dev/null
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped") and all(["changes", "validate", "test-spyglass", "test", "release", "docs"][]; $r[.].result == "success")' --argjson r "$RESULTS" > /dev/null

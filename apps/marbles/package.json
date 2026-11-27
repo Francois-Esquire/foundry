@@ -127,7 +127,7 @@
     "@foundry/usage": "workspace:*",
     "@foundry/workflows": "workspace:*",
     "@foundry/workspaces": "workspace:*",
-    "@types/bun": "1.3.14",
+    "@types/bun": "1.4.4",
     "@types/react": "19.3.0",
     "@xterm/headless": "6.0.0",
     "drizzle-kit": "^0.31.11",

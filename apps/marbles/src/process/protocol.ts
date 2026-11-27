@@ -148,15 +148,7 @@ const setupDraftSchema = z.object({
 });
 export type SetupDraftParams = z.infer<typeof setupDraftSchema>;
 
-export const attachParamsSchema = z.object({
-  root: z.string().min(1).optional(),
-  setup: setupDraftSchema.optional(),
-  source: z.string().min(1),
-});
-
 export const workspaceIdSchema = z.object({ id: z.string().min(1) });
-
-export const registerParamsSchema = z.object({ token: z.string().min(1) });
 
 const WORKSPACE_STATES: readonly WorkspaceState[] = [
   "starting",
@@ -281,7 +273,7 @@ const workspaceLoadSchema = z.object({
 });
 export type WorkspaceLoadResult = z.infer<typeof workspaceLoadSchema>;
 
-export const loadResultSchema = z.object({
+const loadResultSchema = z.object({
   identity: identitySchema,
   loads: z.array(workspaceLoadSchema),
 });
@@ -291,26 +283,10 @@ export const startParamsSchema = z.object({
   setups: z.record(z.string(), setupDraftSchema).optional(),
 });
 
-export const startResultSchema = z.object({
-  loads: z.array(workspaceLoadSchema),
-});
-
 export const hostParamsSchema = z.object({
   config: z.string().nullable(),
   root: z.string(),
   setup: setupDraftSchema.optional(),
-});
-
-export const hostResultSchema = z.object({
-  config: z.string().nullable(),
-  id: z.string(),
-  root: z.string(),
-});
-
-export const readParamsSchema = z.object({
-  file: z.string(),
-  readAt: z.number(),
-  root: z.string(),
 });
 
 export const handedParamsSchema = z.object({
@@ -323,11 +299,6 @@ export const queuedParamsSchema = z.object({
   owner: identitySchema,
   runId: z.string(),
 });
-
-export const queuedTakeSchema = z.discriminatedUnion("taken", [
-  z.object({ taken: z.literal(true) }),
-  z.object({ taken: z.literal(false), why: z.string() }),
-]);
 
 export const retireParamsSchema = z.object({
   successor: identitySchema,

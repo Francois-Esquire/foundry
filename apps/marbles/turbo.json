@@ -15,8 +15,15 @@
     },
     "test": {
       "dependsOn": ["build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "../../crates/marbles-daemon/Cargo.toml",
+        "../../crates/marbles-daemon/src/**",
+        "../../Cargo.toml",
+        "../../Cargo.lock"
+      ],
       "outputs": [],
-      "env": ["MARBLES_TEST_RUNS"]
+      "env": ["MARBLES_TEST_RUNS", "MARBLES_DAEMON_BIN"]
     },
     "test:integration": {
       "dependsOn": ["^build", "db:generate"],

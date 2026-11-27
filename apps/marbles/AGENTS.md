@@ -257,7 +257,7 @@ Source responsibilities and dependency boundaries:
   many its run has; and what pruning removed, `marbles_execution_gaps`,
   counted once the queue has removed the pruned jobs, in the transaction
   that deletes whatever annex rows remain. Its readers
-  (`readExecution`, `queuedRuns`) project a run from the queue's tables.
+  (`readExecution`) project a run from the queue's tables.
   The run store's `onCommit` hook deletes a removed job's rows in the
   commit that records `job.removed`. `automations.ts` is the triggers agents created, one
   row of `marbles_automations` each, an edit a transaction that reads
@@ -383,11 +383,20 @@ Source responsibilities and dependency boundaries:
   takes over. It imports `lib/`,
   `authoring/`, `database/`, `layout.ts` and `model/`; never `cli/` or
   `process/`.
-- `src/process/` is the Marbles process: one daemon per machine
-  (`daemon.ts`) that claims `locks/process` at the state root, listens on
-  the layout's Unix socket, and hosts every registered workspace in one
-  engine subprocess, a generation (`generation.ts`, which loads workspace engines), each numbered in `marbles_generations`
-  (`database/generations.ts`). A change of what the current generation
+- `src/process/` is the TypeScript side of the Marbles process. The
+  supervisor daemon itself is the compiled Rust binary in
+  `crates/marbles-daemon`, which claims `locks/process` at the state root,
+  listens on the layout's Unix socket, fingerprints workspaces and
+  installations, self-recycles when its own binary changes, and hosts every
+  registered workspace in one Bun engine subprocess — a generation
+  (`generation.ts`, the only module that imports `workspace/`; `initialize.ts`
+  is the one-shot entry the daemon runs to migrate state).
+  `daemon-binary.ts` locates and spawns the daemon binary from
+  `MARBLES_DAEMON_BIN`, an installed `@foundry.sh/marbles-daemon-<os>-<arch>`
+  platform package, a sibling executable, or a built workspace checkout under
+  `target/{release,debug}/marbles-daemon`; `daemon.ts` provides the
+  programmatic `startDaemon` handle. Each generation is numbered in
+  `marbles_generations` (`database/generations.ts`). A change of what the current generation
   loaded (its fingerprint: the installation and every workspace's
   source), a reload, or a generation that died starts a candidate: it
   loads every registered workspace up to engines not yet started, else
@@ -420,11 +429,11 @@ Source responsibilities and dependency boundaries:
   as "cannot tell". A queued run whose owner is proved gone is adopted by
   the current generation as it starts, or through the sweep
   (`Engine.adoptQueued`), both the queue's `recover`. The fingerprint
-  (`process/fingerprint.ts`) is taken before a generation loads: every
+  (`crates/marbles-daemon/src/fingerprint/`) is taken before a generation loads: every
   file under each workspace's root, by relative path and content, and
   every file the generation reports reading outside it (`read` in
   `workspace/loader.ts`), recorded as it was when read. On load refusal,
-  `watching` keeps the outside paths the preceding generation read, with
+  the daemon keeps watching the outside paths the preceding generation read, with
   their digests at the failed attempt. Restoring one of those files can
   trigger a fresh load even when the candidate never read it.
   A moved queued agent dispatch reopens its stored session in the engine
@@ -435,14 +444,12 @@ Source responsibilities and dependency boundaries:
   Execution Run, answers and activity stops to each hosting generation in
   turn until one takes it (any of them can answer a run's question), the
   rest to the current one. Snapshots gather the live runs and step work of retiring generations
-  before the current host builds the view (the tables beside `RUN_METHODS`
-  in `daemon.ts`); every signal to a generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
+  before the current host builds the view; every signal to a generation first proves its pid and start. The rest is the wire protocol (`protocol.ts`,
   `channel.ts`); the client (`client.ts`), which joins the running daemon
   or starts one; and the claim (`instance.ts`). Apart from the generation and
   client-side `access.ts` (never imported by `daemon.ts`), `src/process/`
-  imports only `lib/`, `database/`, `layout.ts`, `model/` and the pure
-  discovery and digests in `workspace/source.ts`,
-  so the daemon never loads an authoring module and survives any of them.
+  imports only `lib/`, `database/`, `layout.ts`, `model/` and `runtime.ts`,
+  so the daemon launcher never loads an authoring module.
 - `src/process/access.ts` is how CLI and MCP commands reach stored or
   hosted workspaces. It can read stored state, join the running process,
   or attach a workspace for CLI commands. `src/process/status.ts` builds

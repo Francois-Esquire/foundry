@@ -1,5 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -30,6 +32,12 @@ import { expect, test } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
+import {
+  DAEMON_BIN_ENV,
+  platformDaemonPackage,
+  requireDaemonBinary,
+  resolveDaemonBinary,
+} from "~/process/daemon-binary";
 
 import { testHome } from "./helpers/home";
 import { rawMcpSession, strayLines } from "./helpers/mcp-stdio";
@@ -290,6 +298,59 @@ function run(
   }
 }
 
+function hostDaemonDependency(
+  consumer: string,
+  archiveManifest: { optionalDependencies?: Record<string, string> }
+): Record<string, string> {
+  const pkg = platformDaemonPackage();
+  if (!pkg) {
+    return {};
+  }
+  const tarballs = process.env.PACKAGE_TARBALLS
+    ? (JSON.parse(process.env.PACKAGE_TARBALLS) as Record<string, string>)
+    : undefined;
+  const provided = tarballs?.[pkg];
+  if (provided) {
+    return { [pkg]: `file:${provided}` };
+  }
+  if (archiveManifest.optionalDependencies?.[pkg] !== undefined) {
+    return {};
+  }
+  if (resolveDaemonBinary() === undefined) {
+    throw new Error(
+      `@foundry.sh/marbles does not declare ${pkg} in optionalDependencies and no local marbles-daemon binary is available; publish marbles-daemon and add it to optionalDependencies before publishing @foundry.sh/marbles`
+    );
+  }
+  const staging = mkdtempSync(join(tmpdir(), "marbles-daemon-pkg-"));
+  const archive = join(consumer, "daemon-package.tgz");
+  try {
+    mkdirSync(join(staging, "bin"), { recursive: true });
+    const dest = join(staging, "bin", "marbles-daemon");
+    copyFileSync(requireDaemonBinary(), dest);
+    chmodSync(dest, 0o755);
+    writeFileSync(
+      join(staging, "package.json"),
+      JSON.stringify({
+        cpu: [process.arch],
+        files: ["bin/marbles-daemon"],
+        license: "MIT",
+        name: pkg,
+        os: [process.platform],
+        private: false,
+        version: "0.0.0",
+      })
+    );
+    run(
+      "bun",
+      ["pm", "pack", "--ignore-scripts", "--filename", archive],
+      staging
+    );
+    return { [pkg]: `file:${archive}` };
+  } finally {
+    rmSync(staging, { force: true, recursive: true });
+  }
+}
+
 test("the tarball installs and shares the library registry with the CLI", async () => {
   const consumer = mkdtempSync(join(tmpdir(), "marbles-package-"));
   const standalone = mkdtempSync(join(tmpdir(), "marbles-global-"));
@@ -303,11 +364,18 @@ test("the tarball installs and shares the library registry with the CLI", async 
         PACKAGE_ROOT
       );
     }
+    const archiveManifest = JSON.parse(
+      execFileSync("tar", ["-xOzf", archive, "package/package.json"], {
+        encoding: "utf8",
+      })
+    ) as { optionalDependencies?: Record<string, string> };
+    const daemonDep = hostDaemonDependency(consumer, archiveManifest);
     writeFileSync(
       join(consumer, "package.json"),
       JSON.stringify({
         dependencies: {
           "@foundry.sh/marbles": `file:${archive}`,
+          ...daemonDep,
           zod: "^4.4.3",
         },
         name: "marbles-package-consumer",
@@ -553,6 +621,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
       "engine",
       "generation",
       "index",
+      "initialize",
       "lib",
       "process",
       "providers",
@@ -630,7 +699,7 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     const home = testHome();
     const { state } = home.layout;
     const marbles = (args: string[], env = home.env) =>
-      run(cli, args, consumer, env);
+      run(cli, args, consumer, { ...env, [DAEMON_BIN_ENV]: undefined });
     try {
       const terminal = await inspectDashboard(cli, consumer, [], home.env);
       expect(terminal.code).toBe(0);

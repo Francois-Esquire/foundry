@@ -2,7 +2,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { connect as connectSocket, type Socket } from "node:net";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { TaskError } from "@foundry/tasks";
 
 import type { Layout } from "~/layout";
@@ -20,6 +19,7 @@ import type {
 import type { DashboardSnapshot } from "~/model/dashboard";
 import type { TaskOutcome } from "~/model/tasks";
 import { Channel, socketTransport } from "~/process/channel";
+import { spawnDetachedDaemon } from "~/process/daemon-binary";
 import { readProcess, STATE_MODE } from "~/process/instance";
 import {
   CLIENT_NOTIFICATIONS,
@@ -150,15 +150,6 @@ const STOP_PROCESS_TIMEOUT_MS =
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
-function daemonEntry(): string {
-  return fileURLToPath(
-    new URL(
-      import.meta.url.endsWith(".ts") ? "./daemon-entry.ts" : "./daemon.js",
-      import.meta.url
-    )
-  );
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -198,22 +189,22 @@ export function daemonAlive(layout: Layout): boolean {
   return status?.alive === true && status.host === "daemon";
 }
 
-function startDetachedDaemon(options: ConnectOptions): void {
+async function startDetachedDaemon(options: ConnectOptions): Promise<void> {
   const { layout } = options;
+  if (options.daemonEntry === undefined) {
+    await spawnDetachedDaemon(layout);
+    return;
+  }
   mkdirSync(dirname(layout.state), { recursive: true });
   mkdirSync(layout.state, { mode: STATE_MODE, recursive: true });
   const log = openSync(join(layout.state, LOG_FILE), "a");
   let child: ChildProcess;
   try {
-    child = spawn(
-      runtime(),
-      [...RUNTIME_FLAGS, options.daemonEntry ?? daemonEntry()],
-      {
-        detached: true,
-        env: { ...process.env, FOUNDRY_ROOT: layout.home },
-        stdio: ["ignore", log, log],
-      }
-    );
+    child = spawn(runtime(), [...RUNTIME_FLAGS, options.daemonEntry], {
+      detached: true,
+      env: { ...process.env, FOUNDRY_ROOT: layout.home },
+      stdio: ["ignore", log, log],
+    });
   } finally {
     closeSync(log);
   }
@@ -380,7 +371,7 @@ async function dialUntil(
       return channel;
     }
     if (!(started || daemonAlive(layout))) {
-      startDetachedDaemon(options);
+      await startDetachedDaemon(options);
       started = true;
     }
     if (Date.now() > deadline) {

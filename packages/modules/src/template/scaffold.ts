@@ -24,7 +24,7 @@ export const WORKSPACE_SCRIPTS: Readonly<Record<string, string>> = {
 
 export const ROOT_DEV_DEPENDENCIES: Readonly<Record<string, string>> = {
   "@eslint/js": "^10.0.1",
-  "@types/bun": "1.3.14",
+  "@types/bun": "1.4.4",
   "@types/react": "19.2.17",
   "@types/react-dom": "19.2.3",
   eslint: "^10.7.0",

@@ -1,0 +1,30 @@
+[package]
+name = "marbles-daemon"
+version = "0.0.0"
+description = "Supervisor daemon for Marbles workspaces and engine generations"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "marbles-daemon"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+rusqlite.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

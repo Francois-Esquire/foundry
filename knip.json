@@ -34,7 +34,6 @@
       ],
       "entry": [
         "stories/**/*.stories.tsx",
-        "test/helpers/daemon-process.ts",
         "test/helpers/mcp-host.ts",
         "test/helpers/generation-*.ts",
         "test/helpers/store-writer.ts",
