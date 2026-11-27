@@ -1,9 +1,9 @@
-import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import type { StepFn } from "~/lib/definition";
+import { sha256HexSync } from "~/lib/hash";
 import type { Detection, Fetch, MonitorInput } from "~/lib/monitor";
 import { detector, monitorSpecSchema } from "~/lib/monitor";
 import type { Registry } from "~/lib/registry";
@@ -280,10 +280,9 @@ export class AutomationService {
         `"${spec.workflow}" input`
       );
     }
-    const creationKey = `automation-${createHash("sha256")
-      .update(canonicalizeJson([owner.agentId, owner.sessionId, spec.key]))
-      .digest("hex")
-      .slice(0, 24)}`;
+    const creationKey = `automation-${sha256HexSync(
+      canonicalizeJson([owner.agentId, owner.sessionId, spec.key])
+    ).slice(0, 24)}`;
     return await this.#edit(creationKey, async (view) => {
       const previous = this.#records().find(
         (existing) =>
@@ -304,7 +303,7 @@ export class AutomationService {
         ...spec,
         createdAt: new Date().toISOString(),
         enabled: true,
-        id: `automation-${randomUUID().replaceAll("-", "").slice(0, 24)}`,
+        id: `automation-${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`,
         owner,
         version: 1,
       };

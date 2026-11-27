@@ -1,3 +1,4 @@
+import { createNodeSchedulerClient } from "@foundry/scheduling/node";
 import type { Engine } from "~/lib/engine";
 import { runScheduler } from "~/lib/schedule-loop";
 
@@ -31,6 +32,7 @@ export async function runSchedulesUntilStopped(
   try {
     await runScheduler(engine, {
       ...(cancel === undefined ? {} : { cancel }),
+      createClient: createNodeSchedulerClient,
       print,
       signal: controller.signal,
     });

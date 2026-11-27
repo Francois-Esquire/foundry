@@ -1,9 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { inList } from "~/database/lists";
-import type { StoreDatabase } from "~/database/open";
 import { marblesResourceWorkspaces } from "~/database/tables";
 import type { StoreTransaction } from "~/database/transaction";
+import type { StoreDatabase } from "~/database/types";
 import type {
   AssociationStore,
   AssociationStoreWrite,

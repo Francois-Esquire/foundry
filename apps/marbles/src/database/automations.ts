@@ -1,8 +1,8 @@
 import { and, asc, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesAutomations } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { stateDatabase } from "~/layout";
 import type { AutomationRecord } from "~/lib/automation/service";
 import type {

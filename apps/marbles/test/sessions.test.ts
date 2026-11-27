@@ -4,7 +4,7 @@ import type { SessionStore } from "@foundry/agents/store";
 import { agent, step } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
-import { resourceLines } from "~/cli/resources/text";
+import { resourceLines } from "~/cli/format/resources";
 import { ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { CLAUDE_CODE } from "~/lib/harnesses";

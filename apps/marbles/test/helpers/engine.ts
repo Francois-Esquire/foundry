@@ -18,6 +18,7 @@ import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { MockOptions, Reply } from "~/lib/models/echo";
 import { mockModels } from "~/lib/models/mock";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { Registry } from "~/lib/registry";
 
 const NO_HOME = join(tmpdir(), "marbles-test-no-home");
@@ -81,6 +82,7 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
   const workspaceId = given.workspaceId ?? "test";
   const engineOptions: EngineOptions = {
     home: NO_HOME,
+    liveness: NODE_OWNER_LIVENESS,
     root,
     workspaceId,
     ...given,

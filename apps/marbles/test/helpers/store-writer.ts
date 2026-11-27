@@ -4,8 +4,9 @@ import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { createContainers } from "@foundry/sandbox/node";
 import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { artifactBlobs } from "~/database/local-artifacts";
 import { openDatabase } from "~/database/open";
-import { artifactBlobs, workspaceStores } from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 import { localWorkspaces } from "~/lib/managers/workspaces";
 

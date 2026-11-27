@@ -8,8 +8,8 @@ import {
   rebuildLinks,
   relinkArtifact,
 } from "~/database/links";
+import { artifactBlobs } from "~/database/local-artifacts";
 import type { ArtifactFile, ResourceView } from "~/database/resources";
-import { artifactBlobs } from "~/database/stores";
 import { resourceLinks } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
 import { temporaryDirectory } from "./helpers/temporary";

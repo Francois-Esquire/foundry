@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
 import { defineCommand } from "~/cli/command";
 import { UsageError } from "~/cli/errors";
+import { statusText, workspaceLines } from "~/cli/format/status";
 import { loadSettings, settingsPath } from "~/cli/settings";
-import { statusText, workspaceLines } from "~/cli/status/text";
 import { ResourceAssociationError } from "~/lib/resources";
-import { readStatus } from "~/status/model";
+import { readStatus } from "~/process/status";
 
 type WorkspacesArgs =
   | { readonly action: "list" }
@@ -49,7 +49,7 @@ export const workspacesCommand = defineCommand({
     }
     if (ctx.interactive && !ctx.flags.json) {
       const [{ showStatus }, { applyTheme }] = await Promise.all([
-        import("~/tui/status/view"),
+        import("~/tui/views/status"),
         import("~/tui/theme"),
       ]);
       applyTheme(loadSettings(settingsPath(ctx.flags.state)).settings.theme);

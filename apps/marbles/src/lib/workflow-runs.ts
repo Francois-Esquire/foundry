@@ -18,7 +18,7 @@ import { WorkflowSnapshotSchema } from "@foundry/workflows/snapshot";
 import { Cause, Effect, Exit } from "effect";
 import { z } from "zod";
 import { isTask } from "~/lib/execution-record";
-import { storableJson } from "~/lib/state/json";
+import { storableJson } from "~/lib/json-data";
 
 const RUN_STATUSES = [
   "queued",

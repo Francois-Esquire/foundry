@@ -4,8 +4,8 @@ import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
 import { Effect } from "effect";
 
 import { RecordsGate } from "~/lib/events/records";
+import { storableJson } from "~/lib/json-data";
 import type { RecordedScope } from "~/lib/run-scope";
-import { storableJson } from "~/lib/state/json";
 import { commitEffect, runStoreEffect, storeEffect } from "~/lib/workflow-runs";
 
 export interface RunStore {

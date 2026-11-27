@@ -2,8 +2,9 @@ import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { stopOrphans } from "@foundry/lib/node/orphans";
 import type { Containers } from "@foundry/sandbox";
 import { removeByHand } from "@foundry/sandbox";
-import type { ContainerStore } from "@foundry/sandbox/store";
+import type { ContainerRow, ContainerStore } from "@foundry/sandbox/store";
 import { z } from "zod";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 
 import type { ExecutionRun } from "./execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "./execution-statuses";
@@ -51,8 +52,13 @@ export interface CrashRecoveryOptions {
   readonly containerRows?: Pick<ContainerStore, "list">;
   readonly containers: () => Promise<Pick<Containers, "recover">>;
   readonly executions: () => readonly ExecutionRun[];
+  readonly liveness?: OwnerLiveness;
   readonly print: (line: string) => void;
   readonly spawned?: string;
+  readonly stopOrphans?: (spawned: string) => Promise<{
+    readonly problems: readonly string[];
+    readonly stopped: readonly unknown[];
+  }>;
 }
 
 export class CrashRecovery {
@@ -113,7 +119,9 @@ export class CrashRecovery {
         outcome: "skipped",
       };
     }
-    const { problems, stopped } = await stopOrphans(spawned);
+    const { problems, stopped } = await (
+      this.#options.stopOrphans ?? stopOrphans
+    )(spawned);
     const count = `${String(stopped.length)} process(es) stopped`;
     const acted = stopped.length > 0;
     return problems.length === 0
@@ -134,15 +142,17 @@ export class CrashRecovery {
         outcome: "skipped",
       };
     }
+    const { liveness } = this.#options;
+    const isLeftBehind = (row: ContainerRow) => leftBehind(row, liveness);
     const listed = await rows.list();
     const untold = listed
-      .filter((row) => holderState(row) === "unknown")
+      .filter((row) => holderState(row, liveness) === "unknown")
       .map(({ id }) => id);
     const kept =
       untold.length === 0
         ? ""
         : `; ${String(untold.length)} container(s) whose holder cannot be told gone or running kept: ${untold.join(", ")}`;
-    if (!listed.some(leftBehind)) {
+    if (!listed.some(isLeftBehind)) {
       return {
         acted: untold.length > 0,
         detail: `0 container(s) removed${kept}`,
@@ -150,7 +160,7 @@ export class CrashRecovery {
       };
     }
     const containers = await this.#options.containers();
-    const recovered = await containers.recover(leftBehind);
+    const recovered = await containers.recover(isLeftBehind);
     const { conflicts, passedOver, removed, swept } = recovered;
     const did = `${String(removed.length)} container(s) removed, ${String(swept.length)} VM(s) swept`;
     const passed =

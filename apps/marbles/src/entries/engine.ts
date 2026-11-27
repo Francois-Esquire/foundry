@@ -2,18 +2,23 @@ import { withWorkspaceDatabase } from "~/database/managed";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine as LibEngine } from "~/lib/engine";
 import { inTurn } from "~/lib/in-turn";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 
 export class Engine extends LibEngine {
   readonly #release: () => Promise<void>;
   #disposing: Promise<void> | undefined;
 
   constructor(options: EngineOptions) {
-    const { state } = LibEngine.persistence(options);
+    const withHostDefaults: EngineOptions =
+      options.liveness === undefined
+        ? { ...options, liveness: NODE_OWNER_LIVENESS }
+        : options;
+    const { state } = LibEngine.persistence(withHostDefaults);
     const kept =
       state === undefined
         ? undefined
-        : withWorkspaceDatabase({ ...options, state });
-    super(kept?.options ?? options);
+        : withWorkspaceDatabase({ ...withHostDefaults, state });
+    super(kept?.options ?? withHostDefaults);
     this.#release = kept?.release ?? (() => Promise.resolve());
   }
 

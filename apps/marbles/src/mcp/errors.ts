@@ -1,6 +1,6 @@
 import { TaskError } from "@foundry/tasks";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { NotHostedError, NotReadyError } from "~/access/workspace";
+import { NotHostedError, NotReadyError } from "~/model/errors";
 import { taskRefusal } from "~/workspace/tasks";
 
 export type ToolErrorCode =

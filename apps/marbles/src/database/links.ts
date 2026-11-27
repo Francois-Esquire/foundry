@@ -13,8 +13,8 @@ import {
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { hasErrorCode } from "@foundry/lib/node/atomic-file";
 import { FileLockTimeoutError, tryFileLock } from "@foundry/lib/node/file-lock";
+import { artifactBlobs } from "~/database/local-artifacts";
 import type { ArtifactFile, ResourceView } from "~/database/resources";
-import { artifactBlobs } from "~/database/stores";
 import { workspaceLinks } from "~/layout";
 import type { ResourceRef } from "~/lib/resources";
 

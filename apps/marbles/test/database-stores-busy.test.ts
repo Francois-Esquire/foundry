@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkspaceId } from "@foundry/workspaces";
 import { afterEach, expect, it } from "vitest";
-import { DatabaseBusyError } from "~/database/client";
+import { DatabaseBusyError } from "~/database/busy";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase, openDatabase } from "~/database/open";
 import { workspaceStores } from "~/database/stores";

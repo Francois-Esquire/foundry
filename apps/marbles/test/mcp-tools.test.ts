@@ -1,6 +1,5 @@
 import { Tasks } from "@foundry/tasks";
 import { afterEach, expect, it } from "vitest";
-import { NotReadyError } from "~/access/workspace";
 import type {
   DispatchInfo,
   RunInfo,
@@ -10,6 +9,7 @@ import type {
   WorkspaceConnection,
   WorkspaceSummary,
 } from "~/model/connection";
+import { NotReadyError } from "~/model/errors";
 import { RemoteError } from "~/process/protocol";
 import { runTaskCommand } from "~/workspace/tasks";
 import {

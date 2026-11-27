@@ -1,6 +1,6 @@
 import type { JsonValue } from "@foundry/lib/json";
 import { RecordsGate } from "~/lib/events/records";
-import { storableJson } from "~/lib/state/json";
+import { storableJson } from "~/lib/json-data";
 import type {
   ExecutionObservation,
   RetentionGap,

@@ -3,6 +3,11 @@ import { changeTasks, readTasks } from "~/database/tasks";
 import { layout } from "~/layout";
 import { insideState } from "~/lib/state/workspace";
 import type { WorkspaceConnection } from "~/model/connection";
+import {
+  NotHostedError,
+  NotReadyError,
+  RecordsHeldError,
+} from "~/model/errors";
 import type {
   TaskCommand,
   TaskCommandKind,
@@ -18,18 +23,6 @@ import { runTaskCommand } from "~/workspace/tasks";
 export type TaskRunner = <K extends TaskCommandKind>(
   command: TaskCommand<K>
 ) => Promise<TaskCommandResult<K>>;
-
-export class NotHostedError extends Error {
-  override readonly name: string = "NotHostedError";
-}
-
-export class NotReadyError extends NotHostedError {
-  override readonly name = "NotReadyError";
-}
-
-export class RecordsHeldError extends Error {
-  override readonly name = "RecordsHeldError";
-}
 
 const ATTACH_HINT = "`marbles start` in its root hosts it";
 
