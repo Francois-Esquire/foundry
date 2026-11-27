@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import type { SessionRecord } from "@foundry/agents/session";
 import type { MessageTally } from "@foundry/agents/store/sqlite";
 import type { Artifact, ArtifactCursor, ArtifactId } from "@foundry/artifacts";
@@ -10,10 +9,10 @@ import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 import { DatabaseAssociationStore } from "~/database/associations";
 import { asBusy } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
-import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
-import { WorkspaceRegistry } from "~/database/workspaces";
+import type { StoreDatabase } from "~/database/types";
+import { WorkspaceRegistry, workspaceAcceptance } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import { ARTIFACTS, sourceKey } from "~/lib/events/source";
 import { ownerOfRun } from "~/lib/execution-record";
@@ -24,7 +23,6 @@ import type {
   ResourceRef,
 } from "~/lib/resources";
 import { ResourceAssociations, sameResource } from "~/lib/resources";
-import { insideState } from "~/lib/state/workspace";
 import type { RunReads, RunRecord } from "~/lib/workflow-runs";
 import { readRun, readRuns, runStoreEffect } from "~/lib/workflow-runs";
 
@@ -49,9 +47,10 @@ export interface ArtifactFile {
 }
 
 export interface ResourceViewOptions {
+  readonly acceptWorkspace?: (id: string) => boolean;
   readonly database: StoreDatabase;
   readonly scope: ViewScope;
-  readonly state: string;
+  readonly state?: string;
 }
 
 const PAGE = 200;
@@ -66,15 +65,20 @@ export class ResourceView {
   readonly scope: ViewScope;
   readonly #associations: DatabaseAssociationStore;
   readonly #database: StoreDatabase;
+  readonly #accepts: (id: string) => boolean;
   readonly #registry: WorkspaceRegistry;
-  readonly #state: string;
 
   constructor(options: ResourceViewOptions) {
     this.scope = options.scope;
     this.#database = options.database;
     this.#associations = new DatabaseAssociationStore(options);
-    this.#registry = new WorkspaceRegistry(options);
-    this.#state = resolve(options.state);
+    const { acceptWorkspace, database, state } = options;
+    this.#registry = new WorkspaceRegistry({
+      database,
+      ...(state === undefined ? {} : { state }),
+      ...(acceptWorkspace === undefined ? {} : { acceptWorkspace }),
+    });
+    this.#accepts = workspaceAcceptance(options);
   }
 
   async runs(limit?: number): Promise<readonly Shown<RunResource>[]> {
@@ -179,7 +183,7 @@ export class ResourceView {
   #counts(owner: string): boolean {
     return (
       (this.scope !== ALL_WORKSPACES && owner === this.scope.workspace) ||
-      insideState(this.#state, owner)
+      this.#accepts(owner)
     );
   }
 
@@ -406,32 +410,58 @@ function newestOfEach<T>(
   });
 }
 
+export interface AssociationScopeOptions {
+  readonly acceptWorkspace?: (id: string) => boolean;
+  readonly state?: string;
+}
+
+function associationScope(
+  scope?: string | AssociationScopeOptions
+): AssociationScopeOptions {
+  if (typeof scope === "string") {
+    return { state: scope };
+  }
+  return scope ?? {};
+}
+
 export function resourceAssociations(
   database: StoreDatabase,
-  state: string
+  scope?: string | AssociationScopeOptions
 ): ResourceAssociations {
+  const options = associationScope(scope);
   return new ResourceAssociations({
-    read: (work) => asBusy(() => work(associationUnit(database, state))),
-    transact: associationTransaction(database, state),
+    read: (work) => asBusy(() => work(associationUnit(database, options))),
+    transact: associationTransaction(database, options),
   });
 }
 
 export function associationTransaction(
   database: StoreDatabase,
-  state: string
+  scope?: string | AssociationScopeOptions
 ): AssociationTransaction {
+  const options = associationScope(scope);
   return (work) =>
     asBusy(() =>
-      database.transaction((tx) => work(associationUnit(tx, state)))
+      database.transaction((tx) => work(associationUnit(tx, options)))
     );
 }
 
 function associationUnit(
   database: StoreDatabase,
-  state: string
+  options: AssociationScopeOptions
 ): Parameters<Parameters<AssociationTransaction>[0]>[0] {
-  const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
-  const registry = new WorkspaceRegistry({ database, state });
+  const scopeOptions = {
+    ...(options.acceptWorkspace === undefined
+      ? {}
+      : { acceptWorkspace: options.acceptWorkspace }),
+    ...(options.state === undefined ? {} : { state: options.state }),
+  };
+  const view = new ResourceView({
+    database,
+    scope: ALL_WORKSPACES,
+    ...scopeOptions,
+  });
+  const registry = new WorkspaceRegistry({ database, ...scopeOptions });
   return {
     directory: {
       has: (ref) => view.has(ref),

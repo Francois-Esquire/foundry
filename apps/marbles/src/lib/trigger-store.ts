@@ -9,8 +9,8 @@ import { Cause, Effect, Exit } from "effect";
 import { z } from "zod";
 
 import { RecordsGate } from "~/lib/events/records";
+import { storableJson } from "~/lib/json-data";
 import type { Launch } from "~/lib/launch";
-import { storableJson } from "~/lib/state/json";
 
 export interface TriggerStore {
   clearPendingLaunch(key: string): Promise<void>;

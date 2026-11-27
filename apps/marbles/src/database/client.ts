@@ -9,27 +9,7 @@ import type {
   TransactionMode,
 } from "@libsql/client";
 
-export class DatabaseBusyError extends Error {
-  override readonly name = "DatabaseBusyError";
-}
-
-export function busyError(error: unknown): DatabaseBusyError | undefined {
-  for (let cause = error; cause instanceof Error; cause = cause.cause) {
-    if (cause instanceof DatabaseBusyError) {
-      return cause;
-    }
-    if (
-      "code" in cause &&
-      typeof cause.code === "string" &&
-      cause.code.startsWith("SQLITE_BUSY")
-    ) {
-      return new DatabaseBusyError(
-        "the Marbles database is busy: another process held its write lock longer than the busy timeout; retry",
-        { cause: error }
-      );
-    }
-  }
-}
+import { DatabaseBusyError } from "~/database/busy";
 
 export interface SerialClientOptions {
   readonly connect?: () => Client;

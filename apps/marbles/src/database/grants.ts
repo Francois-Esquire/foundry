@@ -1,8 +1,8 @@
 import type { GrantDocumentStorage } from "@foundry/lib/authorization/document";
 import { eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
 import { marblesAgentGrants } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 
 export interface DatabaseGrantStorageOptions {
   readonly database: StoreDatabase;

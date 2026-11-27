@@ -16,9 +16,10 @@ import {
   rebuildLinks,
   relinkArtifact,
 } from "~/database/links";
+import { artifactBlobs } from "~/database/local-artifacts";
 import { initializeDatabase } from "~/database/open";
 import type { ResourceView } from "~/database/resources";
-import { artifactBlobs, workspaceStores } from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { resourceLinks } from "~/layout";
 import { temporaryDirectory } from "./helpers/temporary";

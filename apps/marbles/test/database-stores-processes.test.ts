@@ -6,8 +6,9 @@ import { join, resolve } from "node:path";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { afterEach, expect, it } from "vitest";
+import { artifactBlobs } from "~/database/local-artifacts";
 import { initializeDatabase } from "~/database/open";
-import { artifactBlobs, workspaceStores } from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 
 const WRITERS = 2;

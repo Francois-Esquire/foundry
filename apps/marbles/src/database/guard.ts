@@ -6,8 +6,8 @@ import type {
   TransactionMode,
 } from "@libsql/client";
 
-import type { ShippedMigration } from "~/database/migrate";
-import { APPLIED, IncompatibleDatabaseError } from "~/database/migrate";
+import type { ShippedMigration } from "~/database/migrate-core";
+import { APPLIED, IncompatibleDatabaseError } from "~/database/migrate-core";
 
 const READ_ONLY = /^\s*(select|explain)\b/i;
 

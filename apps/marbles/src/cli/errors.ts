@@ -1,5 +1,5 @@
 import { ReentrantCallError } from "@foundry/lib/turns";
-import { DatabaseBusyError } from "~/database/client";
+import { DatabaseBusyError } from "~/database/busy";
 import { LinksPlacementError } from "~/database/links";
 import { IncompatibleDatabaseError } from "~/database/migrate";
 import { UnreadableDatabaseError } from "~/database/open";

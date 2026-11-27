@@ -1,4 +1,4 @@
-import type { StoreDatabase } from "~/database/open";
+import type { StoreDatabase } from "~/database/types";
 
 export type StoreTransaction = Parameters<
   Parameters<StoreDatabase["transaction"]>[0]

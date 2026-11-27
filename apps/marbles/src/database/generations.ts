@@ -1,11 +1,12 @@
-import { isGone } from "@foundry/lib/node/process-identity";
 import { desc, eq, inArray } from "drizzle-orm";
 
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesGenerations } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { stateDatabase } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
 
 export type GenerationState = (typeof marblesGenerations.$inferSelect)["state"];
 
@@ -23,9 +24,14 @@ const LIVE: readonly GenerationState[] = ["loading", "current", "retiring"];
 
 export class GenerationRecords {
   readonly #database: StoreDatabase;
+  readonly #liveness: OwnerLiveness;
 
-  constructor(options: { readonly database: StoreDatabase }) {
+  constructor(options: {
+    readonly database: StoreDatabase;
+    readonly liveness?: OwnerLiveness;
+  }) {
     this.#database = options.database;
+    this.#liveness = options.liveness ?? NODE_OWNER_LIVENESS;
   }
 
   begin(fingerprint: string): Promise<number> {
@@ -83,7 +89,8 @@ export class GenerationRecords {
       );
       for (const each of provable) {
         const gone =
-          each.pid <= 0 || isGone({ pid: each.pid, started: each.started });
+          each.pid <= 0 ||
+          this.#liveness.isGone({ pid: each.pid, started: each.started });
         await this.#database
           .update(marblesGenerations)
           .set({ state: gone ? "exited" : "retiring", updatedAt: at })
@@ -107,7 +114,7 @@ export class GenerationRecords {
       (each) =>
         each.pid > 0 &&
         each.started !== null &&
-        isGone({ pid: each.pid, started: each.started })
+        this.#liveness.isGone({ pid: each.pid, started: each.started })
     );
     for (const each of gone) {
       await this.#set(each.number, { state: "exited" });

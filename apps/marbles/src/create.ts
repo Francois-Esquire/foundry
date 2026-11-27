@@ -37,6 +37,7 @@ import {
 import type { ChangeRecorder } from "~/database/changes";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { DatabaseGrantStorage } from "~/database/grants";
+import { artifactBlobs, readArtifacts } from "~/database/local-artifacts";
 import type { WorkspaceDatabase } from "~/database/managed";
 import { defaultWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
@@ -45,11 +46,7 @@ import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { WorkspaceStores } from "~/database/stores";
-import {
-  artifactBlobs,
-  readArtifacts,
-  workspaceStores,
-} from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
 import { DatabaseUsageStore } from "~/database/usage";

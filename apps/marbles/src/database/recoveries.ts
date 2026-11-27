@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { marblesRecoveries } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { stateDatabase } from "~/layout";
 import type { RecoveryLog, RecoveryReport } from "~/lib/crash-recovery";
 import { recoveryReportSchema } from "~/lib/crash-recovery";
