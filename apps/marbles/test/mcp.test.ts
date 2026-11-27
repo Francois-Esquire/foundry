@@ -665,6 +665,40 @@ it("starts without a source and serves the stored tasks of every recorded worksp
   }
 }, 60_000);
 
+it("explains the missing source when its default workspace is not hosted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mm-"));
+  const home = testHome();
+  const source = join(root, "marbles.ts");
+  const own = workspaceState(home.layout.state, root);
+  const transport = new RecordedStdioTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
+    command: "bun",
+    cwd: root,
+    env: home.env,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    for (const target of [{}, { workspace: own.id }]) {
+      const definitions = await client.callTool({
+        arguments: { ...target, resource: "definitions" },
+        name: "list",
+      });
+      expect(definitions.isError).toBe(true);
+      expect(payload(definitions)).toMatchObject({
+        error: {
+          code: "not_hosted",
+          message: expect.stringContaining(`no Marbles source at "${source}"`),
+        },
+      });
+    }
+  } finally {
+    await client.close();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
 it("refuses its own workspace's tasks when its state links out of the state root", async () => {
   const root = await mkdtemp(join(tmpdir(), "mr-"));
   const home = testHome();
