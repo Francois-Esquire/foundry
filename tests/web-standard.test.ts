@@ -226,7 +226,7 @@ function isGuardedUse(node: ts.Node, name: string): boolean {
   let prev: ts.Node = node;
   let cur: ts.Node | undefined = node.parent;
   while (cur) {
-    if (ts.isTypeOfExpression(cur)) {
+    if (ts.isTypeOfExpression(cur) && isTypeofTarget(cur, name)) {
       return true;
     }
     if (ts.isBinaryExpression(cur) && cur.right === prev) {

@@ -14,7 +14,8 @@ import {
 
 const BUN_TEST_PATTERN = /\bbun\s+test\b/;
 const FLOATING_EXEC_PATTERN = /\b(?:bunx|npx)\b/;
-const CLEAN_FORBIDDEN_SEGMENT = /(?:^|\s)(?:\.env\S*|node_modules|src)(?:\s|$)/;
+const CLEAN_FORBIDDEN_SEGMENT =
+  /(?:^|\s)(?:\.\/)?(?:\.env\S*|node_modules|src)(?:\/|\s|$)/;
 const CONTEXT_LINK_PATTERN = /\[[^\]]+\]\((\.\/[^)#]+)\)/g;
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 

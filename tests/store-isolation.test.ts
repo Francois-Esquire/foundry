@@ -9,7 +9,7 @@ import {
 } from "./helpers/scan";
 
 const DRIZZLE_IMPORT = /^drizzle-orm(?:\/|$)/;
-const LIBSQL_IMPORT = /^@libsql\/(?:client|$)/;
+const LIBSQL_IMPORT = /^@libsql\//;
 const NON_PRODUCTION_DIRS = ["node_modules", "dist", "test", "testing"];
 
 const ALLOWED_DRIZZLE_FILES: Readonly<Record<string, readonly string[]>> = {
