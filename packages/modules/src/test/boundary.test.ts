@@ -269,7 +269,7 @@ describe("Modules boundary", () => {
   });
 
   it("loads the microsandbox package only in its VM adapter", () => {
-    const adapter = "packages/sandbox/src/node/microsandbox.ts";
+    const adapter = "packages/sandbox/src/providers/microsandbox.ts";
     const violations = productionSourceFiles(
       join(REPO_ROOT, "packages")
     ).flatMap((path) =>

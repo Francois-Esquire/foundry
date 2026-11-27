@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
-
-import type { ContainerSandboxConstraints } from "../container/constraints";
-
-import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { createContainers } from "../containers/containers";
+import type { ContainerSpecInput } from "../containers/spec";
+import { createMicrosandboxDriver } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
-const SPEC: ContainerSandboxConstraints = {
+const SPEC: ContainerSpecInput = {
   format: "foundry.sandbox.container/1",
   image: "docker.io/oven/bun:1-slim",
   network: "disabled",
@@ -30,25 +28,29 @@ Bun.serve({
 
 describe("real MicroSandbox port forward", () => {
   it("completes a host-initiated WebSocket close against a live guest", async () => {
-    const runtime = createMicrosandboxRuntime();
-    if (!(await runtime.isInstalled())) {
+    const runtime = createMicrosandboxDriver();
+    if (
+      !(await (runtime.isInstalled
+        ? runtime.isInstalled()
+        : Promise.resolve(true)))
+    ) {
       throw new Error(
         "Install the MicroSandbox runtime before running test:integration"
       );
     }
     const containers = createContainers({
+      driver: runtime,
       instanceLabel: `itest-${crypto.randomUUID()}`,
-      runtime,
       store: new MemoryContainerStore(),
     });
     const container = await containers.start(SPEC);
     try {
-      await container.services.start({
+      await container.services?.start({
         argv: ["bun", "-e", ECHO_SERVER],
         id: "echo",
         readiness: { kind: "tcp", port: 3000, timeoutMs: 60_000 },
       });
-      const binding = await container.ports.hostPort(3000);
+      const binding = await container.ports?.hostPort(3000);
       if (binding === undefined) {
         throw new Error("port 3000 is not published");
       }

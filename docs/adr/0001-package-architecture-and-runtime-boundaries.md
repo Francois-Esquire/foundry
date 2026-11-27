@@ -19,7 +19,7 @@ Dependency direction is strictly acyclic across tiers (`Primitives` ← `Tools /
 
 ## 2. Naming standard
 
-- **Domain entry points**: Primary concrete domain **modules** use plural domain nouns: `Workspaces`, `Artifacts`, `Tasks`, `Modules`, `Sessions`, and `Containers` (in `@foundry/sandbox/node`, alongside the portable `Sandbox` interface in `@foundry/sandbox`).
+- **Domain entry points**: Primary concrete domain **modules** use plural domain nouns: `Workspaces`, `Artifacts`, `Tasks`, `Modules`, `Sessions`, and `Containers` (alongside the portable `Sandbox` interface in `@foundry/sandbox`).
 - **Documented exemptions**: Collective, Effect, or DSL nouns keep their natural singular names: `Queue`, `Scheduler`, `Workflow`, `Step`.
 - **No `*Manager` or `*System` in `packages/*`**: Both suffixes obscure **depth** and encourage shallow pass-through wrappers. `*Manager` is reserved exclusively for host facades under `apps/*/src/lib/managers/`.
 - **`*FileSystem` is allowed**: `*System` is rejected, but `*FileSystem` (`WorkspaceFileSystem`, `ArtifactFileSystem`, `nodeFileSystem`) names a platform concept and is the one permitted suffix.

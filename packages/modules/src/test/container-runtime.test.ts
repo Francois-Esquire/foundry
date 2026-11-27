@@ -3,10 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson } from "@foundry/lib/digest";
 import type { Container, Containers, SandboxService } from "@foundry/sandbox";
-import { SandboxError } from "@foundry/sandbox";
-import { createContainers } from "@foundry/sandbox/node";
+import { createContainers, SandboxError } from "@foundry/sandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
 
 import { defineModule, installationIdSchema, moduleIdSchema } from "../domain";
@@ -57,12 +56,11 @@ async function fixture(manifest: object = VALID_MANIFEST) {
   const checkoutsRoot = join(root, "checkouts");
   await mkdir(filesPath);
   await mkdir(checkoutsRoot);
-  const native = createFakeContainerRuntime();
+  const native = createFakeDriver();
   const registry = createContainers({
-    allowedMountRoots: [filesPath, checkoutsRoot],
+    driver: native,
     instanceLabel: "module-runtime-test",
     mountTargetRoot: "/foundry",
-    runtime: native,
     store: new MemoryContainerStore(),
   });
   const service: SandboxService = {
@@ -197,7 +195,7 @@ describe("Module container runtime", () => {
             }),
         },
       });
-      expect(f.native.instances).toHaveLength(1);
+      expect(f.native.handles).toHaveLength(1);
       const active = await system.programs.start({
         expectedGeneration: 0,
         installationId: f.input.installationId,
@@ -240,7 +238,7 @@ describe("Module container runtime", () => {
         })
       ).toBeNull();
       await system.recovery.releaseAll("shutdown");
-      expect(f.native.instances[0]?.removed).toBe(false);
+      expect(f.native.handles[0]?.removed).toBe(false);
       await unrelated.close();
     } finally {
       await f.cleanup();
@@ -253,7 +251,7 @@ describe("Module container runtime", () => {
       const retained = await f.registry.start({
         format: "foundry.sandbox.container/1",
       });
-      const [instance] = f.native.instances;
+      const [instance] = f.native.handles;
       if (instance === undefined) {
         throw new Error("Expected a booted instance");
       }
@@ -304,20 +302,26 @@ describe("Module container runtime", () => {
         await f.options.store.loadGatewayContext(f.input.installationId)
       )?.installation;
       expect(row?.containerId).toBe(handle.runtimeInstanceId);
-      expect(f.native.instances[0]?.spec).toMatchObject({
-        disableNetwork: true,
+      expect(f.native.handles[0]?.spec).toMatchObject({
         mounts: [
           {
-            readOnly: true,
-            source: join(f.checkoutsRoot, f.input.version.digest),
+            access: "read-only",
+            source: {
+              kind: "host-directory",
+              path: join(f.checkoutsRoot, f.input.version.digest),
+            },
             target: "/foundry/program",
           },
           {
-            readOnly: false,
-            source: f.input.files.hostPath,
+            access: "read-write",
+            source: {
+              kind: "host-directory",
+              path: f.input.files.hostPath,
+            },
             target: "/foundry/files",
           },
         ],
+        network: "none",
         workdir: "/foundry/program",
       });
       expect(f.startService).toHaveBeenCalledWith(
@@ -345,7 +349,7 @@ describe("Module container runtime", () => {
       });
       await handle.stop("stopped");
       expect(f.stopService).toHaveBeenCalledWith("module-program");
-      expect(f.native.instances[0]?.removed).toBe(true);
+      expect(f.native.handles[0]?.removed).toBe(true);
 
       const current = await f.artifacts.getContent(f.input.version.contentId);
       if (current === null) {
@@ -382,9 +386,10 @@ describe("Module container runtime", () => {
       });
       expect(again.runtimeInstanceId).toBe(handle.runtimeInstanceId);
       expect(await f.registry.list()).toHaveLength(1);
-      expect(f.native.instances[1]?.spec.mounts[0]?.source).toBe(
-        join(f.checkoutsRoot, next.digest)
-      );
+      expect(f.native.handles[1]?.spec.mounts[0]?.source).toEqual({
+        kind: "host-directory",
+        path: join(f.checkoutsRoot, next.digest),
+      });
       await again.stop("complete");
     } finally {
       await f.cleanup();
@@ -403,7 +408,7 @@ describe("Module container runtime", () => {
           },
         }
       );
-      expect(f.native.instances[0]?.spec).toMatchObject({
+      expect(f.native.handles[0]?.spec).toMatchObject({
         cpus: 2,
         memoryMib: 1024,
       });
@@ -436,7 +441,7 @@ describe("Module container runtime", () => {
       const handle = await createContainerModuleProgramRuntime(f.options).start(
         f.input
       );
-      return { f, handle, spec: f.native.instances[0]?.spec };
+      return { f, handle, spec: f.native.handles[0]?.spec };
     }
 
     it.each([
@@ -450,8 +455,7 @@ describe("Module container runtime", () => {
     ])("keeps network disabled when %s", async (_case, manifest, grant) => {
       const { f, handle, spec } = await startWith(manifest, grant);
       try {
-        expect(spec?.disableNetwork).toBe(true);
-        expect(spec?.network).toBe("disabled");
+        expect(spec?.network).toBe("none");
         await handle.stop("stopped");
       } finally {
         await f.cleanup();
@@ -475,8 +479,7 @@ describe("Module container runtime", () => {
           f.options
         ).start(f.input);
         expect(again.runtimeInstanceId).toBe(handle.runtimeInstanceId);
-        expect(f.native.instances[1]?.spec.disableNetwork).toBe(true);
-        expect(f.native.instances[1]?.spec.network).toBe("disabled");
+        expect(f.native.handles[1]?.spec.network).toBe("none");
         await again.stop("stopped");
       } finally {
         await f.cleanup();
@@ -547,7 +550,7 @@ describe("Module container runtime", () => {
           generation: 1,
         })
       ).rejects.toBeInstanceOf(ModuleStoreConflictError);
-      expect(f.native.instances).toEqual([]);
+      expect(f.native.handles).toEqual([]);
     } finally {
       await f.cleanup();
     }
@@ -583,7 +586,7 @@ describe("Module container runtime", () => {
         failure = error;
       }
       expect(failure).toBeInstanceOf(ModuleRuntimeCleanupError);
-      expect(f.native.instances[0]?.removed).toBe(true);
+      expect(f.native.handles[0]?.removed).toBe(true);
       expect(f.startService).not.toHaveBeenCalled();
       if (!(failure instanceof ModuleRuntimeCleanupError)) {
         throw new Error("Expected retryable cleanup");
@@ -612,7 +615,7 @@ describe("Module container runtime", () => {
           f.input
         )
       ).rejects.toMatchObject({ code: "mount-mismatch" });
-      expect(f.native.instances[0]?.removed).toBe(true);
+      expect(f.native.handles[0]?.removed).toBe(true);
       expect(f.startService).not.toHaveBeenCalled();
     } finally {
       await f.cleanup();
@@ -631,7 +634,7 @@ describe("Module container runtime", () => {
       await expect(runtime.start(f.input)).rejects.toThrow("gateway refused");
       expect(f.startService).toHaveBeenCalledOnce();
       expect(f.stopService).toHaveBeenCalledOnce();
-      expect(f.native.instances[0]?.removed).toBe(true);
+      expect(f.native.handles[0]?.removed).toBe(true);
       expect((await f.registry.list())[0]?.status).toBe("stopped");
     } finally {
       await f.cleanup();

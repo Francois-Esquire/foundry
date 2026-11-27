@@ -1,13 +1,13 @@
-import type { ContainerSandboxConstraints } from "../../container/constraints";
-import { createContainers } from "../../container/containers";
+import { createContainers } from "../../containers/containers";
+import type { ContainerSpecInput } from "../../containers/spec";
 import type { ContainerStore, ContainerStoreWrite } from "../../store/index";
 import { MemoryContainerStore } from "../../store/memory";
 import type { ContainerRow } from "../../store/schema";
 import { SqliteContainerStore } from "../../store/sqlite";
-import { createFakeContainerRuntime } from "../../testing/index";
+import { createFakeDriver } from "../../testing/index";
 import { libsqlDatabases } from "./sqlite";
 
-export const CONTAINER_SPEC: ContainerSandboxConstraints = {
+export const CONTAINER_SPEC: ContainerSpecInput = {
   format: "foundry.sandbox.container/1",
   image: "docker.io/oven/bun:1",
   ports: [3000],
@@ -54,9 +54,13 @@ export function newStore(): ContainerStore {
 }
 
 export function fixture(instanceLabel = "instance-a") {
-  const runtime = createFakeContainerRuntime();
+  const runtime = createFakeDriver();
   const store = newStore();
-  const containers = createContainers({ instanceLabel, runtime, store });
+  const containers = createContainers({
+    driver: runtime,
+    instanceLabel,
+    store,
+  });
   return { containers, runtime, store };
 }
 

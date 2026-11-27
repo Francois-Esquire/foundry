@@ -8,7 +8,7 @@ import {
   CONTAINER_PORTABLE_ID_PATTERN,
   CONTAINER_SANDBOX_BASE_LABEL,
   CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
-  containerSandboxConfigFromConstraints,
+  createContainers,
   DEFAULT_CONTAINER_CPUS,
   DEFAULT_CONTAINER_IMAGE,
   DEFAULT_CONTAINER_MEMORY_MIB,
@@ -16,15 +16,15 @@ import {
   INVENTORY_PAGE_LIMIT,
   MAX_INVENTORY_PAGES,
   normalizeSandboxPath,
+  resolveContainerSpec,
   SandboxError,
   sandboxFromAdapter,
 } from "@foundry/sandbox";
 import {
-  createContainers,
   ProcessController,
   prepareSandboxProcess,
 } from "@foundry/sandbox/node";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
+import { createMicrosandboxDriver } from "@foundry/sandbox/providers/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import {
   bashDefinition,
@@ -62,9 +62,9 @@ it("loads portable, tool, virtual, and node functions through canonical exports"
     createContainers,
     prepareSandboxProcess,
     ProcessController,
-    createMicrosandboxRuntime,
+    createMicrosandboxDriver,
     assertNotAborted,
-    containerSandboxConfigFromConstraints,
+    resolveContainerSpec,
     createSandboxToolSchemas,
     sandboxInstructions,
     guardExecute,

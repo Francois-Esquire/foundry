@@ -1,6 +1,6 @@
 import type {
   Container,
-  ContainerSandboxConstraints,
+  ContainerSpecInput,
   Containers,
 } from "@foundry/sandbox";
 
@@ -55,7 +55,18 @@ export function createContainerModuleProgramRuntime(
       const container = await openContainer(options, input, checkout.hostPath);
       try {
         await assertMounted(container);
-        return container;
+        if (container.ports === undefined || container.services === undefined) {
+          throw new ModuleProgramRuntimeError(
+            "port-unavailable",
+            "Module container driver must support endpoints and services"
+          );
+        }
+        return {
+          close: () => container.close(),
+          id: container.id,
+          ports: container.ports,
+          services: container.services,
+        };
       } catch (error) {
         return rethrowAfterCleanup(
           error,
@@ -138,9 +149,9 @@ function moduleRuntimeSpec(input: {
   readonly installationId: InstallationId;
   readonly checkoutPath: string;
   readonly filesPath: string;
-  readonly network: ContainerSandboxConstraints["network"];
+  readonly network: ContainerSpecInput["network"];
   readonly resources: ModuleProgramResources;
-}): ContainerSandboxConstraints {
+}): ContainerSpecInput {
   return {
     format: "foundry.sandbox.container/1",
     image: "docker.io/oven/bun:1-slim",

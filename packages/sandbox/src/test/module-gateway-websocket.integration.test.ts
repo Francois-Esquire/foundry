@@ -5,8 +5,8 @@ import { clearTimeout, setTimeout } from "node:timers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
-import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { createContainers } from "../containers/containers";
+import { createMicrosandboxDriver } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 import { MODULE_GATEWAY_SERVER } from "./helpers/module-gateway-server";
 
@@ -66,13 +66,17 @@ async function startHost(): Promise<Endpoint> {
 }
 
 async function startVm(bunVersion: string): Promise<Endpoint> {
-  const runtime = createMicrosandboxRuntime();
-  if (!(await runtime.isInstalled())) {
+  const runtime = createMicrosandboxDriver();
+  if (
+    !(await (runtime.isInstalled
+      ? runtime.isInstalled()
+      : Promise.resolve(true)))
+  ) {
     throw new Error("Install MicroSandbox before running test:integration");
   }
   const containers = createContainers({
+    driver: runtime,
     instanceLabel: `gateway-comparison-${crypto.randomUUID()}`,
-    runtime,
     store: new MemoryContainerStore(),
   });
   try {
@@ -82,13 +86,13 @@ async function startVm(bunVersion: string): Promise<Endpoint> {
       network: "disabled",
       ports: [3000],
     });
-    await container.services.start({
+    await container.services?.start({
       argv: ["bun", "-e", MODULE_GATEWAY_SERVER],
       environment: { PORT: "3000" },
       id: "gateway",
       readiness: { kind: "tcp", port: 3000, timeoutMs: 60_000 },
     });
-    const binding = await container.ports.hostPort(3000);
+    const binding = await container.ports?.hostPort(3000);
     if (binding === undefined) {
       throw new Error("Gateway port 3000 is not published");
     }

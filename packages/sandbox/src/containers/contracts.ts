@@ -9,34 +9,44 @@ import type {
   SandboxVolumesFacet,
 } from "../sandbox";
 import type { ContainerStore } from "../store/index";
-import type { ContainerRow } from "../store/schema";
-import type { ContainerSandboxConstraints } from "./constraints";
-import type { ContainerConfig, ContainerRuntime } from "./runtime";
+import type { ContainerRow, ContainerRowStatus } from "../store/schema";
+import type { ContainerDefaults, Driver, DriverCapabilities } from "./driver";
+import type { ContainerSpecInput } from "./spec";
 
 export interface ContainerFacets extends Sandbox {
-  readonly files: SandboxFilesystemFacet & Storage & StorageObserver;
-  readonly ports: SandboxPortsFacet;
-  readonly processes: SandboxProcessesFacet;
-  readonly services: SandboxServicesFacet;
-  readonly shell: SandboxShellFacet;
+  readonly files: SandboxFilesystemFacet &
+    Partial<Storage> &
+    Partial<StorageObserver>;
+  readonly ports?: SandboxPortsFacet;
+  readonly processes?: SandboxProcessesFacet;
+  readonly services?: SandboxServicesFacet;
+  readonly shell?: SandboxShellFacet;
+  readonly storage?: Storage;
   readonly volumes?: SandboxVolumesFacet;
 }
 
+export interface ContainerQuery {
+  readonly holder?: string;
+  readonly status?: ContainerRowStatus | readonly ContainerRowStatus[];
+}
+
 export interface CreateContainersOptions {
-  readonly allowedMountRoots?: readonly string[];
-  readonly config?: ContainerConfig;
+  readonly defaults?: ContainerDefaults;
+  readonly driver: Driver;
+  readonly fetch?: typeof globalThis.fetch;
   readonly holder?: string;
   readonly instanceLabel: string;
   readonly mountTargetRoot?: string;
   readonly report?: (line: string) => void;
-  readonly runtime: ContainerRuntime;
   readonly store?: ContainerStore;
 }
 
 export interface Containers {
+  readonly capabilities: DriverCapabilities;
   get(id: string): Promise<ContainerRow | undefined>;
-  list(): Promise<readonly ContainerRow[]>;
+  list(query?: ContainerQuery): Promise<readonly ContainerRow[]>;
   open(id: string, signal?: AbortSignal): Promise<Container>;
+  pause(id: string): Promise<void>;
   recover(
     left: (row: ContainerRow) => boolean | Promise<boolean>,
     signal?: AbortSignal
@@ -44,14 +54,12 @@ export interface Containers {
   remove(id: string): Promise<void>;
   restart(
     id: string,
-    spec?: ContainerSandboxConstraints,
+    spec?: ContainerSpecInput,
     signal?: AbortSignal
   ): Promise<void>;
+  resume(id: string, signal?: AbortSignal): Promise<Container>;
   shutdown(): Promise<void>;
-  start(
-    spec: ContainerSandboxConstraints,
-    signal?: AbortSignal
-  ): Promise<Container>;
+  start(spec: ContainerSpecInput, signal?: AbortSignal): Promise<Container>;
   stop(id: string): Promise<void>;
   sweep(signal?: AbortSignal): Promise<ContainerSweep>;
 }

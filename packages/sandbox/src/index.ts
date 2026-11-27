@@ -1,18 +1,14 @@
 // biome-ignore lint/performance/noBarrelFile: Public Web-standard package root for @foundry/sandbox.
-export {
-  type ContainerSandboxConstraints,
-  type ContainerSandboxMount,
-  containerSandboxConfigFromConstraints,
-  containerSandboxConstraintsSchema,
-} from "./container/constraints";
+export { createContainers } from "./containers/containers";
 export type {
   Container,
   ContainerFacets,
+  ContainerQuery,
   ContainerRecovery,
   ContainerSweep,
   Containers,
   CreateContainersOptions,
-} from "./container/contracts";
+} from "./containers/contracts";
 export {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ENVIRONMENT_ID_LABEL,
@@ -28,27 +24,46 @@ export {
   DEFAULT_CONTAINER_IMAGE,
   DEFAULT_CONTAINER_MEMORY_MIB,
   DEFAULT_CONTAINER_WORKDIR,
+  defaultRemovalHint,
   INVENTORY_PAGE_LIMIT,
   MAX_INVENTORY_PAGES,
-  removeByHand,
-} from "./container/defaults";
+} from "./containers/defaults";
 export type {
-  ContainerConfig,
-  ContainerExecOptions,
-  ContainerInstance,
-  ContainerInventoryPage,
-  ContainerListResourcesQuery,
-  ContainerMountSpec,
-  ContainerNetwork,
-  ContainerNetworkAllowlist,
-  ContainerPortMapping,
-  ContainerProcess,
-  ContainerResourceStatus,
-  ContainerResourceSummary,
-  ContainerRuntime,
+  ContainerDefaults,
+  ContainerLifetime,
+  ContainerMount,
   ContainerSpec,
+  Driver,
+  DriverCapabilities,
+  DriverCreateRequest,
+  DriverExecOptions,
+  DriverHandle,
+  DriverInventoryPage,
+  DriverListQuery,
+  DriverProcess,
+  DriverResourceStatus,
+  DriverResourceSummary,
+  ExposePort,
+  MountSource,
+  NetworkAllowlist,
+  NetworkDestination,
+  NetworkPolicy,
   PullPolicy,
-} from "./container/runtime";
+  SecretBinding,
+} from "./containers/driver";
+export {
+  assertDriverSupports,
+  assertGuestPorts,
+  type ContainerMountInput,
+  type ContainerSpecInput,
+  containerSpecSchema,
+  isAbsoluteGuestPath,
+  isTcpPort,
+  normalizeMountSource,
+  normalizeNetworkPolicy,
+  parseContainerSpecInput,
+  resolveContainerSpec,
+} from "./containers/spec";
 export {
   SandboxError,
   type SandboxErrorCode,
@@ -64,6 +79,9 @@ export type {
   SandboxCommand,
   SandboxCommandFacet,
   SandboxDirectoryEntry,
+  SandboxEndpoint,
+  SandboxEndpointAccess,
+  SandboxEndpointProtocol,
   SandboxExecOptions,
   SandboxExecResult,
   SandboxFilesystemFacet,

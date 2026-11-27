@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
   CONTAINER_STORE_LABEL,
-} from "../container/defaults";
-import { createFakeContainerRuntime } from "../testing/index";
+} from "../containers/defaults";
+import { createFakeDriver } from "../testing/index";
 import {
   CONTAINER_SPEC,
   CONTAINER_STORES,
@@ -24,11 +24,11 @@ describe.each(CONTAINER_STORES)(
 
     describe("removal and conflicts", () => {
       it("removes every VM of a row it deletes, so a start cut short after the delete leaves none for the next to miss", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
@@ -43,8 +43,8 @@ describe.each(CONTAINER_STORES)(
         });
 
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const dies = new AbortController();
@@ -57,17 +57,17 @@ describe.each(CONTAINER_STORES)(
 
         expect(await store.list()).toEqual([]);
         expect(
-          runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed
+          runtime.handles.find((i) => i.id === `${left.id}-1`)?.removed
         ).toBe(true);
         await next.shutdown();
       });
 
       it("remove deletes a row only with every VM labelled with its id", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
@@ -81,8 +81,8 @@ describe.each(CONTAINER_STORES)(
           ],
         });
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
 
@@ -97,17 +97,17 @@ describe.each(CONTAINER_STORES)(
 
         expect(await store.list()).toEqual([]);
         expect(
-          runtime.instances.find((i) => i.id === `${left.id}-1`)?.removed
+          runtime.handles.find((i) => i.id === `${left.id}-1`)?.removed
         ).toBe(true);
         await next.shutdown();
       });
 
       it("never removes a VM another row records, whatever its label says: the row is kept, removing, and the conflict named", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
@@ -126,8 +126,8 @@ describe.each(CONTAINER_STORES)(
         });
 
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const recovered = await next.recover((row) => row.id === left.id);
@@ -139,7 +139,7 @@ describe.each(CONTAINER_STORES)(
           removed: [],
           swept: [],
         });
-        const instance = runtime.instances.find((i) => i.id === vm);
+        const instance = runtime.handles.find((i) => i.id === vm);
         expect(instance?.removed).toBe(false);
         expect(instance?.stopped).toBe(false);
         expect(await store.get(left.id)).toMatchObject({ status: "removing" });
@@ -156,11 +156,11 @@ describe.each(CONTAINER_STORES)(
       });
 
       it("asks afresh, right before each VM it removes, whether another row records it", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
@@ -175,23 +175,31 @@ describe.each(CONTAINER_STORES)(
             { ...row, nativeId: `${left.id}-2`, status: "starting" },
           ],
         });
+        const secondLabels = {
+          [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
+          [CONTAINER_INSTANCE_LABEL]: "instance-a",
+          [CONTAINER_ID_LABEL]: left.id,
+        };
         await runtime.create({
-          cpus: 1,
-          detached: false,
-          disableNetwork: false,
-          env: {},
-          image: "x",
-          labels: {
-            [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
-            [CONTAINER_INSTANCE_LABEL]: "instance-a",
-            [CONTAINER_ID_LABEL]: left.id,
-          },
-          memoryMib: 1,
-          mounts: [],
+          containerId: left.id,
+          labels: secondLabels,
           name: `${left.id}-2`,
-          ports: [],
-          pull: "missing",
-          workdir: "/w",
+          spec: {
+            cpus: 1,
+            detached: false,
+            env: {},
+            expose: [],
+            image: "x",
+            labels: secondLabels,
+            memoryMib: 1,
+            mounts: [],
+            name: `${left.id}-2`,
+            network: "open",
+            ports: [],
+            pull: "missing",
+            secrets: [],
+            workdir: "/w",
+          },
         });
         const names = [`${left.id}-1`, `${left.id}-2`];
         const stop = runtime.stopResource.bind(runtime);
@@ -213,8 +221,8 @@ describe.each(CONTAINER_STORES)(
           await stop(name);
         };
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
 
@@ -226,22 +234,25 @@ describe.each(CONTAINER_STORES)(
           passedOver: [claimed],
           removed: [],
         });
-        const instance = runtime.instances.find((i) => i.id === claimed);
+        const instance = runtime.handles.find((i) => i.id === claimed);
         expect(instance?.removed).toBe(false);
         expect(instance?.stopped).toBe(false);
         await next.shutdown();
       });
 
       it("never acts on a VM whose name is not its labelled row's own, nor writes a row recording another's", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
         const other = await gone.start(CONTAINER_SPEC);
+        if (!runtime.listResources) {
+          throw new Error("expected listResources");
+        }
         const list = runtime.listResources.bind(runtime);
         runtime.listResources = async (query) => {
           const listed = await list(query);
@@ -262,8 +273,8 @@ describe.each(CONTAINER_STORES)(
         };
         await store.commit({ deleteContainers: [other.id] });
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const recovered = await next.recover((each) => each.id === left.id);
@@ -272,9 +283,7 @@ describe.each(CONTAINER_STORES)(
           kept: [left.id],
         });
         expect(await next.sweep()).not.toContain(`${other.id}-1`);
-        const instance = runtime.instances.find(
-          (i) => i.id === `${other.id}-1`
-        );
+        const instance = runtime.handles.find((i) => i.id === `${other.id}-1`);
         expect(instance?.removed).toBe(false);
 
         const row = await store.get(left.id);
@@ -293,15 +302,18 @@ describe.each(CONTAINER_STORES)(
       });
 
       it("never removes a VM named as a row's own but labelled with another row's id: a conflict, left", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
         const other = await gone.start(CONTAINER_SPEC);
+        if (!runtime.listResources) {
+          throw new Error("expected listResources");
+        }
         const list = runtime.listResources.bind(runtime);
         runtime.listResources = async (query) => {
           const listed = await list(query);
@@ -321,8 +333,8 @@ describe.each(CONTAINER_STORES)(
           };
         };
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         expect(await next.recover((each) => each.id === left.id)).toMatchObject(
@@ -333,18 +345,18 @@ describe.each(CONTAINER_STORES)(
             removed: [],
           }
         );
-        const instance = runtime.instances.find((i) => i.id === `${left.id}-1`);
+        const instance = runtime.handles.find((i) => i.id === `${left.id}-1`);
         expect(instance?.removed).toBe(false);
         expect(instance?.stopped).toBe(false);
         await next.shutdown();
       });
 
       it("never abandons, nor reclaims, a previous VM that is not the reopened row's own", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const holder = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const held = await holder.start(CONTAINER_SPEC);
@@ -373,14 +385,14 @@ describe.each(CONTAINER_STORES)(
           return stop(name);
         };
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const reopened = await next.open(stray);
         await next.sweep();
         await next.shutdown().catch(() => undefined);
-        const instance = runtime.instances.find((i) => i.id === heldName);
+        const instance = runtime.handles.find((i) => i.id === heldName);
         expect(instance?.removed).toBe(false);
         expect(instance?.stopped).toBe(false);
         expect(await store.get(held.id)).toMatchObject({ status: "running" });
@@ -392,21 +404,24 @@ describe.each(CONTAINER_STORES)(
 
     describe("reporting", () => {
       it("keeps the old VM of a reopened row to retry, and says so, when the inventory cannot be read", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
         const lines: string[] = [];
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
           report: (line) => lines.push(line),
-          runtime,
           store,
         });
+        if (!runtime.listResources) {
+          throw new Error("expected listResources");
+        }
         const list = runtime.listResources.bind(runtime);
         let failing = true;
         runtime.listResources = (query) => {
@@ -418,7 +433,7 @@ describe.each(CONTAINER_STORES)(
         };
         const reopened = await next.open(left.id);
         expect(lines).toEqual([expect.stringContaining(`${left.id}-1`)]);
-        const old = runtime.instances.find((i) => i.id === `${left.id}-1`);
+        const old = runtime.handles.find((i) => i.id === `${left.id}-1`);
         expect(old?.removed).toBe(false);
         expect(await next.sweep()).toEqual([`${left.id}-1`]);
         expect(old?.removed).toBe(true);
@@ -427,22 +442,25 @@ describe.each(CONTAINER_STORES)(
       });
 
       it("goes on, and boots, when its reporter throws", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
           report: () => {
             throw new Error("the reporter broke");
           },
-          runtime,
           store,
         });
+        if (!runtime.listResources) {
+          throw new Error("expected listResources");
+        }
         const list = runtime.listResources.bind(runtime);
         let failing = true;
         runtime.listResources = (query) => {
@@ -463,14 +481,17 @@ describe.each(CONTAINER_STORES)(
       });
 
       it("names, in what it reports, a way to remove a running VM by hand", async () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const store = newStore();
         const gone = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
-          runtime,
           store,
         });
         const left = await gone.start(CONTAINER_SPEC);
+        if (!runtime.listResources) {
+          throw new Error("expected listResources");
+        }
         const list = runtime.listResources.bind(runtime);
         runtime.listResources = async (query) => {
           const listed = await list(query);
@@ -487,16 +508,15 @@ describe.each(CONTAINER_STORES)(
         };
         const lines: string[] = [];
         const next = createContainers({
+          driver: runtime,
           instanceLabel: "instance-a",
           report: (line) => lines.push(line),
-          runtime,
           store,
         });
         const reopened = await next.open(left.id);
         expect(lines).toEqual([
-          expect.stringContaining(`msb rm -f ${left.id}-1`),
+          expect.stringContaining(`remove container resource "${left.id}-1"`),
         ]);
-        expect(lines[0]).toContain("node_modules/.bin/msb");
         await reopened.close();
         await next.shutdown();
       });

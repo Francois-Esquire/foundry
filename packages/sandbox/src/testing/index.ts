@@ -1,15 +1,18 @@
-import { ACTIVE_CONTAINER_RESOURCE_STATUSES } from "../container/defaults";
+import { ACTIVE_CONTAINER_RESOURCE_STATUSES } from "../containers/defaults";
 import type {
-  ContainerExecOptions,
-  ContainerInstance,
-  ContainerProcess,
-  ContainerResourceStatus,
-  ContainerResourceSummary,
-  ContainerRuntime,
   ContainerSpec,
-} from "../container/runtime";
+  Driver,
+  DriverCapabilities,
+  DriverExecOptions,
+  DriverHandle,
+  DriverProcess,
+  DriverResourceStatus,
+  DriverResourceSummary,
+} from "../containers/driver";
 import type {
+  SandboxCommand,
   SandboxDirectoryEntry,
+  SandboxEndpoint,
   SandboxExecResult,
   SandboxPipedProcess,
   SandboxShell,
@@ -19,51 +22,62 @@ const TRAILING_SLASHES = /\/+$/;
 
 export type FakeExecHandler = (
   command: string[],
-  options: ContainerExecOptions
+  options: DriverExecOptions
 ) => SandboxExecResult | Promise<SandboxExecResult>;
 
-export interface FakeContainerRuntimeOptions {
-  exec?: FakeExecHandler;
-  files?: Record<string, string | Uint8Array>;
-  install?: "succeeds" | "fails" | "unsupported";
-  installed?: boolean;
-  inventory?: {
-    pageSize?: number;
-    failListCalls?: readonly number[];
-    failStop?: readonly string[];
-    failRemove?: readonly string[];
+export interface FakeDriverOptions {
+  readonly capabilities?: DriverCapabilities;
+  readonly connect?: boolean;
+  readonly endpointUrl?: (
+    ref: string,
+    guestPort: number
+  ) => SandboxEndpoint | undefined;
+  readonly exec?: FakeExecHandler;
+  readonly files?: Readonly<Record<string, string | Uint8Array>>;
+  readonly install?: "succeeds" | "fails" | "unsupported";
+  readonly installed?: boolean;
+  readonly inventory?: {
+    readonly disabled?: boolean;
+    readonly failListCalls?: readonly number[];
+    readonly failRemove?: readonly string[];
+    readonly failStop?: readonly string[];
+    readonly pageSize?: number;
   };
-  process?: FakeExecHandler;
-  spawn?: (
-    command: string[],
-    options: ContainerExecOptions
-  ) => SandboxPipedProcess | Promise<SandboxPipedProcess>;
+  readonly opaqueRefPrefix?: string;
+  readonly pause?: boolean;
+  readonly probePort?: (guestPort: number) => boolean | Promise<boolean>;
+  readonly process?: FakeExecHandler;
+  readonly shell?: boolean;
+  readonly spawn?:
+    | false
+    | ((
+        command: string[],
+        options: DriverExecOptions
+      ) => SandboxPipedProcess | Promise<SandboxPipedProcess>);
+  readonly storage?: boolean;
 }
 
-export interface FakeContainerInstance
-  extends ContainerInstance<FakeContainerInstance> {
+export interface FakeDriverHandle extends DriverHandle<FakeDriverHandle> {
   readonly commands: string[][];
   readonly directories: string[];
+  disconnected: boolean;
   readonly files: Map<string, Uint8Array>;
-  nativeStatus: ContainerResourceStatus;
-  readonly processes: ContainerProcess[];
+  nativeStatus: DriverResourceStatus;
+  paused: boolean;
+  readonly processes: DriverProcess[];
   removed: boolean;
   readonly spec: ContainerSpec;
   stopped: boolean;
 }
 
-export interface FakeContainerRuntime
-  extends ContainerRuntime<FakeContainerInstance> {
-  create(spec: ContainerSpec): Promise<FakeContainerInstance>;
+export interface FakeDriver extends Driver<FakeDriverHandle> {
+  readonly handles: FakeDriverHandle[];
   readonly installs: () => number;
-  readonly instances: FakeContainerInstance[];
   readonly listed: Readonly<Record<string, string>>[];
 }
 
-export function createFakeContainerRuntime(
-  options: FakeContainerRuntimeOptions = {}
-): FakeContainerRuntime {
-  const instances: FakeContainerInstance[] = [];
+export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
+  const handles: FakeDriverHandle[] = [];
   const listed: Readonly<Record<string, string>>[] = [];
   const exec: FakeExecHandler =
     options.exec ?? (() => ({ exitCode: 0, stderr: "", stdout: "" }));
@@ -72,26 +86,69 @@ export function createFakeContainerRuntime(
   let installed = options.installed ?? true;
   let installs = 0;
   let listCalls = 0;
+  let sequence = 0;
 
-  const liveByName = (name: string): FakeContainerInstance => {
-    const instance = instances.find(
-      (candidate) => !candidate.removed && candidate.id === name
+  const liveByRef = (ref: string): FakeDriverHandle => {
+    const handle = handles.find(
+      (candidate) => !candidate.removed && candidate.id === ref
     );
-    if (instance === undefined) {
-      throw new Error(`no sandbox named ${name}`);
+    if (handle === undefined) {
+      throw new Error(`no container resource ${ref}`);
     }
-    return instance;
+    return handle;
+  };
+
+  const capabilities: DriverCapabilities = {
+    endpoints: ["loopback"],
+    lifetime: { idle: true, ttl: true },
+    listing: !inventory.disabled,
+    mounts: ["host-directory", "volume"],
+    network: ["none", "internet", "open", "allowlist"],
+    pause: options.pause ?? false,
+    reconnect: options.connect ?? false,
+    secrets: true,
+    ...options.capabilities,
   };
 
   return {
-    installs: () => installs,
-    instances,
-    isInstalled: () => Promise.resolve(installed),
-    listed,
+    capabilities,
+    ...(options.connect
+      ? {
+          connect(ref) {
+            const handle = handles.find(
+              (candidate) =>
+                !(candidate.removed || candidate.stopped) &&
+                candidate.id === ref
+            );
+            if (handle === undefined) {
+              return Promise.resolve(undefined);
+            }
+            handle.disconnected = false;
+            return Promise.resolve(handle);
+          },
+        }
+      : {}),
+    create({ name, spec }) {
+      sequence += 1;
+      const ref =
+        options.opaqueRefPrefix === undefined
+          ? name
+          : `${options.opaqueRefPrefix}-${String(sequence)}`;
+      const handle = createHandle(ref, spec, exec, options);
+      handles.push(handle);
+      return Promise.resolve(handle);
+    },
+    handles,
+    inspect(ref) {
+      const handle = handles.find(
+        (candidate) => !candidate.removed && candidate.id === ref
+      );
+      return Promise.resolve(handle?.nativeStatus);
+    },
     ...(installMode === "unsupported"
       ? {}
       : {
-          install: () => {
+          install() {
             installs += 1;
             if (installMode === "fails") {
               return Promise.reject(new Error("download failed"));
@@ -100,122 +157,213 @@ export function createFakeContainerRuntime(
             return Promise.resolve();
           },
         }),
-    create(spec) {
-      const instance = createInstance(
-        spec,
-        exec,
-        options.process,
-        options.files ?? {},
-        options.spawn
-      );
-      instances.push(instance);
-      return Promise.resolve(instance);
-    },
-    listResources(query) {
-      listed.push(query.labels);
-      listCalls += 1;
-      if (inventory.failListCalls?.includes(listCalls)) {
-        return Promise.reject(new Error("inventory enumeration failed"));
+    installs: () => installs,
+    isInstalled: () => Promise.resolve(installed),
+    listed,
+    ...(inventory.disabled
+      ? {}
+      : {
+          listResources(query) {
+            listed.push(query.labels);
+            listCalls += 1;
+            if (inventory.failListCalls?.includes(listCalls)) {
+              return Promise.reject(new Error("inventory enumeration failed"));
+            }
+            const matching = handles
+              .filter(
+                (handle) =>
+                  !handle.removed &&
+                  Object.entries(query.labels).every(
+                    ([key, value]) => handle.spec.labels[key] === value
+                  )
+              )
+              .map(
+                (handle): DriverResourceSummary => ({
+                  labels: handle.spec.labels,
+                  name: handle.id,
+                  status: handle.nativeStatus,
+                })
+              );
+            const offset =
+              query.cursor === undefined ? 0 : Number(query.cursor);
+            const limit = Math.min(
+              query.limit ?? matching.length,
+              inventory.pageSize ?? matching.length
+            );
+            const resources = matching.slice(
+              offset,
+              offset + Math.max(limit, 1)
+            );
+            const end = offset + resources.length;
+            return Promise.resolve({
+              resources,
+              ...(end < matching.length ? { nextCursor: String(end) } : {}),
+            });
+          },
+        }),
+    name: "fake",
+    ...(options.pause
+      ? {
+          pauseResource(ref) {
+            const handle = liveByRef(ref);
+            handle.paused = true;
+            handle.nativeStatus = "paused";
+            return Promise.resolve();
+          },
+          resumeResource(ref) {
+            const handle = liveByRef(ref);
+            handle.paused = false;
+            handle.nativeStatus = "running";
+            return Promise.resolve();
+          },
+        }
+      : {}),
+    removeResource(ref) {
+      if (inventory.failRemove?.includes(ref)) {
+        return Promise.reject(new Error(`remove failed for ${ref}`));
       }
-      const matching = instances
-        .filter(
-          (instance) =>
-            !instance.removed &&
-            Object.entries(query.labels).every(
-              ([key, value]) => instance.spec.labels[key] === value
-            )
-        )
-        .map(
-          (instance): ContainerResourceSummary => ({
-            labels: instance.spec.labels,
-            name: instance.id,
-            status: instance.nativeStatus,
-          })
-        );
-      const offset = query.cursor === undefined ? 0 : Number(query.cursor);
-      const limit = Math.min(
-        query.limit ?? matching.length,
-        inventory.pageSize ?? matching.length
-      );
-      const resources = matching.slice(offset, offset + Math.max(limit, 1));
-      const end = offset + resources.length;
-      return Promise.resolve({
-        resources,
-        ...(end < matching.length ? { nextCursor: String(end) } : {}),
-      });
-    },
-    removeResource(name) {
-      if (inventory.failRemove?.includes(name)) {
-        return Promise.reject(new Error(`remove failed for ${name}`));
-      }
-      const instance = liveByName(name);
-      if (ACTIVE_CONTAINER_RESOURCE_STATUSES.has(instance.nativeStatus)) {
+      const handle = liveByRef(ref);
+      if (ACTIVE_CONTAINER_RESOURCE_STATUSES.has(handle.nativeStatus)) {
         return Promise.reject(
-          new Error(`sandbox ${name} must be stopped before removal`)
+          new Error(`container ${ref} must be stopped before removal`)
         );
       }
-      instance.removed = true;
+      handle.removed = true;
       return Promise.resolve();
     },
-    stopResource(name) {
-      if (inventory.failStop?.includes(name)) {
-        return Promise.reject(new Error(`stop failed for ${name}`));
+    stopResource(ref) {
+      if (inventory.failStop?.includes(ref)) {
+        return Promise.reject(new Error(`stop failed for ${ref}`));
       }
-      const instance = liveByName(name);
-      instance.stopped = true;
-      instance.nativeStatus = "stopped";
+      const handle = liveByRef(ref);
+      handle.stopped = true;
+      handle.nativeStatus = "stopped";
       return Promise.resolve();
     },
   };
 }
 
-function createInstance(
+export function createCloudFakeDriver(
+  options: Omit<
+    FakeDriverOptions,
+    "capabilities" | "connect" | "endpointUrl" | "opaqueRefPrefix" | "pause"
+  > = {}
+): FakeDriver {
+  return createFakeDriver({
+    ...options,
+    capabilities: {
+      endpoints: ["private", "public"],
+      lifetime: { idle: true, ttl: true },
+      listing: false,
+      mounts: ["volume"],
+      network: ["none", "internet", "allowlist"],
+      pause: true,
+      reconnect: true,
+      secrets: true,
+    },
+    connect: true,
+    endpointUrl: (ref, guestPort) => ({
+      access: "private",
+      headers: { authorization: `Bearer token-${ref}` },
+      protocol: "https",
+      url: `https://${String(guestPort)}-${ref}.cloud.sandbox.test`,
+    }),
+    inventory: { ...options.inventory, disabled: true },
+    opaqueRefPrefix: "sbx",
+    pause: true,
+    shell: false,
+    spawn: false,
+    storage: false,
+  });
+}
+
+function createHandle(
+  ref: string,
   spec: ContainerSpec,
   exec: FakeExecHandler,
-  processHandler: FakeExecHandler | undefined,
-  seed: Record<string, string | Uint8Array>,
-  spawnHandler?: FakeContainerRuntimeOptions["spawn"]
-): FakeContainerInstance {
+  options: FakeDriverOptions
+): FakeDriverHandle {
   const files = new Map<string, Uint8Array>(
-    Object.entries(seed).map(([path, content]) => [path, toBytes(content)])
+    Object.entries(options.files ?? {}).map(([path, content]) => [
+      path,
+      toBytes(content),
+    ])
   );
   const commands: string[][] = [];
-  const processes: ContainerProcess[] = [];
+  const processes: DriverProcess[] = [];
   const directories: string[] = [];
 
-  const instance: FakeContainerInstance = {
+  const { probePort, process: processHandler } = options;
+  const handle: FakeDriverHandle = {
     commands,
     directories,
+    disconnect() {
+      handle.disconnected = true;
+      return Promise.resolve();
+    },
+    disconnected: false,
+    endpoint(guestPort) {
+      if (!spec.ports.includes(guestPort)) {
+        return Promise.resolve(undefined);
+      }
+      if (options.endpointUrl !== undefined) {
+        return Promise.resolve(options.endpointUrl(ref, guestPort));
+      }
+      const hostPort = 40_000 + guestPort;
+      return Promise.resolve({
+        access: "loopback",
+        host: "127.0.0.1",
+        port: hostPort,
+        protocol: "http",
+        url: `http://127.0.0.1:${String(hostPort)}`,
+      });
+    },
     ensureDirectory(path) {
       directories.push(path);
       return Promise.resolve();
     },
-    async exec(command, execOptions) {
-      commands.push(command);
-      return exec(command, execOptions);
+    async exec(command: SandboxCommand, execOptions: DriverExecOptions) {
+      const argv =
+        typeof command === "string" ? ["sh", "-c", command] : [...command];
+      commands.push(argv);
+      return exec(argv, execOptions);
     },
-    execStream(command): Promise<SandboxShell> {
-      commands.push(command);
-      const listeners = new Set<(chunk: string) => void>();
-      return Promise.resolve({
-        close: () => {
-          listeners.clear();
-          return Promise.resolve();
-        },
-        onData(listener) {
-          listeners.add(listener);
-          return () => listeners.delete(listener);
-        },
-        write(data: string) {
-          for (const listener of listeners) {
-            listener(data);
-          }
-        },
-      });
-    },
+    ...(options.shell === false
+      ? {}
+      : {
+          execStream(
+            command: SandboxCommand | undefined
+          ): Promise<SandboxShell> {
+            let argv: string[];
+            if (command === undefined) {
+              argv = ["/bin/sh"];
+            } else if (typeof command === "string") {
+              argv = ["sh", "-c", command];
+            } else {
+              argv = [...command];
+            }
+            commands.push(argv);
+            const listeners = new Set<(chunk: string) => void>();
+            return Promise.resolve({
+              close: () => {
+                listeners.clear();
+                return Promise.resolve();
+              },
+              onData(listener) {
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+              },
+              write(data: string) {
+                for (const listener of listeners) {
+                  listener(data);
+                }
+              },
+            });
+          },
+        }),
     files,
     get id() {
-      return spec.name;
+      return ref;
     },
     list(path) {
       const base = path.replace(TRAILING_SLASHES, "");
@@ -235,9 +383,29 @@ function createInstance(
       return Promise.resolve([...entries.values()]);
     },
     get native() {
-      return instance;
+      return handle;
     },
     nativeStatus: "running",
+    ...(options.pause
+      ? {
+          pause() {
+            handle.paused = true;
+            handle.nativeStatus = "paused";
+            return Promise.resolve();
+          },
+          resume() {
+            handle.paused = false;
+            handle.nativeStatus = "running";
+            return Promise.resolve();
+          },
+        }
+      : {}),
+    paused: false,
+    ...(probePort === undefined
+      ? {}
+      : {
+          probePort: (port: number) => Promise.resolve(probePort(port)),
+        }),
     processes,
     readFile(path) {
       const bytes = files.get(path);
@@ -247,33 +415,46 @@ function createInstance(
       return Promise.resolve(new Uint8Array(bytes));
     },
     remove() {
-      instance.stopped = true;
-      instance.removed = true;
-      instance.nativeStatus = "stopped";
+      handle.stopped = true;
+      handle.removed = true;
+      handle.nativeStatus = "stopped";
       return Promise.resolve();
     },
     removed: false,
-    async spawn(command, execOptions) {
-      execOptions.signal?.throwIfAborted();
-      if (!spawnHandler) {
-        throw new Error("No piped process fixture configured");
-      }
-      commands.push(command);
-      return spawnHandler(command, execOptions);
-    },
-    spec,
-    startProcess(command, execOptions): Promise<ContainerProcess> {
-      commands.push(command);
+    ...(options.spawn === false
+      ? {}
+      : {
+          async spawn(command: SandboxCommand, execOptions: DriverExecOptions) {
+            execOptions.signal?.throwIfAborted();
+            if (typeof options.spawn !== "function") {
+              throw new Error("No piped process fixture configured");
+            }
+            const argv =
+              typeof command === "string"
+                ? ["sh", "-c", command]
+                : [...command];
+            commands.push(argv);
+            return options.spawn(argv, execOptions);
+          },
+        }),
+    spec: { ...spec, labels: { ...spec.labels } },
+    startProcess(
+      command: SandboxCommand,
+      execOptions: DriverExecOptions
+    ): Promise<DriverProcess> {
+      const argv =
+        typeof command === "string" ? ["sh", "-c", command] : [...command];
+      commands.push(argv);
       let settleManual: ((result: SandboxExecResult) => void) | undefined;
       const settled =
         processHandler === undefined
           ? new Promise<SandboxExecResult>((resolve) => {
               settleManual = resolve;
             })
-          : (async () => processHandler(command, execOptions))();
+          : (async () => processHandler(argv, execOptions))();
       let terminated = false;
-      const process: ContainerProcess = Object.freeze({
-        id: `fake-container-process-${String(processes.length + 1)}`,
+      const proc: DriverProcess = Object.freeze({
+        id: `fake-process-${String(processes.length + 1)}`,
         kill: () => {
           if (!terminated) {
             terminated = true;
@@ -281,21 +462,17 @@ function createInstance(
           }
           return Promise.resolve();
         },
-        signal: () => {
+        terminate: () => {
           if (!terminated) {
             terminated = true;
-            settleManual?.({
-              exitCode: 143,
-              stderr: "",
-              stdout: "",
-            });
+            settleManual?.({ exitCode: 143, stderr: "", stdout: "" });
           }
           return Promise.resolve();
         },
         wait: () => settled,
       });
-      processes.push(process);
-      return Promise.resolve(process);
+      processes.push(proc);
+      return Promise.resolve(proc);
     },
     stat(path) {
       if (files.has(path)) {
@@ -309,55 +486,61 @@ function createInstance(
       return Promise.resolve(isDirectory ? ("directory" as const) : undefined);
     },
     stop() {
-      instance.stopped = true;
-      instance.nativeStatus = "stopped";
+      handle.stopped = true;
+      handle.nativeStatus = "stopped";
       return Promise.resolve();
     },
     stopped: false,
-    storage: {
-      async lstat(path) {
-        const kind = await instance.stat(path);
-        if (!kind) {
-          throw Object.assign(new Error(`No entry at ${path}`), {
-            code: "ENOENT",
-          });
-        }
-        return { type: kind };
-      },
-      async readDirectory(path) {
-        if ((await instance.stat(path)) !== "directory") {
-          throw new Error(`Not a directory: ${path}`);
-        }
-        return (await instance.list(path)).map((entry) => ({
-          name: entry.path.slice(entry.path.lastIndexOf("/") + 1),
-          type: entry.type,
-        }));
-      },
-      readFile: (path) => instance.readFile(path),
-      readLink(path) {
-        return Promise.reject(new Error(`Not a symbolic link: ${path}`));
-      },
-      async realpath(path) {
-        if (!(await instance.stat(path))) {
-          throw new Error(`No entry at ${path}`);
-        }
-        return path;
-      },
-      replaceFile(path, bytes) {
-        if (!files.has(path)) {
-          return Promise.reject(new Error(`Not a file: ${path}`));
-        }
-        return instance.writeFile(path, bytes);
-      },
-      separator: "/",
-      writeFile: (path, content) => instance.writeFile(path, toBytes(content)),
-    },
+    ...(options.storage === false
+      ? {}
+      : {
+          storage: {
+            async lstat(path) {
+              const kind = await handle.stat(path);
+              if (!kind) {
+                throw Object.assign(new Error(`No entry at ${path}`), {
+                  code: "ENOENT",
+                });
+              }
+              return { type: kind };
+            },
+            async readDirectory(path) {
+              if ((await handle.stat(path)) !== "directory") {
+                throw new Error(`Not a directory: ${path}`);
+              }
+              return (await handle.list(path)).map((entry) => ({
+                name: entry.path.slice(entry.path.lastIndexOf("/") + 1),
+                type: entry.type,
+              }));
+            },
+            readFile: (path) => handle.readFile(path),
+            readLink(path) {
+              return Promise.reject(new Error(`Not a symbolic link: ${path}`));
+            },
+            async realpath(path) {
+              if (!(await handle.stat(path))) {
+                throw new Error(`No entry at ${path}`);
+              }
+              return path;
+            },
+            replaceFile(path, bytes) {
+              if (!files.has(path)) {
+                return Promise.reject(new Error(`Not a file: ${path}`));
+              }
+              return handle.writeFile(path, bytes);
+            },
+            separator: "/",
+            writeFile: (path, content) =>
+              handle.writeFile(path, toBytes(content)),
+          },
+        }),
+    unmount: () => Promise.resolve(),
     writeFile(path, content) {
       files.set(path, new Uint8Array(content));
       return Promise.resolve();
     },
   };
-  return instance;
+  return handle;
 }
 
 function toBytes(content: string | Uint8Array): Uint8Array {

@@ -1,15 +1,11 @@
 import { SandboxError } from "../errors";
 import { assertNotAborted } from "../sandbox-adapter";
-import type { ContainerStore, ContainerStoreWrite } from "../store/index";
+import type { ContainerStore } from "../store/index";
 import { MemoryContainerStore } from "../store/memory";
 import type { ContainerRow, SandboxEvent } from "../store/schema";
-import type { ContainerSandboxConstraints } from "./constraints";
-import {
-  containerSandboxConfigFromConstraints,
-  containerSandboxConstraintsSchema,
-} from "./constraints";
 import type {
   Container,
+  ContainerQuery,
   Containers,
   CreateContainersOptions,
 } from "./contracts";
@@ -19,21 +15,16 @@ import {
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
   CONTAINER_STORE_LABEL,
-  removeByHand,
 } from "./defaults";
+import type { ContainerSpec } from "./driver";
+import { type AttachedContainer, attachContainer } from "./facets";
+import { createInventory, isForeignNativeName } from "./inventory";
 import {
-  type AttachedContainer,
-  attachContainer,
-  resolveContainerMountSpecs,
-} from "./facets";
-import { createInventory, ownsNativeName } from "./inventory";
-import type { ContainerConfig } from "./runtime";
-import { resolveContainerSpec } from "./spec";
-
-export type {
-  Containers,
-  CreateContainersOptions,
-} from "./contracts";
+  assertDriverSupports,
+  type ContainerSpecInput,
+  parseContainerSpecInput,
+  resolveContainerSpec,
+} from "./spec";
 
 type RowPatch = Partial<Pick<ContainerRow, "nativeId" | "spec" | "status">>;
 
@@ -42,14 +33,16 @@ interface Live {
   labels: Readonly<Record<string, string>>;
   nativeId: string;
   row: ContainerRow;
+  spec: ContainerSpec;
   turn: Promise<void>;
   vm: AttachedContainer;
 }
 
 export function createContainers(options: CreateContainersOptions): Containers {
-  const { runtime } = options;
+  const { driver } = options;
   const store = options.store ?? new MemoryContainerStore();
   const holder = options.holder ?? globalThis.crypto.randomUUID();
+  const capabilities = Object.freeze({ ...driver.capabilities });
   const live = new Map<string, Live>();
   const pending = new Map<string, Promise<Live>>();
   const releasing = new Map<string, Promise<void>>();
@@ -62,8 +55,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
     [CONTAINER_INSTANCE_LABEL]: options.instanceLabel,
   });
   const inventory = createInventory({
+    driver,
     report: options.report,
-    runtime,
     selection,
     store,
   });
@@ -109,7 +102,16 @@ export function createContainers(options: CreateContainersOptions): Containers {
         updatedAt: Date.now(),
       });
       const entered = enteredEvent(current, next);
-      await commitOwnNames(view, {
+      if (
+        next.nativeId !== undefined &&
+        isForeignNativeName(next.id, next.nativeId)
+      ) {
+        throw new SandboxError(
+          "invalid-contract",
+          `container ${next.id} records the native name ${next.nativeId}, which is not one of its own`
+        );
+      }
+      await view.commit({
         ...(entered === undefined
           ? {}
           : {
@@ -121,26 +123,26 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
-  const alreadyExists = (id: string): SandboxError =>
-    new SandboxError("invalid-contract", `container ${id} already exists`);
-
-  const insert = (id: string, constraints: ContainerSandboxConstraints) => {
+  const insert = (id: string, input: ContainerSpecInput) => {
     const eventId = globalThis.crypto.randomUUID();
     return serialized(async (view): Promise<ContainerRow> => {
       if ((await view.get(id)) !== undefined) {
-        throw alreadyExists(id);
+        throw new SandboxError(
+          "invalid-contract",
+          `container ${id} already exists`
+        );
       }
       const now = Date.now();
       const row: ContainerRow = Object.freeze({
         createdAt: now,
         holder,
         id,
-        nativeId: nextNativeId({ id, nativeId: undefined }),
-        spec: JSON.stringify(constraints),
+        nativeId: nextNativeName({ id, nativeId: undefined }),
+        spec: JSON.stringify(input),
         status: "starting",
         updatedAt: now,
       });
-      await commitOwnNames(view, {
+      await view.commit({
         events: [sandboxEvent("sandbox.created", eventId, id, now)],
         putContainers: [row],
       });
@@ -148,51 +150,66 @@ export function createContainers(options: CreateContainersOptions): Containers {
     });
   };
 
-  const boot = async (
-    entry: { row: ContainerRow },
-    constraints: ContainerSandboxConstraints,
-    signal: AbortSignal | undefined
-  ): Promise<Pick<Live, "labels" | "nativeId" | "vm">> => {
-    assertNotAborted(signal, "container start was cancelled");
-    const { row } = entry;
-    const { nativeId } = row;
-    if (nativeId === undefined) {
-      throw new SandboxError(
-        "invalid-transition",
-        `container ${row.id} has no native name recorded to boot under`
-      );
-    }
-    const resolved = containerSandboxConfigFromConstraints(
-      constraints,
-      options.config
-    );
+  const buildSpec = async (
+    row: ContainerRow,
+    input: ContainerSpecInput,
+    name: string
+  ): Promise<{
+    readonly labels: Readonly<Record<string, string>>;
+    readonly own: string;
+    readonly spec: ContainerSpec;
+  }> => {
     const own = await store.identity();
-    const labels = {
-      ...resolved.labels,
+    const labels = Object.freeze({
       ...selection,
       [CONTAINER_ID_LABEL]: row.id,
       [CONTAINER_STORE_LABEL]: own,
-    };
-    const config: ContainerConfig = { ...resolved, labels, name: nativeId };
+    });
+    const spec = resolveContainerSpec({
+      ...(options.defaults === undefined ? {} : { defaults: options.defaults }),
+      input,
+      labels,
+      ...(options.mountTargetRoot === undefined
+        ? {}
+        : { mountTargetRoot: options.mountTargetRoot }),
+      name,
+    });
+    assertDriverSupports(spec, driver.capabilities);
+    return { labels: spec.labels, own, spec };
+  };
+
+  const boot = async (
+    entry: { row: ContainerRow },
+    input: ContainerSpecInput,
+    signal: AbortSignal | undefined
+  ): Promise<Pick<Live, "labels" | "nativeId" | "spec" | "vm">> => {
+    assertNotAborted(signal, "container start was cancelled");
+    const { row } = entry;
+    const requestedName = row.nativeId ?? nextNativeName(row);
+    const { labels, own, spec } = await buildSpec(row, input, requestedName);
     let vm: AttachedContainer | undefined;
+    let actualRef = requestedName;
     try {
-      const mounts = await resolveContainerMountSpecs(
-        constraints.mounts ?? [],
-        options.allowedMountRoots ?? [],
-        options.mountTargetRoot
+      const handle = await driver.create(
+        {
+          containerId: row.id,
+          labels,
+          name: requestedName,
+          spec,
+        },
+        signal
       );
-      const spec = await resolveContainerSpec(config, mounts);
-      const instance = await runtime.create(spec);
-      vm = attachContainer(instance, spec, {
-        mountCapability: (options.allowedMountRoots?.length ?? 0) > 0,
+      actualRef = handle.id;
+      vm = attachContainer(handle, spec, {
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       });
-      await instance.ensureDirectory(spec.workdir);
-      await update(entry, { status: "running" });
-      return { labels, nativeId, vm };
+      await handle.ensureDirectory(spec.workdir);
+      await update(entry, { nativeId: actualRef, status: "running" });
+      return { labels, nativeId: actualRef, spec, vm };
     } catch (error: unknown) {
       if (vm !== undefined) {
         await inventory.discardBooted(
-          { labels, name: nativeId },
+          { labels, name: actualRef },
           row.id,
           own,
           vm
@@ -203,12 +220,56 @@ export function createContainers(options: CreateContainersOptions): Containers {
     }
   };
 
+  const tryReconnect = async (
+    row: ContainerRow,
+    input: ContainerSpecInput,
+    signal: AbortSignal | undefined
+  ): Promise<Live | undefined> => {
+    if (
+      driver.connect === undefined ||
+      row.nativeId === undefined ||
+      (row.status !== "running" && row.status !== "paused")
+    ) {
+      return undefined;
+    }
+    assertNotAborted(signal, "container open was cancelled");
+    const { labels, spec } = await buildSpec(row, input, row.nativeId);
+    if (row.status === "paused" && driver.resumeResource !== undefined) {
+      await driver.resumeResource(row.nativeId);
+    }
+    const handle = await driver.connect(row.nativeId, spec, signal);
+    if (handle === undefined) {
+      return undefined;
+    }
+    if (row.status === "paused" && handle.resume !== undefined) {
+      await handle.resume();
+    }
+    const vm = attachContainer(handle, spec, {
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    });
+    const entry = { row };
+    if (row.status === "paused" || row.nativeId !== handle.id) {
+      await update(entry, { nativeId: handle.id, status: "running" });
+    }
+    const attached: Live = {
+      handles: 0,
+      labels,
+      nativeId: handle.id,
+      row: entry.row,
+      spec,
+      turn: Promise.resolve(),
+      vm,
+    };
+    live.set(row.id, attached);
+    return attached;
+  };
+
   const bringUp = async (
     entry: { row: ContainerRow },
-    constraints: ContainerSandboxConstraints,
+    input: ContainerSpecInput,
     signal: AbortSignal | undefined
   ): Promise<Live> => {
-    const booted = await boot(entry, constraints, signal);
+    const booted = await boot(entry, input, signal);
     const created: Live = {
       ...booted,
       handles: 0,
@@ -247,8 +308,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
   const release = (entry: Live): Promise<void> => {
     live.delete(entry.row.id);
+    const keepOnRelease = entry.spec.lifetime?.whenReleased === "keep";
     return inReleaseTurn(entry.row.id, async () => {
       await entry.turn;
+      if (keepOnRelease) {
+        await entry.vm.disconnect();
+        return;
+      }
       await inventory.removeAttached(entry.row.id, entry, "close");
       await update(entry, { status: "stopped" });
     });
@@ -310,6 +376,9 @@ export function createContainers(options: CreateContainersOptions): Containers {
       get shell() {
         return entry.vm.facets.shell;
       },
+      get storage() {
+        return entry.vm.facets.storage;
+      },
       get volumes() {
         return entry.vm.facets.volumes;
       },
@@ -363,7 +432,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         status: "removing",
         updatedAt: Date.now(),
       });
-      await commitOwnNames(view, { putContainers: [claimed] });
+      await view.commit({ putContainers: [claimed] });
       return claimed;
     });
 
@@ -403,7 +472,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
       }
       throw new SandboxError(
         "provider-failed",
-        `container ${id}: its VMs could not be judged; stop it again to retry`
+        `container ${id}: its resources could not be checked; stop it again to retry`
       );
     }
     if (stuck.length > 0) {
@@ -412,27 +481,52 @@ export function createContainers(options: CreateContainersOptions): Containers {
     if (conflicts.length > 0) {
       throw new SandboxError(
         "invalid-contract",
-        `container ${id}: the VM(s) ${conflicts.join(", ")} carry its id or name but are not provably its own, so they are left; remove them by hand with ${conflicts.map(removeByHand).join(", ")}`
+        `container ${id}: resources ${conflicts.join(", ")} are not provably owned by this store, so they were left alone (${conflicts.map(inventory.hint).join(", ")})`
       );
     }
     if (stuck.length > 0) {
       throw new SandboxError(
         "provider-failed",
-        `container ${id}: the VM(s) ${stuck.map((each) => each.name).join(", ")} could not be removed; stop it again to retry`
+        `container ${id}: resources ${stuck.map((each) => each.name).join(", ")} could not be removed; stop it again to retry`
       );
     }
     await update({ row }, (current) => {
       assertNotClaimedElsewhere(current);
-      return current.nativeId === row.nativeId && BOOTED.has(current.status)
+      return current.nativeId === row.nativeId &&
+        ACTIVE_STATUSES.has(current.status)
         ? { status: "stopped" }
         : {};
     });
   };
 
   const containers: Containers = {
+    capabilities,
+
     get: (id) => store.get(id),
 
-    list: () => store.list(),
+    async list(query?: ContainerQuery) {
+      const rows = await store.list();
+      if (query === undefined) {
+        return rows;
+      }
+      const statuses =
+        query.status === undefined
+          ? undefined
+          : new Set(
+              Array.isArray(query.status) ? query.status : [query.status]
+            );
+      return Object.freeze(
+        rows.filter((row) => {
+          if (statuses !== undefined && !statuses.has(row.status)) {
+            return false;
+          }
+          if (query.holder !== undefined && row.holder !== query.holder) {
+            return false;
+          }
+          return true;
+        })
+      );
+    },
 
     async open(id, signal) {
       assertOpen();
@@ -445,6 +539,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
         assertNotRemoving(id);
         inflight = bringingUp(id, async () => {
           await released(id);
+          const existing = await rowOrThrow(id);
+          assertNotClaimedElsewhere(existing);
+          const parsed = parseContainerSpecInput(JSON.parse(existing.spec));
+          const reconnected = await tryReconnect(existing, parsed, signal);
+          if (reconnected !== undefined) {
+            return reconnected;
+          }
           let previous: string | undefined;
           const row = await serialized(async (view) => {
             const current = await rowOrThrow(id, view);
@@ -453,20 +554,63 @@ export function createContainers(options: CreateContainersOptions): Containers {
             const claimed: ContainerRow = Object.freeze({
               ...current,
               holder,
-              nativeId: nextNativeId(current),
+              nativeId: nextNativeName(current),
               status: "starting",
               updatedAt: Date.now(),
             });
-            await commitOwnNames(view, { putContainers: [claimed] });
+            await view.commit({ putContainers: [claimed] });
             return claimed;
           });
           if (previous !== undefined) {
             await inventory.removeSuperseded(previous, id);
           }
-          return bringUp({ row }, parseSpec(JSON.parse(row.spec)), signal);
+          return bringUp({ row }, parsed, signal);
         });
       }
       return handleFor(await inflight);
+    },
+
+    async pause(id) {
+      assertOpen();
+      const canPause =
+        driver.capabilities?.pause === true ||
+        driver.pauseResource !== undefined ||
+        live.get(id)?.vm.handle.pause !== undefined;
+      if (!canPause) {
+        throw new SandboxError(
+          "unsupported",
+          "driver does not support pausing containers"
+        );
+      }
+      const entry = live.get(id);
+      if (entry !== undefined) {
+        await entry.turn;
+        if (entry.vm.handle.pause !== undefined) {
+          await entry.vm.handle.pause();
+        } else if (driver.pauseResource !== undefined) {
+          await driver.pauseResource(entry.nativeId);
+        }
+        await entry.vm.disconnect();
+        live.delete(id);
+        await update(entry, { status: "paused" });
+        return;
+      }
+      const row = await rowOrThrow(id);
+      assertNotClaimedElsewhere(row);
+      if (row.status !== "running" || row.nativeId === undefined) {
+        throw new SandboxError(
+          "invalid-transition",
+          `container ${id} is ${row.status} and cannot be paused`
+        );
+      }
+      if (driver.pauseResource === undefined) {
+        throw new SandboxError(
+          "unsupported",
+          "driver does not support pausing detached containers"
+        );
+      }
+      await driver.pauseResource(row.nativeId);
+      await update({ row }, { status: "paused" });
     },
 
     async recover(left, signal) {
@@ -530,13 +674,13 @@ export function createContainers(options: CreateContainersOptions): Containers {
         if (taken.conflicts.length > 0) {
           throw new SandboxError(
             "invalid-contract",
-            `container ${id}: the VM(s) ${taken.conflicts.join(", ")} carry its id but another row records them; left alone, the row is kept, removing`
+            `container ${id}: resources ${taken.conflicts.join(", ")} are owned by another record; left alone`
           );
         }
         if (!taken.removed) {
           throw new SandboxError(
             "provider-failed",
-            `container ${id}: its VM ${String(claimed.nativeId)} could not be removed; the row is kept to retry`
+            `container ${id}: resource ${String(claimed.nativeId)} could not be removed; kept to retry`
           );
         }
       } finally {
@@ -552,7 +696,7 @@ export function createContainers(options: CreateContainersOptions): Containers {
         const row = await rowOrThrow(id);
         assertNotClaimedElsewhere(row);
         if (spec !== undefined) {
-          const recorded = JSON.stringify(parseSpec(spec));
+          const recorded = JSON.stringify(parseContainerSpecInput(spec));
           await update({ row }, (current) => {
             assertNotClaimedElsewhere(current);
             return { spec: recorded };
@@ -560,7 +704,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
         }
         return;
       }
-      const given = spec === undefined ? undefined : parseSpec(spec);
+      const given =
+        spec === undefined ? undefined : parseContainerSpecInput(spec);
       const assertStillLive = (): void => {
         if (live.get(id) !== entry) {
           throw new SandboxError(
@@ -571,7 +716,8 @@ export function createContainers(options: CreateContainersOptions): Containers {
       };
       const run = async (): Promise<void> => {
         assertStillLive();
-        const constraints = given ?? parseSpec(JSON.parse(entry.row.spec));
+        const input =
+          given ?? parseContainerSpecInput(JSON.parse(entry.row.spec));
         await update(entry, {
           status: "restarting",
           ...(given === undefined ? {} : { spec: JSON.stringify(given) }),
@@ -580,13 +726,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
           await inventory.removeAttached(entry.row.id, entry, "restart");
           assertStillLive();
           await update(entry, (current) => ({
-            nativeId: nextNativeId(current),
+            nativeId: nextNativeName(current),
           }));
           assertStillLive();
-          const booted = await boot(entry, constraints, signal);
+          const booted = await boot(entry, input, signal);
           entry.vm = booted.vm;
           entry.nativeId = booted.nativeId;
           entry.labels = booted.labels;
+          entry.spec = booted.spec;
           assertStillLive();
         } catch (error: unknown) {
           if (live.get(id) === entry) {
@@ -601,6 +748,18 @@ export function createContainers(options: CreateContainersOptions): Containers {
       const turn = entry.turn.then(run, run);
       entry.turn = turn.catch(() => undefined);
       await turn;
+    },
+
+    async resume(id, signal) {
+      assertOpen();
+      const row = await rowOrThrow(id);
+      if (row.status !== "paused") {
+        throw new SandboxError(
+          "invalid-transition",
+          `container ${id} is ${row.status}, not paused`
+        );
+      }
+      return containers.open(id, signal);
     },
 
     async shutdown() {
@@ -619,17 +778,15 @@ export function createContainers(options: CreateContainersOptions): Containers {
 
     async start(spec, signal) {
       assertOpen();
-      const constraints = parseSpec(spec);
+      const input = parseContainerSpecInput(spec);
       const id = globalThis.crypto.randomUUID();
-      if (live.has(id) || pending.has(id)) {
-        throw alreadyExists(id);
-      }
       const booted = await bringingUp(id, async () => {
-        const row = await insert(id, constraints);
-        return await bringUp({ row }, constraints, signal);
+        const row = await insert(id, input);
+        return await bringUp({ row }, input, signal);
       });
       return handleFor(booted);
     },
+
     async stop(id) {
       assertOpen();
       if (live.has(id) || pending.has(id)) {
@@ -657,11 +814,15 @@ function enteredEvent(
   if (next.status === current.status) {
     return;
   }
+  if (current.status === "paused" && next.status === "running") {
+    return "sandbox.resumed";
+  }
   return ENTERED[next.status];
 }
 
 const ENTERED: Partial<Record<ContainerRow["status"], SandboxEvent["type"]>> = {
   failed: "sandbox.failed",
+  paused: "sandbox.paused",
   running: "sandbox.started",
   stopped: "sandbox.stopped",
 };
@@ -675,46 +836,19 @@ function sandboxEvent(
   return { at: new Date(at).toISOString(), containerId, id, type };
 }
 
-function parseSpec(input: unknown): ContainerSandboxConstraints {
-  const result = containerSandboxConstraintsSchema.safeParse(input);
-  if (!result.success) {
-    throw new SandboxError(
-      "invalid-contract",
-      `invalid container spec: ${result.error.issues
-        .map((issue) => `${issue.path.join(".") || "spec"}: ${issue.message}`)
-        .join("; ")}`
-    );
-  }
-  return Object.freeze(result.data);
-}
-
-const BOOTED: ReadonlySet<ContainerRow["status"]> = new Set([
+const ACTIVE_STATUSES: ReadonlySet<ContainerRow["status"]> = new Set([
+  "paused",
   "restarting",
   "running",
   "starting",
 ]);
 
-async function commitOwnNames(
-  view: ContainerStore,
-  write: ContainerStoreWrite
-): Promise<void> {
-  const foreign = write.putContainers?.find(
-    (row) => row.nativeId !== undefined && !ownsNativeName(row.id, row.nativeId)
-  );
-  if (foreign !== undefined) {
-    throw new SandboxError(
-      "invalid-contract",
-      `container ${foreign.id} records the native name ${String(foreign.nativeId)}, which is not one of its own`
-    );
-  }
-  await view.commit(write);
-}
-
-function nextNativeId(row: Pick<ContainerRow, "id" | "nativeId">): string {
-  const previous = Number.parseInt(
-    row.nativeId?.slice(row.id.length + 1) ?? "0",
-    10
-  );
+function nextNativeName(row: Pick<ContainerRow, "id" | "nativeId">): string {
+  const prefix = `${row.id}-`;
+  const previous =
+    row.nativeId?.startsWith(prefix) === true
+      ? Number.parseInt(row.nativeId.slice(prefix.length), 10)
+      : 0;
   const generation = (Number.isNaN(previous) ? 0 : previous) + 1;
   return `${row.id}-${String(generation)}`;
 }

@@ -1,15 +1,14 @@
 import { once } from "node:events";
 import { expect, it } from "vitest";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import { prepareSandboxProcess } from "../node/prepare-process";
 import { ProcessController } from "../node/process-controller";
 import { MemoryContainerStore } from "../store/memory";
-import { createFakeContainerRuntime } from "../testing/index";
+import { createFakeDriver } from "../testing/index";
 
 it("exchanges binary input and separate output through the container process facet", async () => {
   const containers = createContainers({
-    instanceLabel: "piped-process",
-    runtime: createFakeContainerRuntime({
+    driver: createFakeDriver({
       spawn: () => {
         const process = new ProcessController(async () => {
           process.stdin.end();
@@ -20,13 +19,17 @@ it("exchanges binary input and separate output through the container process fac
         return process;
       },
     }),
+    instanceLabel: "piped-process",
     store: new MemoryContainerStore(),
   });
   const container = await containers.start({
     format: "foundry.sandbox.container/1",
   });
   try {
-    const child = await container.processes.spawn(["echo-bytes"]);
+    const child = await container.processes?.spawn?.(["echo-bytes"]);
+    if (!child) {
+      throw new Error("expected child");
+    }
     expect(child.exitCode).toBeNull();
     expect(child.killed).toBe(false);
     const event = new Promise<[number | null, string | null]>((resolve) =>

@@ -1,17 +1,17 @@
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ContainerSandboxConstraints } from "../container/constraints";
-import { createContainers } from "../container/containers";
+import { createContainers } from "../containers/containers";
 import {
   CONTAINER_ID_LABEL,
   CONTAINER_INSTANCE_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
-} from "../container/defaults";
-import { createFakeContainerRuntime } from "../testing/index";
+} from "../containers/defaults";
+import type { ContainerSpecInput } from "../containers/spec";
+import { createFakeDriver } from "../testing/index";
 import {
   CONTAINER_SPEC,
   CONTAINER_STORES,
@@ -39,29 +39,28 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
 
   describe("creation and opening", () => {
     it("resolves every spec over the containers' config defaults", async () => {
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const containers = createContainers({
-        config: {
+        defaults: {
           env: { NODE_ENV: "production", TZ: "UTC" },
           image: "docker.io/library/alpine:3",
           labels: { team: "core" },
-          network: "unrestricted",
+          network: "open",
           pull: "never",
         },
+        driver: runtime,
         instanceLabel: "defaults",
-        runtime,
         store: newStore(),
       });
 
       const inherited = await containers.start({
         format: "foundry.sandbox.container/1",
       });
-      expect(runtime.instances[0]?.spec).toMatchObject({
-        disableNetwork: false,
+      expect(runtime.handles[0]?.spec).toMatchObject({
         env: { NODE_ENV: "production", TZ: "UTC" },
         image: "docker.io/library/alpine:3",
         labels: { team: "core" },
-        network: "unrestricted",
+        network: "open",
         pull: "never",
       });
 
@@ -69,15 +68,14 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         format: "foundry.sandbox.container/1",
         image: "docker.io/oven/bun:1",
         labels: { team: "edge" },
-        network: "disabled",
+        network: "none",
         publicEnvironment: { NODE_ENV: "test" },
       });
-      expect(runtime.instances[1]?.spec).toMatchObject({
-        disableNetwork: true,
+      expect(runtime.handles[1]?.spec).toMatchObject({
         env: { NODE_ENV: "test", TZ: "UTC" },
         image: "docker.io/oven/bun:1",
         labels: { team: "edge" },
-        network: "disabled",
+        network: "none",
         pull: "never",
       });
 
@@ -96,16 +94,16 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         status: "running",
       });
       expect(JSON.parse(row?.spec ?? "")).toEqual(CONTAINER_SPEC);
-      expect(runtime.instances[0]?.spec.labels).toMatchObject({
+      expect(runtime.handles[0]?.spec.labels).toMatchObject({
         [CONTAINER_MANAGED_BY_LABEL]: CONTAINER_MANAGED_BY_VALUE,
         [CONTAINER_INSTANCE_LABEL]: "instance-a",
         [CONTAINER_ID_LABEL]: c.id,
       });
-      expect(runtime.instances[0]?.spec.image).toBe("docker.io/oven/bun:1");
+      expect(runtime.handles[0]?.spec.image).toBe("docker.io/oven/bun:1");
       expect(c.volumes).toBeUndefined();
       expect(c).not.toHaveProperty("native");
       await c.commands.exec(["echo", "hi"]);
-      expect(runtime.instances[0]?.commands).toContainEqual(["echo", "hi"]);
+      expect(runtime.handles[0]?.commands).toContainEqual(["echo", "hi"]);
       await c.close();
     });
 
@@ -114,15 +112,15 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       const first = await containers.start(CONTAINER_SPEC);
       const second = await containers.open(first.id);
       expect(second.files).toBe(first.files);
-      expect(runtime.instances).toHaveLength(1);
+      expect(runtime.handles).toHaveLength(1);
 
       await first.close();
       await first.close();
-      expect(runtime.instances[0]?.removed).toBe(false);
+      expect(runtime.handles[0]?.removed).toBe(false);
       expect((await store.get(first.id))?.status).toBe("running");
 
       await second.close();
-      expect(runtime.instances[0]?.removed).toBe(true);
+      expect(runtime.handles[0]?.removed).toBe(true);
       expect((await store.get(first.id))?.status).toBe("stopped");
       expect(await containers.list()).toHaveLength(1);
     });
@@ -135,7 +133,7 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       const again = await containers.open(first.id);
       expect(again.id).toBe(first.id);
       expect(again.files).not.toBe(first.files);
-      expect(runtime.instances.map((i) => i.id)).toEqual([
+      expect(runtime.handles.map((i) => i.id)).toEqual([
         `${first.id}-1`,
         `${first.id}-2`,
       ]);
@@ -144,22 +142,22 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
     });
 
     it("open after a process restart removes the old native and boots anew", async () => {
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const store = newStore();
       const before = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const c = await before.start(CONTAINER_SPEC);
       const after = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const reopened = await after.open(c.id);
-      expect(runtime.instances[0]?.removed).toBe(true);
-      expect(runtime.instances[1]?.id).toBe(`${c.id}-2`);
+      expect(runtime.handles[0]?.removed).toBe(true);
+      expect(runtime.handles[1]?.id).toBe(`${c.id}-2`);
       expect(reopened.row.status).toBe("running");
       await reopened.close();
     });
@@ -171,7 +169,7 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         ...CONTAINER_SPEC,
         detached: true,
       });
-      expect(runtime.instances.map((i) => i.spec.detached)).toEqual([
+      expect(runtime.handles.map((i) => i.spec.detached)).toEqual([
         false,
         true,
       ]);
@@ -180,12 +178,12 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
     });
 
     it("marks the row failed when the VM will not boot", async () => {
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       runtime.create = () => Promise.reject(new Error("no hypervisor"));
       const store = newStore();
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       await expect(containers.start(CONTAINER_SPEC)).rejects.toThrow(
@@ -209,10 +207,10 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
   describe("restart", () => {
     it("restart replaces the VM under open handles, with a new spec when given", async () => {
       const { store, writes } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const a = await containers.start(CONTAINER_SPEC);
@@ -230,11 +228,9 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         { nativeId: `${a.id}-2`, status: "restarting" },
         { nativeId: `${a.id}-2`, status: "running" },
       ]);
-      expect(runtime.instances[0]?.removed).toBe(true);
-      expect(runtime.instances[1]?.id).toBe(`${a.id}-2`);
-      expect(runtime.instances[1]?.spec.ports.map((p) => p.guestPort)).toEqual([
-        3000, 5173,
-      ]);
+      expect(runtime.handles[0]?.removed).toBe(true);
+      expect(runtime.handles[1]?.id).toBe(`${a.id}-2`);
+      expect(runtime.handles[1]?.spec.ports).toEqual([3000, 5173]);
       expect(a.files).not.toBe(before);
       expect(a.files).toBe(b.files);
       expect(JSON.parse((await store.get(a.id))?.spec ?? "")).toMatchObject({
@@ -242,11 +238,11 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       });
 
       await containers.restart(a.id);
-      expect(runtime.instances[2]?.id).toBe(`${a.id}-3`);
+      expect(runtime.handles[2]?.id).toBe(`${a.id}-3`);
       await a.close();
-      expect(runtime.instances[2]?.removed).toBe(false);
+      expect(runtime.handles[2]?.removed).toBe(false);
       await b.close();
-      expect(runtime.instances[2]?.removed).toBe(true);
+      expect(runtime.handles[2]?.removed).toBe(true);
       expect((await store.get(a.id))?.status).toBe("stopped");
     });
 
@@ -258,12 +254,10 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
         ...CONTAINER_SPEC,
         image: "docker.io/library/node:22",
       });
-      expect(runtime.instances).toHaveLength(1);
+      expect(runtime.handles).toHaveLength(1);
       expect((await store.get(c.id))?.status).toBe("stopped");
       const reopened = await containers.open(c.id);
-      expect(runtime.instances[1]?.spec.image).toBe(
-        "docker.io/library/node:22"
-      );
+      expect(runtime.handles[1]?.spec.image).toBe("docker.io/library/node:22");
       await reopened.close();
     });
   });
@@ -271,8 +265,8 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
   describe("stored rows", () => {
     it("keeps the memory store when given none", async () => {
       const containers = createContainers({
+        driver: createFakeDriver(),
         instanceLabel: "instance-a",
-        runtime: createFakeContainerRuntime(),
       });
       const c = await containers.start(CONTAINER_SPEC);
       expect((await containers.list()).map((row) => row.status)).toEqual([
@@ -293,8 +287,8 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
     it("commits a new row once, under its first native name, before the VM boots", async () => {
       const { store, writes } = gatedStore();
       const containers = createContainers({
+        driver: createFakeDriver(),
         instanceLabel: "instance-a",
-        runtime: createFakeContainerRuntime(),
         store,
       });
       const c = await containers.start(CONTAINER_SPEC);
@@ -324,7 +318,7 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       await c.close();
       await containers.remove(c.id);
       expect(await store.get(c.id)).toBeUndefined();
-      expect(runtime.instances[0]?.removed).toBe(true);
+      expect(runtime.handles[0]?.removed).toBe(true);
       await expect(containers.remove(c.id)).rejects.toThrow(
         MISSING_CONTAINER_ERROR
       );
@@ -335,7 +329,7 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       const a = await containers.start(CONTAINER_SPEC);
       const b = await containers.start(CONTAINER_SPEC);
       await containers.shutdown();
-      expect(runtime.instances.every((i) => i.removed)).toBe(true);
+      expect(runtime.handles.every((i) => i.removed)).toBe(true);
       expect((await store.get(a.id))?.status).toBe("stopped");
       expect((await store.get(b.id))?.status).toBe("stopped");
       await expect(containers.open(a.id)).rejects.toThrow(SHUTDOWN_ERROR);
@@ -351,12 +345,11 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
       const source = path.join(directory, "files", "installation-1");
       await mkdir(source, { recursive: true });
       try {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         const containers = createContainers({
-          allowedMountRoots: [path.join(directory, "files")],
+          driver: runtime,
           instanceLabel: "instance-a",
           mountTargetRoot: "/foundry/files",
-          runtime,
           store: newStore(),
         });
         const mount = {
@@ -365,16 +358,16 @@ describe.each(CONTAINER_STORES)("containers over %s", (_name, open) => {
           source,
           target: "/foundry/files",
         };
-        const spec: ContainerSandboxConstraints = {
+        const spec: ContainerSpecInput = {
           format: "foundry.sandbox.container/1",
           mounts: [mount],
         };
         const c = await containers.start(spec);
-        expect(runtime.instances[0]?.spec.mounts).toEqual([
+        expect(runtime.handles[0]?.spec.mounts).toEqual([
           {
+            access: "read-write",
             id: "files",
-            readOnly: false,
-            source: await realpath(source),
+            source: { kind: "host-directory", path: source },
             target: "/foundry/files",
           },
         ]);
@@ -411,17 +404,17 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
         containers.open(c.id),
       ]);
       expect(a.files).toBe(b.files);
-      expect(runtime.instances).toHaveLength(2);
+      expect(runtime.handles).toHaveLength(2);
       await a.close();
-      expect(runtime.instances[1]?.removed).toBe(false);
+      expect(runtime.handles[1]?.removed).toBe(false);
       await b.close();
-      expect(runtime.instances[1]?.removed).toBe(true);
+      expect(runtime.handles[1]?.removed).toBe(true);
     });
 
     it("open during the last close waits for the stop, then boots anew", async () => {
       const { runtime, store, containers } = fixture();
       const c = await containers.start(CONTAINER_SPEC);
-      const [vm] = runtime.instances;
+      const [vm] = runtime.handles;
       if (vm === undefined) {
         throw new Error("no VM booted");
       }
@@ -437,12 +430,12 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
       const closing = c.close();
       const reopening = containers.open(c.id);
       await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(runtime.instances).toHaveLength(1);
+      expect(runtime.handles).toHaveLength(1);
       finishRemove();
       const reopened = await reopening;
       await closing;
 
-      expect(runtime.instances.map((i) => i.removed)).toEqual([true, false]);
+      expect(runtime.handles.map((i) => i.removed)).toEqual([true, false]);
       expect(reopened.row.status).toBe("running");
       expect((await store.get(c.id))?.status).toBe("running");
       await reopened.close();
@@ -454,8 +447,8 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
     it("keeps a spec recorded while a reopen is writing its native name", async () => {
       const { hold, store } = gatedStore();
       const containers = createContainers({
+        driver: createFakeDriver(),
         instanceLabel: "instance-a",
-        runtime: createFakeContainerRuntime(),
         store,
       });
       const c = await containers.start(CONTAINER_SPEC);
@@ -482,9 +475,17 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
 
     it("keeps a spec another Containers instance records while a reopen is writing", async () => {
       const { hold, store } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
-      const first = createContainers({ instanceLabel: "a", runtime, store });
-      const second = createContainers({ instanceLabel: "a", runtime, store });
+      const runtime = createFakeDriver();
+      const first = createContainers({
+        driver: runtime,
+        instanceLabel: "a",
+        store,
+      });
+      const second = createContainers({
+        driver: runtime,
+        instanceLabel: "a",
+        store,
+      });
       const c = await first.start(CONTAINER_SPEC);
       await c.close();
       const alpine = { ...CONTAINER_SPEC, image: "docker.io/library/alpine:3" };
@@ -509,14 +510,22 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
 
     it("boots two registries reopening one row under different native names", async () => {
       const { store } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
-      const first = createContainers({ instanceLabel: "a", runtime, store });
-      const second = createContainers({ instanceLabel: "a", runtime, store });
+      const runtime = createFakeDriver();
+      const first = createContainers({
+        driver: runtime,
+        instanceLabel: "a",
+        store,
+      });
+      const second = createContainers({
+        driver: runtime,
+        instanceLabel: "a",
+        store,
+      });
       const c = await first.start(CONTAINER_SPEC);
       await c.close();
 
       const handles = await Promise.all([first.open(c.id), second.open(c.id)]);
-      expect(runtime.instances.map((instance) => instance.id)).toEqual([
+      expect(runtime.handles.map((instance) => instance.id)).toEqual([
         `${c.id}-1`,
         `${c.id}-2`,
         `${c.id}-3`,
@@ -550,10 +559,10 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
 
     it("refuses an open that begins while the row is being removed", async () => {
       const { hold, store } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const c = await containers.start(CONTAINER_SPEC);
@@ -572,17 +581,17 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
       await expect(restarting).rejects.toThrow(REMOVING_CONTAINER_ERROR);
       await removing;
       expect(await store.get(c.id)).toBeUndefined();
-      expect(runtime.instances).toHaveLength(1);
+      expect(runtime.handles).toHaveLength(1);
     });
   });
 
   describe("restarts racing a close", () => {
     it("stops a restart whose last handle closes and leaves no VM behind", async () => {
       const { hold, store } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const c = await containers.start(CONTAINER_SPEC);
@@ -597,18 +606,16 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
 
       await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
       await closing;
-      expect(runtime.instances.every((instance) => instance.removed)).toBe(
-        true
-      );
+      expect(runtime.handles.every((instance) => instance.removed)).toBe(true);
       expect((await store.get(c.id))?.status).toBe("stopped");
     });
 
     it("stops a restart whose last handle closes while it boots", async () => {
       const { hold, store } = gatedStore({ transactional: true });
-      const runtime = createFakeContainerRuntime();
+      const runtime = createFakeDriver();
       const containers = createContainers({
+        driver: runtime,
         instanceLabel: "instance-a",
-        runtime,
         store,
       });
       const c = await containers.start(CONTAINER_SPEC);
@@ -624,10 +631,8 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
 
       await expect(restarting).rejects.toThrow(CLOSED_DURING_RESTART_ERROR);
       await closing;
-      expect(runtime.instances).toHaveLength(2);
-      expect(runtime.instances.every((instance) => instance.removed)).toBe(
-        true
-      );
+      expect(runtime.handles).toHaveLength(2);
+      expect(runtime.handles.every((instance) => instance.removed)).toBe(true);
       expect((await store.get(c.id))?.status).toBe("stopped");
     });
 
@@ -640,9 +645,9 @@ describe.each(CONTAINER_STORES)("containers racing over %s", (_name, open) => {
         containers.restart(c.id),
       ]);
 
-      expect(runtime.instances).toHaveLength(3);
-      for (const instance of runtime.instances.slice(1)) {
-        expect(instance.spec.ports.map((p) => p.guestPort)).toEqual([5173]);
+      expect(runtime.handles).toHaveLength(3);
+      for (const instance of runtime.handles.slice(1)) {
+        expect(instance.spec.ports).toEqual([5173]);
       }
       expect(JSON.parse((await store.get(c.id))?.spec ?? "")).toMatchObject({
         ports: [5173],

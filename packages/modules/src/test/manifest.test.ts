@@ -1,6 +1,6 @@
 import type { StorageTree } from "@foundry/core/storage";
 import { digestJson } from "@foundry/lib/digest";
-import { containerSandboxConstraintsSchema } from "@foundry/sandbox";
+import { containerSpecSchema } from "@foundry/sandbox";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -349,7 +349,7 @@ describe("Strict foundry.module-manifest/1 Manifests", () => {
       (isStrictModuleManifest(manifest) && manifest.network?.destinations) ||
       [];
     expect(
-      containerSandboxConstraintsSchema.parse({
+      containerSpecSchema.parse({
         format: "foundry.sandbox.container/1",
         network: { destinations, mode: "allowlist" },
       }).network

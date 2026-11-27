@@ -2,7 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Sandbox as MicroSandbox } from "microsandbox";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { createMicrosandboxDriver } from "../node/microsandbox";
 import { bootGuest } from "./helpers/guest";
 
 const PACKAGE_URL = new URL("../../", import.meta.url);
@@ -23,29 +23,30 @@ describe("real MicroSandbox command IO", () => {
   let sandbox: Awaited<ReturnType<typeof bootGuest<MicroSandbox>>>;
 
   beforeAll(async () => {
-    const runtime = createMicrosandboxRuntime();
-    if (!(await runtime.isInstalled())) {
+    const runtime = createMicrosandboxDriver();
+    if (
+      !(await (runtime.isInstalled
+        ? runtime.isInstalled()
+        : Promise.resolve(true)))
+    ) {
       throw new Error(
         "Install the MicroSandbox runtime before running test:integration"
       );
     }
     const source = await realpath(fileURLToPath(PACKAGE_URL));
-    sandbox = await bootGuest(
-      runtime,
-      {
-        disableNetwork: true,
-        image: "docker.io/oven/bun:1-slim",
-        workdir: GUEST_PACKAGE_PATH,
-      },
-      [
+    sandbox = await bootGuest(runtime, {
+      image: "docker.io/oven/bun:1-slim",
+      mounts: [
         {
+          access: "read-only",
           id: "package",
-          readOnly: true,
           source,
           target: GUEST_PACKAGE_PATH,
         },
-      ]
-    );
+      ],
+      network: "none",
+      workdir: GUEST_PACKAGE_PATH,
+    });
     return () => sandbox[Symbol.asyncDispose]();
   }, 120_000);
 
@@ -82,9 +83,12 @@ describe("real MicroSandbox command IO", () => {
   }, 30_000);
 
   it("streams terminal responses before the next stdin write and accepts terminal EOF", async () => {
-    const shell = await sandbox.shell.open({
+    const shell = await sandbox.shell?.open({
       command: ["bun", "-e", ECHO_PROGRAM],
     });
+    if (!shell) {
+      throw new Error("expected shell");
+    }
     let output = "";
     const unsubscribe = shell.onData((chunk) => {
       output += chunk;
@@ -120,6 +124,9 @@ describe("real MicroSandbox command IO", () => {
   }, 30_000);
 
   it("streams separate native stdout and stderr, split UTF-8 input, and pipe EOF", async () => {
+    if (!sandbox.native) {
+      throw new Error("expected native microsandbox");
+    }
     await using handle = await sandbox.native.execStreamWith("bun", (builder) =>
       builder.args(["-e", ECHO_PROGRAM]).tty(false).stdinPipe()
     );
@@ -181,6 +188,9 @@ describe("real MicroSandbox command IO", () => {
   }, 30_000);
 
   it("preserves binary streams and EOF through the public piped process interface", async () => {
+    if (!sandbox.processes?.spawn) {
+      throw new Error("expected spawn");
+    }
     const child = await sandbox.processes.spawn([
       "bun",
       "-e",
@@ -208,6 +218,9 @@ describe("real MicroSandbox command IO", () => {
 
   it("aborts a live piped process and rejects its completion", async () => {
     const controller = new AbortController();
+    if (!sandbox.processes?.spawn) {
+      throw new Error("expected spawn");
+    }
     const child = await sandbox.processes.spawn(
       ["bun", "-e", "setInterval(() => {}, 1000)"],
       {
@@ -241,13 +254,16 @@ describe("real MicroSandbox command IO", () => {
 
   it("refuses an already aborted launch", async () => {
     await expect(
-      sandbox.processes.spawn(["bun", "--version"], {
+      sandbox.processes?.spawn?.(["bun", "--version"], {
         signal: AbortSignal.abort(new Error("cancelled before launch")),
       })
     ).rejects.toThrow("cancelled before launch");
   });
 
   it("sends a named signal and reports the native exit lifecycle", async () => {
+    if (!sandbox.processes?.spawn) {
+      throw new Error("expected spawn");
+    }
     const child = await sandbox.processes.spawn([
       "bun",
       "-e",
@@ -269,6 +285,9 @@ describe("real MicroSandbox command IO", () => {
   it("aborts output blocked by backpressure and reaps the guest process", async () => {
     const controller = new AbortController();
     const marker = `/tmp/piped-pid-${crypto.randomUUID()}`;
+    if (!sandbox.processes?.spawn) {
+      throw new Error("expected spawn");
+    }
     const child = await sandbox.processes.spawn(
       [
         "bun",
@@ -307,6 +326,9 @@ describe("real MicroSandbox command IO", () => {
   it("rejects an abort during launch without leaving the guest process running", async () => {
     const controller = new AbortController();
     const marker = `/tmp/launch-pid-${crypto.randomUUID()}`;
+    if (!sandbox.processes?.spawn) {
+      throw new Error("expected spawn");
+    }
     const pending = sandbox.processes.spawn(
       [
         "bun",
@@ -331,6 +353,9 @@ describe("real MicroSandbox command IO", () => {
   }, 30_000);
 
   it("reports a missing executable as a launch error", async () => {
+    if (!sandbox.processes?.spawn) {
+      throw new Error("expected spawn");
+    }
     const child = await sandbox.processes.spawn([
       "/missing-executable-fixture",
     ]);

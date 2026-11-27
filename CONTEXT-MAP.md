@@ -20,7 +20,7 @@
 - **Tasks** (`packages/tasks`): task backlog tracking what there is to do, what is ready, and what is done
 - **Modules** (`packages/modules`): workspace module contracts, registry, packaging, and composition
 - **Agents** (`packages/agents`): agent harnesses, sessions, authorization, skills, and tools
-- **Sandbox** (`packages/sandbox`): portable sandbox filesystem, command execution, and capability facets
+- [Sandbox](./packages/sandbox/CONTEXT.md): portable, OS-agnostic sandbox execution surface and durable container orchestration across local, cloud, and virtual drivers
 - **Workflows** (`packages/workflows`): multi-step durable workflows and step hooks
 - [Queue](./packages/queue/CONTEXT.md): durable job execution, concurrency pools, retries, leases, and suspensions
 - [Scheduling](./packages/scheduling/CONTEXT.md): recurring and future schedules that dispatch each due occurrence once

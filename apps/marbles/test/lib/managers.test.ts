@@ -8,7 +8,7 @@ import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { workspaces as createWorkspaces } from "@foundry/workspaces/node";
 import { git } from "@foundry/workspaces/node/git";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -544,7 +544,7 @@ describe("sandboxes", () => {
     await mkdir(root, { recursive: true });
     const commands: string[][] = [];
     const seen: { cwd?: string; env?: unknown; signal?: unknown }[] = [];
-    const runtime = createFakeContainerRuntime({
+    const runtime = createFakeDriver({
       exec: (command, options) => {
         commands.push([...command]);
         seen.push(options as (typeof seen)[number]);
@@ -552,9 +552,8 @@ describe("sandboxes", () => {
       },
     });
     const containers = createContainers({
-      allowedMountRoots: allowedMountRoots([root]),
+      driver: runtime,
       instanceLabel: "test",
-      runtime,
       store: new MemoryContainerStore(),
     });
     const manager = new SandboxesManager({
@@ -591,9 +590,8 @@ describe("sandboxes", () => {
     await mkdir(root, { recursive: true });
     await mkdir(worktree, { recursive: true });
     const containers = createContainers({
-      allowedMountRoots: allowedMountRoots([root, worktreeHome]),
+      driver: createFakeDriver(),
       instanceLabel: "test",
-      runtime: createFakeContainerRuntime(),
       store: new MemoryContainerStore(),
     });
     const manager = new SandboxesManager({
@@ -619,11 +617,10 @@ describe("sandboxes", () => {
   });
 
   it("adopts a host-owned container without taking over its lifetime", async () => {
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     const containers = createContainers({
-      allowedMountRoots: [],
+      driver: runtime,
       instanceLabel: "test",
-      runtime,
       store: new MemoryContainerStore(),
     });
     const owned = await containers.start({
@@ -639,7 +636,7 @@ describe("sandboxes", () => {
     expect(manager.containerOf(handle)).toBe(owned);
     expect(handle.id).toBe(owned.id);
     await handle.close();
-    expect(runtime.instances[0]?.stopped).toBe(false);
+    expect(runtime.handles[0]?.stopped).toBe(false);
     await owned.close();
   });
 
@@ -664,11 +661,10 @@ describe("sandboxes", () => {
       "/workspace/a.txt": "x",
     });
 
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     const containers = createContainers({
-      allowedMountRoots: allowedMountRoots([root]),
+      driver: runtime,
       instanceLabel: "test",
-      runtime,
       store: new MemoryContainerStore(),
     });
     const a = args(root);
@@ -682,7 +678,7 @@ describe("sandboxes", () => {
       image: "img:2",
       kind: "sandbox",
     });
-    const [instance] = runtime.instances;
+    const [instance] = runtime.handles;
     const written = new Map(
       [...(instance?.files ?? [])].map(([path, bytes]) => [
         path,
@@ -713,12 +709,11 @@ describe("sandboxes", () => {
     const machine = await testMachine();
     try {
       const registry = () => {
-        const runtime = createFakeContainerRuntime();
+        const runtime = createFakeDriver();
         return {
           containers: createContainers({
-            allowedMountRoots: allowedMountRoots([root]),
+            driver: runtime,
             instanceLabel: "test",
-            runtime,
             store: workspaceStores(machine.database.database, "ws").containers,
           }),
           runtime,
@@ -753,7 +748,7 @@ describe("sandboxes", () => {
         .scoped(a)
         .start(sandbox);
       expect(replayed.id).not.toBe(env.id);
-      const [instance] = later.runtime.instances;
+      const [instance] = later.runtime.handles;
       expect(
         new TextDecoder().decode(instance?.files.get("/workspace/a.txt"))
       ).toBe("alpha");
@@ -769,7 +764,7 @@ describe("a sandbox whose cleanup fails", () => {
   const removalFailure = new Error("VM removal failed");
 
   function failing(copyFailure?: Error) {
-    const runtime = createFakeContainerRuntime();
+    const runtime = createFakeDriver();
     const create = runtime.create.bind(runtime);
     runtime.create = async (spec) => {
       const instance = await create(spec);
@@ -780,8 +775,8 @@ describe("a sandbox whose cleanup fails", () => {
       return instance;
     };
     const containers = createContainers({
+      driver: runtime,
       instanceLabel: "test",
-      runtime,
       store: new MemoryContainerStore(),
     });
     const manager = new SandboxesManager({
@@ -818,7 +813,7 @@ describe("a sandbox whose cleanup fails", () => {
     await expect(sandbox.close()).rejects.toBe(removalFailure);
     await sandbox.close();
 
-    expect(runtime.instances[0]?.removed).toBe(true);
+    expect(runtime.handles[0]?.removed).toBe(true);
     await containers.shutdown();
   });
 });

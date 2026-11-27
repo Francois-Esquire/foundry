@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { createContainers } from "../container/containers";
-import { createFakeContainerRuntime } from "../testing/index";
+import { createContainers } from "../containers/containers";
+import { createFakeDriver } from "../testing/index";
 import { CONTAINER_SPEC, newStore } from "./helpers/containers-fixture";
 
 function fixture() {
-  const runtime = createFakeContainerRuntime();
+  const runtime = createFakeDriver();
   const store = newStore();
   const containers = createContainers({
+    driver: runtime,
     instanceLabel: "lifecycle",
-    runtime,
     store,
   });
   return { containers, runtime, store };
@@ -34,7 +34,7 @@ describe("a restart whose old VM will not go", () => {
   it("marks the row failed, evicts the live entry and keeps the VM to retry", async () => {
     const { containers, runtime, store } = fixture();
     const handle = await containers.start(CONTAINER_SPEC);
-    const [old] = runtime.instances;
+    const [old] = runtime.handles;
     if (old === undefined) {
       throw new Error("expected a booted instance");
     }
@@ -43,7 +43,7 @@ describe("a restart whose old VM will not go", () => {
     await expect(containers.restart(handle.id)).rejects.toThrow("stuck");
 
     expect((await store.get(handle.id))?.status).toBe("failed");
-    expect(runtime.instances).toHaveLength(1);
+    expect(runtime.handles).toHaveLength(1);
     expect(await containers.sweep()).toEqual([`${handle.id}-1`]);
     const reopened = await containers.open(handle.id);
     expect(reopened.row.nativeId).toBe(`${handle.id}-2`);
@@ -77,39 +77,45 @@ describe("a restart of a row another instance is removing", () => {
 describe("managed service ids", () => {
   it("frees an id once its service is stopped", async () => {
     const { containers } = fixture();
-    const handle = await containers.start(CONTAINER_SPEC);
+    const { services } = await containers.start(CONTAINER_SPEC);
+    if (!services) {
+      throw new Error("expected services");
+    }
     const input = {
       argv: ["serve"],
       id: "program",
       readiness: { kind: "started" },
       terminationGraceMs: 0,
     } as const;
-    await handle.services.start({ ...input, argv: ["serve"] });
+    await services.start({ ...input, argv: ["serve"] });
 
-    await handle.services.stop("program");
+    await services.stop("program");
 
-    expect(await handle.services.list()).toEqual([]);
+    expect(await services.list()).toEqual([]);
     await expect(
-      handle.services.start({ ...input, argv: ["serve"] })
+      services.start({ ...input, argv: ["serve"] })
     ).resolves.toMatchObject({ id: "program" });
     await containers.shutdown();
   });
 
   it("frees an id whose service never became ready", async () => {
     const { containers } = fixture();
-    const handle = await containers.start(CONTAINER_SPEC);
+    const { services } = await containers.start(CONTAINER_SPEC);
+    if (!services) {
+      throw new Error("expected services");
+    }
     await expect(
-      handle.services.start({
+      services.start({
         argv: ["serve"],
         id: "program",
         readiness: { kind: "tcp", port: 9999, timeoutMs: 10 },
         terminationGraceMs: 0,
       })
-    ).rejects.toThrow("is not published");
+    ).rejects.toThrow("is not exposed");
 
-    expect(await handle.services.list()).toEqual([]);
+    expect(await services.list()).toEqual([]);
     await expect(
-      handle.services.start({
+      services.start({
         argv: ["serve"],
         id: "program",
         readiness: { kind: "started" },

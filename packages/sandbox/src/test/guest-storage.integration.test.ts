@@ -12,13 +12,17 @@ import { join } from "node:path";
 
 import { expect, it } from "vitest";
 
-import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../node/microsandbox";
+import { createContainers } from "../containers/containers";
+import { createMicrosandboxDriver } from "../node/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 it("uses guest storage over a mounted slice and enforces a read-only mount", async () => {
-  const runtime = createMicrosandboxRuntime();
-  if (!(await runtime.isInstalled())) {
+  const runtime = createMicrosandboxDriver();
+  if (
+    !(await (runtime.isInstalled
+      ? runtime.isInstalled()
+      : Promise.resolve(true)))
+  ) {
     throw new Error(
       "Install the MicroSandbox runtime before running test:integration"
     );
@@ -31,10 +35,9 @@ it("uses guest storage over a mounted slice and enforces a read-only mount", asy
   await symlink("notes.md", join(source, "link"));
   await symlink(join(root, "outside.txt"), join(source, "escape"));
   const containers = createContainers({
-    allowedMountRoots: [source],
+    driver: runtime,
     instanceLabel: `storage-test-${crypto.randomUUID()}`,
     mountTargetRoot: "/mounts",
-    runtime,
     store: new MemoryContainerStore(),
   });
   try {
@@ -57,22 +60,22 @@ it("uses guest storage over a mounted slice and enforces a read-only mount", asy
       network: "disabled",
       workdir: "/mounts/workspace",
     });
-    expect(await container.files.lstat("link")).toMatchObject({
+    expect(await container.storage?.lstat("link")).toMatchObject({
       type: "symlink",
     });
-    expect(await container.files.realpath("link")).toBe(
+    expect(await container.storage?.realpath("link")).toBe(
       "/mounts/workspace/notes.md"
     );
     expect(
-      (await container.files.readDirectory("."))
+      ((await container.storage?.readDirectory(".")) ?? [])
         .map((entry) => entry.name)
         .sort()
     ).toEqual(["escape", "link", "notes.md"]);
     await expect(container.files.readFile("escape")).rejects.toThrow();
     await expect(
-      container.files.replaceFile("link", new Uint8Array([1]))
+      container.storage?.replaceFile("link", new Uint8Array([1]))
     ).rejects.toThrow();
-    await container.files.replaceFile(
+    await container.storage?.replaceFile(
       "notes.md",
       new TextEncoder().encode("saved")
     );
@@ -82,7 +85,7 @@ it("uses guest storage over a mounted slice and enforces a read-only mount", asy
         .stdout
     ).toBe("saved");
     await expect(
-      container.files.replaceFile(
+      container.storage?.replaceFile(
         "/mounts/readonly/notes.md",
         new Uint8Array([1])
       )

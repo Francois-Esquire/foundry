@@ -1,33 +1,32 @@
-import { realpath, stat } from "node:fs/promises";
-import { createConnection } from "node:net";
-import { isAbsolute, relative, resolve } from "node:path";
 import { SandboxError } from "../errors";
 import { normalizeSandboxPath } from "../path";
 import type {
   SandboxCommand,
   SandboxDirectoryEntry,
+  SandboxEndpoint,
   SandboxExecOptions,
+  SandboxPortsFacet,
   SandboxProcessesFacet,
   SandboxProcessStatus,
   SandboxService,
   SandboxServiceExit,
   SandboxServicesFacet,
   SandboxShell,
+  SandboxShellFacet,
   SandboxShellOptions,
   SandboxStartServiceInput,
   SandboxVolumesFacet,
 } from "../sandbox";
 import { sandboxFromAdapter } from "../sandbox-adapter";
-import type { ContainerSandboxMount } from "./constraints";
 import type { ContainerFacets } from "./contracts";
 import { CONTAINER_PORTABLE_ID_PATTERN } from "./defaults";
-import { isTcpPort } from "./ports";
 import type {
-  ContainerExecOptions,
-  ContainerInstance,
-  ContainerMountSpec,
+  ContainerMount,
   ContainerSpec,
-} from "./runtime";
+  DriverExecOptions,
+  DriverHandle,
+} from "./driver";
+import { isTcpPort } from "./spec";
 
 const ENVIRONMENT_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DEFAULT_TERMINATION_GRACE_MS = 5000;
@@ -36,67 +35,81 @@ const DEFAULT_READINESS_INTERVAL_MS = 50;
 const GUEST_WATCH_INTERVAL_MS = 1000;
 
 export interface AttachedContainer {
+  disconnect(): Promise<void>;
   readonly facets: ContainerFacets;
+  readonly handle: DriverHandle;
   remove(): Promise<void>;
 }
 
-type GuestContainer = ReturnType<typeof guestContainer>;
+interface AttachOptions {
+  readonly fetch?: typeof globalThis.fetch;
+}
 
 interface ContainerState {
   readonly mounts: Map<
     string,
-    { readonly spec: ContainerMountSpec; mounted: boolean }
+    { readonly spec: ContainerMount; mounted: boolean }
   >;
   readonly services: Map<string, SandboxService>;
 }
 
 export function attachContainer(
-  instance: ContainerInstance,
+  handle: DriverHandle,
   spec: ContainerSpec,
-  { mountCapability }: { readonly mountCapability: boolean }
+  options: AttachOptions = {}
 ): AttachedContainer {
   const lifetime = new AbortController();
   let removed = false;
+  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const guest = createGuestAdapter(handle, spec, lifetime.signal);
   return Object.freeze({
-    facets: containerFacets(
-      guestContainer(instance, spec, lifetime.signal),
-      spec.mounts,
-      mountCapability
-    ),
+    async disconnect() {
+      if (removed) {
+        return;
+      }
+      lifetime.abort(new SandboxError("cancelled", "Sandbox disconnected"));
+      await handle.disconnect?.();
+      removed = true;
+    },
+    facets: buildContainerFacets(guest, handle, spec.mounts, fetchImpl),
+    handle,
     async remove() {
       if (removed) {
         return;
       }
       lifetime.abort(new SandboxError("cancelled", "Sandbox removed"));
-      await instance.remove();
+      await handle.remove();
       removed = true;
     },
   });
 }
 
-function guestContainer(
-  instance: ContainerInstance,
+type GuestAdapter = ReturnType<typeof createGuestAdapter>;
+
+function createGuestAdapter(
+  handle: DriverHandle,
   spec: ContainerSpec,
   lifetime: AbortSignal
 ) {
-  const active = (operation: string): ContainerInstance => {
+  const active = (operation: string): DriverHandle => {
     if (lifetime.aborted) {
       throw new SandboxError(
         "invalid-transition",
-        `Cannot ${operation}: sandbox ${instance.id} has been removed`
+        `Cannot ${operation}: sandbox ${handle.id} has been removed`
       );
     }
-    return instance;
+    return handle;
   };
   const at = (path: string): string => normalizeSandboxPath(path, spec.workdir);
   const execOptions = (
     options: SandboxExecOptions = {}
-  ): ContainerExecOptions => ({
+  ): DriverExecOptions => ({
     cwd: options.cwd === undefined ? spec.workdir : at(options.cwd),
     env: { ...spec.env, ...options.environment },
     ...(options.user === undefined ? {} : { user: options.user }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
+
   const list = async (
     path: string,
     recursive: boolean
@@ -150,15 +163,12 @@ function guestContainer(
       }
       return copied;
     },
-    async exec(command: SandboxCommand, options?: SandboxExecOptions) {
-      return active("exec").exec(
-        normalizeCommand(command),
-        execOptions(options)
-      );
+    async endpoint(guestPort: number): Promise<SandboxEndpoint | undefined> {
+      const target = active("endpoint");
+      return target.endpoint?.(guestPort);
     },
-    async hostPort(guestPort: number): Promise<number | undefined> {
-      active("hostPort");
-      return spec.ports.find((port) => port.guestPort === guestPort)?.hostPort;
+    async exec(command: SandboxCommand, options?: SandboxExecOptions) {
+      return active("exec").exec(command, execOptions(options));
     },
     async isDirectory(path: string) {
       return (await active("isDirectory").stat(path)) === "directory";
@@ -166,8 +176,15 @@ function guestContainer(
     lifetime,
     list,
     async openShell(options: SandboxShellOptions = {}): Promise<SandboxShell> {
-      return active("openShell").execStream(
-        options.command ? normalizeCommand(options.command) : ["/bin/sh"],
+      const target = active("openShell");
+      if (target.execStream === undefined) {
+        throw new SandboxError(
+          "unsupported",
+          "driver does not support interactive shell sessions"
+        );
+      }
+      return target.execStream(
+        options.command,
         execOptions({
           ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
           ...(options.environment === undefined
@@ -176,37 +193,98 @@ function guestContainer(
         })
       );
     },
+    async probePort(guestPort: number): Promise<boolean> {
+      const target = active("probePort");
+      if (target.probePort === undefined) {
+        throw new SandboxError(
+          "unsupported",
+          "driver does not support TCP port readiness probing"
+        );
+      }
+      return target.probePort(guestPort);
+    },
     async readFile(path: string) {
       return active("readFile").readFile(path);
     },
     async spawn(command: SandboxCommand, options: SandboxExecOptions = {}) {
-      const guest = active("spawn");
+      const target = active("spawn");
+      if (target.spawn === undefined) {
+        throw new SandboxError(
+          "unsupported",
+          "driver does not support piped process spawning"
+        );
+      }
       options.signal?.throwIfAborted();
       const signal =
         options.signal === undefined
           ? lifetime
           : AbortSignal.any([lifetime, options.signal]);
-      return guest.spawn(
-        normalizeCommand(command),
-        execOptions({ ...options, signal })
-      );
+      return target.spawn(command, execOptions({ ...options, signal }));
     },
     async startProcess(command: SandboxCommand, options?: SandboxExecOptions) {
-      return active("startProcess").startProcess(
-        normalizeCommand(command),
-        execOptions(options)
-      );
+      const target = active("startProcess");
+      if (target.startProcess === undefined) {
+        throw new SandboxError(
+          "unsupported",
+          "driver does not support background processes"
+        );
+      }
+      return target.startProcess(command, execOptions(options));
     },
-    storage: {
-      lstat: async (path: string) => active("storage").storage.lstat(at(path)),
-      readDirectory: async (path: string) =>
-        active("storage").storage.readDirectory(at(path)),
-      readLink: async (path: string) =>
-        active("storage").storage.readLink(at(path)),
-      realpath: async (path: string) =>
-        active("storage").storage.realpath(at(path)),
-      replaceFile: async (path: string, bytes: Uint8Array) =>
-        active("storage").storage.replaceFile(at(path), bytes),
+    storage:
+      handle.storage === undefined
+        ? undefined
+        : {
+            lstat: async (path: string) => {
+              const s = active("storage").storage;
+              if (s === undefined) {
+                throw new SandboxError("unsupported", "storage unavailable");
+              }
+              return s.lstat(at(path));
+            },
+            readDirectory: async (path: string) => {
+              const s = active("storage").storage;
+              if (s === undefined) {
+                throw new SandboxError("unsupported", "storage unavailable");
+              }
+              return s.readDirectory(at(path));
+            },
+            readFile: async (path: string) =>
+              active("readFile").readFile(at(path)),
+            readLink: async (path: string) => {
+              const s = active("storage").storage;
+              if (s === undefined) {
+                throw new SandboxError("unsupported", "storage unavailable");
+              }
+              return s.readLink(at(path));
+            },
+            realpath: async (path: string) => {
+              const s = active("storage").storage;
+              if (s === undefined) {
+                throw new SandboxError("unsupported", "storage unavailable");
+              }
+              return s.realpath(at(path));
+            },
+            replaceFile: async (path: string, bytes: Uint8Array) => {
+              const s = active("storage").storage;
+              if (s === undefined) {
+                throw new SandboxError("unsupported", "storage unavailable");
+              }
+              return s.replaceFile(at(path), bytes);
+            },
+            separator: handle.storage.separator,
+            writeFile: async (path: string, content: string | Uint8Array) =>
+              active("writeFile").writeFile(at(path), toBytes(content)),
+          },
+    async unmount(id: string, target: string): Promise<void> {
+      const current = active("unmount");
+      if (current.unmount === undefined) {
+        throw new SandboxError(
+          "unsupported",
+          "driver does not support runtime unmounting"
+        );
+      }
+      await current.unmount(id, target);
     },
     workdir: spec.workdir,
     async writeFile(path: string, content: string | Uint8Array) {
@@ -215,10 +293,11 @@ function guestContainer(
   };
 }
 
-function containerFacets(
-  guest: GuestContainer,
-  mounts: readonly ContainerMountSpec[],
-  mountCapability: boolean
+function buildContainerFacets(
+  guest: GuestAdapter,
+  handle: DriverHandle,
+  mounts: readonly ContainerMount[],
+  fetchImpl: typeof globalThis.fetch
 ): ContainerFacets {
   const state: ContainerState = {
     mounts: new Map(mounts.map((spec) => [spec.id, { mounted: true, spec }])),
@@ -234,75 +313,108 @@ function containerFacets(
     workingDirectory: guest.workdir,
     writeFile: guest.writeFile,
   });
-  return Object.freeze({
-    ...base,
-    files: Object.freeze({
-      ...base.files,
-      ...guest.storage,
-      separator: "/" as const,
-      async watch(_root: string, changed: () => void) {
-        guest.assertActive("watch");
-        const timer = setInterval(changed, GUEST_WATCH_INTERVAL_MS);
-        const stop = (): void => {
-          clearInterval(timer);
-          guest.lifetime.removeEventListener("abort", stop);
-        };
-        guest.lifetime.addEventListener("abort", stop);
-        return {
-          close() {
-            stop();
-            return Promise.resolve();
+
+  const files: ContainerFacets["files"] = Object.freeze({
+    ...base.files,
+    ...(guest.storage === undefined ? {} : guest.storage),
+    ...(guest.storage === undefined
+      ? {}
+      : {
+          async watch(_root: string, changed: () => void) {
+            guest.assertActive("watch");
+            const timer = setInterval(changed, GUEST_WATCH_INTERVAL_MS);
+            const stop = (): void => {
+              clearInterval(timer);
+              guest.lifetime.removeEventListener("abort", stop);
+            };
+            guest.lifetime.addEventListener("abort", stop);
+            return {
+              close() {
+                stop();
+                return Promise.resolve();
+              },
+            };
           },
-        };
-      },
-    }),
-    ports: Object.freeze({
-      async hostPort(port: number) {
-        const hostPort = await guest.hostPort(port);
-        return hostPort === undefined
-          ? undefined
-          : { host: "127.0.0.1", port: hostPort };
-      },
-    }),
-    processes: {
-      spawn: guest.spawn,
-      async start(command, options) {
-        const process = await guest.startProcess(command, options);
-        let status: SandboxProcessStatus = "running";
-        const exited = process.wait().finally(() => {
-          if (status === "running") {
-            status = "exited";
-          }
-        });
-        exited.catch(() => undefined);
-        return {
-          id: process.id,
-          get status() {
-            return status;
-          },
-          async terminate() {
-            if (status !== "running") {
+        }),
+  });
+
+  const ports: SandboxPortsFacet | undefined =
+    handle.endpoint === undefined
+      ? undefined
+      : Object.freeze({
+          endpoint: (port: number) => guest.endpoint(port),
+          async hostPort(port: number) {
+            const ep = await guest.endpoint(port);
+            if (ep?.host === undefined || ep.port === undefined) {
               return;
             }
-            await process.kill();
-            status = "terminated";
+            return { host: ep.host, port: ep.port };
           },
-          wait: () => exited,
-        };
-      },
-    } satisfies SandboxProcessesFacet,
-    services: createContainerServicesFacet(state, guest),
-    shell: Object.freeze({
-      open: (options?: SandboxShellOptions) => guest.openShell(options),
-    }),
-    ...(mountCapability
-      ? { volumes: createContainerVolumesFacet(state, guest) }
-      : {}),
-  });
-}
+        });
 
-function normalizeCommand(command: SandboxCommand): string[] {
-  return typeof command === "string" ? ["sh", "-c", command] : [...command];
+  const processes: SandboxProcessesFacet | undefined =
+    handle.startProcess === undefined && handle.spawn === undefined
+      ? undefined
+      : Object.freeze({
+          ...(handle.spawn === undefined ? {} : { spawn: guest.spawn }),
+          async start(command: SandboxCommand, options?: SandboxExecOptions) {
+            const proc = await guest.startProcess(command, options);
+            let status: SandboxProcessStatus = "running";
+            const exited = proc.wait().finally(() => {
+              if (status === "running") {
+                status = "exited";
+              }
+            });
+            exited.catch(() => undefined);
+            return {
+              id: proc.id,
+              async kill() {
+                if (status !== "running") {
+                  return;
+                }
+                await proc.kill();
+                status = "terminated";
+              },
+              get status() {
+                return status;
+              },
+              async terminate() {
+                if (status !== "running") {
+                  return;
+                }
+                await proc.terminate();
+                status = "terminated";
+              },
+              wait: () => exited,
+            };
+          },
+        });
+
+  const services: SandboxServicesFacet | undefined =
+    handle.startProcess === undefined
+      ? undefined
+      : createServicesFacet(state, guest, fetchImpl);
+
+  const shell: SandboxShellFacet | undefined =
+    handle.execStream === undefined
+      ? undefined
+      : Object.freeze({
+          open: (options?: SandboxShellOptions) => guest.openShell(options),
+        });
+
+  const volumes: SandboxVolumesFacet | undefined =
+    mounts.length > 0 ? createVolumesFacet(state, guest) : undefined;
+
+  return Object.freeze({
+    ...base,
+    files,
+    ...(ports === undefined ? {} : { ports }),
+    ...(processes === undefined ? {} : { processes }),
+    ...(services === undefined ? {} : { services }),
+    ...(shell === undefined ? {} : { shell }),
+    ...(guest.storage === undefined ? {} : { storage: guest.storage }),
+    ...(volumes === undefined ? {} : { volumes }),
+  });
 }
 
 function toBytes(content: string | Uint8Array): Uint8Array {
@@ -311,21 +423,19 @@ function toBytes(content: string | Uint8Array): Uint8Array {
     : content;
 }
 
-function createContainerVolumesFacet(
-  handle: ContainerState,
-  guest: GuestContainer
+function createVolumesFacet(
+  state: ContainerState,
+  guest: GuestAdapter
 ): SandboxVolumesFacet {
   return Object.freeze({
     async list() {
       guest.assertActive("listVolumes");
       return Object.freeze(
-        [...handle.mounts.values()]
+        [...state.mounts.values()]
           .filter((mount) => mount.mounted)
           .map((mount) =>
             Object.freeze({
-              access: mount.spec.readOnly
-                ? ("read-only" as const)
-                : ("read-write" as const),
+              access: mount.spec.access,
               id: mount.spec.id,
               target: mount.spec.target,
             })
@@ -334,53 +444,47 @@ function createContainerVolumesFacet(
     },
     async unmount(id: string): Promise<void> {
       guest.assertActive("unmount");
-      const mount = handle.mounts.get(id);
-      if (mount === undefined) {
+      const mount = state.mounts.get(id);
+      if (!mount) {
         throw new SandboxError(
           "invalid-contract",
-          `sandbox mount "${id}" does not belong to this environment`
+          `sandbox mount "${id}" does not belong to this container`
         );
       }
       if (!mount.mounted) {
         return;
       }
-      const result = await guest.exec(["umount", mount.spec.target]);
-      if (result.exitCode !== 0) {
-        throw new SandboxError(
-          "provider-failed",
-          `sandbox mount "${id}" could not be unmounted`,
-          { details: { exitCode: result.exitCode } }
-        );
-      }
+      await guest.unmount(mount.spec.id, mount.spec.target);
       mount.mounted = false;
     },
   });
 }
 
-function createContainerServicesFacet(
-  handle: ContainerState,
-  guest: GuestContainer
+function createServicesFacet(
+  state: ContainerState,
+  guest: GuestAdapter,
+  fetchImpl: typeof globalThis.fetch
 ): SandboxServicesFacet {
   const forget = (service: SandboxService): void => {
-    if (handle.services.get(service.id) === service) {
-      handle.services.delete(service.id);
+    if (state.services.get(service.id) === service) {
+      state.services.delete(service.id);
     }
   };
   return Object.freeze({
     async list() {
       guest.assertActive("listServices");
-      return Object.freeze([...handle.services.values()]);
+      return Object.freeze([...state.services.values()]);
     },
     async start(input: SandboxStartServiceInput): Promise<SandboxService> {
       guest.assertActive("startService");
       validateServiceInput(input);
-      if (handle.services.has(input.id)) {
+      if (state.services.has(input.id)) {
         throw new SandboxError(
           "invalid-contract",
           `sandbox service "${input.id}" already exists`
         );
       }
-      const process = await guest.startProcess([...input.argv], {
+      const proc = await guest.startProcess([...input.argv], {
         ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
         ...(input.environment === undefined
           ? {}
@@ -390,7 +494,7 @@ function createContainerServicesFacet(
       let status: SandboxService["status"] = "starting";
       let readyAt: number | undefined;
       let terminationRequested = false;
-      const exit = process.wait().then(
+      const exit = proc.wait().then(
         (result): SandboxServiceExit => {
           status = terminationRequested ? "terminated" : "exited";
           return Object.freeze({
@@ -415,14 +519,14 @@ function createContainerServicesFacet(
           return exit;
         }
         terminationRequested = true;
-        await process.signal(15).catch(() => undefined);
+        await proc.terminate().catch(() => undefined);
         const graceMs =
           input.terminationGraceMs ?? DEFAULT_TERMINATION_GRACE_MS;
         const graceful = await raceExit(exit, graceMs);
         if (graceful !== undefined) {
           return graceful;
         }
-        await process.kill().catch(() => undefined);
+        await proc.kill().catch(() => undefined);
         return exit;
       };
       const service: SandboxService = Object.freeze({
@@ -437,10 +541,10 @@ function createContainerServicesFacet(
         terminate,
         wait: () => exit,
       });
-      handle.services.set(input.id, service);
+      state.services.set(input.id, service);
 
       try {
-        await waitForServiceReadiness(guest, input, exit);
+        await waitForServiceReadiness(guest, input, exit, fetchImpl);
         if (service.status === "starting") {
           readyAt = Date.now();
           status = "ready";
@@ -454,11 +558,11 @@ function createContainerServicesFacet(
     },
     async stop(id: string): Promise<void> {
       guest.assertActive("stopService");
-      const service = handle.services.get(id);
+      const service = state.services.get(id);
       if (service === undefined) {
         throw new SandboxError(
           "invalid-contract",
-          `sandbox service "${id}" does not belong to this environment`
+          `sandbox service "${id}" does not belong to this container`
         );
       }
       await service.terminate();
@@ -517,7 +621,7 @@ function validateServiceInput(input: SandboxStartServiceInput): void {
   }
   const { readiness } = input;
   if (
-    readiness.kind === "tcp" &&
+    (readiness.kind === "tcp" || readiness.kind === "http") &&
     !(
       isTcpPort(readiness.port) &&
       isIntegerBetween(readiness.timeoutMs, 1, 120_000) &&
@@ -527,34 +631,38 @@ function validateServiceInput(input: SandboxStartServiceInput): void {
   ) {
     throw new SandboxError(
       "invalid-contract",
-      "sandbox service TCP readiness is invalid or unbounded"
+      `sandbox service ${readiness.kind.toUpperCase()} readiness is invalid or unbounded`
     );
   }
 }
 
 async function waitForServiceReadiness(
-  guest: GuestContainer,
+  guest: GuestAdapter,
   input: SandboxStartServiceInput,
-  exit: Promise<SandboxServiceExit>
+  exit: Promise<SandboxServiceExit>,
+  fetchImpl: typeof globalThis.fetch
 ): Promise<void> {
-  if (input.readiness.kind === "started") {
+  const { readiness } = input;
+  if (readiness.kind === "started") {
     return;
   }
-  const hostPort = await guest.hostPort(input.readiness.port);
-  if (hostPort === undefined) {
+  const endpoint = await guest.endpoint(readiness.port);
+  if (endpoint === undefined) {
     throw new SandboxError(
       "invalid-contract",
-      `sandbox service readiness port ${String(input.readiness.port)} is not published`
+      `sandbox service readiness port ${String(readiness.port)} is not exposed`
     );
   }
-  const deadline = Date.now() + input.readiness.timeoutMs;
-  const intervalMs =
-    input.readiness.intervalMs ?? DEFAULT_READINESS_INTERVAL_MS;
+  const deadline = Date.now() + readiness.timeoutMs;
+  const intervalMs = readiness.intervalMs ?? DEFAULT_READINESS_INTERVAL_MS;
+  const probe = (): Promise<boolean> =>
+    readiness.kind === "http"
+      ? probeHttp(endpoint, readiness.path ?? "/", fetchImpl)
+      : guest.probePort(readiness.port);
+
   while (Date.now() < deadline) {
     const outcome = await Promise.race([
-      probeTcp("127.0.0.1", hostPort).then((ready) =>
-        ready ? "ready" : "retry"
-      ),
+      probe().then((ready) => (ready ? "ready" : "retry")),
       exit.then(() => "exited" as const),
     ]);
     if (outcome === "ready") {
@@ -574,27 +682,26 @@ async function waitForServiceReadiness(
   );
 }
 
-function isIntegerBetween(value: number, min: number, max: number): boolean {
-  return Number.isInteger(value) && value >= min && value <= max;
+async function probeHttp(
+  endpoint: SandboxEndpoint,
+  path: string,
+  fetchImpl: typeof globalThis.fetch
+): Promise<boolean> {
+  try {
+    const url = new URL(path, endpoint.url);
+    const response = await fetchImpl(url, {
+      ...(endpoint.headers === undefined ? {} : { headers: endpoint.headers }),
+      method: "GET",
+      signal: AbortSignal.timeout(500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
-function probeTcp(host: string, port: number): Promise<boolean> {
-  return new Promise((resolveProbe) => {
-    const socket = createConnection({ host, port });
-    const settle = (ready: boolean): void => {
-      socket.destroy();
-      resolveProbe(ready);
-    };
-    socket.once("connect", () => {
-      settle(true);
-    });
-    socket.once("error", () => {
-      settle(false);
-    });
-    socket.setTimeout(250, () => {
-      settle(false);
-    });
-  });
+function isIntegerBetween(value: number, min: number, max: number): boolean {
+  return Number.isInteger(value) && value >= min && value <= max;
 }
 
 function delay(ms: number): Promise<void> {
@@ -606,84 +713,4 @@ async function raceExit(
   timeoutMs: number
 ): Promise<SandboxServiceExit | undefined> {
   return Promise.race([exit, delay(timeoutMs).then(() => undefined)]);
-}
-
-export async function resolveContainerMountSpecs(
-  mounts: readonly ContainerSandboxMount[],
-  allowedRoots: readonly string[],
-  targetRoot?: string
-): Promise<readonly ContainerMountSpec[]> {
-  if (mounts.length === 0) {
-    return Object.freeze([]);
-  }
-  if (allowedRoots.length === 0) {
-    throw new SandboxError(
-      "invalid-contract",
-      "Container sandbox mounts require a trusted host-root allowlist"
-    );
-  }
-  if (targetRoot !== undefined) {
-    for (const mount of mounts) {
-      if (
-        mount.target !== targetRoot &&
-        !mount.target.startsWith(`${targetRoot}/`)
-      ) {
-        throw new SandboxError(
-          "invalid-contract",
-          `sandbox mount "${mount.id}" target must be ${targetRoot} or a child of it`
-        );
-      }
-    }
-  }
-  const roots = await Promise.all(
-    allowedRoots.map(async (root) => {
-      if (!isAbsolute(root)) {
-        throw new SandboxError(
-          "invalid-contract",
-          "Container sandbox mount roots must be absolute"
-        );
-      }
-      return realpath(resolve(root));
-    })
-  );
-  const resolved: ContainerMountSpec[] = [];
-  for (const mount of mounts) {
-    if (!isAbsolute(mount.source)) {
-      throw new SandboxError(
-        "invalid-contract",
-        `sandbox mount "${mount.id}" source must be absolute`
-      );
-    }
-    const source = await realpath(resolve(mount.source));
-    const metadata = await stat(source);
-    if (!metadata.isDirectory()) {
-      throw new SandboxError(
-        "invalid-contract",
-        `sandbox mount "${mount.id}" source must be a directory`
-      );
-    }
-    if (!roots.some((root) => isWithin(root, source))) {
-      throw new SandboxError(
-        "invalid-contract",
-        `sandbox mount "${mount.id}" escapes the trusted host roots`
-      );
-    }
-    resolved.push(
-      Object.freeze({
-        id: mount.id,
-        ...(mount.executable === undefined
-          ? {}
-          : { executable: mount.executable }),
-        readOnly: mount.access === "read-only",
-        source,
-        target: mount.target,
-      })
-    );
-  }
-  return Object.freeze(resolved);
-}
-
-function isWithin(root: string, candidate: string): boolean {
-  const path = relative(root, candidate);
-  return path === "" || !(path.startsWith("..") || isAbsolute(path));
 }

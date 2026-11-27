@@ -7,14 +7,14 @@ import {
   ACTIVE_CONTAINER_RESOURCE_STATUSES,
   CONTAINER_ID_LABEL,
   CONTAINER_STORE_LABEL,
+  defaultRemovalHint,
   INVENTORY_PAGE_LIMIT,
   MAX_INVENTORY_PAGES,
-  removeByHand,
 } from "./defaults";
+import type { Driver, DriverResourceSummary } from "./driver";
 import type { AttachedContainer } from "./facets";
-import type { ContainerResourceSummary, ContainerRuntime } from "./runtime";
 
-interface Machine {
+interface ResourceMeta {
   readonly labels: Readonly<Record<string, string>>;
   readonly name: string;
 }
@@ -27,65 +27,71 @@ interface Attached {
 
 interface Clearance {
   readonly conflicts: readonly string[];
-  readonly stuck: readonly ContainerResourceSummary[];
+  readonly stuck: readonly DriverResourceSummary[];
   readonly unjudged: boolean;
 }
 
 type RecordedByAnother = (name: string, except?: string) => Promise<boolean>;
 
 export function createInventory(options: {
+  readonly driver: Driver;
   readonly report: CreateContainersOptions["report"];
-  readonly runtime: ContainerRuntime;
   readonly selection: Readonly<Record<string, string>>;
   readonly store: ContainerStore;
 }) {
-  const { runtime, selection, store } = options;
+  const { driver, selection, store } = options;
   const abandoned = new Map<string, string>();
+  const hint = (name: string): string =>
+    driver.manualRemovalHint?.(name) ?? defaultRemovalHint(name);
 
   const retryByName = (name: string, rowId: string): void => {
-    if (ownsNativeName(rowId, name)) {
-      abandoned.set(name, rowId);
-    }
+    abandoned.set(name, rowId);
   };
 
   const report = (line: string): void => {
     try {
       (
         options.report ??
-        ((text: string) => process.stderr.write(`foundry: ${text}\n`))
+        ((text: string) => {
+          console.error(`foundry: ${text}`);
+        })
       )(line);
     } catch {
-      // biome-ignore lint/complexity/noUselessReturn: End the best-effort operation on failure.
+      // biome-ignore lint/complexity/noUselessReturn: End best-effort reporting on failure.
       return;
     }
   };
 
-  const abandon = (machine: Machine, rowId: string, own: string): void => {
-    if (isRowsMachine(machine, rowId, own)) {
-      abandoned.set(machine.name, rowId);
+  const abandon = (
+    resource: ResourceMeta,
+    rowId: string,
+    own: string
+  ): void => {
+    if (isRowsResource(resource, rowId, own)) {
+      abandoned.set(resource.name, rowId);
     } else {
       report(
-        `container ${rowId}: the VM ${machine.name} would not go, and is not provably this instance's, so it is not kept to retry; remove it by hand with ${removeByHand(machine.name)}`
+        `container ${rowId}: resource ${resource.name} could not be removed and is not provably owned by this store; ${hint(resource.name)}`
       );
     }
   };
 
   const discardBooted = async (
-    machine: Machine,
+    resource: ResourceMeta,
     rowId: string,
     own: string,
     vm: AttachedContainer
   ): Promise<void> => {
-    if (!isRowsMachine(machine, rowId, own)) {
+    if (!isRowsResource(resource, rowId, own)) {
       report(
-        `container ${rowId}: the VM ${machine.name} it booted is not provably its own, so it is left; remove it by hand with ${removeByHand(machine.name)}`
+        `container ${rowId}: booted resource ${resource.name} is not provably owned by this store; ${hint(resource.name)}`
       );
       return;
     }
     try {
       await vm.remove();
     } catch {
-      abandon(machine, rowId, own);
+      abandon(resource, rowId, own);
     }
   };
 
@@ -93,34 +99,75 @@ export function createInventory(options: {
     name: string,
     rowId: string
   ): Promise<void> => {
-    let resource: ContainerResourceSummary | undefined;
+    if (driver.listResources === undefined) {
+      try {
+        await driver.stopResource(name).catch(() => undefined);
+        await driver.removeResource(name);
+      } catch {
+        retryByName(name, rowId);
+      }
+      return;
+    }
+    let resource: DriverResourceSummary | undefined;
     let own: string;
     try {
       own = await store.identity();
-      resource = (await enumerate(runtime, selection, undefined)).find(
+      resource = (await enumerate(driver, selection, undefined)).find(
         (each) => each.name === name
       );
     } catch (error: unknown) {
       retryByName(name, rowId);
       report(
-        `container ${rowId}: its old VM ${name} could not be judged (${String(error)}); kept to retry once the inventory can be read`
+        `container ${rowId}: previous resource ${name} could not be checked (${String(error)}); kept to retry`
       );
       return;
     }
     if (resource === undefined) {
       return;
     }
-    if (!isRowsMachine(resource, rowId, own)) {
+    if (!isRowsResource(resource, rowId, own)) {
       report(
-        `container ${rowId}: its old VM ${name} is not provably this instance's, so it is left; remove it by hand with ${removeByHand(name)}`
+        `container ${rowId}: previous resource ${name} is not provably owned by this store; ${hint(name)}`
       );
       return;
     }
     try {
-      await dispose(runtime, resource);
+      await dispose(driver, resource);
     } catch {
       abandon(resource, rowId, own);
     }
+  };
+
+  const reclaimDirect = async (
+    candidates: readonly [string, string][]
+  ): Promise<{
+    readonly passedOver: string[];
+    readonly removed: string[];
+    readonly resources: readonly DriverResourceSummary[];
+  }> => {
+    const removed: string[] = [];
+    let failure: { readonly error: unknown } | undefined;
+    for (const [name] of candidates) {
+      try {
+        await driver.stopResource(name).catch(() => undefined);
+        await driver.removeResource(name);
+        removed.push(name);
+        abandoned.delete(name);
+      } catch (error: unknown) {
+        failure ??= { error };
+      }
+    }
+    if (failure !== undefined) {
+      throw new SandboxError(
+        "provider-failed",
+        `could not remove ${candidates
+          .filter(([name]) => abandoned.has(name))
+          .map(([name]) => name)
+          .join(", ")}`,
+        { cause: failure.error }
+      );
+    }
+    return { passedOver: [], removed, resources: [] };
   };
 
   const reclaim = async (
@@ -129,12 +176,15 @@ export function createInventory(options: {
   ): Promise<{
     readonly passedOver: string[];
     readonly removed: string[];
-    readonly resources: readonly ContainerResourceSummary[];
+    readonly resources: readonly DriverResourceSummary[];
   }> => {
     const candidates = [...abandoned];
+    if (driver.listResources === undefined) {
+      return reclaimDirect(candidates);
+    }
     const recordedByAnother = recordedNames();
     const passedOver: string[] = [];
-    const resources = await enumerate(runtime, selection, signal);
+    const resources = await enumerate(driver, selection, signal);
     const listed = new Map(
       resources.map((resource) => [resource.name, resource])
     );
@@ -148,10 +198,10 @@ export function createInventory(options: {
       try {
         if (resource !== undefined) {
           if (
-            isRowsMachine(resource, rowId, own) &&
+            isRowsResource(resource, rowId, own) &&
             !(await recordedByAnother(name, rowId))
           ) {
-            await dispose(runtime, resource);
+            await dispose(driver, resource);
             removed.push(name);
           } else {
             passedOver.push(name);
@@ -180,38 +230,64 @@ export function createInventory(options: {
     attached: Attached,
     action: "close" | "restart"
   ): Promise<void> => {
-    const machine = { labels: attached.labels, name: attached.nativeId };
+    const resource = { labels: attached.labels, name: attached.nativeId };
     const own = await store.identity();
-    if (!isRowsMachine(machine, rowId, own)) {
+    if (!isRowsResource(resource, rowId, own)) {
       report(
-        `container ${rowId}: its VM ${machine.name} is not provably its own, so its ${action} left it; remove it by hand with ${removeByHand(machine.name)}`
+        `container ${rowId}: resource ${resource.name} is not provably owned by this store, so ${action} left it; ${hint(resource.name)}`
       );
       return;
     }
     try {
       await attached.vm.remove();
     } catch (error: unknown) {
-      abandon(machine, rowId, own);
+      abandon(resource, rowId, own);
       throw error;
     }
   };
 
-  const clearRow = async (row: ContainerRow): Promise<Clearance> => {
-    const conflicts: string[] = [];
-    const stuck: ContainerResourceSummary[] = [];
-    let resources: readonly ContainerResourceSummary[];
+  const clearRowDirect = async (row: ContainerRow): Promise<Clearance> => {
+    if (row.nativeId === undefined) {
+      return { conflicts: [], stuck: [], unjudged: false };
+    }
     try {
-      resources = await enumerate(runtime, selection, undefined);
+      const status =
+        driver.inspect === undefined
+          ? "running"
+          : await driver.inspect(row.nativeId);
+      if (status === undefined) {
+        return { conflicts: [], stuck: [], unjudged: false };
+      }
+      if (ACTIVE_CONTAINER_RESOURCE_STATUSES.has(status)) {
+        await driver.stopResource(row.nativeId);
+      }
+      await driver.removeResource(row.nativeId);
+      abandoned.delete(row.nativeId);
+      return { conflicts: [], stuck: [], unjudged: false };
+    } catch {
+      return {
+        conflicts: [],
+        stuck: [{ labels: {}, name: row.nativeId, status: "running" }],
+        unjudged: false,
+      };
+    }
+  };
+
+  const clearRow = async (row: ContainerRow): Promise<Clearance> => {
+    if (driver.listResources === undefined) {
+      return clearRowDirect(row);
+    }
+    const conflicts: string[] = [];
+    const stuck: DriverResourceSummary[] = [];
+    let resources: readonly DriverResourceSummary[];
+    try {
+      resources = await enumerate(driver, selection, undefined);
     } catch {
       return { conflicts, stuck, unjudged: true };
     }
     const recordedByAnother = recordedNames();
     for (const resource of resources) {
-      if (
-        resource.labels[CONTAINER_ID_LABEL] !== row.id &&
-        resource.name !== row.nativeId &&
-        !ownsNativeName(row.id, resource.name)
-      ) {
+      if (!matchesRow(row, resource)) {
         continue;
       }
       const others = await anotherOwns(row, resource, recordedByAnother);
@@ -231,38 +307,38 @@ export function createInventory(options: {
 
   const anotherOwns = async (
     row: ContainerRow,
-    machine: Machine,
+    resource: ResourceMeta,
     recordedByAnother: RecordedByAnother
   ): Promise<boolean | undefined> => {
     try {
+      const ownStore = await store.identity();
+      const nameValid =
+        ownsNativeName(row.id, resource.name) ||
+        (resource.name === row.nativeId &&
+          !NATIVE_NAME_PATTERN.test(resource.name));
       return (
-        !isRowsMachine(machine, row.id, await store.identity()) ||
-        (await recordedByAnother(machine.name, row.id))
+        !(isRowsResource(resource, row.id, ownStore) && nameValid) ||
+        (await recordedByAnother(resource.name, row.id))
       );
     } catch {
       return undefined;
     }
   };
 
-  const recordedNames = (): RecordedByAnother => {
-    let rows: Promise<readonly ContainerRow[]> | undefined;
-    return async (name, except) => {
-      rows ??= store.list();
-      return (await rows).some(
-        (stored) => stored.id !== except && stored.nativeId === name
-      );
-    };
-  };
+  const recordedNames = (): RecordedByAnother => async (name, except) =>
+    (await store.list()).some(
+      (stored) => stored.id !== except && stored.nativeId === name
+    );
 
   const disposeListed = async (
-    resource: ContainerResourceSummary
+    resource: DriverResourceSummary
   ): Promise<boolean> => {
     try {
-      await dispose(runtime, resource);
+      await dispose(driver, resource);
       return true;
     } catch {
       try {
-        const listed = await enumerate(runtime, selection, undefined);
+        const listed = await enumerate(driver, selection, undefined);
         return !listed.some((each) => each.name === resource.name);
       } catch {
         return false;
@@ -271,7 +347,7 @@ export function createInventory(options: {
   };
 
   const retryStuck = async (
-    stuck: readonly ContainerResourceSummary[],
+    stuck: readonly DriverResourceSummary[],
     rowId: string
   ): Promise<void> => {
     const own = await store.identity();
@@ -287,7 +363,7 @@ export function createInventory(options: {
     const { passedOver } = await reclaim(undefined, await store.identity());
     for (const name of passedOver) {
       report(
-        `the VM ${name} this instance kept to retry is not provably its own now, so its shutdown left it; remove it by hand with ${removeByHand(name)}`
+        `resource ${name} kept to retry is not provably owned by this store now, so shutdown left it; ${hint(name)}`
       );
     }
   };
@@ -306,7 +382,7 @@ export function createInventory(options: {
         continue;
       }
       const id = resource.labels[CONTAINER_ID_LABEL];
-      if (id === undefined || !isRowsMachine(resource, id, own)) {
+      if (id === undefined || !isRowsResource(resource, id, own)) {
         passedOver.push(resource.name);
         continue;
       }
@@ -316,7 +392,7 @@ export function createInventory(options: {
       ) {
         continue;
       }
-      await dispose(runtime, resource);
+      await dispose(driver, resource);
       swept.push(resource.name);
     }
     return sweepResult(swept, passedOver);
@@ -325,6 +401,7 @@ export function createInventory(options: {
   return {
     clearRow,
     discardBooted,
+    hint,
     removeAttached,
     removeSuperseded,
     retryAtShutdown,
@@ -334,14 +411,20 @@ export function createInventory(options: {
   };
 }
 
-export function ownsNativeName(rowId: string, name: string): boolean {
+function ownsNativeName(rowId: string, name: string): boolean {
   return (
     name.startsWith(`${rowId}-`) &&
     GENERATION.test(name.slice(rowId.length + 1))
   );
 }
 
+export function isForeignNativeName(rowId: string, name: string): boolean {
+  return NATIVE_NAME_PATTERN.test(name) && !ownsNativeName(rowId, name);
+}
+
 const GENERATION = /^\d+$/;
+const NATIVE_NAME_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-\d+$/i;
 
 function sweepResult(
   swept: readonly string[],
@@ -355,38 +438,55 @@ function sweepResult(
   return Object.freeze(result) as unknown as ContainerSweep;
 }
 
-function isRowsMachine(
-  machine: Machine,
-  rowId: string,
-  store: string
+function matchesRow(
+  row: ContainerRow,
+  resource: DriverResourceSummary
 ): boolean {
   return (
-    machine.labels[CONTAINER_STORE_LABEL] === store &&
-    ownsNativeName(rowId, machine.name) &&
-    machine.labels[CONTAINER_ID_LABEL] === rowId
+    resource.labels[CONTAINER_ID_LABEL] === row.id ||
+    resource.name === row.nativeId ||
+    ownsNativeName(row.id, resource.name)
+  );
+}
+
+function isRowsResource(
+  resource: ResourceMeta,
+  rowId: string,
+  storeIdentity: string
+): boolean {
+  const belongsToOtherRow =
+    NATIVE_NAME_PATTERN.test(resource.name) &&
+    !ownsNativeName(rowId, resource.name);
+  return (
+    !belongsToOtherRow &&
+    resource.labels[CONTAINER_STORE_LABEL] === storeIdentity &&
+    resource.labels[CONTAINER_ID_LABEL] === rowId
   );
 }
 
 async function dispose(
-  runtime: ContainerRuntime,
-  resource: ContainerResourceSummary
+  driver: Driver,
+  resource: DriverResourceSummary
 ): Promise<void> {
   if (ACTIVE_CONTAINER_RESOURCE_STATUSES.has(resource.status)) {
-    await runtime.stopResource(resource.name);
+    await driver.stopResource(resource.name);
   }
-  await runtime.removeResource(resource.name);
+  await driver.removeResource(resource.name);
 }
 
 async function enumerate(
-  runtime: ContainerRuntime,
+  driver: Driver,
   labels: Readonly<Record<string, string>>,
   signal: AbortSignal | undefined
-): Promise<readonly ContainerResourceSummary[]> {
-  const resources: ContainerResourceSummary[] = [];
+): Promise<readonly DriverResourceSummary[]> {
+  if (driver.listResources === undefined) {
+    return [];
+  }
+  const resources: DriverResourceSummary[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_INVENTORY_PAGES; page += 1) {
     assertNotAborted(signal, "container sweep was cancelled");
-    const result = await runtime.listResources({
+    const result = await driver.listResources({
       labels,
       limit: INVENTORY_PAGE_LIMIT,
       ...(cursor === undefined ? {} : { cursor }),

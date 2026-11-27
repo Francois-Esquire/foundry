@@ -27,7 +27,7 @@ import type {
 } from "@foundry/artifacts";
 import type {
   Container,
-  ContainerSandboxConstraints,
+  ContainerSpecInput,
   SandboxCommand,
   SandboxExecOptions,
   SandboxExecResult,
@@ -87,18 +87,19 @@ export interface WorkspaceDefinition {
   readonly path: string;
 }
 
-export type SandboxResources = NonNullable<
-  ContainerSandboxConstraints["resources"]
->;
+export type SandboxResources = NonNullable<ContainerSpecInput["resources"]>;
 
 interface SandboxOptions
   extends Pick<
-    ContainerSandboxConstraints,
+    ContainerSpecInput,
     | "detached"
+    | "expose"
     | "labels"
+    | "lifetime"
     | "network"
     | "ports"
     | "publicEnvironment"
+    | "secrets"
     | "workdir"
   > {
   readonly resources?: SandboxResources;
@@ -107,7 +108,7 @@ interface SandboxOptions
 export interface ImageSandbox extends SandboxOptions {
   readonly executable?: boolean;
   readonly image: string;
-  readonly mount?: "." | WorkspaceDefinition;
+  readonly mount?: "none" | "." | WorkspaceDefinition;
   readonly target?: string;
 }
 

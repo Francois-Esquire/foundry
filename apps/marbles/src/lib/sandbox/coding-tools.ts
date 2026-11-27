@@ -6,7 +6,9 @@ import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
 import { createSandboxToolkit } from "@foundry/sandbox/tools";
 import type { ToolSet } from "ai";
 
-export type CodingToolsContainer = Pick<Container, "files" | "commands">;
+export type CodingToolsContainer = Pick<Container, "files" | "commands"> & {
+  readonly storage?: Container["storage"];
+};
 
 const WORKSPACE = DEFAULT_SANDBOX_WORKING_DIRECTORY;
 
@@ -19,8 +21,12 @@ function assertWorkspace(path: string): string {
 
 export function createCodingTools(container: CodingToolsContainer): ToolSet {
   let canonicalRoot: Promise<void> | undefined;
+  const { storage } = container;
   const checkRoot = (): Promise<void> => {
-    canonicalRoot ??= container.files
+    if (storage === undefined) {
+      return Promise.resolve();
+    }
+    canonicalRoot ??= storage
       .realpath(WORKSPACE)
       .then((real) => {
         if (real !== WORKSPACE) {
@@ -45,14 +51,15 @@ export function createCodingTools(container: CodingToolsContainer): ToolSet {
     allowMissing = false
   ): Promise<string> => {
     const requested = assertWorkspace(path);
+    if (storage === undefined) {
+      return requested;
+    }
     await checkRoot();
     let candidate = requested;
     const missing: string[] = [];
     while (candidate.length > 0) {
       try {
-        const existing = assertWorkspace(
-          await container.files.realpath(candidate)
-        );
+        const existing = assertWorkspace(await storage.realpath(candidate));
         return assertWorkspace(posix.join(existing, ...missing.reverse()));
       } catch (error) {
         if (

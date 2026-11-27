@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type {
   Container,
-  ContainerSandboxConstraints,
+  ContainerSpecInput,
   Containers,
 } from "@foundry/sandbox";
 import {
@@ -20,9 +20,17 @@ import type {
   SandboxSpec,
 } from "../types";
 
+type WorkspaceMaterializer = (
+  container: Container,
+  input: { readonly source: string; readonly target: string }
+) => Promise<void>;
+
+export type WorkspaceMaterialization = "bind" | "none" | WorkspaceMaterializer;
+
 export interface SandboxesDeps {
   readonly containers: () => Promise<Containers>;
   readonly root: string;
+  readonly workspaceMaterialization?: WorkspaceMaterialization;
 }
 
 const WORKSPACE_TARGET = DEFAULT_SANDBOX_WORKING_DIRECTORY;
@@ -34,7 +42,7 @@ export interface MountDirs {
 }
 
 function mountSource(spec: ImageSandbox, dirs: MountDirs): string {
-  if (spec.mount === undefined || spec.mount === ".") {
+  if (spec.mount === undefined || spec.mount === "." || spec.mount === "none") {
     return dirs.cwd;
   }
   return resolve(dirs.root, spec.mount.path);
@@ -59,8 +67,9 @@ export function allowedMountRoots(roots: readonly string[]): string[] {
 
 export function constraintsFor(
   spec: SandboxSpec,
-  dirs: MountDirs
-): ContainerSandboxConstraints {
+  dirs: MountDirs,
+  options?: { readonly bindWorkspace?: boolean }
+): ContainerSpecInput {
   const target =
     ("target" in spec ? spec.target : undefined) ?? WORKSPACE_TARGET;
   const passed = Object.fromEntries(
@@ -68,34 +77,39 @@ export function constraintsFor(
       spec[key] === undefined ? [] : [[key, spec[key]]]
     )
   );
+  const shouldBind =
+    !("files" in spec) &&
+    spec.mount !== "none" &&
+    (options?.bindWorkspace ?? true);
   return {
     format: CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
     ...passed,
-    mounts: [
-      ...("files" in spec
-        ? []
-        : [
-            {
-              access: "read-write" as const,
-              executable: spec.executable ?? false,
-              id: "workspace",
-              source: mountSource(spec, dirs),
-              target,
-            },
-          ]),
-    ],
+    mounts: shouldBind
+      ? [
+          {
+            access: "read-write" as const,
+            executable: spec.executable ?? false,
+            id: "workspace",
+            source: mountSource(spec, dirs),
+            target,
+          },
+        ]
+      : [],
     workdir: spec.workdir ?? target,
   };
 }
 
 const PASSED_THROUGH = [
   "detached",
+  "expose",
   "image",
   "labels",
+  "lifetime",
   "network",
   "ports",
   "publicEnvironment",
   "resources",
+  "secrets",
 ] as const satisfies readonly (keyof SandboxSpec)[];
 
 interface HandleSite {
@@ -128,17 +142,26 @@ function wrap(container: Container, site: HandleSite): SandboxHandle {
     }
     return result;
   };
-  const processes: SandboxHandle["processes"] = {
-    spawn: (command, options) =>
-      container.processes.spawn(command, withSignal(options, site)),
-    start: (command, options) =>
-      container.processes.start(command, withSignal(options, site)),
-  };
+  const containerProcesses = container.processes;
+  const containerSpawn = containerProcesses?.spawn;
+  const processes: SandboxHandle["processes"] =
+    containerProcesses === undefined
+      ? undefined
+      : {
+          ...(containerSpawn === undefined
+            ? {}
+            : {
+                spawn: (command, options) =>
+                  containerSpawn(command, withSignal(options, site)),
+              }),
+          start: (command, options) =>
+            containerProcesses.start(command, withSignal(options, site)),
+        };
   const overrides: Record<PropertyKey, unknown> = {
     ...(site.close ? { close: site.close } : {}),
     commands: { exec },
     exec,
-    processes,
+    ...(processes === undefined ? {} : { processes }),
   };
   return new Proxy(
     {},
@@ -217,16 +240,33 @@ export class SandboxesManager implements Sandboxes {
     sandbox: SandboxDefinition | SandboxSpec,
     signal?: AbortSignal
   ): Promise<Container> {
-    const { root } = this.#deps;
+    const { root, workspaceMaterialization } = this.#deps;
     const containers = await this.containers();
+    const dirs = { cwd: workingDirectory(root), root };
+    const driverSupportsBind =
+      containers.capabilities.mounts === undefined ||
+      containers.capabilities.mounts.includes("host-directory");
+    const bindWorkspace =
+      workspaceMaterialization === undefined
+        ? driverSupportsBind
+        : workspaceMaterialization === "bind";
     const container = await containers.start(
-      constraintsFor(sandbox, { cwd: workingDirectory(root), root }),
+      constraintsFor(sandbox, dirs, { bindWorkspace }),
       signal
     );
     if ("files" in sandbox) {
       await container.files
         .copyIn(guestFiles(sandbox.files))
         .catch((error: unknown) => closeAfterFailure(error, container));
+    } else if (
+      typeof workspaceMaterialization === "function" &&
+      sandbox.mount !== "none"
+    ) {
+      const target = sandbox.target ?? WORKSPACE_TARGET;
+      await workspaceMaterialization(container, {
+        source: mountSource(sandbox, dirs),
+        target,
+      }).catch((error: unknown) => closeAfterFailure(error, container));
     }
     this.#started.add(container.id);
     return container;

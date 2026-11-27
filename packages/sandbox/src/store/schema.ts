@@ -3,6 +3,7 @@ import { z } from "zod";
 export const CONTAINER_ROW_STATUSES = Object.freeze([
   "starting",
   "running",
+  "paused",
   "restarting",
   "missing",
   "stopped",
@@ -39,6 +40,8 @@ const changeEventFields = {
 export const sandboxEventSchema = z.discriminatedUnion("type", [
   z.object({ ...changeEventFields, type: z.literal("sandbox.created") }),
   z.object({ ...changeEventFields, type: z.literal("sandbox.started") }),
+  z.object({ ...changeEventFields, type: z.literal("sandbox.paused") }),
+  z.object({ ...changeEventFields, type: z.literal("sandbox.resumed") }),
   z.object({ ...changeEventFields, type: z.literal("sandbox.stopped") }),
   z.object({ ...changeEventFields, type: z.literal("sandbox.failed") }),
   z.object({ ...changeEventFields, type: z.literal("sandbox.destroyed") }),

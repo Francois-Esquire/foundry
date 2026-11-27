@@ -56,6 +56,7 @@ describe("container store contract", () => {
     expect(CONTAINER_ROW_STATUSES).toEqual([
       "starting",
       "running",
+      "paused",
       "restarting",
       "missing",
       "stopped",

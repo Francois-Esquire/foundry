@@ -21,6 +21,11 @@
       "import": "./src/node/microsandbox.ts",
       "default": "./src/node/microsandbox.ts"
     },
+    "./providers/microsandbox": {
+      "types": "./dist/providers/microsandbox.d.ts",
+      "import": "./src/providers/microsandbox.ts",
+      "default": "./src/providers/microsandbox.ts"
+    },
     "./store": {
       "types": "./dist/store/index.d.ts",
       "import": "./src/store/index.ts",

@@ -65,7 +65,10 @@ import type { AgentsDeps, AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
 import type { RunQuery, RunsSource, RunView } from "~/lib/managers/runs";
 import { engineRuns } from "~/lib/managers/runs";
-import { SandboxesManager } from "~/lib/managers/sandboxes";
+import {
+  SandboxesManager,
+  type WorkspaceMaterialization,
+} from "~/lib/managers/sandboxes";
 import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
 import { localWorkspaces, WorkspacesManager } from "~/lib/managers/workspaces";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
@@ -146,6 +149,7 @@ export interface EngineOptions {
   readonly triggers?: TriggerStore;
   readonly usageStore?: UsageStore;
   readonly workspaceId: string;
+  readonly workspaceMaterialization?: WorkspaceMaterialization;
   readonly workspaces?: LocalWorkspaces;
   readonly worktrees?: string;
 }
@@ -368,6 +372,9 @@ export class Engine {
           ? containers
           : () => Promise.resolve(containers),
       root,
+      ...(options.workspaceMaterialization === undefined
+        ? {}
+        : { workspaceMaterialization: options.workspaceMaterialization }),
     });
     this.sandboxes = sandboxes;
     this.agents = agentsOf(options, {

@@ -16,6 +16,7 @@ it("publishes explicit canonical subpaths with no wildcard exports", () => {
     ".",
     "./node",
     "./node/microsandbox",
+    "./providers/microsandbox",
     "./store",
     "./store/memory",
     "./store/sqlite",

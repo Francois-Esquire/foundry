@@ -29,7 +29,7 @@ describe("container row schema", () => {
 
   it("rejects an unknown status", () => {
     expect(
-      containerRowSchema.safeParse({ ...row, status: "paused" }).success
+      containerRowSchema.safeParse({ ...row, status: "hibernating" }).success
     ).toBe(false);
   });
 
