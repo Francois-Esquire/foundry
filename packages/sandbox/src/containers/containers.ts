@@ -186,10 +186,14 @@ export function createContainers(options: CreateContainersOptions): Containers {
     assertNotAborted(signal, "container start was cancelled");
     const { row } = entry;
     const requestedName = row.nativeId ?? nextNativeName(row);
-    const { labels, own, spec } = await buildSpec(row, input, requestedName);
+    let labels: Readonly<Record<string, string>> = {};
+    let own = "";
     let vm: AttachedContainer | undefined;
     let actualRef = requestedName;
     try {
+      const built = await buildSpec(row, input, requestedName);
+      ({ labels, own } = built);
+      const { spec } = built;
       const handle = await driver.create(
         {
           containerId: row.id,

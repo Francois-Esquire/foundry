@@ -30,7 +30,8 @@ export interface FakeDriverOptions {
   readonly connect?: boolean;
   readonly endpointUrl?: (
     ref: string,
-    guestPort: number
+    guestPort: number,
+    expose?: ContainerSpec["expose"][number]
   ) => SandboxEndpoint | undefined;
   readonly exec?: FakeExecHandler;
   readonly files?: Readonly<Record<string, string | Uint8Array>>;
@@ -212,6 +213,13 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           },
           resumeResource(ref) {
             const handle = liveByRef(ref);
+            if (handle.stopped) {
+              return Promise.reject(
+                new Error(
+                  `container resource ${ref} is stopped and cannot be resumed`
+                )
+              );
+            }
             handle.paused = false;
             handle.nativeStatus = "running";
             return Promise.resolve();
@@ -262,12 +270,18 @@ export function createCloudFakeDriver(
       secrets: true,
     },
     connect: true,
-    endpointUrl: (ref, guestPort) => ({
-      access: "private",
-      headers: { authorization: `Bearer token-${ref}` },
-      protocol: "https",
-      url: `https://${String(guestPort)}-${ref}.cloud.sandbox.test`,
-    }),
+    endpointUrl: (ref, guestPort, expose) => {
+      const access = expose?.access === "public" ? "public" : "private";
+      const protocol = expose?.protocol ?? "https";
+      return {
+        access,
+        ...(access === "private"
+          ? { headers: { authorization: `Bearer token-${ref}` } }
+          : {}),
+        protocol,
+        url: `${protocol}://${String(guestPort)}-${ref}.cloud.sandbox.test`,
+      };
+    },
     inventory: { ...options.inventory, disabled: true },
     opaqueRefPrefix: "sbx",
     pause: true,
@@ -303,19 +317,22 @@ function createHandle(
     },
     disconnected: false,
     endpoint(guestPort) {
-      if (!spec.expose.some((entry) => entry.port === guestPort)) {
+      const exposed = spec.expose.find((entry) => entry.port === guestPort);
+      if (exposed === undefined) {
         return Promise.resolve(undefined);
       }
       if (options.endpointUrl !== undefined) {
-        return Promise.resolve(options.endpointUrl(ref, guestPort));
+        return Promise.resolve(options.endpointUrl(ref, guestPort, exposed));
       }
-      const hostPort = 40_000 + guestPort;
+      const hostPort =
+        guestPort <= 25_535 ? 40_000 + guestPort : guestPort - 25_535;
+      const protocol = exposed.protocol ?? "http";
       return Promise.resolve({
         access: "loopback",
         host: "127.0.0.1",
         port: hostPort,
-        protocol: "http",
-        url: `http://127.0.0.1:${String(hostPort)}`,
+        protocol,
+        url: `${protocol}://127.0.0.1:${String(hostPort)}`,
       });
     },
     ensureDirectory(path) {

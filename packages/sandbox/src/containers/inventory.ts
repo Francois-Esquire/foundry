@@ -155,7 +155,8 @@ export function createInventory(options: {
   };
 
   const reclaimDirect = async (
-    candidates: readonly [string, string][]
+    candidates: readonly [string, string][],
+    signal: AbortSignal | undefined
   ): Promise<{
     readonly passedOver: string[];
     readonly removed: string[];
@@ -166,6 +167,7 @@ export function createInventory(options: {
     const removed: string[] = [];
     let failure: { readonly error: unknown } | undefined;
     for (const [name, rowId] of candidates) {
+      assertNotAborted(signal, "container sweep was cancelled");
       if (abandoned.get(name) !== rowId) {
         continue;
       }
@@ -206,7 +208,7 @@ export function createInventory(options: {
   }> => {
     const candidates = [...abandoned];
     if (driver.listResources === undefined) {
-      return reclaimDirect(candidates);
+      return reclaimDirect(candidates, signal);
     }
     const recordedByAnother = recordedNames();
     const passedOver: string[] = [];
@@ -388,6 +390,12 @@ export function createInventory(options: {
     stuck: readonly DriverResourceSummary[],
     rowId: string
   ): Promise<void> => {
+    if (driver.listResources === undefined) {
+      for (const resource of stuck) {
+        retryByName(resource.name, rowId);
+      }
+      return;
+    }
     const own = await store.identity();
     for (const resource of stuck) {
       abandon(resource, rowId, own);

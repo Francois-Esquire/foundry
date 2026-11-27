@@ -107,7 +107,7 @@ describe("Marbles cloud-native sandbox integration", () => {
               agentId: "agent-1",
               container,
               harness: "claude-code",
-              hostCwd: "/virtual/project",
+              hostCwd: process.cwd(),
               instructions: "test",
               modelId: "claude-sonnet-4-5",
               options: {
@@ -121,29 +121,11 @@ describe("Marbles cloud-native sandbox integration", () => {
               write: () => undefined,
             },
           })
-        ).then(async (driver) => {
-          const stream = await driver.run({
-            input: { parts: [{ text: "hi", type: "text" }] },
-            onActivity: async () => undefined,
-            onSessionId: async () => undefined,
-            onToolEvent: async () => undefined,
-            permission: async () => ({ behavior: "allow" }),
-            profile: {
-              allowedTools: [],
-              disallowedTools: [],
-              maxSteps: 1,
-              mode: "scheduled",
-              unresolved: "deny",
-            },
-            question: async () => ({ answers: {}, outcome: "answered" }),
-            sessionId: "cloud-session-1",
-            signal: new AbortController().signal,
-          });
-          for await (const _chunk of stream) {
-            // drain until spawn rejects
-          }
-        })
-      ).rejects.toThrow();
+        )
+      ).rejects.toMatchObject({
+        code: "unsupported",
+        name: SandboxError.name,
+      });
     } finally {
       await container.close();
       await containers.shutdown();
@@ -202,8 +184,37 @@ describe("Marbles cloud-native sandbox integration", () => {
 
     try {
       expect(container.processes?.spawn).toBeUndefined();
-      const err = new SandboxError("unsupported", "no spawn");
-      expect(err.code).toBe("unsupported");
+      await expect(
+        Promise.resolve(
+          FIRST_PARTY_DRIVERS.codex({
+            auth: { apiKey: "test-key", kind: "apiKey" },
+            guest: {
+              environment: {},
+              executable: "/usr/local/bin/codex",
+            },
+            settings: {
+              agentId: "agent-1",
+              container,
+              harness: "codex",
+              hostCwd: process.cwd(),
+              instructions: "test",
+              modelId: "gpt-5",
+              options: {
+                authority: {} as never,
+                sandbox: {} as never,
+              },
+              provider: "openai",
+              sessionId: "cloud-session-no-spawn",
+              signal: new AbortController().signal,
+              store: {} as never,
+              write: () => undefined,
+            },
+          })
+        )
+      ).rejects.toMatchObject({
+        code: "unsupported",
+        name: SandboxError.name,
+      });
     } finally {
       await container.close();
       await containers.shutdown();

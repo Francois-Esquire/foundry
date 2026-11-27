@@ -652,15 +652,19 @@ async function waitForServiceReadiness(
   }
   const deadline = Date.now() + readiness.timeoutMs;
   const intervalMs = readiness.intervalMs ?? DEFAULT_READINESS_INTERVAL_MS;
-  const probe = (): Promise<boolean> =>
+  const probe = (budgetMs: number): Promise<boolean> =>
     readiness.kind === "http"
-      ? probeHttp(endpoint, readiness.path ?? "/", fetchImpl)
+      ? probeHttp(endpoint, readiness.path ?? "/", fetchImpl, budgetMs)
       : guest.probePort(readiness.port);
 
   while (Date.now() < deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now());
     const outcome = await Promise.race([
-      probe().then((ready) => (ready ? "ready" : "retry")),
+      probe(Math.min(500, remainingMs)).then((ready) =>
+        ready && Date.now() <= deadline ? "ready" : "retry"
+      ),
       exit.then(() => "exited" as const),
+      delay(remainingMs).then(() => "timeout" as const),
     ]);
     if (outcome === "ready") {
       return;
@@ -671,7 +675,10 @@ async function waitForServiceReadiness(
         `sandbox service "${input.id}" exited before readiness`
       );
     }
-    await delay(intervalMs);
+    if (outcome === "timeout" || Date.now() >= deadline) {
+      break;
+    }
+    await delay(Math.min(intervalMs, Math.max(0, deadline - Date.now())));
   }
   throw new SandboxError(
     "provider-failed",
@@ -682,7 +689,8 @@ async function waitForServiceReadiness(
 async function probeHttp(
   endpoint: SandboxEndpoint,
   path: string,
-  fetchImpl: typeof globalThis.fetch
+  fetchImpl: typeof globalThis.fetch,
+  timeoutMs = 500
 ): Promise<boolean> {
   try {
     const base = new URL(endpoint.url);
@@ -694,9 +702,11 @@ async function probeHttp(
       ...(endpoint.headers === undefined ? {} : { headers: endpoint.headers }),
       method: "GET",
       redirect: "manual",
-      signal: AbortSignal.timeout(500),
+      signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
     });
-    return response.ok;
+    const { ok } = response;
+    await response.body?.cancel().catch(() => undefined);
+    return ok;
   } catch {
     return false;
   }

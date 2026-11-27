@@ -345,13 +345,16 @@ class MicrosandboxHandle implements DriverHandle<MicroSandbox> {
     if (mapping === undefined) {
       return Promise.resolve(undefined);
     }
+    const protocol =
+      this.spec.expose.find((entry) => entry.port === guestPort)?.protocol ??
+      "http";
     return Promise.resolve(
       Object.freeze({
         access: "loopback",
         host: mapping.host,
         port: mapping.hostPort,
-        protocol: "http",
-        url: `http://${mapping.host}:${String(mapping.hostPort)}`,
+        protocol,
+        url: `${protocol}://${mapping.host}:${String(mapping.hostPort)}`,
       })
     );
   }

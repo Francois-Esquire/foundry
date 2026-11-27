@@ -32,6 +32,7 @@ export type GuestDriver = (
 
 export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
   "claude-code": async ({ guest, settings }) => {
+    const spawnProcess = requireSpawn(settings);
     const { createClaudeCodeDriver } = await import(
       "@foundry/models/providers/claude-code"
     );
@@ -46,7 +47,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
       },
       spawnClaudeCodeProcess: (spawn) =>
         prepareSandboxProcess(() =>
-          requireSpawn(settings)([guest.executable, ...spawn.args], {
+          spawnProcess([guest.executable, ...spawn.args], {
             cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
             environment: guest.environment,
             signal: spawn.signal
@@ -57,6 +58,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
     });
   },
   codex: async ({ auth, guest, settings }) => {
+    const spawnProcess = requireSpawn(settings);
     const { createCodexDriver } = await import(
       "@foundry/models/providers/codex"
     );
@@ -77,7 +79,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
       spawn: (argv, spawn) =>
         Promise.resolve(
           prepareSandboxProcess(() =>
-            requireSpawn(settings)(argv, {
+            spawnProcess(argv, {
               cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
               environment: guest.environment,
               signal: AbortSignal.any([settings.signal, spawn.signal]),
@@ -87,6 +89,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
     });
   },
   pi: async ({ guest, settings }) => {
+    const spawnProcess = requireSpawn(settings);
     const { createPiDriver } = await import("@foundry/models/providers/pi");
     return createPiDriver({
       agentId: settings.agentId,
@@ -98,7 +101,7 @@ export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
       sessionDirectory: `${guest.environment.PI_CODING_AGENT_DIR}/sessions`,
       spawn: async (argv, spawn) =>
         prepareSandboxProcess(() =>
-          requireSpawn(settings)(argv, {
+          spawnProcess(argv, {
             cwd: DEFAULT_SANDBOX_WORKING_DIRECTORY,
             environment: guest.environment,
             signal: AbortSignal.any([settings.signal, spawn.signal]),

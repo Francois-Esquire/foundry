@@ -24,6 +24,7 @@ import type {
 } from "./driver";
 
 const MAX_TCP_PORT = 65_535;
+const TRAILING_SLASHES = /\/+$/;
 const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[/\\]/;
 
 const publicEnvironmentName =
@@ -392,6 +393,17 @@ function mergeLifetime(
   return Object.keys(merged).length === 0 ? undefined : Object.freeze(merged);
 }
 
+function isWithinGuestRoot(target: string, root: string): boolean {
+  const normTarget =
+    target.replaceAll("\\", "/").replace(TRAILING_SLASHES, "") || "/";
+  const normRoot =
+    root.replaceAll("\\", "/").replace(TRAILING_SLASHES, "") || "/";
+  if (normRoot === "/") {
+    return normTarget.startsWith("/");
+  }
+  return normTarget === normRoot || normTarget.startsWith(`${normRoot}/`);
+}
+
 function resolvePortableMounts(
   mounts: readonly ContainerMountInput[],
   targetRoot: string | undefined
@@ -403,8 +415,7 @@ function resolvePortableMounts(
   for (const mount of mounts) {
     if (
       targetRoot !== undefined &&
-      mount.target !== targetRoot &&
-      !mount.target.startsWith(`${targetRoot}/`)
+      !isWithinGuestRoot(mount.target, targetRoot)
     ) {
       throw new SandboxError(
         "invalid-contract",
