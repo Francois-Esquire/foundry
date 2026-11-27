@@ -1,11 +1,16 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
+import type { Page } from "@foundry/core/pagination";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { Turns } from "@foundry/lib/turns";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
-import { ownedListQuery } from "../listing";
+import {
+  ownedBlobPageQuery,
+  ownedContentPageQuery,
+  ownedListQuery,
+} from "../listing";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
   ArtifactListing,
@@ -13,7 +18,10 @@ import type {
   ArtifactStore,
   ArtifactStoreWrite,
   BlobListing,
+  BlobPageQuery,
   BlobReferences,
+  ContentLookup,
+  ContentPageQuery,
 } from "../store";
 import { MemoryArtifactStore } from "../store/memory";
 import { ownedWrite } from "../store/owned";
@@ -80,6 +88,10 @@ export class JsonArtifactStore implements ArtifactStore {
         findBlobByPath: (path) =>
           read((records) => records.findBlobByPath(path)),
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
+        findContent: (artifactId, by) =>
+          read((records) => records.findContent(artifactId, by)),
+        findContentByTag: (artifactId, tag) =>
+          read((records) => records.findContentByTag(artifactId, tag)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
         getBlob: (id) => read((records) => records.getBlob(id)),
@@ -94,8 +106,24 @@ export class JsonArtifactStore implements ArtifactStore {
           return read((records) => records.listArtifacts(owned));
         },
         listBlobs: () => read((records) => records.listBlobs()),
+        listBlobsPage: (query) => {
+          try {
+            ownedBlobPageQuery(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.listBlobsPage(query));
+        },
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
+        listContentsPage: (query) => {
+          try {
+            ownedContentPageQuery(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.listContentsPage(query));
+        },
       };
       try {
         const result = await work(view);
@@ -116,6 +144,20 @@ export class JsonArtifactStore implements ArtifactStore {
 
   async findBlobs(digest: string): Promise<readonly Blob[]> {
     return (await this.#current()).findBlobs(digest);
+  }
+
+  async findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    return (await this.#current()).findContent(artifactId, by);
+  }
+
+  async findContentByTag(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null> {
+    return (await this.#current()).findContentByTag(artifactId, tag);
   }
 
   async findReferences(id: BlobId): Promise<BlobReferences> {
@@ -143,8 +185,22 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).listBlobs();
   }
 
+  async listBlobsPage(
+    query?: BlobPageQuery
+  ): Promise<Page<BlobListing, BlobId>> {
+    ownedBlobPageQuery(query);
+    return (await this.#current()).listBlobsPage(query);
+  }
+
   async listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return (await this.#current()).listContents(artifactId);
+  }
+
+  async listContentsPage(
+    query?: ContentPageQuery
+  ): Promise<Page<Content, ContentId>> {
+    ownedContentPageQuery(query);
+    return (await this.#current()).listContentsPage(query);
   }
 
   #locked<T>(work: () => Promise<T>): Promise<T> {

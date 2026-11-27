@@ -690,19 +690,11 @@ export class ArtifactTransaction implements ArtifactOperations {
     );
   }
 
-  async findContent(
+  findContent(
     id: ArtifactId,
     by: { readonly sessionId: string; readonly messageId: string }
   ): Promise<Content | null> {
-    return (
-      [...(await this.#change.listContents(id))]
-        .reverse()
-        .find(
-          (row) =>
-            row.metadata.sessionId === by.sessionId &&
-            row.metadata.messageId === by.messageId
-        ) ?? null
-    );
+    return this.#change.findContent(id, by);
   }
 
   async deleteContent(input: {
@@ -783,7 +775,9 @@ export class ArtifactTransaction implements ArtifactOperations {
     readonly olderThan: Date;
   }): Promise<{ readonly contents: number; readonly blobs: number }> {
     let contents = 0;
-    for (const content of await this.#change.listContents()) {
+    for (const content of await this.#change.listContents(undefined, {
+      state: ["ready", "failed"],
+    })) {
       if (
         (content.state !== "ready" && content.state !== "failed") ||
         content.updatedAt >= input.olderThan
@@ -1018,9 +1012,8 @@ export class ArtifactTransaction implements ArtifactOperations {
   async #assertTagFree(row: Content, tag: string): Promise<void> {
     nonEmpty("tag", tag);
     if (
-      (await this.#change.listContents(row.artifactId)).some(
-        (other) => other.id !== row.id && other.tag === tag
-      )
+      (await this.#change.findContentByTag(row.artifactId, tag, row.id)) !==
+      null
     ) {
       throw new DuplicateTagError(row.artifactId, tag);
     }

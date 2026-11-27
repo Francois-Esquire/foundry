@@ -1,9 +1,18 @@
+import type { Page } from "@foundry/core/pagination";
+import { pageFromRows } from "@foundry/lib/pagination";
 import { Turns } from "@foundry/lib/turns";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
+import type {
+  NormalizedBlobPageQuery,
+  NormalizedContentPageQuery,
+} from "../listing";
 import {
+  byCodePoint,
   compareCreated,
   isAfterCursor,
   matchesArtifactFilter,
+  ownedBlobPageQuery,
+  ownedContentPageQuery,
   ownedListQuery,
 } from "../listing";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
@@ -13,7 +22,10 @@ import type {
   ArtifactStore,
   ArtifactStoreWrite,
   BlobListing,
+  BlobPageQuery,
   BlobReferences,
+  ContentLookup,
+  ContentPageQuery,
 } from "./index";
 import { ownedRecords, ownedWrite } from "./owned";
 
@@ -62,6 +74,10 @@ export class MemoryArtifactStore implements ArtifactStore {
         findBlobByPath: (path) =>
           read((records) => records.findBlobByPath(path)),
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
+        findContent: (artifactId, by) =>
+          read((records) => records.findContent(artifactId, by)),
+        findContentByTag: (artifactId, tag) =>
+          read((records) => records.findContentByTag(artifactId, tag)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
         getBlob: (id) => read((records) => records.getBlob(id)),
@@ -71,8 +87,16 @@ export class MemoryArtifactStore implements ArtifactStore {
             read((records) => records.listArtifacts(copy))
           ),
         listBlobs: () => read((records) => records.listBlobs()),
+        listBlobsPage: (query) =>
+          pagedBlobs(query, (copy) =>
+            read((records) => records.listBlobsPage(copy))
+          ),
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
+        listContentsPage: (query) =>
+          pagedContents(query, (copy) =>
+            read((records) => records.listContentsPage(copy))
+          ),
       };
       try {
         const result = await work(view);
@@ -92,6 +116,20 @@ export class MemoryArtifactStore implements ArtifactStore {
 
   findBlobs(digest: string): Promise<readonly Blob[]> {
     return this.#records.findBlobs(digest);
+  }
+
+  findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    return this.#records.findContent(artifactId, by);
+  }
+
+  findContentByTag(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null> {
+    return this.#records.findContentByTag(artifactId, tag);
   }
 
   findReferences(id: BlobId): Promise<BlobReferences> {
@@ -118,8 +156,18 @@ export class MemoryArtifactStore implements ArtifactStore {
     return this.#records.listBlobs();
   }
 
+  listBlobsPage(query?: BlobPageQuery): Promise<Page<BlobListing, BlobId>> {
+    return pagedBlobs(query, (copy) => this.#records.listBlobsPage(copy));
+  }
+
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return this.#records.listContents(artifactId);
+  }
+
+  listContentsPage(
+    query?: ContentPageQuery
+  ): Promise<Page<Content, ContentId>> {
+    return pagedContents(query, (copy) => this.#records.listContentsPage(copy));
   }
 
   records(): Promise<ArtifactRecords> {
@@ -231,6 +279,41 @@ class Records {
     );
   }
 
+  findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    if (
+      typeof artifactId !== "string" ||
+      typeof by.sessionId !== "string" ||
+      typeof by.messageId !== "string"
+    ) {
+      return Promise.resolve(null);
+    }
+    const matches = [...this.#contents.values()]
+      .filter(
+        (content) =>
+          content.artifactId === artifactId &&
+          content.metadata.sessionId === by.sessionId &&
+          content.metadata.messageId === by.messageId
+      )
+      .sort(compareCreated);
+    return detached(matches.at(-1) ?? null);
+  }
+
+  findContentByTag(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null> {
+    if (typeof artifactId !== "string" || typeof tag !== "string") {
+      return Promise.resolve(null);
+    }
+    const found = [...this.#contents.values()].find(
+      (content) => content.artifactId === artifactId && content.tag === tag
+    );
+    return detached(found ?? null);
+  }
+
   findReferences(id: BlobId): Promise<BlobReferences> {
     return Promise.resolve({
       blobIds: [...this.#blobs.values()]
@@ -267,12 +350,53 @@ class Records {
     );
   }
 
+  listBlobsPage(
+    query: NormalizedBlobPageQuery
+  ): Promise<Page<BlobListing, BlobId>> {
+    const rows = [...this.#blobs.values()]
+      .filter(
+        (blob) =>
+          query.cursor === undefined || byCodePoint(blob.id, query.cursor) > 0
+      )
+      .sort((a, b) => byCodePoint(a.id, b.id))
+      .slice(0, query.limit + 1)
+      .map((blob) => ({
+        id: blob.id,
+        ...(blob.path === undefined ? {} : { path: blob.path }),
+      }));
+    return Promise.resolve(
+      pageFromRows(rows, query.limit, undefined, (blob) => blob.id)
+    );
+  }
+
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return detached(
       [...this.#contents.values()].filter(
         (content) =>
           artifactId === undefined || content.artifactId === artifactId
       )
+    );
+  }
+
+  listContentsPage(
+    query: NormalizedContentPageQuery
+  ): Promise<Page<Content, ContentId>> {
+    const rows = [...this.#contents.values()]
+      .filter(
+        (content) =>
+          (query.artifactId === undefined ||
+            content.artifactId === query.artifactId) &&
+          (query.states === undefined ||
+            query.states.includes(content.state)) &&
+          (query.tagged === undefined ||
+            (content.tag !== null) === query.tagged) &&
+          (query.cursor === undefined ||
+            byCodePoint(content.id, query.cursor) > 0)
+      )
+      .sort((a, b) => byCodePoint(a.id, b.id))
+      .slice(0, query.limit + 1);
+    return detached(
+      pageFromRows(rows, query.limit, undefined, (content) => content.id)
     );
   }
 
@@ -283,6 +407,32 @@ class Records {
       contents: [...this.#contents.values()],
     });
   }
+}
+
+function pagedBlobs(
+  query: BlobPageQuery | undefined,
+  take: (copy: NormalizedBlobPageQuery) => Promise<Page<BlobListing, BlobId>>
+): Promise<Page<BlobListing, BlobId>> {
+  let copy: NormalizedBlobPageQuery;
+  try {
+    copy = ownedBlobPageQuery(query);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return take(copy);
+}
+
+function pagedContents(
+  query: ContentPageQuery | undefined,
+  take: (copy: NormalizedContentPageQuery) => Promise<Page<Content, ContentId>>
+): Promise<Page<Content, ContentId>> {
+  let copy: NormalizedContentPageQuery;
+  try {
+    copy = ownedContentPageQuery(query);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  return take(copy);
 }
 
 function listed(

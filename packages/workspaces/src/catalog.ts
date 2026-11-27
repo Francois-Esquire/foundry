@@ -1,5 +1,6 @@
 import type { Page, PageInput } from "@foundry/core/pagination";
 import { storageTree } from "@foundry/core/storage";
+import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
 import { nextWorkspaceObservation } from "./observation";
 import type {
   WorkspaceEntry,
@@ -8,7 +9,8 @@ import type {
   WorkspaceId,
   WorkspaceRegistration,
 } from "./schema";
-import type { WorkspaceStore } from "./store";
+import type { EntryPageQuery, WorkspaceStore } from "./store";
+import { byCodePointPathThenId, pageOffset } from "./store/order";
 
 export interface WorkspaceChange {
   readonly action: "add" | "change" | "delete";
@@ -81,7 +83,45 @@ export class WorkspaceCatalog {
     return this.store.listEntries(workspaceId);
   }
 
+  async listEntriesPage(
+    workspaceId: WorkspaceId,
+    input: EntryPageQuery = {}
+  ): Promise<Page<WorkspaceEntry, number>> {
+    if (this.store.listEntriesPage !== undefined) {
+      return this.store.listEntriesPage(workspaceId, input);
+    }
+    const limit = pageLimit(input.limit);
+    const offset = pageOffset(input.cursor);
+    const entries = (await this.store.listEntries(workspaceId))
+      .filter((entry) => input.type === undefined || entry.type === input.type)
+      .sort(byCodePointPathThenId);
+    return sliceRanked(entries, limit, offset);
+  }
+
   async countFiles(workspaceId: WorkspaceId): Promise<number> {
+    if (this.store.countEntries !== undefined) {
+      return this.store.countEntries(workspaceId, { type: "file" });
+    }
+    if (this.store.listEntriesPage !== undefined) {
+      const first = await this.store.listEntriesPage(workspaceId, {
+        limit: 1,
+        type: "file",
+      });
+      if (first.total !== undefined) {
+        return first.total;
+      }
+      let total = first.items.length;
+      let cursor = first.nextCursor;
+      while (cursor !== undefined) {
+        const page = await this.store.listEntriesPage(workspaceId, {
+          cursor,
+          type: "file",
+        });
+        total += page.items.length;
+        cursor = page.nextCursor;
+      }
+      return total;
+    }
     const entries = await this.store.listEntries(workspaceId);
     return entries.filter((entry) => entry.type === "file").length;
   }

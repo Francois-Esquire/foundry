@@ -88,5 +88,10 @@ export const moduleInstallations = sqliteTable(
       table.moduleId,
       table.position
     ),
+    index("module_installations_scope_module_id").on(
+      table.scope,
+      table.moduleId,
+      table.id
+    ),
   ]
 );

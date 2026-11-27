@@ -716,7 +716,27 @@ describe("SqliteWorkspaceStore query plans", () => {
     [
       "listEntries",
       (store: SqliteWorkspaceStore) => store.listEntries(workspaceId),
-      ["sqlite_autoindex_workspace_entries_1"],
+      [null],
+    ],
+    [
+      "listEntriesPage",
+      (store: SqliteWorkspaceStore) => store.listEntriesPage(workspaceId),
+      [null, "workspace_entries_scope_workspace_path"],
+    ],
+    [
+      "listEntriesPage by type",
+      (store: SqliteWorkspaceStore) =>
+        store.listEntriesPage(workspaceId, { type: "file" }),
+      [
+        "workspace_entries_scope_workspace_type_path",
+        "workspace_entries_scope_workspace_type_path",
+      ],
+    ],
+    [
+      "countEntries by type",
+      (store: SqliteWorkspaceStore) =>
+        store.countEntries(workspaceId, { type: "file" }),
+      ["workspace_entries_scope_workspace_type_path"],
     ],
   ] as const)(
     "%s searches its index, with no scan and no sort",
@@ -739,7 +759,7 @@ describe("SqliteWorkspaceStore query plans", () => {
 });
 
 const DELETES_ENTRIES_BY_KEY =
-  /^SEARCH workspace_entries USING (COVERING )?INDEX sqlite_autoindex_workspace_entries_1 \(scope=\? AND workspace_id=\?\)$/;
+  /^SEARCH workspace_entries USING (COVERING )?INDEX \S+ \(scope=\? AND workspace_id=\?\)$/;
 const DELETES_REGISTRATION_BY_KEY =
   /^SEARCH workspaces USING (COVERING )?INDEX sqlite_autoindex_workspaces_1 \(scope=\? AND id=\?\)$/;
 

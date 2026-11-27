@@ -13,6 +13,7 @@ import type {
   ContentMetadata,
   ContentState,
 } from "./schema";
+import type { ArtifactStoreDurability } from "./store";
 
 export type { Artifact, Content } from "./schema";
 
@@ -198,6 +199,7 @@ export type ArtifactObserver = (
 
 export interface ArtifactSubstrate extends ArtifactOperations {
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
+  readonly durability?: ArtifactStoreDurability;
   observe(changed: ArtifactObserver): () => void;
   recover(): Promise<void>;
   transaction<T>(

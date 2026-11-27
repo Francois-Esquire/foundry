@@ -29,7 +29,9 @@ export async function vercelModels(
   const url = new URL(config.baseURL ?? VERCEL_GATEWAY_BASE_URL);
   url.pathname = `${url.pathname.replace(TRAILING_SLASHES, "")}/models`;
   const response = await fetch(url.toString(), {
-    headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+    headers: config.apiKey?.trim()
+      ? { Authorization: `Bearer ${config.apiKey}` }
+      : {},
     ...(signal ? { signal } : {}),
   });
   if (!response.ok) {
@@ -50,7 +52,7 @@ export function vercelProvider(options: VercelProviderOptions = {}): Provider {
 
   return {
     get available() {
-      return config.apiKey !== undefined;
+      return Boolean(config.apiKey?.trim());
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
     embeddingModel: (modelId) => client.embeddingModel(modelId),

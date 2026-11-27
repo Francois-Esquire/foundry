@@ -255,11 +255,97 @@ describe("pre-staged external blob input and stateless transactions", () => {
     expect(persisted.items).toHaveLength(2);
     expect(persisted.total).toBeUndefined();
   });
+
+  it("uses targeted lookups and paginated scans instead of unbounded listBlobs/listContents", async () => {
+    const base = new MemoryArtifactStore();
+    const counts = {
+      findContent: 0,
+      findContentByTag: 0,
+      listBlobs: 0,
+      listBlobsPage: 0,
+      listContents: 0,
+      listContentsPage: 0,
+    };
+    const track = (inner: ArtifactStore): ArtifactStore => {
+      const wrapped: ArtifactStore = {
+        commit: (write) => inner.commit(write),
+        findBlobByPath: (path) =>
+          inner.findBlobByPath?.(path) ?? Promise.resolve(null),
+        findBlobs: (digest) => inner.findBlobs(digest),
+        findContent: (id, by) => {
+          counts.findContent += 1;
+          return inner.findContent?.(id, by) ?? Promise.resolve(null);
+        },
+        findContentByTag: (id, tag) => {
+          counts.findContentByTag += 1;
+          return inner.findContentByTag?.(id, tag) ?? Promise.resolve(null);
+        },
+        findReferences: (id) => inner.findReferences(id),
+        getArtifact: (id) => inner.getArtifact(id),
+        getBlob: (id) => inner.getBlob(id),
+        getContent: (id) => inner.getContent(id),
+        listArtifacts: (query) => inner.listArtifacts(query),
+        listBlobs: () => {
+          counts.listBlobs += 1;
+          return inner.listBlobs();
+        },
+        listBlobsPage: (query) => {
+          counts.listBlobsPage += 1;
+          return inner.listBlobsPage?.(query) ?? Promise.resolve({ items: [] });
+        },
+        listContents: (artifactId) => {
+          counts.listContents += 1;
+          return inner.listContents(artifactId);
+        },
+        listContentsPage: (query) => {
+          counts.listContentsPage += 1;
+          return (
+            inner.listContentsPage?.(query) ?? Promise.resolve({ items: [] })
+          );
+        },
+      };
+      const transaction = inner.transaction?.bind(inner);
+      return transaction === undefined
+        ? wrapped
+        : {
+            ...wrapped,
+            transaction: <T>(work: (view: ArtifactStore) => Promise<T>) =>
+              transaction((view) => work(track(view))),
+          };
+    };
+    const artifacts = new Artifacts({ store: track(base) });
+
+    const created = await artifacts.create({
+      entries: { "a.txt": { bytes: "v1" } },
+      metadata: { messageId: "m1", sessionId: "s1" },
+      name: "Doc",
+      type: "text/plain",
+    });
+    const firstId = created.content?.id;
+    if (firstId === undefined) {
+      throw new Error("Expected initial content");
+    }
+    await artifacts.tag(firstId, "v1");
+    expect(counts.findContentByTag).toBe(1);
+    await expect(
+      artifacts.findContent(created.id, { messageId: "m1", sessionId: "s1" })
+    ).resolves.toMatchObject({ id: firstId });
+    expect(counts.findContent).toBe(1);
+    await artifacts.sweep({ olderThan: new Date(Date.now() + 10_000) });
+    expect(counts.listContentsPage).toBeGreaterThan(0);
+    expect(counts.listBlobsPage).toBeGreaterThan(0);
+    expect(counts.listContents).toBe(0);
+    expect(counts.listBlobs).toBe(0);
+  });
 });
 
 function withoutTotalAndSurrogates(store: ArtifactStore): ArtifactStore {
   const wrap = (inner: ArtifactStore): ArtifactStore => {
     const findBlobByPath = inner.findBlobByPath?.bind(inner);
+    const findContent = inner.findContent?.bind(inner);
+    const findContentByTag = inner.findContentByTag?.bind(inner);
+    const listBlobsPage = inner.listBlobsPage?.bind(inner);
+    const listContentsPage = inner.listContentsPage?.bind(inner);
     const base: ArtifactStore = {
       commit: (write) => inner.commit(write),
       ...(inner.durability === undefined
@@ -269,6 +355,12 @@ function withoutTotalAndSurrogates(store: ArtifactStore): ArtifactStore {
         ? {}
         : { findBlobByPath: (path) => findBlobByPath(path) }),
       findBlobs: (digest) => inner.findBlobs(digest),
+      ...(findContent === undefined
+        ? {}
+        : { findContent: (id, by) => findContent(id, by) }),
+      ...(findContentByTag === undefined
+        ? {}
+        : { findContentByTag: (id, tag) => findContentByTag(id, tag) }),
       findReferences: (id) => inner.findReferences(id),
       getArtifact: (id) => inner.getArtifact(id),
       getBlob: (id) => inner.getBlob(id),
@@ -278,7 +370,13 @@ function withoutTotalAndSurrogates(store: ArtifactStore): ArtifactStore {
         return { artifacts: listing.artifacts };
       },
       listBlobs: () => inner.listBlobs(),
+      ...(listBlobsPage === undefined
+        ? {}
+        : { listBlobsPage: (query) => listBlobsPage(query) }),
       listContents: (artifactId) => inner.listContents(artifactId),
+      ...(listContentsPage === undefined
+        ? {}
+        : { listContentsPage: (query) => listContentsPage(query) }),
     };
     const transaction = inner.transaction?.bind(inner);
     return transaction === undefined

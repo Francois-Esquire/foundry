@@ -2,6 +2,7 @@ import type { Page } from "@foundry/core/pagination";
 import type { CommitEffects } from "@foundry/core/storage";
 import { runAfterCommit } from "@foundry/core/storage";
 import { asyncScope } from "@foundry/lib/async-scope";
+import { collectPages } from "@foundry/lib/pagination";
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { readBlob, requireBlob } from "./blob-repository";
 import type { BlobFiles } from "./blob-staging";
@@ -16,7 +17,11 @@ import { ArtifactChange } from "./change";
 import { ArtifactApplicationError, TransactionRolledBackError } from "./errors";
 import type { ArtifactId, BlobId, ContentId } from "./ids";
 import type { ArtifactCursor } from "./listing";
-import type { ArtifactStore, ArtifactStoreWrite } from "./store";
+import type {
+  ArtifactStore,
+  ArtifactStoreDurability,
+  ArtifactStoreWrite,
+} from "./store";
 import { MemoryArtifactStore } from "./store/memory";
 import type {
   Artifact,
@@ -68,6 +73,7 @@ const REENTRY =
   "[artifacts] The Artifact store was called from inside its own transaction; use the operations passed to that transaction's work instead";
 
 export class Artifacts implements ArtifactSubstrate {
+  readonly durability: ArtifactStoreDurability;
   readonly #store: ArtifactStore;
   readonly #held: boolean;
   readonly #limits: TransactionLimits;
@@ -81,7 +87,8 @@ export class Artifacts implements ArtifactSubstrate {
 
   constructor(options: ArtifactsOptions = {}) {
     this.#store = options.store ?? new MemoryArtifactStore();
-    this.#held = this.#store.durability === "host";
+    this.durability = this.#store.durability ?? "commit";
+    this.#held = this.durability === "host";
     this.#limits = {
       ...(options.clock ? { clock: options.clock } : {}),
       ...(options.files ? { files: options.files } : {}),
@@ -405,10 +412,21 @@ export class Artifacts implements ArtifactSubstrate {
     if (files) {
       await abandonStaging(files);
       await this.#exclusive(async (store) => {
+        const { listBlobsPage } = store;
+        const blobs =
+          listBlobsPage === undefined
+            ? await store.listBlobs()
+            : await collectPages<
+                Awaited<ReturnType<typeof store.listBlobs>>[number],
+                BlobId
+              >((blobCursor) =>
+                listBlobsPage.call(
+                  store,
+                  blobCursor === undefined ? {} : { cursor: blobCursor }
+                )
+              );
         const retained = new Set(
-          (await store.listBlobs()).flatMap((blob) =>
-            blob.path ? [blob.path] : []
-          )
+          blobs.flatMap((blob) => (blob.path ? [blob.path] : []))
         );
         for await (const path of files.list()) {
           if (!retained.has(path)) {

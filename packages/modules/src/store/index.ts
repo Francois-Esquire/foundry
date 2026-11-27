@@ -1,4 +1,5 @@
 import type { ArtifactId, ContentId } from "@foundry/artifacts";
+import type { Page, PageInput } from "@foundry/core/pagination";
 
 import type { InstallationId, ModuleId } from "../domain";
 import type { Module, StoredInstallation, StoredManifest } from "../records";
@@ -36,6 +37,14 @@ export interface InstallationListQuery extends ModuleStorePageQuery {
   readonly moduleId?: ModuleId;
 }
 
+export interface ModuleIdPageQuery extends PageInput<string> {
+  readonly artifactId?: ArtifactId;
+}
+
+export interface InstallationIdPageQuery extends PageInput<string> {
+  readonly moduleId?: ModuleId;
+}
+
 export interface ManifestListQuery {
   readonly moduleId?: ModuleId;
 }
@@ -49,7 +58,11 @@ export interface ModuleStore {
   listInstallations(
     query: InstallationListQuery
   ): Promise<ModuleStorePage<StoredInstallation>>;
+  listInstallationsPage?(
+    query?: InstallationIdPageQuery
+  ): Promise<Page<StoredInstallation, string>>;
   listManifests(query?: ManifestListQuery): Promise<readonly StoredManifest[]>;
   listModules(query: ModuleListQuery): Promise<ModuleStorePage<Module>>;
+  listModulesPage?(query?: ModuleIdPageQuery): Promise<Page<Module, string>>;
   transaction?<T>(work: (view: ModuleStore) => Promise<T>): Promise<T>;
 }
