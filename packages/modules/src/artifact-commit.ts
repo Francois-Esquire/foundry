@@ -9,9 +9,14 @@ export class ModuleCrossStoreError extends Error {
 }
 
 export async function assertOwnsArtifactCommit(
-  artifacts: Pick<ArtifactSubstrate, "transaction">,
+  artifacts: Pick<ArtifactSubstrate, "durability" | "transaction">,
   operation: string
 ): Promise<void> {
+  if (artifacts.durability === "host") {
+    throw new ModuleCrossStoreError(
+      `${operation} was called over an Artifact store whose commits a host transaction may roll back; it commits its Artifact before the registry, so it must own that commit. Call it outside the host transaction.`
+    );
+  }
   let committed = false;
   try {
     await artifacts.transaction((_artifacts, effects) => {

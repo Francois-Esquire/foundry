@@ -852,7 +852,48 @@ describe("SqliteArtifactStore query plans", () => {
     [
       "listContents of one Artifact",
       (store: SqliteArtifactStore) => store.listContents(artifactId("a")),
-      [["artifact_contents_scope_artifact", "scope=? AND artifact_id=?"]],
+      [[null, "scope=? AND artifact_id=?"]],
+    ],
+    [
+      "listBlobsPage after a cursor",
+      (store: SqliteArtifactStore) =>
+        store.listBlobsPage({ cursor: blobId("b"), limit: 5 }),
+      [["sqlite_autoindex_artifact_blobs_1", "scope=? AND id>?"]],
+    ],
+    [
+      "listContentsPage of one Artifact after a cursor",
+      (store: SqliteArtifactStore) =>
+        store.listContentsPage({
+          artifactId: artifactId("a"),
+          cursor: contentId("c"),
+          limit: 5,
+        }),
+      [
+        [
+          "artifact_contents_scope_artifact",
+          "scope=? AND artifact_id=? AND id>?",
+        ],
+      ],
+    ],
+    [
+      "findContentByTag",
+      (store: SqliteArtifactStore) =>
+        store.findContentByTag(artifactId("a"), "v1"),
+      [
+        [
+          "artifact_contents_scope_artifact_tag",
+          "scope=? AND artifact_id=? AND tag=?",
+        ],
+      ],
+    ],
+    [
+      "findContent",
+      (store: SqliteArtifactStore) =>
+        store.findContent(artifactId("a"), {
+          messageId: "m1",
+          sessionId: "s1",
+        }),
+      [[null, "scope=? AND artifact_id=?"]],
     ],
   ] as const)(
     "%s searches its index, with no scan and no sort",

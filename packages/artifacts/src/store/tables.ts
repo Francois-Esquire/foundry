@@ -68,7 +68,16 @@ export const artifactContents = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),
-    index("artifact_contents_scope_artifact").on(table.scope, table.artifactId),
+    index("artifact_contents_scope_artifact").on(
+      table.scope,
+      table.artifactId,
+      table.id
+    ),
+    index("artifact_contents_scope_artifact_tag").on(
+      table.scope,
+      table.artifactId,
+      table.tag
+    ),
   ]
 );
 

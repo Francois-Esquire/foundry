@@ -33,7 +33,9 @@ function urlFor(config: GatewayProviderConfig, path: string): string {
 
 function headersFor(config: GatewayProviderConfig): Record<string, string> {
   return {
-    ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+    ...(config.apiKey?.trim()
+      ? { Authorization: `Bearer ${config.apiKey}` }
+      : {}),
     ...config.headers,
   };
 }
@@ -74,7 +76,7 @@ export function gatewayProvider(options: GatewayProviderOptions): Provider {
 
   return {
     get available() {
-      return Boolean(config.baseURL) && Boolean(config.apiKey);
+      return Boolean(config.baseURL.trim()) && Boolean(config.apiKey?.trim());
     },
     ...(options.defaults ? { defaults: options.defaults } : {}),
     embeddingModel: (modelId) =>
