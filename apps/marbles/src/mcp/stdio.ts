@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { GlobalFlags } from "~/cli/context";
-import { recordedWorkspaces } from "~/database/workspaces";
+import { recordedWorkspaces } from "~/database/open";
 import { ToolRefusal } from "~/mcp/errors";
 import { onRelayGone, protocolOutput, SHUTDOWN_GRACE_MS } from "~/mcp/relay";
 import type { McpServerOptions } from "~/mcp/resources";

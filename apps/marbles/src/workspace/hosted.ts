@@ -1,10 +1,11 @@
 import { join, resolve } from "node:path";
 import { inspect } from "node:util";
-
 import { refuseUnnamedWork } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
-import { openHostDatabase, WorkspaceRegistry } from "~/database/workspaces";
+import { openHostDatabase } from "~/database/open";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
+import { insideState } from "~/lib/state/workspace";
 import type { RollResult } from "~/model/connection";
 import type { GenerationHost, StagedWorkspace } from "~/workspace/host";
 import { stageWorkspace } from "~/workspace/host";
@@ -165,8 +166,9 @@ export class HostedWorkspaces {
     try {
       if (this.#database !== undefined) {
         await new WorkspaceRegistry({
+          acceptWorkspace: (workspaceId) =>
+            insideState(args.state, workspaceId),
           database: this.#database.database,
-          state: args.state,
         }).touch(found.workspace, found.config, {
           ...(registration.cwd === undefined ? {} : { cwd: registration.cwd }),
           hosted: true,
@@ -323,8 +325,9 @@ export class HostedWorkspaces {
     }
     const records = await this.#track(
       new WorkspaceRegistry({
+        acceptWorkspace: (workspaceId) =>
+          insideState(this.#options.state, workspaceId),
         database: database.database,
-        state: this.#options.state,
       }).list()
     );
     return records.filter((record) => record.hosted);
@@ -391,8 +394,9 @@ export class HostedWorkspaces {
       return host !== undefined;
     }
     return await new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) =>
+        insideState(this.#options.state, workspaceId),
       database: this.#database.database,
-      state: this.#options.state,
     }).unhost(id);
   }
 

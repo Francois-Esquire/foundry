@@ -18,7 +18,7 @@ import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { DatabaseProviderStore } from "~/database/providers";
+import { providerStoreForState } from "~/database/open";
 import { stateDatabase } from "~/layout";
 import { Engine } from "~/lib/engine";
 import { vercel } from "~/lib/providers/vercel";
@@ -304,7 +304,7 @@ it("runs model-free work without provider configuration, and refuses a session w
 
 it("echoes the configured providers under dry, and lets a programmatic set supersede them", async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
-  await DatabaseProviderStore.forState(stateRoot).update(undefined, () => ({
+  await providerStoreForState(stateRoot).update(undefined, () => ({
     machine: {
       providers: [
         {
@@ -346,7 +346,7 @@ it("echoes the configured providers under dry, and lets a programmatic set super
     await session.generate("Look.");
     expect(session.ref.instance).toEqual(expect.any(String));
     expect(
-      await DatabaseProviderStore.forState(stateRoot).identityKey(false)
+      await providerStoreForState(stateRoot).identityKey(false)
     ).toBeUndefined();
     expect((await readFile(stateDatabase(stateRoot))).equals(before)).toBe(
       true

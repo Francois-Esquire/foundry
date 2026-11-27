@@ -8,7 +8,7 @@ import { makeMemoryScheduleStore } from "@foundry/scheduling/store/memory";
 import { Cause, Effect, Exit } from "effect";
 import { z } from "zod";
 
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import { storableJson } from "~/lib/json-data";
 import type { Launch } from "~/lib/launch";
 

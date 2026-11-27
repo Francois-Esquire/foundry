@@ -7,12 +7,8 @@ import {
   resourceItemLines,
   resourceItems,
 } from "~/cli/format/resources";
-import {
-  ALL_WORKSPACES,
-  readResourceView,
-  type ViewScope,
-} from "~/database/resources";
-import { recordedWorkspaces } from "~/database/workspaces";
+import { readResourceView, recordedWorkspaces } from "~/database/open";
+import { ALL_WORKSPACES, type ViewScope } from "~/database/resources";
 import type { ResourceKind } from "~/lib/resources";
 import { ResourceAssociationError } from "~/lib/resources";
 import type { Workspace } from "~/lib/state/workspace";

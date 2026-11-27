@@ -1,10 +1,10 @@
 import { ownerOf, type ProcessIdentity } from "@foundry/lib/process-identity";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 
 export function ownedHere(
   ownerId: string,
-  liveness: OwnerLiveness = NODE_OWNER_LIVENESS
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
 ): {
   readonly ownerId: string;
   readonly ownerPid: number;
@@ -32,7 +32,7 @@ export function heldBy(
     readonly ownerPid: number | null;
     readonly ownerStarted: string | null;
   },
-  liveness: OwnerLiveness = NODE_OWNER_LIVENESS
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
 ): ProcessIdentity | null {
   const owner = rowOwner(row);
   return owner === null || liveness.isGone(owner) ? null : owner;

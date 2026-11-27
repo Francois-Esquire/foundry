@@ -15,7 +15,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { DatabaseChangeLog } from "~/database/changes";
+import { ChangeRecorder, DatabaseChangeLog } from "~/database/changes";
 import { openDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import type { Engine } from "~/lib/engine";
@@ -26,6 +26,7 @@ import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { recordSpawned } from "~/process/spawned";
 import { ManualClock } from "./helpers/clock";
 import { testEngine } from "./helpers/engine";
@@ -1104,11 +1105,12 @@ describe("delivery across processes", () => {
       script,
       `import { openDatabase } from ${JSON.stringify(resolvePath("src/database/open.ts"))};
 import { DatabaseWorkspaceRecords } from ${JSON.stringify(resolvePath("src/database/tasks.ts"))};
+import { NODE_OWNER_LIVENESS } from ${JSON.stringify(resolvePath("src/lib/node-host-liveness.ts"))};
 import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/delivery.ts"))};
 import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
 const opened = await openDatabase(${JSON.stringify(machine.database.file)});
 if (opened === undefined) throw new Error("no database");
-const records = new DatabaseWorkspaceRecords({ database: opened.database, scope: ${JSON.stringify(basename(state))} });
+const records = new DatabaseWorkspaceRecords({ liveness: NODE_OWNER_LIVENESS, database: opened.database, scope: ${JSON.stringify(basename(state))} });
 const delivery = new Delivery({ print: () => undefined, records });
 // Its handler never completes: the process dies holding the fact.
 delivery.observe(TASKS, () => { process.stdout.write("handling\\n"); return new Promise(() => undefined); }, { name: "notify" });
@@ -1170,9 +1172,10 @@ setInterval(() => undefined, 1000);
       script,
       `import { openDatabase } from ${JSON.stringify(resolvePath("src/database/open.ts"))};
 import { DatabaseWorkspaceRecords } from ${JSON.stringify(resolvePath("src/database/tasks.ts"))};
+import { NODE_OWNER_LIVENESS } from ${JSON.stringify(resolvePath("src/lib/node-host-liveness.ts"))};
 const opened = await openDatabase(${JSON.stringify(machine.database.file)});
 if (opened === undefined) throw new Error("no database");
-const records = new DatabaseWorkspaceRecords({ database: opened.database, scope: ${JSON.stringify(basename(state))} });
+const records = new DatabaseWorkspaceRecords({ liveness: NODE_OWNER_LIVENESS, database: opened.database, scope: ${JSON.stringify(basename(state))} });
 if ((await records.claimDelivery()) !== undefined) throw new Error("not claimed");
 process.stdout.write("held\\n");
 setInterval(() => undefined, 1000);
@@ -1319,6 +1322,7 @@ describe("an engine that observes nothing", () => {
     }
     const recordsA = new DatabaseWorkspaceRecords({
       database: elsewhere.database,
+      liveness: NODE_OWNER_LIVENESS,
       scope: basename(state),
     });
     const recordsB = machine.records(state);
@@ -2100,3 +2104,33 @@ it("compacts a memory log that retains more changes than a call takes arguments"
   const [next] = await log.read({ after: 0, limit: 1, source: "tasks" });
   expect(next?.position).toBe(3);
 }, 60_000);
+
+it("resolves injected change causes after await in concurrent callers", async () => {
+  const state = machine.workspace();
+  const context = new AsyncLocalStorage<string>();
+  const changes = new ChangeRecorder(basename(state), {
+    causingRun: () => context.getStore(),
+  });
+  const records = new DatabaseWorkspaceRecords({
+    changes,
+    database: machine.database.database,
+    liveness: NODE_OWNER_LIVENESS,
+    scope: basename(state),
+  });
+  try {
+    const tasks = new Tasks({ store: records.taskStore });
+    await Promise.all(
+      ["first", "second"].map((id) =>
+        context.run(id, async () => {
+          await Promise.resolve();
+          await tasks.create({ title: id });
+        })
+      )
+    );
+    expect(
+      (await machine.changes(state)).map((change) => change.runId).sort()
+    ).toEqual(["first", "second"]);
+  } finally {
+    await records.close();
+  }
+});

@@ -10,9 +10,8 @@ import { testInstances } from "./helpers/engine";
 
 const opened = vi.hoisted(() => ({ count: 0 }));
 
-vi.mock("~/database/workspaces", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("~/database/workspaces")>();
+vi.mock("~/database/open", async (importOriginal) => {
+  const original = await importOriginal<typeof import("~/database/open")>();
   return {
     ...original,
     openHostDatabase: (

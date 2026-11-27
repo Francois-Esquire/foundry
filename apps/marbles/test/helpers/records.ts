@@ -2,11 +2,14 @@ import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { and, asc, eq } from "drizzle-orm";
+import { ChangeRecorder } from "~/database/changes";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { marblesChanges } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
+import { causingRun } from "~/lib/events/records";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 
 export interface TestMachine {
   changes(state: string, source?: string): Promise<readonly RecordedChange[]>;
@@ -58,7 +61,11 @@ export async function testMachine(): Promise<TestMachine> {
     database,
     records: (state) =>
       new DatabaseWorkspaceRecords({
+        changes: new ChangeRecorder(basename(state), {
+          causingRun: () => causingRun() ?? undefined,
+        }),
         database: database.database,
+        liveness: NODE_OWNER_LIVENESS,
         scope: basename(state),
       }),
     root,

@@ -3,25 +3,25 @@ import {
   type ProcessState,
   processState,
 } from "@foundry/lib/node/process-identity";
-import { readStoredObservers } from "~/database/changes";
+import type { GenerationRecord, GenerationState } from "~/database/generations";
 import {
-  type GenerationRecord,
-  type GenerationState,
+  readDatabase,
+  readLastRecovery,
   readLiveGenerations,
-} from "~/database/generations";
-import { readDatabase } from "~/database/open";
-import { readLastRecovery } from "~/database/recoveries";
+  readStoredObservers,
+  readStoredSchedules,
+  recordedWorkspaces,
+} from "~/database/open";
 import type { RunResource, Shown } from "~/database/resources";
 import { ResourceView } from "~/database/resources";
 import type { ScheduleSnapshot } from "~/database/triggers";
-import { readStoredSchedules } from "~/database/triggers";
-import { recordedWorkspaces } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
 import type { RecoveryReport } from "~/lib/crash-recovery";
 import type { ObserverState } from "~/lib/events/log";
 import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import { runSteps } from "~/lib/run-trace";
 import type { WorkspaceRecord } from "~/lib/state/workspace";
+import { insideState } from "~/lib/state/workspace";
 import type { ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
 
@@ -104,9 +104,10 @@ export async function readStatus(stateRoot: string): Promise<StatusReport> {
           const read = new Map<string, Shows>();
           for (const record of records) {
             const view = new ResourceView({
+              acceptWorkspace: (workspaceId) =>
+                insideState(stateRoot, workspaceId),
               database,
               scope: { workspace: record.id },
-              state: stateRoot,
             });
             read.set(record.id, {
               artifacts: (await view.artifacts()).length,

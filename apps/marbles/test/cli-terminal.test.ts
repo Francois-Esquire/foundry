@@ -11,9 +11,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sleep, spawn, spawnSync } from "bun";
 import { expect, test } from "vitest";
-import { DatabaseProviderStore } from "../src/database/providers";
+import { providerStoreForState } from "~/database/open";
+import { writeAsHost } from "../src/database/open";
 import { marblesProviderConfigurations } from "../src/database/tables";
-import { writeAsHost } from "../src/database/workspaces";
 import { readProcess } from "../src/process/instance";
 import { type TestHome, testHome } from "./helpers/home";
 import { openTerminal } from "./helpers/screen";
@@ -106,7 +106,7 @@ test("first-run provider setup precedes workspace setup and can be skipped", asy
   const config = join(dir, ".foundry", "marbles");
   const { state } = home.layout;
   const machine = async () =>
-    (await DatabaseProviderStore.forState(state).read()).machine;
+    (await providerStoreForState(state).read()).machine;
   const live = openTestCli(home, config, [], dir);
   try {
     await live.see("Set up model providers");
