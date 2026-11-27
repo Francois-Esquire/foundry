@@ -47,7 +47,10 @@ vi.mock("~/lib/sandbox/session-state", () => ({
   assertGuestSessionState: async () => undefined,
 }));
 
-const container = { row: { nativeId: "guest-1" } } as unknown as Container;
+const container = {
+  processes: { spawn: vi.fn() },
+  row: { nativeId: "guest-1" },
+} as unknown as Container;
 
 function open(execution?: Execution, wireModelId?: string) {
   return createSandboxSession({
