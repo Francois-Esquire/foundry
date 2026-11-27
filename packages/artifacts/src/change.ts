@@ -323,14 +323,12 @@ export class ArtifactChange {
     const lookup = this.#state.store.findContentByTag;
     if (lookup !== undefined) {
       const stored = await lookup.call(this.#state.store, artifactId, tag);
-      if (
-        stored !== null &&
-        stored.id !== excludeId &&
-        !this.#state.contents.has(stored.id)
-      ) {
+      if (stored === null) {
+        return null;
+      }
+      if (stored.id !== excludeId && !this.#state.contents.has(stored.id)) {
         return stored;
       }
-      return null;
     }
     return (
       (await this.listContents(artifactId, { tagged: true })).find(

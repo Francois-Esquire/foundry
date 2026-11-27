@@ -88,8 +88,15 @@ export class JsonArtifactStore implements ArtifactStore {
         findBlobByPath: (path) =>
           read((records) => records.findBlobByPath(path)),
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
-        findContent: (artifactId, by) =>
-          read((records) => records.findContent(artifactId, by)),
+        findContent: (artifactId, by) => {
+          let owned: ContentLookup;
+          try {
+            owned = ownedContentLookup(by);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.findContent(artifactId, owned));
+        },
         findContentByTag: (artifactId, tag) =>
           read((records) => records.findContentByTag(artifactId, tag)),
         findReferences: (id) => read((records) => records.findReferences(id)),
@@ -107,22 +114,24 @@ export class JsonArtifactStore implements ArtifactStore {
         },
         listBlobs: () => read((records) => records.listBlobs()),
         listBlobsPage: (query) => {
+          let owned: BlobPageQuery;
           try {
-            ownedBlobPageQuery(query);
+            owned = ownedBlobPageQuery(query);
           } catch (error) {
             return Promise.reject(error);
           }
-          return read((records) => records.listBlobsPage(query));
+          return read((records) => records.listBlobsPage(owned));
         },
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
         listContentsPage: (query) => {
+          let owned: ContentPageQuery;
           try {
-            ownedContentPageQuery(query);
+            owned = ownedContentPageInput(query);
           } catch (error) {
             return Promise.reject(error);
           }
-          return read((records) => records.listContentsPage(query));
+          return read((records) => records.listContentsPage(owned));
         },
       };
       try {
@@ -150,7 +159,8 @@ export class JsonArtifactStore implements ArtifactStore {
     artifactId: ArtifactId,
     by: ContentLookup
   ): Promise<Content | null> {
-    return (await this.#current()).findContent(artifactId, by);
+    const owned = ownedContentLookup(by);
+    return (await this.#current()).findContent(artifactId, owned);
   }
 
   async findContentByTag(
@@ -188,8 +198,8 @@ export class JsonArtifactStore implements ArtifactStore {
   async listBlobsPage(
     query?: BlobPageQuery
   ): Promise<Page<BlobListing, BlobId>> {
-    ownedBlobPageQuery(query);
-    return (await this.#current()).listBlobsPage(query);
+    const owned = ownedBlobPageQuery(query);
+    return (await this.#current()).listBlobsPage(owned);
   }
 
   async listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
@@ -199,8 +209,8 @@ export class JsonArtifactStore implements ArtifactStore {
   async listContentsPage(
     query?: ContentPageQuery
   ): Promise<Page<Content, ContentId>> {
-    ownedContentPageQuery(query);
-    return (await this.#current()).listContentsPage(query);
+    const owned = ownedContentPageInput(query);
+    return (await this.#current()).listContentsPage(owned);
   }
 
   #locked<T>(work: () => Promise<T>): Promise<T> {
@@ -241,6 +251,23 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#version = version;
     return this.#memory;
   }
+}
+
+function ownedContentLookup(by: ContentLookup): ContentLookup {
+  return { messageId: by.messageId, sessionId: by.sessionId };
+}
+
+function ownedContentPageInput(
+  query: ContentPageQuery | undefined
+): ContentPageQuery {
+  const owned = ownedContentPageQuery(query);
+  return {
+    ...(owned.artifactId === undefined ? {} : { artifactId: owned.artifactId }),
+    ...(owned.cursor === undefined ? {} : { cursor: owned.cursor }),
+    limit: owned.limit,
+    ...(owned.states === undefined ? {} : { state: [...owned.states] }),
+    ...(owned.tagged === undefined ? {} : { tagged: owned.tagged }),
+  };
 }
 
 async function fileVersion(path: string): Promise<string | undefined> {

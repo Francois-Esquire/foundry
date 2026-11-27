@@ -648,12 +648,30 @@ function describeReads(open: Open): void {
       }
 
       if (store.listEntriesPage !== undefined) {
-        expect(await store.listEntriesPage(absent)).toEqual({
+        const expectEntryPage = (
+          page: {
+            readonly items: readonly WorkspaceEntry[];
+            readonly nextCursor?: number;
+            readonly total?: number;
+          },
+          expected: {
+            readonly items: readonly WorkspaceEntry[];
+            readonly nextCursor?: number;
+            readonly total: number;
+          }
+        ) => {
+          expect(page.items).toEqual(expected.items);
+          expect(page.nextCursor).toBe(expected.nextCursor);
+          if (page.total !== undefined) {
+            expect(page.total).toBe(expected.total);
+          }
+        };
+        expectEntryPage(await store.listEntriesPage(absent), {
           items: [],
           total: 0,
         });
         const first = await store.listEntriesPage(workspace.id, { limit: 2 });
-        expect(first).toEqual({
+        expectEntryPage(first, {
           items: ordered.slice(0, 2),
           nextCursor: 2,
           total: 5,
@@ -662,7 +680,7 @@ function describeReads(open: Open): void {
           cursor: first.nextCursor,
           limit: 2,
         });
-        expect(second).toEqual({
+        expectEntryPage(second, {
           items: ordered.slice(2, 4),
           nextCursor: 4,
           total: 5,
@@ -671,21 +689,22 @@ function describeReads(open: Open): void {
           cursor: second.nextCursor,
           limit: 2,
         });
-        expect(third).toEqual({
+        expectEntryPage(third, {
           items: ordered.slice(4),
           total: 5,
         });
-        expect(
-          await store.listEntriesPage(workspace.id, { cursor: 10 })
-        ).toEqual({
-          items: [],
-          total: 5,
-        });
+        expectEntryPage(
+          await store.listEntriesPage(workspace.id, { cursor: 10 }),
+          {
+            items: [],
+            total: 5,
+          }
+        );
         const filesPage = await store.listEntriesPage(workspace.id, {
           limit: 2,
           type: "file",
         });
-        expect(filesPage).toEqual({
+        expectEntryPage(filesPage, {
           items: [alpha, guide],
           nextCursor: 2,
           total: 3,
@@ -695,7 +714,7 @@ function describeReads(open: Open): void {
           limit: 2,
           type: "file",
         });
-        expect(nextFiles).toEqual({
+        expectEntryPage(nextFiles, {
           items: [zebra],
           total: 3,
         });

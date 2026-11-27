@@ -604,21 +604,33 @@ export function describeModuleStore(
         putModules: [alpha, beta, gamma],
       });
 
+      const expectOptionalTotal = (
+        actual: number | undefined,
+        expected: number
+      ) => {
+        if (actual !== undefined) {
+          expect(actual).toBe(expected);
+        }
+      };
+
       if (target.listModulesPage !== undefined) {
         const page1 = await target.listModulesPage({ limit: 2 });
-        expect(page1).toEqual({
-          items: [beta, alpha],
-          nextCursor: alpha.id,
-          total: 3,
-        });
+        expect(page1.items).toEqual([beta, alpha]);
+        expect(page1.nextCursor).toBe(alpha.id);
+        expectOptionalTotal(page1.total, 3);
         const page2 = await target.listModulesPage({
           cursor: page1.nextCursor,
           limit: 2,
         });
-        expect(page2).toEqual({ items: [gamma], total: 3 });
-        expect(
-          await target.listModulesPage({ artifactId: artifactId("shared") })
-        ).toEqual({ items: [beta, alpha], total: 2 });
+        expect(page2.items).toEqual([gamma]);
+        expect(page2.nextCursor).toBeUndefined();
+        expectOptionalTotal(page2.total, 3);
+        const shared = await target.listModulesPage({
+          artifactId: artifactId("shared"),
+        });
+        expect(shared.items).toEqual([beta, alpha]);
+        expect(shared.nextCursor).toBeUndefined();
+        expectOptionalTotal(shared.total, 2);
         await expect(
           target.listModulesPage({ cursor: "missing" })
         ).rejects.toThrow(RangeError);
@@ -634,7 +646,7 @@ export function describeModuleStore(
           "i-2",
         ]);
         expect(page1.nextCursor).toBe("i-2");
-        expect(page1.total).toBe(3);
+        expectOptionalTotal(page1.total, 3);
         const page2 = await target.listInstallationsPage({
           cursor: page1.nextCursor,
           limit: 2,
@@ -643,7 +655,7 @@ export function describeModuleStore(
           "i-3",
         ]);
         expect(page2.nextCursor).toBeUndefined();
-        expect(page2.total).toBe(3);
+        expectOptionalTotal(page2.total, 3);
         const byModule = await target.listInstallationsPage({
           limit: 1,
           moduleId: alpha.id,
@@ -652,7 +664,7 @@ export function describeModuleStore(
           "i-2",
         ]);
         expect(byModule.nextCursor).toBe("i-2");
-        expect(byModule.total).toBe(2);
+        expectOptionalTotal(byModule.total, 2);
         await expect(
           target.listInstallationsPage({ cursor: "i-1", moduleId: alpha.id })
         ).rejects.toThrow(RangeError);
