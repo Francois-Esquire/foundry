@@ -7,6 +7,8 @@ import { z } from "zod";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { Engine } from "~/lib/engine";
+import { claudeCode } from "~/lib/providers/claude-code";
+import { codex } from "~/lib/providers/codex";
 import { vercel } from "~/lib/providers/vercel";
 import { RunScope } from "~/lib/run-scope";
 
@@ -23,6 +25,7 @@ it("exposes the config directory through the engine's workspaces", async () => {
   const lines: string[] = [];
   const engine = createEngine({
     catalog: new Catalog(),
+    plugins: [claudeCode, codex],
     print: (line) => lines.push(line),
     root,
     workspaceId: "ws",

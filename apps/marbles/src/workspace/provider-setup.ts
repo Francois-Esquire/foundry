@@ -105,10 +105,12 @@ async function save(
   proposed: readonly Proposal[],
   configured: boolean
 ) {
+  const added: string[] = [];
   try {
     if (configured) {
       for (const { scope: _, taken: __, ...entry } of proposed) {
         await configuration.add(entry, { scope: "machine" });
+        added.push(entry.id);
       }
       return {
         conflict: false,
@@ -131,7 +133,7 @@ async function save(
     ) {
       return {
         conflict: true,
-        message: `Nothing saved: ${error.message}. Run marbles again to choose from what is left.`,
+        message: `${added.length > 0 ? `Saved ${added.join(", ")} for every workspace on this machine. Could not save the remaining providers` : "Nothing saved"}: ${error.message}. Run marbles again to choose from what is left.`,
       };
     }
     throw error;

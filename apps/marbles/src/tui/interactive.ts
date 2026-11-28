@@ -127,8 +127,9 @@ async function onboardingFor(args: GlobalFlags, local: LocalState) {
     }),
   ]);
   const firstSetup =
-    providers.offered.length > 0 ||
-    !(providers.configured || settings.providerSetupComplete);
+    providers.offered.some(
+      ({ id }) => !settings.dismissedProviderOffers?.includes(id)
+    ) || !(providers.configured || settings.providerSetupComplete);
   const failedSettingsWithoutOffers =
     problem !== undefined &&
     recorded !== undefined &&
@@ -141,9 +142,17 @@ async function onboardingFor(args: GlobalFlags, local: LocalState) {
         if (result.conflict) {
           throw new Error(result.message);
         }
-      } else if (!(providers.configured || settings.providerSetupComplete)) {
+      } else {
         try {
-          saveSettings(path, { providerSetupComplete: true });
+          saveSettings(path, {
+            dismissedProviderOffers: [
+              ...new Set([
+                ...(settings.dismissedProviderOffers ?? []),
+                ...providers.offered.map(({ id }) => id),
+              ]),
+            ],
+            providerSetupComplete: true,
+          });
         } catch (error) {
           local.report(
             `[settings] could not record provider setup: ${String(error)}`,

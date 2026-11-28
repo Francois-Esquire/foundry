@@ -151,6 +151,24 @@ it("leaves out an id a workspace already uses, and never fails on it", async () 
   expect(await machineIds()).toEqual(["codex"]);
 });
 
+it("reports providers saved before a later id is reserved during confirmation", async () => {
+  await configure(["codex"]);
+  const lines: string[] = [];
+  await setupProviders({
+    confirm: async () => {
+      await configure(["pi"], "other");
+      return true;
+    },
+    plugins: [detected("claude-code", true), detected("pi", true)],
+    print: (line) => lines.push(line),
+    state,
+  });
+  expect(await machineIds()).toEqual(["codex", "claude-code"]);
+  expect(lines.at(-1)).toContain("Saved claude-code");
+  expect(lines.at(-1)).toContain("pi");
+  expect(lines.at(-1)).not.toContain("Nothing saved");
+});
+
 it("keeps a configuration another process wrote while the question was open", async () => {
   const lines: string[] = [];
   await setupProviders({

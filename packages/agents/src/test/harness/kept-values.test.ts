@@ -11,7 +11,11 @@ import {
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-async function harnessWithTool(output: unknown, streaming = false) {
+async function harnessWithTool(
+  output: unknown,
+  streaming = false,
+  preliminary: readonly unknown[] = []
+) {
   const store = new MemorySessionStore();
   const harness = new SessionHarness(
     {
@@ -28,6 +32,7 @@ async function harnessWithTool(output: unknown, streaming = false) {
         probe: tool({
           execute: streaming
             ? async function* () {
+                yield* preliminary;
                 yield output;
               }
             : () => output,
@@ -47,6 +52,23 @@ function toolResults(messages: { parts: { type: string }[] }[]) {
 }
 
 describe("what a session keeps of a turn's values", () => {
+  it("keeps only the final streaming tool output, allowing non-JSON progress", async () => {
+    const { harness, store } = await harnessWithTool({ count: 1 }, true, [
+      { count: 1n },
+    ]);
+    const onToolResult = vi.fn();
+
+    const reply = await harness.generate("go", { onToolResult });
+
+    expect(reply.status).toBe("complete");
+    expect(onToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ output: { count: 1n }, preliminary: true })
+    );
+    expect(toolResults(await store.listMessages("s"))).toEqual([
+      { output: { count: 1 }, toolCallId: "call-1", type: "tool_result" },
+    ]);
+  });
+
   it("keeps a tool's output in its JSON form, which any store can copy", async () => {
     const { harness, store } = await harnessWithTool({
       at: new Date(0),

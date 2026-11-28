@@ -427,12 +427,18 @@ export function compileTool(
       if (permit?.signal.aborted) {
         throw permit.signal.reason;
       }
+      let lastOutput: unknown;
+      let yielded = false;
       for await (const output of originalExecute(
         input,
         permit ? { ...options, abortSignal: permit.signal } : options
       ) as AsyncIterable<unknown>) {
-        keepToolOutput(output, registration.name, options.toolCallId);
+        lastOutput = output;
+        yielded = true;
         yield output;
+      }
+      if (yielded) {
+        keepToolOutput(lastOutput, registration.name, options.toolCallId);
       }
     } finally {
       permit?.release();
