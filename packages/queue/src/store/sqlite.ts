@@ -1,11 +1,14 @@
+import {
+  resolveMaxParameters,
+  rowBatches,
+  type SqliteDatabase,
+  type SqliteTransaction,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations } from "drizzle-orm";
 import { and, eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
 import type {
-  BaseSQLiteDatabase,
   SQLiteColumn,
   SQLiteTable,
-  SQLiteTransaction,
   SQLiteUpdateSetSource,
 } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
@@ -28,21 +31,13 @@ import {
   queueWatermarks,
 } from "./tables";
 
-export type QueueDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type QueueDatabase = SqliteDatabase;
 
-export type QueueTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type QueueTransaction = SqliteTransaction;
 
 export interface SqliteQueueStoreOptions {
   readonly database: QueueDatabase;
+  readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: QueueTransaction,
     write: QueueWrite
@@ -54,19 +49,15 @@ export interface SqliteQueueStoreOptions {
 const REENTRY =
   "SqliteQueueStore was called from inside its own transaction or onCommit hook; use the transaction passed to onCommit instead";
 
-const BATCH = 500;
-
-const batches = <T>(items: readonly T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
-    items.slice(index * size, (index + 1) * size)
-  );
+const DEFAULT_BATCH_PARAMETERS = 500;
 
 const upsert = async <Table extends SQLiteTable>(
   transaction: QueueTransaction,
   table: Table,
   target: readonly SQLiteColumn[],
   rows: readonly Table["$inferInsert"][],
-  update: readonly (keyof Table["$inferInsert"] & string)[]
+  update: readonly (keyof Table["$inferInsert"] & string)[],
+  maxParameters: number
 ) => {
   const columns: Record<string, SQLiteColumn> = getTableColumns(table);
   const set = Object.fromEntries(
@@ -75,8 +66,11 @@ const upsert = async <Table extends SQLiteTable>(
       sql.raw(`excluded."${columns[key]?.name ?? key}"`),
     ])
   ) as SQLiteUpdateSetSource<Table>;
-  const size = Math.max(1, Math.floor(BATCH / Object.keys(columns).length));
-  for (const batch of batches(rows, size)) {
+  for (const batch of rowBatches(
+    rows,
+    Object.keys(columns).length,
+    maxParameters
+  )) {
     await transaction
       .insert(table)
       .values(batch)
@@ -87,7 +81,8 @@ const upsert = async <Table extends SQLiteTable>(
 const writeRecords = async (
   transaction: QueueTransaction,
   scope: string,
-  write: QueueWrite
+  write: QueueWrite,
+  maxParameters: number
 ) => {
   await upsert(
     transaction,
@@ -100,7 +95,8 @@ const writeRecords = async (
       scope,
       state: job.state.kind,
     })),
-    ["body", "idempotencyKey", "state"]
+    ["body", "idempotencyKey", "state"],
+    maxParameters
   );
   await upsert(
     transaction,
@@ -115,7 +111,8 @@ const writeRecords = async (
       scope,
       state: run.state.kind,
     })),
-    ["availableAt", "body", "pool", "state"]
+    ["availableAt", "body", "pool", "state"],
+    maxParameters
   );
   await upsert(
     transaction,
@@ -128,7 +125,8 @@ const writeRecords = async (
       scope,
       state: suspension.state.kind,
     })),
-    ["body", "state"]
+    ["body", "state"],
+    maxParameters
   );
   await upsert(
     transaction,
@@ -140,7 +138,8 @@ const writeRecords = async (
       scope,
       state: pool.state,
     })),
-    ["limit", "state"]
+    ["limit", "state"],
+    maxParameters
   );
 };
 
@@ -149,9 +148,10 @@ const remove = async (
   table: typeof queueJobs | typeof queueRuns | typeof queueSuspensions,
   column: SQLiteColumn,
   scope: string,
-  ids: readonly string[] | undefined
+  ids: readonly string[] | undefined,
+  maxParameters: number
 ) => {
-  for (const batch of batches(ids ?? [], BATCH)) {
+  for (const batch of rowBatches(ids ?? [], 1, maxParameters, 1)) {
     await transaction
       .delete(table)
       .where(and(eq(table.scope, scope), inArray(column, batch)));
@@ -161,17 +161,33 @@ const remove = async (
 const deleteRecords = async (
   transaction: QueueTransaction,
   scope: string,
-  write: QueueWrite
+  write: QueueWrite,
+  maxParameters: number
 ) => {
   await remove(
     transaction,
     queueSuspensions,
     queueSuspensions.id,
     scope,
-    write.deleteSuspensions
+    write.deleteSuspensions,
+    maxParameters
   );
-  await remove(transaction, queueRuns, queueRuns.id, scope, write.deleteRuns);
-  await remove(transaction, queueJobs, queueJobs.id, scope, write.deleteJobs);
+  await remove(
+    transaction,
+    queueRuns,
+    queueRuns.id,
+    scope,
+    write.deleteRuns,
+    maxParameters
+  );
+  await remove(
+    transaction,
+    queueJobs,
+    queueJobs.id,
+    scope,
+    write.deleteJobs,
+    maxParameters
+  );
 };
 
 const raiseWatermark = (transaction: QueueTransaction, scope: string) =>
@@ -187,11 +203,12 @@ const revisionsIn = async (
   transaction: QueueTransaction,
   table: typeof queueRuns | typeof queueSuspensions,
   scope: string,
-  ids: readonly string[]
+  ids: readonly string[],
+  maxParameters: number
 ) => {
   const found = new Map<string, number>();
   const column: SQLiteColumn = table.id;
-  for (const batch of batches(ids, BATCH)) {
+  for (const batch of rowBatches(ids, 1, maxParameters, 1)) {
     const rows = await transaction
       .select({ body: table.body, id: table.id })
       .from(table)
@@ -206,10 +223,11 @@ const revisionsIn = async (
 const holdersIn = async (
   transaction: QueueTransaction,
   scope: string,
-  keys: readonly string[]
+  keys: readonly string[],
+  maxParameters: number
 ) => {
   const found = new Map<string, JobId>();
-  for (const batch of batches(keys, BATCH)) {
+  for (const batch of rowBatches(keys, 1, maxParameters, 1)) {
     const rows = await transaction
       .select({ id: queueJobs.id, key: queueJobs.idempotencyKey })
       .from(queueJobs)
@@ -231,26 +249,30 @@ const holdersIn = async (
 const storedRevisions = async (
   transaction: QueueTransaction,
   scope: string,
-  write: QueueWrite
+  write: QueueWrite,
+  maxParameters: number
 ): Promise<StoredRevisions> => {
   const runs = await revisionsIn(
     transaction,
     queueRuns,
     scope,
-    (write.expected?.runs ?? []).map(({ id }) => id)
+    (write.expected?.runs ?? []).map(({ id }) => id),
+    maxParameters
   );
   const suspensions = await revisionsIn(
     transaction,
     queueSuspensions,
     scope,
-    (write.expected?.suspensions ?? []).map(({ id }) => id)
+    (write.expected?.suspensions ?? []).map(({ id }) => id),
+    maxParameters
   );
   const holders = await holdersIn(
     transaction,
     scope,
     (write.jobs ?? []).flatMap((job) =>
       job.policy.idempotencyKey === undefined ? [] : [job.policy.idempotencyKey]
-    )
+    ),
+    maxParameters
   );
   return {
     holderOf: (key) => holders.get(key),
@@ -275,6 +297,9 @@ export const makeSqliteQueueStore = (
     throw new RangeError("scope must be a nonempty string");
   }
   const { database, scope } = options;
+  const maxParameters = resolveMaxParameters(
+    options.maxParameters ?? DEFAULT_BATCH_PARAMETERS
+  );
   const turns = new Turns(REENTRY);
   const run = <A>(work: () => Promise<A>) =>
     Effect.tryPromise({
@@ -307,13 +332,13 @@ export const makeSqliteQueueStore = (
             database.transaction(async (transaction) => {
               const conflict = conflictOf(
                 write,
-                await storedRevisions(transaction, scope, write)
+                await storedRevisions(transaction, scope, write, maxParameters)
               );
               if (conflict !== undefined) {
                 throw new WriteConflictError({ id: conflict });
               }
-              await writeRecords(transaction, scope, write);
-              await deleteRecords(transaction, scope, write);
+              await writeRecords(transaction, scope, write, maxParameters);
+              await deleteRecords(transaction, scope, write, maxParameters);
               if (options.watermark ?? true) {
                 await raiseWatermark(transaction, scope);
               }

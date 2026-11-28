@@ -2,8 +2,10 @@ import { ownedWrite } from "@foundry/lib/plain-json";
 import {
   assertScope,
   batches,
+  maxBatchRows,
   replacing,
-  SQLITE_MAX_PARAMETERS,
+  resolveMaxParameters,
+  rowBatches,
   type SqliteDatabase,
   type SqliteTransaction,
   storableText,
@@ -37,6 +39,7 @@ export type TaskTransaction = SqliteTransaction;
 
 export interface SqliteTaskStoreOptions {
   readonly database: TaskDatabase;
+  readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: TaskTransaction,
     write: TaskStoreWrite
@@ -62,6 +65,7 @@ const REENTRY =
 
 export class SqliteTaskStore implements TaskStore {
   readonly #database: TaskDatabase;
+  readonly #maxParameters: number;
   readonly #scope: string;
   readonly #onCommit: SqliteTaskStoreOptions["onCommit"];
   readonly #turns = new Turns(REENTRY);
@@ -69,6 +73,7 @@ export class SqliteTaskStore implements TaskStore {
   constructor(options: SqliteTaskStoreOptions) {
     assertScope(options.scope);
     this.#database = options.database;
+    this.#maxParameters = resolveMaxParameters(options.maxParameters);
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
   }
@@ -122,40 +127,38 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   list(query: TaskStoreListQuery = {}): Promise<readonly Task[]> {
-    return this.#turns.run(() =>
-      this.#database.transaction(async (transaction) => {
-        if (
-          (query.status !== undefined && !storableText(query.status)) ||
-          (query.parentId !== undefined &&
-            query.parentId !== null &&
-            !storableText(query.parentId))
-        ) {
-          return [];
-        }
-        let parentCondition:
-          | ReturnType<typeof eq>
-          | ReturnType<typeof isNull>
-          | undefined;
-        if (query.parentId === null) {
-          parentCondition = isNull(tasks.parentId);
-        } else if (query.parentId !== undefined) {
-          parentCondition = eq(tasks.parentId, query.parentId);
-        }
-        return await transaction
-          .select(taskColumns)
-          .from(tasks)
-          .where(
-            and(
-              eq(tasks.scope, this.#scope),
-              query.status === undefined
-                ? undefined
-                : eq(tasks.status, query.status),
-              parentCondition
-            )
+    return this.#turns.run(async () => {
+      if (
+        (query.status !== undefined && !storableText(query.status)) ||
+        (query.parentId !== undefined &&
+          query.parentId !== null &&
+          !storableText(query.parentId))
+      ) {
+        return [];
+      }
+      let parentCondition:
+        | ReturnType<typeof eq>
+        | ReturnType<typeof isNull>
+        | undefined;
+      if (query.parentId === null) {
+        parentCondition = isNull(tasks.parentId);
+      } else if (query.parentId !== undefined) {
+        parentCondition = eq(tasks.parentId, query.parentId);
+      }
+      return await this.#database
+        .select(taskColumns)
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.scope, this.#scope),
+            query.status === undefined
+              ? undefined
+              : eq(tasks.status, query.status),
+            parentCondition
           )
-          .orderBy(tasks.position);
-      })
-    );
+        )
+        .orderBy(tasks.position);
+    });
   }
 
   children(parentId: TaskId): Promise<readonly Task[]> {
@@ -173,8 +176,7 @@ export class SqliteTaskStore implements TaskStore {
           string,
           { readonly edge: TaskDependency; readonly position: number }
         >();
-        const batchSize = Math.floor((SQLITE_MAX_PARAMETERS - 1) / 2);
-        for (const batch of batches(valid, batchSize)) {
+        for (const batch of rowBatches(valid, 2, this.#maxParameters, 1)) {
           const rows = await transaction
             .select({
               dependsOnId: taskDependencies.dependsOnId,
@@ -234,6 +236,7 @@ export class SqliteTaskStore implements TaskStore {
         work(
           new SqliteTaskStore({
             database: transaction,
+            maxParameters: this.#maxParameters,
             scope: this.#scope,
             ...(this.#onCommit === undefined
               ? {}
@@ -248,7 +251,7 @@ export class SqliteTaskStore implements TaskStore {
     transaction: TaskTransaction,
     ids: readonly TaskId[]
   ): Promise<void> {
-    for (const batch of batches(ids, SQLITE_MAX_PARAMETERS - 1)) {
+    for (const batch of rowBatches(ids, 1, this.#maxParameters, 1)) {
       await transaction
         .delete(tasks)
         .where(and(eq(tasks.scope, this.#scope), inArray(tasks.id, batch)));
@@ -259,7 +262,11 @@ export class SqliteTaskStore implements TaskStore {
     transaction: TaskTransaction,
     edges: readonly TaskDependency[]
   ): Promise<void> {
-    for (const batch of batches(edges, MAX_EXPRESSION_DEPTH / 2)) {
+    const batchSize = Math.min(
+      MAX_EXPRESSION_DEPTH / 2,
+      maxBatchRows(2, this.#maxParameters, 1)
+    );
+    for (const batch of batches(edges, batchSize)) {
       await transaction
         .delete(taskDependencies)
         .where(
@@ -289,7 +296,7 @@ export class SqliteTaskStore implements TaskStore {
       position: first + index,
       scope: this.#scope,
     }));
-    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
+    for (const batch of rowBatches(rows, columns, this.#maxParameters)) {
       await transaction
         .insert(tasks)
         .values(batch)
@@ -311,7 +318,7 @@ export class SqliteTaskStore implements TaskStore {
       position: first + index,
       scope: this.#scope,
     }));
-    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
+    for (const batch of rowBatches(rows, columns, this.#maxParameters)) {
       await transaction
         .insert(taskDependencies)
         .values(batch)

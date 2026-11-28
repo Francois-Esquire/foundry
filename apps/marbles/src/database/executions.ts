@@ -3,6 +3,7 @@ import {
   type ProcessIdentity,
   sameProcess,
 } from "@foundry/lib/process-identity";
+import type { SqliteDatabase } from "@foundry/lib/sqlite";
 import type { Job, Run } from "@foundry/queue";
 import { queueJobs, queueRuns } from "@foundry/queue/store/tables";
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -210,7 +211,7 @@ async function gapsIn(
 }
 
 export async function removeAnnexes(
-  database: Queries,
+  database: Pick<SqliteDatabase, "delete">,
   scope: string,
   ids: readonly string[]
 ): Promise<void> {
