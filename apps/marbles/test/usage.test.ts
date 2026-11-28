@@ -47,7 +47,7 @@ async function marbles() {
   const { resetUsage } = await import("~/authoring/usage");
   const { initializeUsage } = await import("~/workspace/node-usage");
   const { hostEngine } = await import("~/workspace/open");
-  const { workspaceState } = await import("~/lib/state/workspace");
+  const { workspaceState } = await import("~/state/workspace");
   const { testEngine } = await import("./helpers/engine");
   cleanups.push(async () => {
     await runtime.dispose();

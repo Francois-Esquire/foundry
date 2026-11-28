@@ -6,8 +6,8 @@ import {
   resolveFoundryPaths,
 } from "@foundry/core/paths";
 
-import type { Workspace } from "~/lib/state/workspace";
-import { workspaceState } from "~/lib/state/workspace";
+import type { Workspace } from "~/state/workspace";
+import { workspaceState } from "~/state/workspace";
 
 export interface LayoutOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;

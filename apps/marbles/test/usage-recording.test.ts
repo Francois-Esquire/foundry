@@ -17,23 +17,23 @@ import { initializeDatabase, openDatabase } from "~/database/open";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { DatabaseUsageStore } from "~/database/usage";
 import { stateDatabase } from "~/layout";
+import type { SessionRef } from "~/lib/definitions/types";
 import type { Engine } from "~/lib/engine";
-import type { SessionRef } from "~/lib/types";
 import type { PriceLookup, TurnSource, UsageFact } from "~/lib/usage";
 import { RECOVERED, UsageLedger, usageFact } from "~/lib/usage";
 import type {
   ListedSessionStore,
   ReconciledRun,
   SessionStamp,
-} from "~/lib/usage-evidence";
+} from "~/lib/usage/evidence";
 import {
   ledgerNames,
   transcriptTurn,
   UNATTRIBUTED,
   UsageEvidence,
-} from "~/lib/usage-evidence";
-import type { UsageStore } from "~/lib/usage-store";
-import { MemoryUsageStore } from "~/lib/usage-store";
+} from "~/lib/usage/evidence";
+import type { UsageStore } from "~/lib/usage/store";
+import { MemoryUsageStore } from "~/lib/usage/store";
 import { costLabel, tokensLabel } from "~/tui/state/usage-format";
 import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 import { dashboardSnapshot } from "~/workspace/snapshot";

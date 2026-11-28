@@ -21,8 +21,8 @@ import {
   withLoadScope,
 } from "~/authoring/runtime";
 import { tasks } from "~/authoring/tasks";
-import type { StepRecord, WorkflowRecord } from "~/lib/definition";
-import { activeContext, inContext } from "~/lib/execution-context";
+import type { StepRecord, WorkflowRecord } from "~/lib/definitions";
+import { activeContext, inContext } from "~/lib/runs/context";
 import { hostTasks } from "~/workspace/open";
 import { startEngine } from "./helpers/engine";
 import { seedRepository } from "./helpers/repository";

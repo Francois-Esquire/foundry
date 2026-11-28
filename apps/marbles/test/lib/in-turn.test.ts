@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { inTurn } from "~/lib/in-turn";
+import { inTurn } from "~/lib/shared/in-turn";
 
 const fails = (message: string) => () => Promise.reject(new Error(message));
 const passes = () => Promise.resolve();

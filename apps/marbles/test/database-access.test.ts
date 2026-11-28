@@ -23,8 +23,8 @@ import {
 } from "~/database/open";
 import { marblesWorkspaces } from "~/database/tables";
 import { stateDatabase } from "~/layout";
-import { workspaceState } from "~/lib/state/workspace";
 import { recordSpawned } from "~/process/spawned";
+import { workspaceState } from "~/state/workspace";
 import { cliArgs } from "./helpers/cli";
 import { type TestHome, testHome } from "./helpers/home";
 import { readWorkspace, touchWorkspace } from "./helpers/registry";

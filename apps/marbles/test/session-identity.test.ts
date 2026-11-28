@@ -11,7 +11,7 @@ import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { providerStoreForState, writeAsHost } from "~/database/open";
 import { marblesIdentityKeys } from "~/database/tables";
-import type { AgentDefinition, SessionRef } from "~/lib/types";
+import type { AgentDefinition, SessionRef } from "~/lib/definitions/types";
 import { pluginOf } from "./helpers/plugins";
 
 const usage = {

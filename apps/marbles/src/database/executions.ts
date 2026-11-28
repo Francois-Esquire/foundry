@@ -20,15 +20,15 @@ import type {
   ExecutionRun,
   RetentionGap,
   StoredAnnex,
-} from "~/lib/execution-record";
-import { annexOf, executionOf } from "~/lib/execution-record";
-import type { ExecutionStore, Removal } from "~/lib/execution-store";
+} from "~/lib/executions/record";
+import { annexOf, executionOf } from "~/lib/executions/record";
+import type { ExecutionStore, Removal } from "~/lib/executions/store";
 import {
   storedObservation,
   storedProgress,
   storedRetentionGap,
   withRemovals,
-} from "~/lib/execution-store";
+} from "~/lib/executions/store";
 
 export interface DatabaseExecutionStoreOptions {
   readonly database: StoreDatabase;

@@ -11,16 +11,13 @@ import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { marblesAutomations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
-import {
-  type AutomationOwner,
-  AutomationService,
-} from "~/lib/automation/service";
+import { type AutomationOwner, AutomationService } from "~/lib/automation";
 import type { AutomationStore } from "~/lib/automation/store";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { ScheduledEngine } from "~/lib/schedule";
 import { registration, rollSchedule } from "~/lib/schedule";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
-import type { Schedule } from "~/lib/triggers";
+import { MemoryTriggerStore } from "~/lib/schedule/store";
+import type { Schedule } from "~/lib/schedule/triggers";
 import { bindMock } from "./helpers/bindings";
 import { declared, startEngine } from "./helpers/engine";
 import { occurrencesOf, startScheduler } from "./helpers/schedules";

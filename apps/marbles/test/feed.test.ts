@@ -8,11 +8,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { localFeedPayload } from "~/host/feed-media";
 import type { Engine } from "~/lib/engine";
+import { feedPublisher } from "~/lib/feed";
 import { feedQuestionSchema } from "~/lib/feed/entry";
-import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { feedReader, formatPosted } from "~/lib/feed/read";
-import { createLog, formatLogValues } from "~/lib/log";
+import { createLog, formatLogValues } from "~/lib/shared/log";
 import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 
 import type { TestEngineOptions } from "./helpers/engine";

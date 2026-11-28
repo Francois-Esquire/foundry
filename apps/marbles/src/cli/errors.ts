@@ -3,10 +3,10 @@ import { DatabaseBusyError } from "~/database/busy";
 import { IncompatibleDatabaseError } from "~/database/migrate";
 import { UnreadableDatabaseError } from "~/database/open";
 import { TaskStorageError } from "~/database/tasks";
-import { RunEndedError } from "~/lib/engine";
+import { ResourceNotFoundError } from "~/lib/definitions/resources";
 import { ConfigurationError } from "~/lib/providers/store";
-import { ResourceNotFoundError } from "~/lib/resources";
-import { RunOutputError } from "~/lib/run-output";
+import { RunEndedError } from "~/lib/runs/followed";
+import { RunOutputError } from "~/lib/runs/output";
 import { NotHostedError, RecordsHeldError } from "~/model/errors";
 import {
   NoProcessError,

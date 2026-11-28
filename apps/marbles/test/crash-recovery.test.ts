@@ -7,7 +7,7 @@ import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { expect, it } from "vitest";
 import { readLastRecovery, writeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import { runStoreEffect } from "~/lib/workflow-runs";
+import { runStoreEffect } from "~/lib/runs/records";
 import { type SpawnRecord, startedAt } from "~/process/spawned";
 import { testEngine } from "./helpers/engine";
 import { type TestHome, testHome } from "./helpers/home";

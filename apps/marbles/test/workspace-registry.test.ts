@@ -7,7 +7,7 @@ import { initializeDatabase, recordedWorkspaces } from "~/database/open";
 import { transaction } from "~/database/transaction";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import { insideState, workspaceState } from "~/lib/state/workspace";
+import { insideState, workspaceState } from "~/state/workspace";
 import { recordedWorkspace } from "~/workspace/open";
 
 function scratch(prefix: string): string {

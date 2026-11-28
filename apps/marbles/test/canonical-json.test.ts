@@ -3,7 +3,7 @@ import { canonicalizeJson } from "@foundry/lib/json";
 import { agent, Catalog, schedule, step } from "@foundry.sh/marbles";
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { jsonData } from "~/lib/state/json";
+import { jsonData } from "~/state/json";
 
 const literal = {
   a: undefined,

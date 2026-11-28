@@ -1,6 +1,6 @@
-import type { Log } from "~/lib/log";
-import type { MonitorInput } from "~/lib/monitor";
-import type { Context } from "~/lib/types";
+import type { Context } from "~/lib/definitions/types";
+import type { MonitorInput } from "~/lib/schedule/monitor";
+import type { Log } from "~/lib/shared/log";
 import { unbound } from "./unbound";
 
 export function monitorContext(

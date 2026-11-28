@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { expect, it } from "vitest";
-import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import { TERMINAL_RUN_STATUSES } from "~/lib/runs/store";
 import { isTerminal } from "~/model/run-status";
 
 const model = fileURLToPath(new URL("../src/model/", import.meta.url));

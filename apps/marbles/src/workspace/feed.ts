@@ -7,7 +7,7 @@ import type { StoreDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { FeedEntrySnapshot, FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
-import { insideState } from "~/lib/state/workspace";
+import { insideState } from "~/state/workspace";
 
 export interface WorkspaceFeedOptions {
   readonly artifacts: string;

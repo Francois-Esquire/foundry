@@ -1,4 +1,4 @@
-import type { Current } from "~/lib/run-scope";
+import type { Current } from "~/lib/runs/scope";
 import type { ExecutionContext } from "./model";
 import {
   type ContextRuntime,

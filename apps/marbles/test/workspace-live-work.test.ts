@@ -1,7 +1,7 @@
 import { expect, expectTypeOf, it } from "vitest";
-import { type ReadonlyRunScopes, RunScope } from "~/lib/run-scope";
-import type { LiveWork } from "~/lib/step-work";
-import type { RunRecord } from "~/lib/workflow-runs";
+import type { RunRecord } from "~/lib/runs/records";
+import { type ReadonlyRunScopes, RunScope } from "~/lib/runs/scope";
+import type { LiveWork } from "~/lib/runs/step-work";
 import type { WorkspaceHost } from "~/workspace/index";
 import { liveView } from "~/workspace/live-work";
 

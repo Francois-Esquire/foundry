@@ -23,7 +23,8 @@ import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseTriggerStore } from "~/database/triggers";
 import type { StoreDatabase } from "~/database/types";
 import { DatabaseUsageStore } from "~/database/usage";
-import type { AutomationRecord } from "~/lib/automation/service";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
+import type { AutomationRecord } from "~/lib/automation";
 import type {
   AutomationStore,
   AutomationView,
@@ -39,21 +40,20 @@ import type {
   ExecutionObservation,
   RetentionGap,
   StoredAnnex,
-} from "~/lib/execution-record";
-import type { ExecutionStore, Removal } from "~/lib/execution-store";
-import { storedObservation, storedProgress } from "~/lib/execution-store";
-import { inTurn } from "~/lib/in-turn";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import type { RecordedScope } from "~/lib/run-scope";
-import type { RunStore, StoredScope } from "~/lib/run-store";
-import type { Workspace } from "~/lib/state/workspace";
-import { workspaceState } from "~/lib/state/workspace";
-import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
-import { gatedScheduleStore } from "~/lib/trigger-store";
+} from "~/lib/executions/record";
+import type { ExecutionStore, Removal } from "~/lib/executions/store";
+import { storedObservation, storedProgress } from "~/lib/executions/store";
+import type { RecordedScope } from "~/lib/runs/scope";
+import type { RunStore, StoredScope } from "~/lib/runs/store";
+import type { MonitorState, TriggerStore } from "~/lib/schedule/store";
+import { gatedScheduleStore } from "~/lib/schedule/store";
+import { inTurn } from "~/lib/shared/in-turn";
 import type { RecordedUsageFact } from "~/lib/usage";
-import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
-import type { StoredUsage, UsageStore } from "~/lib/usage-store";
-import { storedUsageFact } from "~/lib/usage-store";
+import type { ListedSessionStore, SessionStamp } from "~/lib/usage/evidence";
+import type { StoredUsage, UsageStore } from "~/lib/usage/store";
+import { storedUsageFact } from "~/lib/usage/store";
+import type { Workspace } from "~/state/workspace";
+import { workspaceState } from "~/state/workspace";
 
 export interface OpenWorkspaceRecordsOptions extends HostDatabaseOptions {
   readonly state: string;

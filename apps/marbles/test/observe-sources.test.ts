@@ -25,7 +25,7 @@ import { createEngine } from "~/create";
 import { DatabaseRunStore } from "~/database/runs";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { workspaceStores } from "~/database/stores";
-import { DELIVERY_POLL_MS, Delivery } from "~/lib/events/delivery";
+import { DELIVERY_POLL_MS, Delivery } from "~/lib/events";
 import type { Fact, Source } from "~/lib/events/source";
 import {
   ARTIFACTS,
@@ -35,8 +35,8 @@ import {
   TASKS,
   WORKSPACES,
 } from "~/lib/events/source";
-import { current } from "~/lib/run-scope";
-import { readRun, runStoreEffect } from "~/lib/workflow-runs";
+import { readRun, runStoreEffect } from "~/lib/runs/records";
+import { current } from "~/lib/runs/scope";
 import { testEngine } from "./helpers/engine";
 import { putRun } from "./helpers/queue-runs";
 import type { TestMachine } from "./helpers/records";

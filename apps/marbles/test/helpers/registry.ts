@@ -4,8 +4,8 @@ import { marblesWorkspaces } from "~/database/tables";
 import type { TouchOptions } from "~/database/workspaces";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
-import { insideState } from "~/lib/state/workspace";
+import type { Workspace, WorkspaceRecord } from "~/state/workspace";
+import { insideState } from "~/state/workspace";
 
 async function asProcess<T>(
   state: string,

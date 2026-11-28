@@ -1,18 +1,18 @@
 import { canonicalizeJson } from "@foundry/lib/json";
 import { trackCreatedDeclaration } from "~/authoring/runtime";
-import { DEFAULT_EVERY, parseAt } from "~/lib/cadence";
-import type { AnyDefinition, LockedNode } from "~/lib/definition";
-import { isLockedNode } from "~/lib/definition";
-import { MONITOR_META, SCHEDULE_META } from "~/lib/handles";
-import { sha256HexSync } from "~/lib/hash";
-import { jsonData } from "~/lib/json-data";
+import type { AnyDefinition, LockedNode } from "~/lib/definitions";
+import { isLockedNode } from "~/lib/definitions";
+import { MONITOR_META, SCHEDULE_META } from "~/lib/definitions/handles";
+import type { MonitorRecord } from "~/lib/definitions/registry";
+import { DEFAULT_EVERY, parseAt } from "~/lib/schedule/cadence";
 import type {
   MonitorHandler,
   MonitorRequest,
   MonitorSpec,
-} from "~/lib/monitor";
-import type { MonitorRecord } from "~/lib/registry";
-import type { CalendarSlot, Schedule, Trigger } from "~/lib/triggers";
+} from "~/lib/schedule/monitor";
+import type { CalendarSlot, Schedule, Trigger } from "~/lib/schedule/triggers";
+import { sha256HexSync } from "~/lib/shared/hash";
+import { jsonData } from "~/lib/shared/json-data";
 
 const KEY_SEPARATORS = /[^a-z0-9]+/g;
 const KEY_TRIM = /^-+|-+$/g;

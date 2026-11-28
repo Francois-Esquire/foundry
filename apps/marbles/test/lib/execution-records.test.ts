@@ -7,12 +7,12 @@ import { DatabaseExecutionStore } from "~/database/executions";
 import { readDatabase } from "~/database/open";
 import { marblesExecutions } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import type { Context } from "~/lib/definitions/types";
 import type { Engine } from "~/lib/engine";
-import type { ExecutionStore } from "~/lib/execution-store";
-import { MemoryExecutionStore } from "~/lib/execution-store";
 import type { ExecutionRun } from "~/lib/executions";
-import type { TaskContext } from "~/lib/tasks";
-import type { Context } from "~/lib/types";
+import type { ExecutionStore } from "~/lib/executions/store";
+import { MemoryExecutionStore } from "~/lib/executions/store";
+import type { TaskContext } from "~/lib/runs/tasks";
 import {
   blockingTask,
   executionFixture,

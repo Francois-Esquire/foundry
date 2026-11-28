@@ -1,8 +1,8 @@
 import { asBusy } from "~/database/busy";
 import { marblesRecoveries } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import type { RecoveryLog, RecoveryReport } from "~/lib/recovery-report";
-import { recoveryReportSchema } from "~/lib/recovery-report";
+import type { RecoveryLog, RecoveryReport } from "~/lib/recovery/report";
+import { recoveryReportSchema } from "~/lib/recovery/report";
 
 export interface DatabaseRecoveryLogOptions {
   readonly database: StoreDatabase;

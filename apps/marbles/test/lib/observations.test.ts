@@ -25,7 +25,7 @@ import {
   composeObservers,
   runTurnObserver,
   toolObserver,
-} from "~/lib/observations";
+} from "~/lib/executions/observations";
 import { observedSession } from "~/lib/sandbox/wrapped-session";
 import { testEngine } from "../helpers/engine";
 import { storedExecution } from "../helpers/executions";

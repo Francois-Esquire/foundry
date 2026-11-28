@@ -26,7 +26,7 @@ import { captureScope, releaseEngine, setHost } from "~/authoring/runtime";
 import { declareCatalog } from "~/create";
 import { DatabaseRunStore } from "~/database/runs";
 import type { Engine } from "~/lib/engine";
-import { inContext } from "~/lib/execution-context";
+import { inContext } from "~/lib/runs/context";
 import { testEngine } from "./helpers/engine";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";

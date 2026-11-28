@@ -1,6 +1,6 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
-import type { InputValues } from "~/lib/inputs";
-import type { LiveWork, StepInput } from "~/lib/step-work";
+import type { InputValues } from "~/lib/definitions/inputs";
+import type { LiveWork, StepInput } from "~/lib/runs/step-work";
 
 export type Launcher = (
   name: string,

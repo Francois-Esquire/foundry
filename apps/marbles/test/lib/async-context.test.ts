@@ -1,14 +1,14 @@
 import { builtinModules } from "node:module";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createNodeContextRuntime } from "~/host/async-context";
 import {
   ambient,
   createAmbientScope,
   type ExecutionContext,
 } from "~/lib/async-context";
-import { createNodeContextRuntime } from "~/lib/async-context/node";
 import { createPortableContextRuntime } from "~/lib/async-context/runtime";
-import type { Current } from "~/lib/run-scope";
+import type { Current } from "~/lib/runs/scope";
 
 const ALL_IMPORTS = /.*/;
 

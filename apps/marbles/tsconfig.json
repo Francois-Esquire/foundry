@@ -7,19 +7,17 @@
       "~/*": ["./src/*"],
       "@foundry.sh/marbles": ["./src/authoring/index.ts"],
       "@foundry.sh/marbles/engine": ["./src/entries/embedded.ts"],
-      "@foundry.sh/marbles/lib": ["./src/entries/lib.ts"],
+      "@foundry.sh/marbles/lib": ["./src/lib/index.ts"],
       "@foundry.sh/marbles/process": ["./src/process/index.ts"],
       "@foundry.sh/marbles/providers": ["./src/authoring/providers.ts"],
       "@foundry.sh/marbles/providers/claude-code": [
-        "./src/lib/providers/claude-code.ts"
+        "./src/providers/claude-code.ts"
       ],
-      "@foundry.sh/marbles/providers/codex": ["./src/lib/providers/codex.ts"],
-      "@foundry.sh/marbles/providers/gateway": [
-        "./src/lib/providers/gateway.ts"
-      ],
-      "@foundry.sh/marbles/providers/pi": ["./src/lib/providers/pi.ts"],
-      "@foundry.sh/marbles/providers/vercel": ["./src/lib/providers/vercel.ts"],
-      "@foundry.sh/marbles/statuses": ["./src/lib/execution-statuses.ts"],
+      "@foundry.sh/marbles/providers/codex": ["./src/providers/codex.ts"],
+      "@foundry.sh/marbles/providers/gateway": ["./src/providers/gateway.ts"],
+      "@foundry.sh/marbles/providers/pi": ["./src/providers/pi.ts"],
+      "@foundry.sh/marbles/providers/vercel": ["./src/providers/vercel.ts"],
+      "@foundry.sh/marbles/statuses": ["./src/lib/executions/statuses.ts"],
       "@foundry.sh/marbles/workspace": ["./src/workspace/index.ts"]
     },
     "jsx": "react-jsx",

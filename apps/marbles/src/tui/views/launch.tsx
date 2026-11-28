@@ -11,7 +11,7 @@ import {
   inputDefaults,
   inputProblem,
   parseInputs,
-} from "~/lib/inputs";
+} from "~/lib/definitions/inputs";
 import { useAsyncAction } from "~/tui/hooks/use-async-action";
 import { useQuitGuard } from "~/tui/hooks/use-quit-guard";
 import type { DefinitionSnapshot } from "../state/dashboard-model";

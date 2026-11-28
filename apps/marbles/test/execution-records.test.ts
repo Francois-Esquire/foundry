@@ -1,7 +1,7 @@
 import type { JsonValue } from "@foundry/lib/json";
 import { afterEach, expect, it } from "vitest";
 import type { Engine } from "~/lib/engine";
-import { MemoryExecutionStore } from "~/lib/execution-store";
+import { MemoryExecutionStore } from "~/lib/executions/store";
 import { testEngine } from "./helpers/engine";
 import { gate } from "./helpers/executions";
 

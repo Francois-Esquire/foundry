@@ -7,10 +7,10 @@ import { z } from "zod";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { Engine } from "~/lib/engine";
-import { claudeCode } from "~/lib/providers/claude-code";
-import { codex } from "~/lib/providers/codex";
-import { vercel } from "~/lib/providers/vercel";
-import { RunScope } from "~/lib/run-scope";
+import { RunScope } from "~/lib/runs/scope";
+import { claudeCode } from "~/providers/claude-code";
+import { codex } from "~/providers/codex";
+import { vercel } from "~/providers/vercel";
 
 import { fakeCodex } from "./helpers/codex";
 import { testInstances } from "./helpers/engine";

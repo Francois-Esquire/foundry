@@ -12,7 +12,7 @@ import {
   MemoryArtifactStore,
   MemorySessionStore,
   Models,
-} from "@foundry.sh/marbles/lib";
+} from "@foundry.sh/marbles/engine";
 import { file, Glob } from "bun";
 import { initLogger } from "evlog";
 import { z } from "zod";

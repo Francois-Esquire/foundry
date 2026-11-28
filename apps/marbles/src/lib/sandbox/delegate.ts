@@ -16,7 +16,7 @@ import {
 } from "@foundry/authorization";
 import { type Tool, tool } from "ai";
 import { z } from "zod";
-import type { SandboxSessionSettings } from "./session";
+import type { SandboxSessionSettings } from "~/lib/sandbox";
 import { observedSession, wrapSession } from "./wrapped-session";
 
 export interface DelegationScope {

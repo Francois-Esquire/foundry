@@ -4,7 +4,7 @@ import { createContainers, prepareSandboxProcess } from "@foundry/sandbox/node";
 import { createMicrosandboxDriver } from "@foundry/sandbox/providers/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { beforeAll, describe, expect, it } from "vitest";
-import { prepareGuest } from "~/lib/sandbox/prepare";
+import { prepareGuest } from "~/host/guest/prepare";
 
 function requireSpawn(target: Container) {
   const spawn = target.processes?.spawn;

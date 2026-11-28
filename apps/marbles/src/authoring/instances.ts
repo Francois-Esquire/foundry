@@ -3,19 +3,14 @@ import type { SessionInput, SessionStream } from "@foundry/agents/session";
 import { PortablePrompt } from "@foundry/prompts";
 import type { Git } from "@foundry/workspaces/node/git";
 import type { Output } from "ai";
-
-import type { Bindings, ManagerArgs } from "~/lib/bindings";
-import { deferredStream } from "~/lib/deferred-stream";
-import type { AnyDefinition } from "~/lib/definition";
+import type { AnyDefinition } from "~/lib/definitions";
+import type { Bindings, ManagerArgs } from "~/lib/definitions/bindings";
 import {
   AGENT_DEFINITION,
   AGENT_META,
   AGENT_PROMPT,
   SANDBOX_HANDLE,
-} from "~/lib/handles";
-import { inputSnapshot } from "~/lib/json-data";
-import type { DefinitionLaunch, Launched } from "~/lib/launcher";
-import type { AgentTurns } from "~/lib/managers/agents";
+} from "~/lib/definitions/handles";
 import type {
   Agent,
   AgentDefinition,
@@ -35,8 +30,12 @@ import type {
   WorkspaceDefinition,
   WorkspaceHandle,
   WorkspaceInstance,
-} from "~/lib/types";
-import { WORKSPACE_METHODS } from "~/lib/workspace-methods";
+} from "~/lib/definitions/types";
+import type { AgentTurns } from "~/lib/managers/agents";
+import { deferredStream } from "~/lib/managers/deferred-stream";
+import { WORKSPACE_METHODS } from "~/lib/managers/workspace-methods";
+import type { DefinitionLaunch, Launched } from "~/lib/runs";
+import { inputSnapshot } from "~/lib/shared/json-data";
 import type { InstanceRuntime, Scope } from "./runtime";
 import {
   activeAgentId,

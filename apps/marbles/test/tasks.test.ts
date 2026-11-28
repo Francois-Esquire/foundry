@@ -24,7 +24,7 @@ import type { CollectInput } from "~/authoring/catalog";
 import { setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
-import { current } from "~/lib/run-scope";
+import { current } from "~/lib/runs/scope";
 import { testEngine } from "./helpers/engine";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";

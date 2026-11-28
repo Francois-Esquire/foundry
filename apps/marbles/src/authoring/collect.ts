@@ -1,14 +1,14 @@
 import type { Output } from "ai";
-import type { AnyDefinition, LockedNode } from "~/lib/definition";
-import type { ProviderPlugin } from "~/lib/providers/plugins";
-import type { MonitorRecord } from "~/lib/registry";
-import type { Schedule } from "~/lib/triggers";
+import type { AnyDefinition, LockedNode } from "~/lib/definitions";
+import type { MonitorRecord } from "~/lib/definitions/registry";
 import type {
   AgentLike,
   ArtifactDefinition,
   SandboxDefinition,
   WorkspaceDefinition,
-} from "~/lib/types";
+} from "~/lib/definitions/types";
+import type { ProviderPlugin } from "~/lib/providers/plugins";
+import type { Schedule } from "~/lib/schedule/triggers";
 import { configOf } from "./config";
 import type {
   CollectInput,

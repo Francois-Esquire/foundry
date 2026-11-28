@@ -1,10 +1,10 @@
 import type { Artifact } from "@foundry/artifacts";
 import type { ContainerRow } from "@foundry/sandbox";
 import type { ArtifactFile, ResourceView } from "~/database/resources";
-import type { ResourceKind } from "~/lib/resources";
-import type { RunStep } from "~/lib/run-trace";
-import { runSteps } from "~/lib/run-trace";
-import type { RunRecord } from "~/lib/workflow-runs";
+import type { ResourceKind } from "~/lib/definitions/resources";
+import type { RunRecord } from "~/lib/runs/records";
+import type { RunStep } from "~/lib/runs/trace";
+import { runSteps } from "~/lib/runs/trace";
 
 interface ResourceOwnership {
   readonly id: string;

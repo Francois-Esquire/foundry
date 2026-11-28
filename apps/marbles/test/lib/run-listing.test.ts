@@ -1,7 +1,7 @@
 import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
 import { Effect } from "effect";
 import { expect, it, vi } from "vitest";
-import { RunListing } from "~/lib/run-listing";
+import { RunListing } from "~/lib/runs/listing";
 import { putRun } from "../helpers/queue-runs";
 
 function arranged() {

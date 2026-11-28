@@ -5,7 +5,7 @@ import type { directory } from "@foundry/workspaces/node";
 import { workspaces } from "@foundry/workspaces/node";
 import { Git, git } from "@foundry/workspaces/node/git";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
-import type { WorkspaceGit } from "~/lib/types";
+import type { WorkspaceGit } from "~/lib/definitions/types";
 
 export type LocalWorkspaces = WorkspaceRuntime<
   [ReturnType<typeof directory>, ReturnType<typeof git>]

@@ -1,7 +1,7 @@
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
-import type { TurnExecutorRef } from "~/lib/cli-harnesses";
-import { isCliHarness } from "~/lib/cli-harnesses";
+import type { TurnExecutorRef } from "~/lib/managers/cli-harnesses";
+import { isCliHarness } from "~/lib/managers/cli-harnesses";
 import type { MockOptions, Reply } from "./echo";
 import { replying } from "./echo";
 import { CLI_PROVIDER_FACTS } from "./harnesses";

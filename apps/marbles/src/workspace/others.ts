@@ -5,13 +5,13 @@ import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
 import type { ScheduleSnapshot } from "~/database/triggers";
 import { storedSchedules } from "~/database/triggers";
 import { WorkspaceRegistry } from "~/database/workspaces";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import { insideState } from "~/lib/state/workspace";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import type {
   OwnerWorkspace,
   RunSnapshot,
   TriggerSnapshot,
 } from "~/model/dashboard";
+import { insideState } from "~/state/workspace";
 import type { OtherWorkspaces } from "./snapshot";
 import { storedRunSnapshot } from "./snapshot";
 

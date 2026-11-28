@@ -18,9 +18,9 @@ import {
 } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import { stateDatabase } from "~/layout";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import { insideState, workspaceState } from "~/lib/state/workspace";
+import { insideState, workspaceState } from "~/state/workspace";
 
 const roots: string[] = [];
 

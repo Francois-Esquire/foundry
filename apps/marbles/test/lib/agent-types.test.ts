@@ -8,7 +8,7 @@ import type {
   Agents,
   DeferredAgent,
   Session,
-} from "~/lib/types";
+} from "~/lib/definitions/types";
 
 const verdict = Output.object({ schema: z.object({ approved: z.boolean() }) });
 

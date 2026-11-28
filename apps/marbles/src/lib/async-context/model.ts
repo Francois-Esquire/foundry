@@ -1,6 +1,6 @@
 import type { Models } from "@foundry/models";
 import type { Output } from "ai";
-import type { AgentLike } from "~/lib/types";
+import type { AgentLike } from "~/lib/definitions/types";
 
 export interface ExecutionContext {
   readonly agentIdOf?: (agent: AgentLike<Output.Output>) => string | undefined;

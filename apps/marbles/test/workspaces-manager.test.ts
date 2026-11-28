@@ -7,11 +7,11 @@ import {
   localWorkspaces,
   nodeGitAt,
 } from "~/host/workspaces";
-import type { ExecutionContext } from "~/lib/execution-context";
-import { activeContext } from "~/lib/execution-context";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
-import type { Current } from "~/lib/run-scope";
-import { current } from "~/lib/run-scope";
+import type { ExecutionContext } from "~/lib/runs/context";
+import { activeContext } from "~/lib/runs/context";
+import type { Current } from "~/lib/runs/scope";
+import { current } from "~/lib/runs/scope";
 import { seedRepository } from "./helpers/repository";
 
 const contextOf = (workspaceId: string, cwd: string): ExecutionContext => ({

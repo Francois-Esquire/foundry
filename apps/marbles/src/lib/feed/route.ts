@@ -1,5 +1,5 @@
 import type { ChannelEvent } from "@foundry/workflows/channels";
-
+import type { FeedMetadata, FeedPublisher, FeedSource } from "~/lib/feed";
 import {
   FEED_INPUT_KIND,
   FEED_POST_EVENT,
@@ -9,12 +9,7 @@ import {
   feedQuestionSchema,
   readAnswer,
 } from "~/lib/feed/entry";
-import type {
-  FeedMetadata,
-  FeedPublisher,
-  FeedSource,
-} from "~/lib/feed/publish";
-import type { RunQueue, Suspension } from "~/lib/run-queue";
+import type { RunQueue, Suspension } from "~/lib/runs/queue";
 
 type FeedQueue = Pick<
   RunQueue,

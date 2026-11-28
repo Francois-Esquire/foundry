@@ -13,7 +13,7 @@ import {
   claudeSubscriptionToken,
   guestAuth,
   piCredential,
-} from "~/lib/sandbox/credentials";
+} from "~/host/guest/credentials";
 
 it("selects the active subscription access token without returning refresh credentials", async () => {
   const readCredentials = vi.fn();

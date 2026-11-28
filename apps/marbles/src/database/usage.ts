@@ -5,8 +5,8 @@ import { marblesUsageFacts } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
 import { RecordsGate } from "~/lib/events/records-gate";
 import type { RecordedUsageFact } from "~/lib/usage";
-import type { StoredUsage, UsageStore } from "~/lib/usage-store";
-import { ownerOf, storedUsageFact } from "~/lib/usage-store";
+import type { StoredUsage, UsageStore } from "~/lib/usage/store";
+import { ownerOf, storedUsageFact } from "~/lib/usage/store";
 
 export interface DatabaseUsageStoreOptions {
   readonly database: StoreDatabase;

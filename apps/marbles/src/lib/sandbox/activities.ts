@@ -3,8 +3,8 @@ import type {
   HarnessSession,
 } from "@foundry/agents/harness";
 import { z } from "zod";
-import type { FeedPublisher } from "~/lib/feed/publish";
-import { sha256HexSync } from "~/lib/hash";
+import type { FeedPublisher } from "~/lib/feed";
+import { sha256HexSync } from "~/lib/shared/hash";
 import { wrapSession } from "./wrapped-session";
 
 const sourceSchema = z.object({

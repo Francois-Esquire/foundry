@@ -1,0 +1,29 @@
+import { ambient } from "~/lib/async-context";
+import { sharedContextRuntime } from "~/lib/async-context/runtime";
+import type { ExecutionContext } from "~/lib/runs/context";
+import type { Current } from "~/lib/runs/scope";
+
+export interface ScopeStorage<T> {
+  getStore(): T | undefined;
+  run<R>(value: T, work: () => R): R;
+}
+
+export function scopeStorageFor<T>(key: symbol): ScopeStorage<T> {
+  const variable = sharedContextRuntime().variable<T>(key);
+  return {
+    getStore: () => variable.get(),
+    run: (value, work) => variable.run(value, work),
+  };
+}
+
+export function currentRun(): Current | undefined {
+  return ambient.currentRun.get();
+}
+
+export function currentSetupCounters(): Map<string, number> | undefined {
+  return ambient.setupCounters.get();
+}
+
+export function currentExecutionContext(): ExecutionContext | undefined {
+  return ambient.activeWorkspace();
+}

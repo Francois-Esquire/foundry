@@ -4,11 +4,11 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
-import type { Bindings } from "~/lib/bindings";
-import type { AnyDefinition } from "~/lib/definition";
-import { createLog } from "~/lib/log";
-import { RunScopes } from "~/lib/run-scope";
-import { factoryFor } from "~/lib/tree";
+import type { AnyDefinition } from "~/lib/definitions";
+import type { Bindings } from "~/lib/definitions/bindings";
+import { RunScopes } from "~/lib/runs/scope";
+import { factoryFor } from "~/lib/runs/tree";
+import { createLog } from "~/lib/shared/log";
 import { named } from "../helpers/launch";
 import { unbound } from "../helpers/unbound";
 

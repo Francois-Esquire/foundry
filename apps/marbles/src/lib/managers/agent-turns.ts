@@ -11,15 +11,15 @@ import type {
   SessionUsage,
 } from "@foundry/agents/session";
 import type { InferGenerateOutput, InferStreamOutput, Output } from "ai";
-import type { RecordObservation } from "../observations";
-import { toolObserver } from "../observations";
-import type { StepWork } from "../step-work";
 import type {
   AgentSettings,
   Session,
   SessionRef,
   SessionReply,
-} from "../types";
+} from "~/lib/definitions/types";
+import type { RecordObservation } from "~/lib/executions/observations";
+import { toolObserver } from "~/lib/executions/observations";
+import type { StepWork } from "~/lib/runs/step-work";
 
 export interface LiveSession {
   readonly ref: SessionRef;
@@ -95,9 +95,6 @@ export function replayedStream<OUTPUT extends Output.Output>(
     usage: Promise.resolve(reply.usage),
   };
 }
-
-// biome-ignore lint/performance/noBarrelFile: Re-export portable stream helper for existing callers.
-export { deferredStream } from "../deferred-stream";
 
 export function wrapAgentSession<DEFAULT extends Output.Output = never>(
   harness: SessionHarness | HarnessSession,

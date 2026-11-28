@@ -12,14 +12,14 @@ import {
 import { initializeDatabase, readLastRecovery } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { DatabaseUsageStore } from "~/database/usage";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import { MemoryExecutionStore } from "~/lib/execution-store";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import { MemoryRunStore } from "~/lib/run-store";
+import { MemoryExecutionStore } from "~/lib/executions/store";
+import { MemoryRunStore } from "~/lib/runs/store";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
-import { MemoryUsageStore } from "~/lib/usage-store";
+import { MemoryTriggerStore } from "~/lib/schedule/store";
+import { MemoryUsageStore } from "~/lib/usage/store";
 import { testEngine, testInstances } from "./helpers/engine";
 
 const roots: string[] = [];

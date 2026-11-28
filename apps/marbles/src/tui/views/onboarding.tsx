@@ -12,7 +12,7 @@ import {
   type InputValues,
   inputProblem,
   parseInputs,
-} from "~/lib/inputs";
+} from "~/lib/definitions/inputs";
 import { errorMessage, useAsyncAction } from "~/tui/hooks/use-async-action";
 import { useQuitGuard } from "~/tui/hooks/use-quit-guard";
 import {

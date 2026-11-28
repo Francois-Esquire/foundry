@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { RunScope } from "~/lib/run-scope";
-import { StepInputError } from "~/lib/step-work";
+import { RunScope } from "~/lib/runs/scope";
+import { StepInputError } from "~/lib/runs/step-work";
 
 const NO_TURN_PATTERN = /no agent turn is running in "flow.review"/;
 

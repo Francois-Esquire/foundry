@@ -2,9 +2,10 @@ import { Catalog, schedule, step, workflow } from "@foundry.sh/marbles";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { describeTrigger, nextDue, parseEvery } from "~/lib/schedule";
-import { JSON_INPUT_FIELD } from "~/lib/schema";
-import type { CalendarSlot, Schedule } from "~/lib/triggers";
+import { JSON_INPUT_FIELD } from "~/lib/definitions/schema";
+import { describeTrigger, nextDue } from "~/lib/schedule";
+import { parseEvery } from "~/lib/schedule/cadence";
+import type { CalendarSlot, Schedule } from "~/lib/schedule/triggers";
 
 import { declared, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";

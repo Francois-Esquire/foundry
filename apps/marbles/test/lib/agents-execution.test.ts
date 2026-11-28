@@ -1,19 +1,19 @@
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Models } from "@foundry/models";
 import { beforeEach, expect, it, vi } from "vitest";
+import type { AgentDefinition, SandboxHandle } from "~/lib/definitions/types";
 import type { AgentsDeps } from "~/lib/managers/agents";
 import { AgentsManager } from "~/lib/managers/agents";
-import { codex as codexPlugin } from "~/lib/providers/codex";
 import type { Execution } from "~/lib/providers/plugins";
-import type { SandboxSessionSettings } from "~/lib/sandbox/session";
-import type { AgentDefinition, SandboxHandle } from "~/lib/types";
+import type { SandboxSessionSettings } from "~/lib/sandbox";
+import { codex as codexPlugin } from "~/providers/codex";
 import { testEngine } from "../helpers/engine";
 import { CODEX } from "../helpers/harnesses";
 import { mockModels } from "../helpers/mock";
 
 const opened = vi.hoisted(() => [] as SandboxSessionSettings[]);
 
-vi.mock("~/lib/sandbox/session", () => ({
+vi.mock("~/lib/sandbox", () => ({
   createSandboxSession: (settings: SandboxSessionSettings) => {
     opened.push(settings);
     return Promise.resolve({

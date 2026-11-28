@@ -11,7 +11,7 @@ import { initializeDatabase, readResourceView } from "~/database/open";
 import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { stateDatabase } from "~/layout";
-import { insideState } from "~/lib/state/workspace";
+import { insideState } from "~/state/workspace";
 import { seedWorkspace } from "./helpers/registry";
 import { seedRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";

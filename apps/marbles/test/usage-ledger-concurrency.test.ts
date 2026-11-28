@@ -56,7 +56,7 @@ const READY_MS = 20_000;
 function writer(id: number, barrier: string) {
   const script = `
     const { existsSync, writeFileSync } = await import("node:fs");
-    const { UsageLedger } = await import(${JSON.stringify(join(SOURCE, "lib/usage.ts"))});
+    const { UsageLedger } = await import(${JSON.stringify(join(SOURCE, "lib/usage/index.ts"))});
     const { DatabaseUsageStore } = await import(${JSON.stringify(join(SOURCE, "database/usage.ts"))});
     const { openDatabase } = await import(${JSON.stringify(join(SOURCE, "database/open.ts"))});
     const barrier = ${JSON.stringify(barrier)};

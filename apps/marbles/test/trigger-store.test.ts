@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseTriggerStore } from "~/database/triggers";
 import { stateDatabase } from "~/layout";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
+import { MemoryTriggerStore } from "~/lib/schedule/store";
 import { describeTriggerStore } from "./helpers/trigger-store";
 
 describeTriggerStore(

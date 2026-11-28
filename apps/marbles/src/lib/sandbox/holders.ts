@@ -8,7 +8,7 @@ import {
   type OwnerLiveness,
   ownerStateOf,
   PORTABLE_OWNER_LIVENESS,
-} from "~/lib/owner-liveness";
+} from "~/lib/recovery/liveness";
 
 export function containerHolder(
   liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS

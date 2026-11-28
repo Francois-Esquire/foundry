@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { lockOwner } from "@foundry/lib/node/file-lock";
 import { isGone } from "@foundry/lib/node/process-identity";
 
-import { isRecord, readJson, writeJson } from "~/lib/state/json";
-import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";
+import { isRecord, readJson, writeJson } from "~/state/json";
+import { acquireLock, PROCESS_LOCK as LOCK } from "~/state/locks";
 
 const FILE = "process.json";
 

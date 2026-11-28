@@ -8,7 +8,7 @@ import {
   inputDefaults,
   inputProblem,
   parseInputs,
-} from "~/lib/inputs";
+} from "~/lib/definitions/inputs";
 import { ignore, renderFrame } from "../frame";
 
 const size = { height: 34, width: 72 };

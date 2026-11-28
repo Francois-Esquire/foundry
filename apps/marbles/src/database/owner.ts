@@ -1,6 +1,6 @@
 import { ownerOf, type ProcessIdentity } from "@foundry/lib/process-identity";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
-import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
+import type { OwnerLiveness } from "~/lib/recovery/liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/recovery/liveness";
 
 export function ownedHere(
   ownerId: string,
