@@ -11,10 +11,37 @@ const MARBLES_DIST_LIB = resolve(import.meta.dirname, "../dist/lib.js");
 const VIRTUAL_ENTRY = resolve(import.meta.dirname, "__v8-isolate-smoke__.ts");
 
 const SMOKE_ENTRY = `
+import {
+  isHarnessQuestionTool,
+  markHarnessQuestionExecutor,
+} from "@foundry/core/agents";
 import { FOUNDRY_PATHS, resolvePathTemplates } from "@foundry/core/paths";
 import { runAfterCommit } from "@foundry/core/storage";
+import { withAbort } from "@foundry/lib/abort";
+import { sha256Hex } from "@foundry/lib/digest";
+import { TypedEmitter } from "@foundry/lib/emitter";
+import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
+import { globToRegExp } from "@foundry/lib/glob";
 import { generateId } from "@foundry/lib/id";
+import { createInstanceRegistry } from "@foundry/lib/instance-identity";
+import { canonicalizeJson } from "@foundry/lib/json";
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
+import { isTextMime } from "@foundry/lib/mime";
+import { byCodeUnit } from "@foundry/lib/ordering";
 import { pageAfter } from "@foundry/lib/pagination";
+import { plainJson } from "@foundry/lib/plain-json";
+import {
+  createPortableProcess,
+  isProcessIdentity,
+  ownerStateOf,
+  PORTABLE_OWNER_LIVENESS,
+} from "@foundry/lib/process-identity";
+import {
+  maxBatchRows,
+  SQLITE_D1_MAX_PARAMETERS,
+  sqliteBytes,
+} from "@foundry/lib/sqlite";
+import { Turns } from "@foundry/lib/turns";
 import { Prompt, prompts } from "@foundry/prompts";
 import { createUsage } from "@foundry/usage";
 import { Models, formatSelection } from "@foundry/models";
@@ -22,6 +49,12 @@ import { Workspaces } from "@foundry/workspaces";
 import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import {
+  artifactBlobs,
+  artifacts as artifactsTable,
+} from "@foundry/artifacts/store/tables";
+import { Authorization, withPermit } from "@foundry/authorization";
+import { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 import { Tasks } from "@foundry/tasks";
 import { MemoryTaskStore } from "@foundry/tasks/store/memory";
 import { Modules } from "@foundry/modules";
@@ -48,7 +81,7 @@ import {
   Engine as MarblesEngine,
   installContextRuntime,
   MemoryRunOutputSink,
-  PORTABLE_OWNER_LIVENESS,
+  PORTABLE_OWNER_LIVENESS as MARBLES_PORTABLE_OWNER_LIVENESS,
   parseArgv,
 } from ${JSON.stringify(MARBLES_DIST_LIB)};
 
@@ -76,10 +109,64 @@ globalThis.__smokeResult = (async () => {
   let committed = false;
   await runAfterCommit([() => { committed = true; }]);
 
+  const questionExec = () => Promise.resolve("ok");
+  markHarnessQuestionExecutor(questionExec);
+  const questionToolMarked = isHarnessQuestionTool({ execute: questionExec });
+
+  const digest = await sha256Hex("isolate");
+  const roundTripped = new TextDecoder().decode(
+    base64ToBytes(bytesToBase64(new TextEncoder().encode("v8")))
+  );
+  const globMatched = globToRegExp("src/**/*.ts").test("src/a/b.ts");
+  const portable = createPortableProcess({ id: () => "iso-proc", now: () => 0 });
+  const portableValid = isProcessIdentity(portable);
+  const livenessState = ownerStateOf(PORTABLE_OWNER_LIVENESS, portable);
+  const registry = createInstanceRegistry({ id: () => "inst-1" });
+  const inst = registry.open(portable);
+  const instAlive = !registry.isGone(inst, portable, () => true);
+  registry.close(inst);
+  const turns = new Turns("reentrant");
+  const turnRan = await turns.run(() => Promise.resolve("ok"));
+  const keyed = new KeyedQueue();
+  const keyedRan = await keyed.run("k", () => Promise.resolve("ok"));
+  const abortOk = await withAbort(Promise.resolve("ok"), new AbortController().signal);
+  const emitter = new TypedEmitter();
+  let emitted = 0;
+  emitter.on("ping", () => { emitted += 1; });
+  emitter.emit("ping", undefined);
+  plainJson("smoke", { ok: true });
+  const libChecks = {
+    abortOk,
+    canonical: canonicalizeJson({ b: 1, a: 2 }),
+    d1BatchRows: maxBatchRows(5, SQLITE_D1_MAX_PARAMETERS),
+    digestLen: digest.length,
+    emitted,
+    globMatched,
+    instAlive,
+    keyedRan,
+    livenessState,
+    mime: isTextMime("text/markdown"),
+    ordered: byCodeUnit((value: string) => value)("a", "b") < 0,
+    portableValid,
+    questionToolMarked,
+    reentrancyGuarded: turns.reentrancyGuarded,
+    roundTripped,
+    sqliteBytesType: typeof sqliteBytes,
+    turnRan,
+  };
+
   const renderedPrompt = prompts.claude("hello isolate").text;
   const promptApiType = typeof Prompt;
 
-  const usage = createUsage({ providers: [] });
+  const usage = createUsage();
+  const accountName = usage.add({
+    credential: null,
+    history: () => Promise.resolve(undefined),
+    limits: () => Promise.resolve({ limits: [] }),
+    name: "smoke-account",
+  });
+  const usageSnapshot = await usage.query(accountName);
+
   const models = new Models();
   const formattedModel = formatSelection({ model: "gpt-5", provider: "openai" });
 
@@ -92,6 +179,40 @@ globalThis.__smokeResult = (async () => {
     name: "smoke",
     type: "text/plain",
   });
+  const rawBytes = new Uint8Array([1, 2, 3]);
+  const mappedOrder = artifactsTable.idOrder.mapFromDriverValue(rawBytes.buffer);
+  const mappedBlob = artifactBlobs.bytes.mapFromDriverValue(rawBytes.buffer);
+  const artifactTablesOk =
+    mappedOrder instanceof Uint8Array &&
+    mappedBlob instanceof Uint8Array &&
+    mappedBlob.length === 3;
+
+  const auth = new Authorization({ store: new MemoryAuthorizationStore() });
+  const principal = { id: "agent-1", kind: "agent" };
+  const request = {
+    action: "tool.call",
+    principal,
+    target: "read",
+  };
+  const issuedGrant = await auth.grant({
+    holder: { kind: "exact", principal },
+    requestedBy: { id: "user-1", kind: "user" },
+    scope: { action: "tool.call", target: { kind: "exact", value: "read" } },
+  });
+  const beforeRevoke = await auth.check(request);
+  const permitRan = await withPermit(
+    auth,
+    request,
+    "inv-smoke-1",
+    async (permit) => Boolean(permit.receipt.grantId)
+  );
+  await auth.revoke({ grantId: issuedGrant.id, kind: "grant" }, "smoke-done");
+  const afterRevoke = await auth.check(request);
+  const authLifecycle = {
+    afterRevoke: afterRevoke.kind,
+    beforeRevoke: beforeRevoke.kind,
+    permitRan,
+  };
 
   const tasks = new Tasks({ store: new MemoryTaskStore() });
   const createdTask = await tasks.create({ title: "isolate task" });
@@ -172,7 +293,7 @@ globalThis.__smokeResult = (async () => {
   const marblesEngine = new MarblesEngine({
     artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
     containers: () => Promise.reject(new Error("no sandbox in isolate")),
-    liveness: PORTABLE_OWNER_LIVENESS,
+    liveness: MARBLES_PORTABLE_OWNER_LIVENESS,
     models: new Models(),
     outputSink: marblesOutput,
     print: () => undefined,
@@ -188,10 +309,13 @@ globalThis.__smokeResult = (async () => {
 
   return {
     artifactId: createdArtifact.id,
+    artifactTablesOk,
+    authLifecycle,
     commandErrorOk: commandError instanceof CommandError && commandError.result.exitCode === 1,
     committed,
     formattedModel,
     idPrefix: id.startsWith("iso_"),
+    libChecks,
     marblesItems: marblesWorkspace.input.definitions?.length ?? 0,
     marblesRunOutput,
     modelsReady: Array.isArray(models.providers),
@@ -206,7 +330,7 @@ globalThis.__smokeResult = (async () => {
     sandboxRows: sandboxRows.length,
     sessionId: session.id,
     taskId: createdTask.id,
-    usageReady: typeof usage.query === "function",
+    usageReady: usageSnapshot.name === "smoke-account",
     wfOutput,
     workspacesCount: listedWorkspaces.items.length,
   };
@@ -363,10 +487,35 @@ describe("Non-Node V8 isolate smoke test", () => {
     const result = runInNodeV8Isolate(code);
 
     expect(result).toMatchObject({
+      artifactTablesOk: true,
+      authLifecycle: {
+        afterRevoke: "ask",
+        beforeRevoke: "allow",
+        permitRan: true,
+      },
       commandErrorOk: true,
       committed: true,
       formattedModel: "openai/gpt-5",
       idPrefix: true,
+      libChecks: {
+        abortOk: "ok",
+        canonical: '{"a":2,"b":1}',
+        d1BatchRows: 20,
+        digestLen: 64,
+        emitted: 1,
+        globMatched: true,
+        instAlive: true,
+        keyedRan: "ok",
+        livenessState: "unknown",
+        mime: true,
+        ordered: true,
+        portableValid: true,
+        questionToolMarked: true,
+        reentrancyGuarded: false,
+        roundTripped: "v8",
+        sqliteBytesType: "function",
+        turnRan: "ok",
+      },
       marblesItems: 2,
       marblesRunOutput: "hi v8",
       modelsReady: true,

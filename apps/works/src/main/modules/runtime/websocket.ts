@@ -1,6 +1,12 @@
 import type { ModuleTransport } from "@foundry/modules/gateway";
 import { AsyncIteratorClass, EventPublisher } from "@orpc/server";
 
+const utf8Encoder = new TextEncoder();
+
+function utf8ByteLength(value: string): number {
+  return utf8Encoder.encode(value).byteLength;
+}
+
 export async function connectModuleSocket(input: {
   url: URL;
   signal?: AbortSignal;
@@ -52,15 +58,16 @@ export async function connectModuleSocket(input: {
     if (controller.signal.aborted) {
       return;
     }
-    if (
-      typeof event.data !== "string" ||
-      Buffer.byteLength(event.data) > 1024 * 1024
-    ) {
+    if (typeof event.data !== "string") {
+      socket.close(1009);
+      return;
+    }
+    const bytes = utf8ByteLength(event.data);
+    if (bytes > 1024 * 1024) {
       socket.close(1009);
       return;
     }
     try {
-      const bytes = Buffer.byteLength(event.data);
       if (queuedFrames >= 32 || queuedBytes + bytes > 4 * 1024 * 1024) {
         controller.abort();
         socket.close(1009);
@@ -125,11 +132,12 @@ export async function connectModuleSocket(input: {
     incoming,
     async send(frame) {
       const encoded = JSON.stringify(frame);
+      const bytes = encoded === undefined ? 0 : utf8ByteLength(encoded);
       if (
         socket.readyState !== WebSocket.OPEN ||
         encoded === undefined ||
-        Buffer.byteLength(encoded) > 1024 * 1024 ||
-        socket.bufferedAmount + Buffer.byteLength(encoded) > 4 * 1024 * 1024
+        bytes > 1024 * 1024 ||
+        socket.bufferedAmount + bytes > 4 * 1024 * 1024
       ) {
         throw new Error(
           "Module Gateway transport unavailable or over capacity"
