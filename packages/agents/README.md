@@ -30,22 +30,21 @@ the first. To resume across harnesses, share a `store` and reuse the
 `sessionId`.
 
 Everything else in this package is a swap on one of those defaults: a real
-`store`, a real `policy`, more `tools` (skills, todos, MCP servers),
+`store`, a real `policy`, more `tools` (skills, MCP servers),
 `compaction`.
 
 ## How it comes together
 
-Four layers, each wrapping the one below. Import at the level you need — a CLI
+Three layers, each wrapping the one below. Import at the level you need — a CLI
 probably wants `AgentHarness`, an app wants `SessionHarness`.
 
 ```
 LoopAgent          one turn: run the tool loop over one model, observe cost
-  AgentHarness     + tools — whatever you compose (skills, todos, MCP), behind the authorization gate
+  AgentHarness     + tools — whatever you compose (skills, MCP), behind the authorization gate
     SessionHarness + a conversation — identity, history, persistence, compaction
-      transport    + a wire — the turn projected as UI chunks for a subscription
 ```
 
-Three more pieces cut across all four rather than sitting in the stack:
+Three more pieces cut across all three rather than sitting in the stack:
 
 - **`authorization`** decides whether a tool call may run. Every tool compiled
   by a harness is gated, whatever source contributed it.
@@ -67,8 +66,7 @@ A turn, end to end:
    directives are applied.
 4. The `AgentHarness` built at construction streams the turn through its
    `LoopAgent`. Model and tools are fixed per harness.
-5. Each tool call is checked against the authorizer, then executed through the
-   effect port. A denial comes back as an ordinary tool result the model can
+5. Each tool call is checked against the authorizer, then executed. A denial comes back as an ordinary tool result the model can
    read and route around — not a thrown error.
 6. Stream parts are mapped to `SessionEvent`s and accumulated into one
    `SessionMessage`, which is persisted when the stream drains.
@@ -83,11 +81,8 @@ The composition layer. Start here.
 
 ```typescript
 type SessionHarnessSettings = AgentHarnessSettings & {
-  store?: SessionStore; // default: InMemorySessionStore
+  store?: SessionStore; // default: MemorySessionStore
   compaction?: CompactionSettings; // auto-fold history when the window fills
-  registry?: AgentCompatibilityRegistry; // default: a fresh one
-  mesh?: Mesh; // default: createMesh({ registry, store })
-  nodeId?: string; // default: "primary"
 };
 
 type TurnContext = { sessionId: string };
@@ -96,8 +91,8 @@ type TurnContext = { sessionId: string };
 The session id is fixed at construction: `settings.sessionId`, else
 `context.sessionId`, else a fresh UUID. The session record is created in the
 store on the first turn unless the host already filed it. `SessionHarness`
-composes an `AgentHarness` rather than extending it, and adds the mesh's
-`list_agents` and `message_agent` tools to yours.
+composes an `AgentHarness` rather than extending it, and adds no tools of its
+own.
 
 ```typescript
 harness.stream(input: SessionInput, opts?: TurnOptions): SessionStream
@@ -144,7 +139,6 @@ type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
   toolsContext?: Record<string, unknown>; // the one object every tool receives as `context`
   sessionId?: string; // fixed at construction; default: context.sessionId, else a fresh UUID
   policy?: AgentAuthorizer; // default: fully permissive
-  effectPort?: ToolEffectPort; // default: direct in-process
   permission?: HarnessPermissionCallback; // live approval, claimed before execution
   agentId?: string; // default: "agent"
   agentGeneration?: number;
@@ -155,9 +149,8 @@ type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
 `tools`, `stopWhen`, …) with an `AgentModel` and an optional `observe`.
 
 `toolsContext` is handed to every tool unchanged — the same object, not a copy,
-so a host may freeze or brand it. The harness attaches its `policy` beside it
-(read back with `getPolicy` from `@foundry/agents/tools/context`) rather than
-writing a field onto it.
+so a host may freeze or brand it. The harness writes nothing onto it, and
+hands tools an empty object when you give none.
 
 ```typescript
 const { result, parts } = await harness.stream({ messages });
@@ -174,17 +167,17 @@ is the AI SDK's `TextStreamPart<ToolSet>` with those two members widened, plus
 what `SessionHarness` does. `generate` returns the SDK result as is.
 
 `tools` is the whole tool surface, as one AI SDK `ToolSet`. Compose it yourself
-from whatever sources apply — `registry.tools` from a skill registry,
-`createTodos().tools`, MCP tools — and join their instructions the same way.
-`composeTools` from `@foundry/agents/tools/compose` merges maps and throws on a
+from whatever sources apply — `registry.tools` from a skill registry, MCP
+tools — and join their instructions the same way. `composeTools`, from
+`@foundry/agents` or `@foundry/agents/harness`, merges maps and throws on a
 duplicate name.
 
 ### Tagging a tool
 
 A tool can carry `ToolMeta` — its source, how a call's capability is derived
 from its input, and where its effect runs. The compiler preserves your schema,
-metadata, and any existing `needsApproval`, and adds the authorization check
-and the effect boundary. An untagged tool is `declared` with the generic
+metadata, and any existing `needsApproval`, and adds the authorization
+check. An untagged tool is `declared` with the generic
 `tool.call` capability; a tool without `execute` passes through uncompiled.
 
 ```typescript
@@ -261,7 +254,7 @@ history before it — and builds each change as one atomic `commit`:
 ```typescript
 import { Sessions } from "@foundry/agents/session";
 
-const sessions = new Sessions({ store }); // default: an InMemorySessionStore
+const sessions = new Sessions({ store }); // default: a MemorySessionStore
 await sessions.createSession({ id: "s" });
 await sessions.appendMessage({ parts, role: "user", sessionId: "s" });
 await sessions.summarize({ messageId, sessionId: "s", summary: { parts } });
@@ -309,8 +302,7 @@ enumerable, arrays without holes, text, finite numbers other than `-0`,
 booleans and `null`) is refused whole with a `TypeError` naming it, through
 a transaction's view too. `ownedEvents` in `@foundry/lib/plain-json` is that rule, for a store outside
 this package; it is the rule the workflows and artifacts stores
-take their events by. The schema is `sessionChangeEventSchema` in
-`@foundry/agents/schema`; the type is `SessionChangeEvent`, also exported from
+take their events by. The type is `SessionChangeEvent`, exported from
 `@foundry/agents/session`. Every event has `type`, `id` (unique to it, made
 once per call, before its transaction, so work a store runs again keeps it), `at` (an ISO time, the
 stamp of the record it changed) and `sessionId`:
@@ -337,7 +329,7 @@ A transaction's `work` may read and commit through its `view` across any
 sessions, any number of times. A plain `commit` from outside queues behind it;
 if `work` throws, none of its commits stay; reads through `view` see its own
 commits. A call to the store itself from inside `work` is refused at once
-with a `ReentrantCallError`; use the view. Values crossing the seam are detached. `InMemorySessionStore`
+with a `ReentrantCallError`; use the view. Values crossing the seam are detached. `MemorySessionStore`
 (`@foundry/agents/store/memory`)
 is the default. A persistent store proves it behaves the same by running
 the conformance suite. `open` returns fresh, empty storage as a store per
@@ -407,7 +399,7 @@ writes. Every store does the same with a write: it takes its own copy when
 | Path                            | Holds                                                     |
 | ------------------------------- | --------------------------------------------------------- |
 | `@foundry/agents/store`         | `SessionStore` and `SessionStoreWrite`. The rule every store takes events by, `ownedEvents`, is in `@foundry/lib/plain-json`. |
-| `@foundry/agents/store/memory`  | `InMemorySessionStore`, the default `Sessions` uses.      |
+| `@foundry/agents/store/memory`  | `MemorySessionStore`, the default `Sessions` uses.        |
 | `@foundry/agents/store/sqlite`  | `SqliteSessionStore`, over a host's Drizzle database, and `capturedSessionWrite`, the copy its `commit` takes. |
 | `@foundry/agents/store/tables`  | Its Drizzle tables: `agent_sessions`, `agent_messages`.   |
 | `@foundry/agents/testing/store` | `describeSessionStore`, the suite every store passes.     |
@@ -566,7 +558,7 @@ mid-commit. A commit of many messages is batched under SQLite's limit of
 32,766 bound parameters per statement, inside its one transaction.
 
 `listMessages` reads and parses a session's whole history, as the memory and
-JSON stores do, and `Sessions` and `SessionWindow` read it whole for each
+JSON stores do, and `Sessions` reads it whole for each
 turn. A long session costs a read of every message it holds. The follow-up
 is a bounded read of the active history (the latest summary and what it did
 not fold), added to `SessionStore` and every implementation together.
@@ -622,9 +614,9 @@ toModelMessages(messages)     // session records → AI SDK ModelMessages
 
 ## `@foundry/agents/authorization`
 
-The gate. This module owns what a capability _is_; the mechanism — the
-Authorizer, Grants, Policy tiers — lives in `@foundry/lib/config/authorization`
-and knows no agent vocabulary.
+The gate. This module maps agent subjects (`AgentSubject` -> `Principal`) and
+capabilities (`Capability` -> `Scope` / `AccessRequest`) onto the unified
+`@foundry/authorization` control plane.
 
 ```typescript
 type Capability =
@@ -636,26 +628,22 @@ type Capability =
 ```
 
 ```typescript
-const { authorizer } = createInMemoryAgentAuthorizer({
-  policy: { global: "ask", byKind: { "fs.read": "allow", "tool.call": "ask" } },
+const authorization = createMemoryAuthorization();
+await authorization.grant({
+  holder: agentPrincipalMatcher("coder"),
+  requestedBy: agentPrincipal("coder"),
+  scope: capabilityToScope({ kind: "tool.call", source: "declared", tool: "read" }),
 });
 
-const harness = new AgentHarness({ model, policy: authorizer });
+const harness = new AgentHarness({ agentId: "coder", authorization, model });
 ```
 
-`createInMemoryAgentAuthorizer` is the reference composition, with
-`allow`/`revoke` helpers over its Grant repository. A host with real storage
-calls `createAgentAuthorizer({ grants, policy })`; with no `policy` it falls
-back to `AGENT_ASK_BY_DEFAULT`, which asks for everything.
-
-Two properties worth knowing before you configure it:
-
-- **`tool.call` never inherits the global tier.** It is the unclassified
-  fallback, so a blanket `"allow"` must not reach it. Set it explicitly in
-  `byKind`, or every untagged tool is denied.
-- **Without a `permission` callback, `decide` runs twice per call, `claim`
-  once.** The check is repeatable and consumes nothing, so it can run in the
-  SDK's `needsApproval` predicate _and_ in the defensive re-check inside
+`AgentHarness` defaults to an empty, fail-closed `Authorization` instance with
+no grants. Without a `permission` callback, `authorization.check()` runs in
+`needsApproval` (repeatable and side-effect-free), while
+`authorization.authorize()` claims the invocation at execution time and wires
+`permit.signal` into the tool's `abortSignal`, releasing the permit in
+`finally`.
   `execute`. Authority is spent only by `claim`, immediately before the effect,
   keyed by a stable `invocationId` so a replayed continuation re-runs against
   its own claim.
@@ -695,22 +683,18 @@ the loaders together. Bundles stay in memory — the registry holds no paths.
 
 ---
 
-## `@foundry/agents/agents/*`
+## `@foundry/agents`
 
-The primitives everything above composes. Reach for these when the harness is
-more than you need, or when you are building multi-agent topology.
+The root entry: the two harnesses, `Sessions`, `composeTools`, and agent
+presets.
 
 ```typescript
-// ./agents/model
+// @foundry/core/agents
 interface AgentModel extends LanguageModelV4 {
   route?: { id: string; provider?: string; harness?: string };
   limits?: { contextWindow?: number; maxOutputTokens?: number };
 }
 type ObserveTurn = (turn: { sessionId; model: ModelRoute }) => TurnObservation | null;
-
-// ./agents/loop-agent
-class LoopAgent extends ToolLoopAgent
-new LoopAgent(settings, { sessionId })
 ```
 
 ### The model
@@ -726,42 +710,18 @@ model with it and settles it from the call's telemetry hooks (end, abort, or
 error), not on `onFinish`. `@foundry/models` ships `observeAgentTurn` in
 exactly this shape.
 
-```typescript
-// ./agents/registry
-createAgentRegistry(); // preset catalog: id + generation → AgentPreset
-createAgentCompatibilityRegistry(); // id → live agent, for meshes and agent tools
-
-// ./agents/agent-tool
-createAgentTool(config); // any agent, as a callable tool
-```
-
-`createAgentTool` resolves subagents by string id at call time, so a parent
-never holds a direct reference. With both a conversation store and a space —
-from its config or from the tool context's `conversations` and `space` — it
-loads the thread's prior history, streams the subagent's reply, and appends the
-exchange back.
+### Presets
 
 ```typescript
-// ./agents/mesh
-createMesh(opts)   // → Mesh; peers get list_agents / message_agent
-HUMAN              // the symbol for the human node
-
-// ./agents/spawn
-createSpawnTool(deps)   // undefined at the depth limit
-
-// ./agents/resolve
 createAgentPreset(spec, surface)   // → AgentPreset: createAgent(ctx) / createSession(ctx)
 resolveAgent(spec, surface, ctx?)  // → Promise<SessionHarness>, in one step
 ```
 
-Peers talk over the ordinary tool loop. `createSpawnTool` delegates to a child
-session whose `recursionDepth` is frozen at spawn; at the depth limit the tool
-is withheld, so the model never sees it.
-
 An `AgentSpec` declares an agent — `id`, `prompt`, and the `tools`, `skills`,
 and `mcp` it wants by catalog name. The `AgentSurface` resolves those names;
 its `model` resolver is the only one required. Pass a factory instead of a
-surface to bind settings in code.
+surface to bind settings in code. A preset's agent has only the tools it
+declares, those its skills and MCP servers bring, and those the caller passes.
 
 ---
 

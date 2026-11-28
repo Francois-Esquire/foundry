@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { afterEach, expect, it } from "vitest";
 import { CrashRecovery } from "~/lib/crash-recovery";
-import { MemoryRunStore } from "~/lib/run-store";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { testEngine } from "../helpers/engine";
 
@@ -25,9 +24,9 @@ it("removes, at start, an artifact file no record names", async () => {
   const stray = join(dir, randomUUID());
   writeFileSync(stray, "bytes no record names");
   const engine = testEngine({
-    artifacts: new ArtifactManager({
+    artifacts: new Artifacts({
       files: blobFiles(dir),
-      store: new InMemoryArtifactStore(),
+      store: new MemoryArtifactStore(),
     }),
   });
   await engine.start();
@@ -52,12 +51,8 @@ it("reports a part that fails and goes on to the next", async () => {
     containers: () => Promise.reject(new Error("never opened")),
     executions: () => [],
     print: (line) => lines.push(line),
-    runs: new MemoryRunStore(),
   });
-  const { report } = await recovery.recover({
-    abandonRun: () => Promise.reject(new Error("never asked")),
-    listRuns: () => Promise.reject(new Error("never asked")),
-  });
+  const { report } = await recovery.recover(() => Promise.resolve([]));
   expect(lines).toEqual([
     "ended: true",
     "[recovery] artifacts: failed, Error: disk is gone",

@@ -1,11 +1,9 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
-
-import type { ChannelMessage } from "../channels";
-
-import { Channels } from "../channels";
 import { StepCompleteEvent, StepStartedEvent } from "../schema";
-import { Snapshot } from "../snapshot";
+import type { ChannelMessage } from "../slices/channels";
+import { Channels } from "../slices/channels";
+import { Snapshot } from "../slices/snapshot";
 
 const path = ["root"] as const;
 const at = "2026-05-02T00:00:00.000Z";

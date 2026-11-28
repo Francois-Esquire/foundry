@@ -1,5 +1,5 @@
 import { readFileSync, rmSync } from "node:fs";
-import { isMissingPath } from "@foundry/lib/atomic-file";
+import { isMissingPath } from "@foundry/lib/node/atomic-file";
 import type { RestorableFile } from "./apply";
 import {
   applyReductionPlan,

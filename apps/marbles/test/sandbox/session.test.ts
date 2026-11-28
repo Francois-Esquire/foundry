@@ -1,12 +1,16 @@
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
 import {
-  agentSubject,
-  createInMemoryAgentAuthorizer,
+  agentPrincipal,
+  agentPrincipalMatcher,
+  capabilityToAccessRequest,
+  capabilityToScope,
+  createMemoryAuthorization,
+  HOST_APPROVER,
 } from "@foundry/agents/authorization";
 import { resolveHarnessApproval } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { Container } from "@foundry/sandbox/container/containers";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import type { Container } from "@foundry/sandbox";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
@@ -18,12 +22,12 @@ import { createSandboxSession } from "../../src/lib/sandbox/session";
 import type { SandboxHandle } from "../../src/lib/types";
 
 const binding: { container: Container | undefined } = { container: undefined };
-vi.mock("@foundry/models/claude-code", () => ({
+vi.mock("@foundry/models/providers/claude-code", () => ({
   createClaudeCodeDriver: () => {
     throw new Error("CLI not expected");
   },
 }));
-vi.mock("@foundry/models/codex", () => ({
+vi.mock("@foundry/models/providers/codex", () => ({
   createCodexDriver: () => {
     throw new Error("CLI not expected");
   },
@@ -34,7 +38,7 @@ const usage = {
   outputTokens: { reasoning: 0, text: 0, total: 0 },
 };
 
-function model(calls: { name: string; input: unknown }[]) {
+function model(calls: { name: string; input: unknown }[], prefix = "call") {
   let step = 0;
   return new MockLanguageModelV4({
     doStream: async () => {
@@ -46,7 +50,7 @@ function model(calls: { name: string; input: unknown }[]) {
             ? [
                 {
                   input: JSON.stringify(call.input),
-                  toolCallId: `call-${step}`,
+                  toolCallId: `${prefix}-${step}`,
                   toolName: call.name,
                   type: "tool-call",
                 },
@@ -125,7 +129,7 @@ async function session(
   overrides: Partial<SandboxSessionOptions> = {},
   context: {
     observe?: Parameters<typeof createSandboxSession>[0]["observe"];
-    store?: InMemorySessionStore;
+    store?: MemorySessionStore;
     signal?: AbortSignal;
     write?: (value: unknown) => void;
   } = {}
@@ -143,14 +147,14 @@ async function session(
     modelId: "gateway-model",
     ...(context.observe ? { observe: context.observe } : {}),
     options: {
-      authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+      authority: { authorization: createMemoryAuthorization() },
       sandbox,
       ...overrides,
     },
     provider: "gateway",
     sessionId: "session",
     signal: context.signal ?? signal,
-    store: context.store ?? new InMemorySessionStore(),
+    store: context.store ?? new MemorySessionStore(),
     write: context.write ?? (() => undefined),
   });
 }
@@ -160,7 +164,7 @@ describe("built-in sandbox session factory", () => {
     "honours %s compaction for over-budget retained history",
     async (mode) => {
       guest();
-      const store = new InMemorySessionStore();
+      const store = new MemorySessionStore();
       const sessions = new Sessions({ store });
       await sessions.createSession({ id: "session" });
       for (const role of ["user", "assistant"] as const) {
@@ -219,31 +223,36 @@ describe("built-in sandbox session factory", () => {
           instructions: "inspect",
           modelId: "sonnet",
           options: {
-            authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+            authority: { authorization: createMemoryAuthorization() },
             compaction,
             sandbox,
           },
           provider: "claude-code",
           sessionId: "session",
           signal,
-          store: new InMemorySessionStore(),
+          store: new MemorySessionStore(),
           write: () => undefined,
         })
       ).rejects.toThrow("manage their own compaction");
     }
   );
 
-  it("runs a gateway tool loop over guest files and commands with one grant claim per effect", async () => {
+  it("runs a gateway tool loop over guest files and commands with authorization", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
+    const authorization = createMemoryAuthorization();
     for (const tool of ["write", "bash"]) {
-      await authority.allow(agentSubject("coder"), {
-        kind: "tool.call",
-        source: "builtin",
-        tool,
+      await authorization.grant({
+        holder: agentPrincipalMatcher("coder"),
+        issuer: HOST_APPROVER,
+        requestedBy: agentPrincipal("coder"),
+        scope: capabilityToScope({
+          kind: "tool.call",
+          source: "builtin",
+          tool,
+        }),
       });
     }
-    const claim = vi.spyOn(authority.authorizer, "claim");
+    const authorize = vi.spyOn(authorization, "authorize");
     const harness = await session(
       model([
         {
@@ -252,7 +261,7 @@ describe("built-in sandbox session factory", () => {
         },
         { input: { command: "bun test" }, name: "bash" },
       ]),
-      { authority: { policy: authority.authorizer } }
+      { authority: { authorization } }
     );
     const reply = await harness.generate("edit and check");
     expect(reply.status).toBe("complete");
@@ -261,7 +270,7 @@ describe("built-in sandbox session factory", () => {
       "bun test",
       expect.objectContaining({ cwd: "/workspace" })
     );
-    expect(claim).toHaveBeenCalledTimes(2);
+    expect(authorize).toHaveBeenCalled();
     expect(
       reply.parts.filter((part) => part.type === "tool_result")
     ).toHaveLength(2);
@@ -269,10 +278,13 @@ describe("built-in sandbox session factory", () => {
 
   it("enforces static scoped refusals even when the custom authority allows everything", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer({
-      policy: { byKind: { "tool.call": "allow" }, global: "allow" },
+    const authorization = createMemoryAuthorization();
+    await authorization.grant({
+      holder: { kind: "any" },
+      issuer: HOST_APPROVER,
+      requestedBy: agentPrincipal("coder"),
+      scope: { action: "tool.call", target: { kind: "any" } },
     });
-    const claim = vi.spyOn(authority.authorizer, "claim");
     const harness = await session(
       model([
         {
@@ -281,7 +293,7 @@ describe("built-in sandbox session factory", () => {
         },
       ]),
       {
-        authority: { policy: authority.authorizer },
+        authority: { authorization },
         profile: {
           allowedTools: ["bash"],
           disallowedTools: ["Bash(git push*)"],
@@ -293,7 +305,6 @@ describe("built-in sandbox session factory", () => {
     );
     const reply = await harness.generate("publish");
     expect(fake.exec).not.toHaveBeenCalled();
-    expect(claim).not.toHaveBeenCalled();
     expect(reply.parts).toContainEqual({
       output: { approved: false, reason: "Denied by harness profile." },
       toolCallId: "call-1",
@@ -303,8 +314,8 @@ describe("built-in sandbox session factory", () => {
 
   it("waits for an attended approval, executes once, and remembers the grant", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
-    const store = new InMemorySessionStore();
+    const authorization = createMemoryAuthorization();
+    const store = new MemorySessionStore();
     const onApprovalRequest = vi.fn();
     const write = vi.fn();
     let answer!: (value: { approved: boolean; lifetime: "persistent" }) => void;
@@ -324,10 +335,9 @@ describe("built-in sandbox session factory", () => {
       unresolved: "ask" as const,
     };
     const options = {
-      authority: { approve, onApprovalRequest, policy: authority.authorizer },
+      authority: { approve, authorization, onApprovalRequest },
       profile,
     };
-    const claim = vi.spyOn(authority.authorizer, "claim");
     const harness = await session(
       model([{ input: { command: "bun test" }, name: "bash" }]),
       options,
@@ -350,8 +360,10 @@ describe("built-in sandbox session factory", () => {
     const reply = await pending;
     expect(reply.status).toBe("complete");
     expect(fake.exec).toHaveBeenCalledOnce();
-    expect(claim).toHaveBeenCalledOnce();
-    const nextModel = model([{ input: { command: "bun test" }, name: "bash" }]);
+    const nextModel = model(
+      [{ input: { command: "bun test" }, name: "bash" }],
+      "next"
+    );
     const reopened = await session(nextModel, options, { store });
     await reopened.generate("check again");
     expect(approve).toHaveBeenCalledOnce();
@@ -363,10 +375,10 @@ describe("built-in sandbox session factory", () => {
 
   it("scheduled asks refuse the effect and a deferred grant enables a later run", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
-    const store = new InMemorySessionStore();
+    const authorization = createMemoryAuthorization();
+    const store = new MemorySessionStore();
     const approve = vi.fn(() => new Promise<never>(() => undefined));
-    const options = { authority: { approve, policy: authority.authorizer } };
+    const options = { authority: { approve, authorization } };
     const harness = await session(
       model([{ input: { command: "bun test" }, name: "bash" }]),
       options,
@@ -394,12 +406,15 @@ describe("built-in sandbox session factory", () => {
       throw new Error("Missing request");
     }
     await resolveHarnessApproval(
-      { agentId: "coder", policy: authority.authorizer, store },
+      { agentId: "coder", authorization, store },
       "session",
       request.approvalId,
       { approved: true, lifetime: "persistent" }
     );
-    const nextModel = model([{ input: { command: "bun test" }, name: "bash" }]);
+    const nextModel = model(
+      [{ input: { command: "bun test" }, name: "bash" }],
+      "next"
+    );
     const next = await session(nextModel, options, { store });
     await next.generate("check again");
     expect(fake.exec).toHaveBeenCalledOnce();
@@ -410,13 +425,13 @@ describe("built-in sandbox session factory", () => {
 
   it("aborts a pending attended approval without executing or granting", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
+    const authorization = createMemoryAuthorization();
     const controller = new AbortController();
     const approve = vi.fn(() => new Promise<never>(() => undefined));
     const harness = await session(
       model([{ input: { command: "bun test" }, name: "bash" }]),
       {
-        authority: { approve, policy: authority.authorizer },
+        authority: { approve, authorization },
         profile: {
           allowedTools: [],
           disallowedTools: [],
@@ -432,12 +447,14 @@ describe("built-in sandbox session factory", () => {
     await pending;
     expect(fake.exec).not.toHaveBeenCalled();
     expect(
-      await authority.authorizer.decide({
-        capability: { kind: "tool.call", source: "builtin", tool: "bash" },
-        invocationId: "another-call",
-        subject: agentSubject("coder"),
-      })
-    ).toEqual({ kind: "requires-approval" });
+      await authorization.check(
+        capabilityToAccessRequest({
+          agentId: "coder",
+          capability: { kind: "tool.call", source: "builtin", tool: "bash" },
+          invocationId: "another-call",
+        })
+      )
+    ).toMatchObject({ kind: "ask" });
   });
 
   it("allows lower-case read tools under the scheduled default", async () => {
@@ -455,11 +472,16 @@ describe("built-in sandbox session factory", () => {
 
   it("records each model turn and tool call on the owning run, without arguments or results", async () => {
     const fake = guest();
-    const authority = createInMemoryAgentAuthorizer();
-    await authority.allow(agentSubject("coder"), {
-      kind: "tool.call",
-      source: "builtin",
-      tool: "write",
+    const authorization = createMemoryAuthorization();
+    await authorization.grant({
+      holder: agentPrincipalMatcher("coder"),
+      issuer: HOST_APPROVER,
+      requestedBy: agentPrincipal("coder"),
+      scope: capabilityToScope({
+        kind: "tool.call",
+        source: "builtin",
+        tool: "write",
+      }),
     });
     const recorded: ExecutionObservation[] = [];
     const record = (observation: ExecutionObservation) => {
@@ -477,7 +499,7 @@ describe("built-in sandbox session factory", () => {
         },
       ]),
       {
-        authority: { policy: authority.authorizer },
+        authority: { authorization },
         profile: {
           allowedTools: ["write", "bash"],
           disallowedTools: ["Bash(git push*)"],

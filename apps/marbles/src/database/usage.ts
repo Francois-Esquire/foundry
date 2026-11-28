@@ -1,9 +1,9 @@
 import type { SQL } from "drizzle-orm";
 import { eq, max, sql } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
 import { marblesUsageFacts } from "~/database/tables";
-import { RecordsGate } from "~/lib/events/records";
+import type { StoreDatabase } from "~/database/types";
+import { RecordsGate } from "~/lib/events/records-gate";
 import type { RecordedUsageFact } from "~/lib/usage";
 import type { StoredUsage, UsageStore } from "~/lib/usage-store";
 import { ownerOf, storedUsageFact } from "~/lib/usage-store";

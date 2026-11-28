@@ -1,21 +1,19 @@
-import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
-import type { HarnessSession } from "@foundry/agents/harness";
+import { createMemoryAuthorization } from "@foundry/agents/authorization";
 import type { SessionEvent } from "@foundry/agents/session";
 import { Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ModelManager } from "@foundry/models";
-import { airplaneMode } from "@foundry/models/airplane";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import { Models } from "@foundry/models";
 import { NoObjectGeneratedError, Output } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { ManagerArgs } from "~/lib/bindings";
-import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
 import type { AgentsDeps } from "~/lib/managers/agents";
-import { AgentsManager, policed } from "~/lib/managers/agents";
-import { echoModels, mockModels } from "~/lib/models/mock";
+import { AgentsManager } from "~/lib/managers/agents";
 import { RunScope } from "~/lib/run-scope";
 import type { AgentDefinition, SandboxHandle } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
+import { CLAUDE_CODE, CODEX } from "../helpers/harnesses";
+import { mockModels } from "../helpers/mock";
 
 const NO_TURN_PATTERN = /no agent turn is running/;
 const AMBIGUOUS = /2 agent turns are running/;
@@ -41,16 +39,16 @@ function deps(warnings: string[] = []): AgentsDeps {
   );
   return {
     activities: host.activities,
+    authorization: host.authorization,
     automations: host.automations,
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
     cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
-    dry: false,
     interactions: host.interactions,
     models,
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
     skills: () => Promise.resolve([]),
     warn: (message: string) => {
       warnings.push(message);
@@ -65,27 +63,9 @@ const reviewer: AgentDefinition = {
 };
 
 describe("agents.session", () => {
-  it("dry sandbox sessions use echo models without preparing a guest or reading credentials", async () => {
-    const a = args();
-    const session = await new AgentsManager({ ...deps(), dry: true })
-      .scoped(a)
-      .session(reviewer, {
-        sandbox: {
-          close: () => Promise.resolve(),
-          exec: () => {
-            throw new Error("Dry session must not execute guest commands");
-          },
-          id: "dry-sandbox",
-        } as unknown as SandboxHandle,
-      });
-    expect((await session.generate("Inspect the fixture")).text).toContain(
-      "Inspect the fixture"
-    );
-  });
-
   it("rejects sandbox-only permission and credential options on a host session", async () => {
     const agents = new AgentsManager(deps()).scoped(args());
-    const authority = { policy: createInMemoryAgentAuthorizer().authorizer };
+    const authority = { authorization: createMemoryAuthorization() };
     for (const options of [
       { authority },
       { apiKey: "explicit-key" },
@@ -109,7 +89,7 @@ describe("agents.session", () => {
 
   it("refuses an explicitly selected unavailable provider rather than routing elsewhere", async () => {
     const d = deps();
-    const models = new ModelManager({
+    const models = new Models({
       providers: d.models.providers
         .filter((provider) => provider.id === CLAUDE_CODE.provider)
         .map((provider) => ({ ...provider, available: false })),
@@ -132,27 +112,24 @@ describe("agents.session", () => {
     }
   });
 
-  it.each([false, true])(
-    "rejects widened sandbox options with maxTurns (dry=%s)",
-    async (dry) => {
-      const manager = new AgentsManager({ ...deps(), dry });
-      const sandbox = { id: "sandbox-turn-limit" } as unknown as SandboxHandle;
-      const widened = { maxTurns: 3, sandbox };
-      try {
-        // @ts-expect-error Exercise widened options from JavaScript callers.
-        await expect(manager.session(reviewer, widened)).rejects.toThrow(
-          "maxTurns is not supported for sandbox sessions"
-        );
-        // @ts-expect-error The scoped entry must reject the same invalid options.
-        const scoped = manager.scoped(args()).session(reviewer, widened);
-        await expect(scoped).rejects.toThrow(
-          "maxTurns is not supported for sandbox sessions"
-        );
-      } finally {
-        await manager.close();
-      }
+  it("rejects widened sandbox options with maxTurns", async () => {
+    const manager = new AgentsManager(deps());
+    const sandbox = { id: "sandbox-turn-limit" } as unknown as SandboxHandle;
+    const widened = { maxTurns: 3, sandbox };
+    try {
+      // @ts-expect-error Exercise widened options from JavaScript callers.
+      await expect(manager.session(reviewer, widened)).rejects.toThrow(
+        "maxTurns is not supported for sandbox sessions"
+      );
+      // @ts-expect-error The scoped entry must reject the same invalid options.
+      const scoped = manager.scoped(args()).session(reviewer, widened);
+      await expect(scoped).rejects.toThrow(
+        "maxTurns is not supported for sandbox sessions"
+      );
+    } finally {
+      await manager.close();
     }
-  );
+  });
 
   it("opens a session on the default provider in the frame's directory and streams text", async () => {
     const a = args();
@@ -365,7 +342,7 @@ describe("agents.session", () => {
     }
   });
 
-  it("a resume prompt rides on the first turn of the session that was parked", async () => {
+  it("a resume prompt rides on the first turn of the session that was suspended", async () => {
     const a = args();
     const seen: string[] = [];
     const models = mockModels([CLAUDE_CODE], ({ prompt }) => {
@@ -438,22 +415,9 @@ describe("structured output", () => {
     const stored = await session.harness.store.listMessages(session.ref.id);
     expect(stored.at(-1)?.role).toBe("assistant");
   });
-
-  it("answers a dry turn with the smallest value the schema accepts", async () => {
-    const printed: string[] = [];
-    const agents = new AgentsManager({
-      ...deps(),
-      dry: true,
-      models: echoModels([CLAUDE_CODE, CODEX], (line) => printed.push(line)),
-    }).scoped(args());
-    const session = await agents.session(reviewer);
-    const { output } = await session.generate("Review.", { output: verdict });
-    expect(output).toEqual({ approved: false, notes: [], severity: "low" });
-    expect(printed.at(-1)).toContain("→ { approved, notes, severity }");
-  });
 });
 
-describe("guest sessions and policies", () => {
+describe("guest sessions", () => {
   const sandbox = { id: "guest" } as unknown as SandboxHandle;
 
   it("refuses a model the CLI's catalog does not list, before any guest starts", async () => {
@@ -467,50 +431,6 @@ describe("guest sessions and policies", () => {
       ).rejects.toThrow('No configured provider lists "unlisted"');
     } finally {
       await manager.close();
-    }
-  });
-
-  it("refuses a guest CLI the policy refuses, before any guest starts", async () => {
-    const d = deps();
-    airplaneMode(d.models).set(true);
-    const manager = new AgentsManager(d);
-    try {
-      await expect(
-        manager.session(
-          { ...reviewer, model: CODEX.model, provider: CODEX.provider },
-          { sandbox }
-        )
-      ).rejects.toThrow("refused by airplane");
-    } finally {
-      await manager.close();
-    }
-  });
-
-  it("checks each guest turn and interrupts the one in flight when a policy refuses", async () => {
-    const { models } = deps();
-    const resolution = models.resolve("text", CODEX);
-    resolution.hold();
-    let interrupted = 0;
-    const session = {
-      generate: () => Promise.resolve({}),
-      interrupt: () => {
-        interrupted += 1;
-        return Promise.resolve();
-      },
-    } as unknown as HarnessSession;
-    const closers: (() => unknown)[] = [];
-    const site = {
-      retain: ({ close }: { close: () => unknown }) => closers.push(close),
-    } as unknown as Parameters<typeof policed>[3];
-    const guarded = policed(session, resolution, models, site);
-    await expect(guarded.generate("hi")).resolves.toEqual({});
-
-    airplaneMode(models).set(true);
-
-    expect(interrupted).toBe(1);
-    expect(() => guarded.generate("again")).toThrow("refused by airplane");
-    for (const close of closers) {
-      close();
     }
   });
 });

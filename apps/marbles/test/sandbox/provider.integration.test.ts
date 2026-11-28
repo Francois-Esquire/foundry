@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import { ModelManager } from "@foundry/models";
-import { gatewayProvider } from "@foundry/models/gateway";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import { Models } from "@foundry/models";
+import { gatewayProvider } from "@foundry/models/providers/gateway";
+import { createContainers } from "@foundry/sandbox/node";
+import { createMicrosandboxDriver } from "@foundry/sandbox/providers/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
@@ -27,21 +27,20 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       );
     }
     const root = await mkdtemp(join(tmpdir(), `marbles-${harness}-`));
-    const runtime = createMicrosandboxRuntime();
+    const runtime = createMicrosandboxDriver({ allowedMountRoots: [root] });
     const containers = createContainers({
-      allowedMountRoots: [root],
+      driver: runtime,
       instanceLabel: "marbles-harness-test",
-      runtime,
       store: new MemoryContainerStore(),
     });
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const provider = harness === "builtin" ? "gateway" : harness;
     const modelId = {
       builtin: "openai/gpt-5-mini",
       "claude-code": "sonnet",
       codex: "gpt-5.5",
     }[harness];
-    const models = new ModelManager({
+    const models = new Models({
       providers:
         harness === "builtin"
           ? [
@@ -84,7 +83,7 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
         image: "docker.io/oven/bun:1-slim",
         network:
           harness === "builtin"
-            ? "disabled"
+            ? "none"
             : {
                 destinations: [
                   {
@@ -102,11 +101,11 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       const host = testEngine({ root, sessions: store });
       const session = await new AgentsManager({
         activities: host.activities,
+        authorization: host.authorization,
         automations: host.automations,
         containerOf: (handle) => sandboxes.containerOf(handle),
         cwd: root,
         defaultExecutor: () => ({ harness, model: modelId, provider }),
-        dry: false,
         interactions: host.interactions,
         models,
         sessions: store,

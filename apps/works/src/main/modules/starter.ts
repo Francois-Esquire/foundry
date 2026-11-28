@@ -1,5 +1,5 @@
-import { buildModuleSdkPack } from "@foundry/modules/sdk/index";
-import { composeModuleTemplate } from "@foundry/modules/template/compose";
+import { buildModuleSdkPack } from "@foundry/modules/sdk";
+import { composeModuleTemplate } from "@foundry/modules/template";
 
 export async function moduleStarter(
   id: string,

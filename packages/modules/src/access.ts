@@ -1,3 +1,5 @@
+import { covers, type Grant } from "@foundry/authorization";
+import { byCodeUnit } from "@foundry/lib/ordering";
 import type { Installation, InstallationId, ModuleVersion } from "./domain";
 import { ModuleStoreConflictError } from "./errors";
 import type {
@@ -6,11 +8,17 @@ import type {
   ModuleGatewayRuntimeDispatcher,
 } from "./gateway/types";
 import {
-  carriedGrants,
+  grantToInstallationGrant,
+  installationGrantsFrom,
+  MODULE_CAPABILITY_ACTION,
+  MODULE_HOST_PRINCIPAL,
   type ModuleAccessRequest,
   moduleAccessRequests,
+  moduleCapabilityAccessRequest,
+  moduleCapabilityScope,
+  moduleInstallationPrincipal,
 } from "./grants";
-import type { InstallationGrant, ModuleRegistryUnit } from "./registry";
+import type { InstallationGrant, ModuleUnit } from "./modules";
 
 export class ModuleAccessError extends Error {
   override readonly name = "ModuleAccessError";
@@ -44,14 +52,11 @@ export interface ModuleAccess {
 
 export interface CreateModuleAccessOptions {
   readonly invocations?: Pick<ModuleGatewayRuntimeDispatcher, "revoke">;
-  readonly now?: () => Date;
   readonly providers: readonly ModuleCapabilityProvider[];
   readonly store: AccessRegistry;
 }
 
-export type AccessRegistry = ModuleRegistryUnit<
-  "loadGatewayContext" | "replaceInstallationGrants" | "revokeInstallationGrant"
->;
+export type AccessRegistry = ModuleUnit<"authorization" | "loadGatewayContext">;
 
 export function installationPrincipal(
   installation: InstallationRef,
@@ -74,7 +79,6 @@ export function createModuleAccess(
       'createModuleAccess cannot run over a registry whose commits a host transaction may roll back (durability "host"), such as the registry a transaction hands its work: it cancels Invocations once a revoke commits, and a rollback would restore the Grant. Run it over a registry on the store itself.'
     );
   }
-  const now = options.now ?? (() => new Date());
 
   function requests(input: {
     readonly installation: InstallationRef;
@@ -86,6 +90,7 @@ export function createModuleAccess(
       version: input.version,
     });
   }
+
   function cancel(
     installationId: InstallationId,
     capability: string
@@ -118,7 +123,8 @@ export function createModuleAccess(
           `This host cannot provide ${capability}, so it cannot be approved`
         );
       }
-      const grants = await store.transaction(async (registry) => {
+      const principal = moduleInstallationPrincipal(installation.id);
+      const grants = await store.transaction(async (registry, effects) => {
         const current = await registry.loadGatewayContext(installation.id);
         if (
           !current ||
@@ -129,17 +135,38 @@ export function createModuleAccess(
             "The Installation changed while approving; review its requests again"
           );
         }
-        return registry.replaceInstallationGrants({
-          expectedGeneration: current.installation.generation,
-          grants: [
-            ...current.grants.filter(
-              (grant) => grant.capability !== capability
-            ),
-            { capability, constraintsDigest, version: request.version },
-          ],
-          installationId: installation.id,
-          now: now(),
+        const existing = await registry.authorization.listGrants({
+          action: MODULE_CAPABILITY_ACTION,
+          principal,
+          state: "active",
         });
+        for (const grant of existing) {
+          const projected = grantToInstallationGrant(grant);
+          if (projected?.capability === capability) {
+            await registry.authorization.revoke(
+              { grantId: grant.id, kind: "grant" },
+              { effects, reason: "Replaced by a newer approval" }
+            );
+          }
+        }
+        await registry.authorization.grant({
+          effects,
+          holder: { kind: "exact", principal },
+          reason: request.reason,
+          requestedBy: MODULE_HOST_PRINCIPAL,
+          scope: moduleCapabilityScope({
+            capability,
+            constraintsDigest,
+            version: request.version,
+          }),
+        });
+        return installationGrantsFrom(
+          await registry.authorization.listGrants({
+            action: MODULE_CAPABILITY_ACTION,
+            principal,
+            state: "active",
+          })
+        );
       });
       return { grants, request };
     },
@@ -148,6 +175,7 @@ export function createModuleAccess(
       expectedGeneration,
       requests: wanted,
     }: Parameters<ModuleAccess["carryOver"]>[0]) {
+      const principal = moduleInstallationPrincipal(installationId);
       return await store.transaction(async (registry, effects) => {
         const context = await registry.loadGatewayContext(installationId);
         if (!context) {
@@ -160,19 +188,26 @@ export function createModuleAccess(
             `Installation ${installationId} changed while carrying over Grants`
           );
         }
-        const carried = carriedGrants(context.grants, wanted);
-        const dropped = context.grants.filter(
-          (grant) => !carried.includes(grant)
+        const active = await registry.authorization.listGrants({
+          action: MODULE_CAPABILITY_ACTION,
+          principal,
+          state: "active",
+        });
+        const { dropped, kept } = partitionCarryOverGrants(
+          active,
+          wanted,
+          installationId
         );
-        for (const grant of dropped) {
-          await registry.revokeInstallationGrant({
-            capability: grant.capability,
-            expectedGeneration,
-            installationId,
-          });
-          effects.afterCommit(() => cancel(installationId, grant.capability));
+        for (const item of dropped) {
+          await registry.authorization.revoke(
+            { grantId: item.grant.id, kind: "grant" },
+            { effects, reason: "The Grant was revoked" }
+          );
+          if (options.invocations !== undefined) {
+            effects.afterCommit(() => cancel(installationId, item.capability));
+          }
         }
-        return carried;
+        return installationGrantsFrom(kept);
       });
     },
     requests,
@@ -180,19 +215,87 @@ export function createModuleAccess(
       installationId,
       capability,
     }: Parameters<ModuleAccess["revoke"]>[0]) {
+      const principal = moduleInstallationPrincipal(installationId);
       return await store.transaction(async (registry, effects) => {
         const current = await registry.loadGatewayContext(installationId);
-        if (!current?.grants.some((grant) => grant.capability === capability)) {
+        if (!current) {
           throw new ModuleAccessError(`${capability} is not approved`);
         }
-        const revoked = await registry.revokeInstallationGrant({
-          capability,
-          expectedGeneration: current.installation.generation,
-          installationId,
+        const active = await registry.authorization.listGrants({
+          action: MODULE_CAPABILITY_ACTION,
+          principal,
+          state: "active",
         });
-        effects.afterCommit(() => cancel(installationId, capability));
-        return revoked;
+        const matched = active
+          .map((grant) => ({
+            grant,
+            projected: grantToInstallationGrant(grant),
+          }))
+          .filter(
+            (
+              entry
+            ): entry is {
+              readonly grant: Grant;
+              readonly projected: InstallationGrant;
+            } => entry.projected?.capability === capability
+          );
+        const [first] = matched;
+        if (first === undefined) {
+          throw new ModuleAccessError(`${capability} is not approved`);
+        }
+        for (const entry of matched) {
+          await registry.authorization.revoke(
+            { grantId: entry.grant.id, kind: "grant" },
+            { effects, reason: "The Grant was revoked" }
+          );
+        }
+        if (options.invocations !== undefined) {
+          effects.afterCommit(() => cancel(installationId, capability));
+        }
+        return first.projected;
       });
     },
   });
+}
+
+function partitionCarryOverGrants(
+  active: readonly Grant[],
+  wanted: readonly ModuleAccessRequest[],
+  installationId: InstallationId
+): {
+  readonly dropped: readonly {
+    readonly capability: string;
+    readonly grant: Grant;
+  }[];
+  readonly kept: readonly Grant[];
+} {
+  const kept: Grant[] = [];
+  const dropped: { readonly capability: string; readonly grant: Grant }[] = [];
+  for (const grant of active) {
+    const projected = grantToInstallationGrant(grant);
+    if (projected === null) {
+      continue;
+    }
+    const matchesWanted = wanted.some(
+      (request) =>
+        request.constraintsDigest !== null &&
+        covers(
+          grant.scope,
+          moduleCapabilityAccessRequest({
+            capability: request.capability,
+            constraintsDigest: request.constraintsDigest,
+            installationId,
+            version: request.version,
+          }),
+          "allow"
+        )
+    );
+    if (matchesWanted) {
+      kept.push(grant);
+    } else {
+      dropped.push({ capability: projected.capability, grant });
+    }
+  }
+  dropped.sort(byCodeUnit((item) => item.capability));
+  return { dropped, kept };
 }

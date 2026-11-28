@@ -1,5 +1,6 @@
+import type { ReferenceSource } from "@foundry/core/agents";
 import { type NameLookup, referenceSource } from "@foundry/core/agents";
-import type { PromptReferenceKind, PromptSource } from "./language";
+import type { PromptReferenceKind } from "./reference";
 
 export type Membership = Iterable<string> | NameLookup;
 
@@ -35,3 +36,5 @@ export function layered(layers: readonly PromptSource[]): PromptSource {
     has: (kind, name) => layers.some((layer) => layer.has(kind, name)),
   };
 }
+
+export type PromptSource = ReferenceSource<PromptReferenceKind>;

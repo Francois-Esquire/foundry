@@ -1,11 +1,4 @@
-import { anthropic } from "./providers/anthropic";
-import { openai } from "./providers/openai";
-import { usage as shared } from "./usage";
-
-shared.use(anthropic);
-shared.use(openai);
-
-export type { BillingAccountOptions } from "./billing";
+export type { BillingAccountOptions } from "./billing-account";
 export type {
   Charge,
   Consumption,
@@ -35,4 +28,4 @@ export type {
   Usage,
 } from "./usage";
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/usage public API.
-export { usage } from "./usage";
+export { createUsage } from "./usage";

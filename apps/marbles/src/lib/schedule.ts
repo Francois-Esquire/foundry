@@ -1,11 +1,23 @@
-import { Cron } from "croner";
+import { canonicalizeJson } from "@foundry/lib/json";
+import type {
+  Cadence,
+  DispatchTarget,
+  JobOutcome,
+  RegisterScheduleInput,
+  Schedule as StoredSchedule,
+} from "@foundry/scheduling";
+import { nextDue as nextOccurrence } from "@foundry/scheduling";
+import { z } from "zod";
 import type { Engine } from "~/lib/engine";
+import type { ExecutionStatus } from "~/lib/execution-statuses";
+import { isRecord, jsonData } from "~/lib/json-data";
 import type { Launch } from "~/lib/launch";
 import { isLaunch } from "~/lib/launch";
-import { isRecord } from "~/lib/state/json";
-import type { ScheduleHistory, TriggerStore } from "~/lib/trigger-store";
-import { finishedAt } from "~/lib/trigger-store";
+import type { Launched } from "~/lib/launcher";
 import type { CalendarSlot, Schedule, Trigger, Weekday } from "~/lib/triggers";
+
+// biome-ignore lint/performance/noBarrelFile: Re-export portable cadence parsers for existing callers.
+export { parseAt, parseEvery } from "~/lib/cadence";
 
 const UNITS: Record<string, number> = {
   d: 86_400_000,
@@ -13,46 +25,12 @@ const UNITS: Record<string, number> = {
   m: 60_000,
   s: 1000,
 };
-const EVERY_PATTERN = /^(\d+)([smhd])$/;
-const LET_GO: unique symbol = Symbol("the run was let go");
 
-export function parseEvery(every: string): number {
-  const match = EVERY_PATTERN.exec(every.trim());
-  const unit = match?.[2] === undefined ? undefined : UNITS[match[2]];
-  if (!match || unit === undefined) {
-    throw new Error(`cannot read cadence "${every}" (want e.g. 30m, 6h, 1d)`);
-  }
-  const ms = Number(match[1]) * unit;
-  if (!Number.isSafeInteger(ms) || ms <= 0) {
-    throw new Error(
-      `cadence "${every}" must be a positive interval that fits in a safe integer`
-    );
-  }
-  return ms;
-}
-
-function cadence(ms: number): string {
+function spelled(ms: number): string {
   const match = Object.entries(UNITS).find(
     ([, size]) => ms >= size && ms % size === 0
   );
   return match ? `${String(ms / match[1])}${match[0]}` : `${String(ms)}ms`;
-}
-
-function inRange(value: number, max: number): boolean {
-  return Number.isInteger(value) && value >= 0 && value <= max;
-}
-
-export function parseAt(at: string | CalendarSlot): Trigger {
-  if (typeof at === "string") {
-    return { kind: "interval", ms: parseEvery(at) };
-  }
-  const minute = at.minute ?? 0;
-  if (!(inRange(at.hour, 23) && inRange(minute, 59))) {
-    throw new Error(
-      `cannot read calendar slot ${JSON.stringify(at)} (want hour 0–23, minute 0–59)`
-    );
-  }
-  return { kind: "calendar", slot: { ...at, minute } };
 }
 
 function weekdays(slot: CalendarSlot): readonly Weekday[] {
@@ -68,160 +46,176 @@ function clock(slot: CalendarSlot): string {
 
 export function describeTrigger(trigger: Trigger): string {
   if (trigger.kind === "interval") {
-    return `every ${cadence(trigger.ms)}`;
+    return `every ${spelled(trigger.ms)}`;
   }
   const days = weekdays(trigger.slot).join(", ") || "daily";
   return `${days} at ${clock(trigger.slot)}`;
 }
 
-export function nextDue(schedule: Schedule, last: number): number {
-  const { trigger } = schedule;
+const LOCAL_TIME = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+function intervalAsDelayAfterSettle(
+  everyMs: number,
+  initialDelayMs?: number
+): Cadence {
+  return {
+    afterSettleMs: everyMs,
+    kind: "delay",
+    ...(initialDelayMs === undefined ? {} : { initialDelayMs }),
+  };
+}
+
+function cadenceOf(trigger: Trigger, initialDelayMs?: number): Cadence {
   if (trigger.kind === "interval") {
-    return last + trigger.ms;
+    return intervalAsDelayAfterSettle(trigger.ms, initialDelayMs);
   }
   const { slot } = trigger;
   const days = weekdays(slot);
-  const pattern = `${String(slot.minute ?? 0)} ${String(slot.hour)} * * ${
-    days.length === 0 ? "*" : days.map((day) => day.toUpperCase()).join(",")
-  }`;
-  const next = new Cron(pattern).nextRun(new Date(last));
+  return {
+    hour: slot.hour,
+    kind: "calendar",
+    minute: slot.minute ?? 0,
+    timezone: LOCAL_TIME,
+    ...(days.length === 0 ? {} : { weekdays: days }),
+  };
+}
+
+export function nextDue(schedule: Schedule, last: number): number {
+  const next = nextOccurrence(cadenceOf(schedule.trigger), last);
   if (next === null) {
-    throw new Error(`"${pattern}" never fires`);
+    throw new Error(`${describeTrigger(schedule.trigger)} never fires`);
   }
-  return next.getTime();
+  return next;
+}
+
+const scheduledTargetSchema = z.object({
+  input: z.unknown(),
+  kind: z.enum(["schedule", "monitor"]),
+  label: z.string(),
+});
+
+export type ScheduledTarget = z.infer<typeof scheduledTargetSchema>;
+
+export function scheduledTarget(
+  target: DispatchTarget
+): ScheduledTarget | undefined {
+  const read = scheduledTargetSchema.safeParse(target.input);
+  return read.success ? read.data : undefined;
+}
+
+function dispatchTarget(schedule: Schedule): DispatchTarget {
+  return {
+    handler: { name: schedule.workflow },
+    input: {
+      input: jsonData(schedule.input),
+      kind: schedule.kind,
+      label: schedule.label,
+    },
+  };
+}
+
+function sameJson(one: unknown, other: unknown): boolean {
+  return canonicalizeJson(one) === canonicalizeJson(other);
+}
+
+function withoutInitialDelay(cadence: Cadence): Cadence {
+  if (cadence.kind !== "delay") {
+    return cadence;
+  }
+  const { initialDelayMs: _initial, ...rhythm } = cadence;
+  return rhythm;
+}
+
+function firstDelay(schedule: Schedule, now: number): number | undefined {
+  const { registeredAt, trigger } = schedule;
+  return trigger.kind === "interval" && registeredAt !== undefined
+    ? Math.max(0, registeredAt + trigger.ms - now)
+    : undefined;
+}
+
+export function registration(
+  schedule: Schedule,
+  stored: StoredSchedule | undefined,
+  now: number
+): RegisterScheduleInput | undefined {
+  const rhythm = cadenceOf(schedule.trigger);
+  const cadence =
+    stored !== undefined &&
+    sameJson(withoutInitialDelay(stored.cadence), rhythm)
+      ? stored.cadence
+      : cadenceOf(schedule.trigger, firstDelay(schedule, now));
+  const target = dispatchTarget(schedule);
+  if (
+    stored !== undefined &&
+    sameJson(stored.cadence, cadence) &&
+    sameJson(stored.target, target)
+  ) {
+    return;
+  }
+  return {
+    cadence,
+    id: schedule.key,
+    misfire: "run-once",
+    overlap: "skip",
+    target,
+  };
+}
+
+export function outcomeOf(status: ExecutionStatus): JobOutcome | undefined {
+  switch (status) {
+    case "complete":
+      return "complete";
+    case "failed":
+    case "interrupted":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return;
+  }
 }
 
 export type ScheduledEngine = Pick<
   Engine,
-  "cancel" | "has" | "launch" | "schedules" | "triggers"
+  | "automations"
+  | "cancel"
+  | "executions"
+  | "has"
+  | "launch"
+  | "schedules"
+  | "triggers"
 >;
 
-export interface TickOptions {
-  readonly canRun?: (schedule: Schedule) => boolean | Promise<boolean>;
-  readonly letGo?: AbortSignal;
-  readonly now?: () => number;
-  readonly print: (line: string) => void;
-  readonly scheduled?: boolean;
-  readonly signal?: AbortSignal;
-  readonly stopped?: AbortSignal;
-}
-
-export interface LoopOptions {
-  readonly cancel?: AbortSignal;
-  readonly letGo?: AbortSignal;
-  readonly now?: () => number;
-  readonly print: (line: string) => void;
-  readonly signal: AbortSignal;
-  readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
-}
-
-export async function tick(
+export async function startScheduled(
   engine: ScheduledEngine,
   schedule: Schedule,
-  options: TickOptions
-): Promise<
-  { readonly value: unknown } | { readonly skipped: string } | undefined
-> {
-  const { triggers } = engine;
-  const now = options.now ?? Date.now;
-  const claim = await triggers.claimTick(schedule.key);
-  if (!claim.claimed) {
-    const skipped = `held by ${claim.holder}`;
-    options.print(`[schedule] ${schedule.key} skipped: ${skipped}`);
-    return { skipped };
+  idempotencyKey?: string
+): Promise<Launched<unknown>> {
+  if (schedule.kind === "schedule") {
+    await engine.triggers.forgetMonitor(schedule.key);
   }
-
-  const start = now();
-  let status: ScheduleHistory["lastStatus"] | undefined = "failed";
-  let dispatched = false;
-  try {
-    if (
-      !(await shouldDispatch(engine, schedule, options, now())) ||
-      options.stopped?.aborted
-    ) {
-      return undefined;
-    }
-    dispatched = true;
-    options.print(`[schedule] ${schedule.key} → ${schedule.workflow}`);
-    const detected = await awaitRun(
-      engine,
-      await engine.launch(schedule.workflow, schedule.input, schedule.key),
-      options
-    );
-    const launch =
-      schedule.kind === "monitor" ? pendingOf(detected) : undefined;
-    const value =
-      launch && !options.stopped?.aborted && detected !== LET_GO
-        ? await startPending(engine, schedule.key, launch, options)
-        : detected;
-    if (value === LET_GO) {
-      status = undefined;
-      return undefined;
-    }
-    status = "complete";
-    return { value };
-  } finally {
-    await finishTick(triggers, schedule.key, () =>
-      dispatched && status !== undefined
-        ? history(schedule, start, now(), status)
-        : undefined
-    );
-  }
+  return await engine.launch(schedule.workflow, schedule.input, {
+    ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+    triggerId: schedule.key,
+  });
 }
 
-async function finishTick(
-  triggers: TriggerStore,
-  key: string,
-  record: () => ScheduleHistory | undefined
-): Promise<void> {
-  try {
-    await triggers.finishTick(key, record());
-  } catch (error) {
-    await triggers.finishTick(key).catch(() => undefined);
-    throw error;
-  }
-}
-
-function history(
+export function pendingOf(
   schedule: Schedule,
-  start: number,
-  finish: number,
-  status: ScheduleHistory["lastStatus"]
-): ScheduleHistory {
-  return {
-    kind: schedule.kind,
-    label: schedule.label,
-    lastFinish: new Date(finish).toISOString(),
-    lastStart: new Date(start).toISOString(),
-    lastStatus: status,
-    nextDue: new Date(nextDue(schedule, finish)).toISOString(),
-  };
-}
-
-async function shouldDispatch(
-  engine: ScheduledEngine,
-  schedule: Schedule,
-  options: TickOptions,
-  now: number
-): Promise<boolean> {
-  const last = finishedAt(await engine.triggers.lastTick(schedule.key));
-  const noLongerDue =
-    options.scheduled && last !== undefined && nextDue(schedule, last) > now;
-  return !noLongerDue && (await options.canRun?.(schedule)) !== false;
-}
-
-function pendingOf(detected: unknown): Launch | undefined {
-  return isRecord(detected) && isLaunch(detected.launch)
+  detected: unknown
+): Launch | undefined {
+  return schedule.kind === "monitor" &&
+    isRecord(detected) &&
+    isLaunch(detected.launch)
     ? detected.launch
     : undefined;
 }
 
-async function startPending(
+export async function startPending(
   engine: ScheduledEngine,
   key: string,
-  launch: Launch,
-  options: Pick<TickOptions, "letGo" | "signal">
-): Promise<unknown> {
+  launch: Launch
+): Promise<Launched<unknown>> {
   if (!engine.has(launch.workflow)) {
     await engine.triggers.clearPendingLaunch(key);
     throw new Error(
@@ -230,119 +224,20 @@ async function startPending(
   }
   const started = await engine.launch(launch.workflow, launch.input, key);
   await engine.triggers.clearPendingLaunch(key);
-  return await awaitRun(engine, started, options);
+  return started;
 }
 
-async function awaitRun(
-  engine: ScheduledEngine,
-  started: { readonly id: string; readonly result: Promise<unknown> },
-  { letGo, signal }: Pick<TickOptions, "letGo" | "signal">
-): Promise<unknown> {
-  const cancel = () => {
-    engine.cancel(started.id).catch(() => undefined);
-  };
-  const released = Promise.withResolvers<typeof LET_GO>();
-  const release = () => released.resolve(LET_GO);
-  signal?.addEventListener("abort", cancel, { once: true });
-  letGo?.addEventListener("abort", release, { once: true });
-  if (signal?.aborted) {
-    cancel();
-  }
-  if (letGo?.aborted) {
-    release();
-  }
-  try {
-    return await Promise.race([started.result, released.promise]);
-  } finally {
-    signal?.removeEventListener("abort", cancel);
-    letGo?.removeEventListener("abort", release);
-  }
-}
-
-function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(done, ms);
-    function done() {
-      signal.removeEventListener("abort", done);
-      clearTimeout(timer);
-      resolve();
-    }
-    signal.addEventListener("abort", done, { once: true });
-  });
-}
-
-const POLL_MS = 1000;
-
-export async function runSchedules(
-  engine: ScheduledEngine,
-  options: LoopOptions
-): Promise<void> {
-  const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? defaultSleep;
-  const { signal } = options;
-  const attempted = new Map<string, number>();
-  const baseline = async (schedule: Schedule): Promise<number> => {
-    const recorded = finishedAt(
-      await engine.triggers.lastTick(schedule.key).catch(() => undefined)
-    );
-    const tried = attempted.get(schedule.key);
-    if (tried === undefined) {
-      const first = recorded ?? schedule.registeredAt ?? now();
-      attempted.set(schedule.key, first);
-      return first;
-    }
-    return recorded === undefined ? tried : Math.max(recorded, tried);
-  };
-
-  while (!signal.aborted) {
-    const active = await engine.schedules().catch((error: unknown) => {
-      options.print(`[schedule] reading schedules failed: ${String(error)}`);
-      return [];
-    });
-    if (signal.aborted) {
-      break;
-    }
-    if (active.length === 0) {
-      await sleep(POLL_MS, signal);
-      continue;
-    }
-    const dues: (readonly [Schedule, number])[] = [];
-    for (const entry of active) {
-      dues.push([entry, nextDue(entry, await baseline(entry))]);
-    }
-    if (signal.aborted) {
-      break;
-    }
-    const [schedule, due] = dues.reduce((soonest, candidate) =>
-      candidate[1] < soonest[1] ? candidate : soonest
-    );
-    const wait = due - now();
-    if (wait > 0) {
-      await sleep(Math.min(wait, POLL_MS), signal);
-      continue;
-    }
-    await loopTick(engine, schedule, {
-      canRun: async (candidate) =>
-        (await engine.schedules()).some((entry) => entry.key === candidate.key),
-      ...(options.letGo === undefined ? {} : { letGo: options.letGo }),
-      now,
-      print: options.print,
-      scheduled: true,
-      signal: options.cancel ?? signal,
-      stopped: signal,
-    });
-    attempted.set(schedule.key, now());
-  }
-}
-
-async function loopTick(
+export async function rollSchedule(
   engine: ScheduledEngine,
   schedule: Schedule,
-  options: TickOptions
-): Promise<void> {
-  try {
-    await tick(engine, schedule, options);
-  } catch (error) {
-    options.print(`[schedule] ${schedule.key} failed: ${String(error)}`);
+  { print }: { readonly print: (line: string) => void }
+): Promise<{ readonly value: unknown }> {
+  print(`[schedule] ${schedule.key} → ${schedule.workflow}`);
+  const detected = await (await startScheduled(engine, schedule)).result;
+  const launch = pendingOf(schedule, detected);
+  if (launch === undefined) {
+    return { value: detected };
   }
+  const started = await startPending(engine, schedule.key, launch);
+  return { value: await started.result };
 }

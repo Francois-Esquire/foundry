@@ -1,19 +1,14 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
 import { anotherStart } from "@foundry/lib/testing/process-identity";
-import { eq } from "drizzle-orm";
+import type { RunId } from "@foundry/queue";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
 import { expect, it } from "vitest";
-import { writeDatabase } from "~/database/open";
-import { readLastRecovery } from "~/database/recoveries";
-import { marblesExecutions, marblesWorkflowRuns } from "~/database/tables";
+import { readLastRecovery, writeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import {
-  SPAWN_RECOVERY_ENV,
-  type SpawnRecord,
-  startedAt,
-} from "~/process/spawned";
+import { runStoreEffect } from "~/lib/workflow-runs";
+import { type SpawnRecord, startedAt } from "~/process/spawned";
 import { testEngine } from "./helpers/engine";
 import { type TestHome, testHome } from "./helpers/home";
 import { readStoredRuns } from "./helpers/stored-runs";
@@ -31,21 +26,22 @@ function phase(home: TestHome, name: string, body: string): string {
   const state = join(home.path, "state");
   writeFileSync(
     script,
-    `import { step } from ${JSON.stringify(join(SRC, "authoring/index.ts"))};
+    `import { Catalog, step } from ${JSON.stringify(join(SRC, "authoring/index.ts"))};
 import { testEngine } from ${JSON.stringify(join(HELPERS, "engine.ts"))};
-step("hold").do(async ({ exec }) => {
+const hold = step("hold").do(async ({ exec }) => {
   await exec(["sleep", "300"]);
   return "done";
 });
 const lines = [];
 const killOn = process.env.MARBLES_TEST_KILL_ON;
 const engine = testEngine({
+  catalog: Catalog.collect([hold]),
   print: (line) => {
     lines.push(line);
     // Dies right after this point of recovery, as a crash would.
     if (killOn && line.startsWith(killOn)) process.kill(process.pid, "SIGKILL");
   },
-  spawned: process.env.${SPAWN_RECOVERY_ENV},
+  spawned: ${JSON.stringify(home.layout.spawned)},
   state: ${JSON.stringify(state)},
 });
 await engine.start();
@@ -67,15 +63,11 @@ process.exit(0);
   return script;
 }
 
-function phaseEnv(home: TestHome): Record<string, string> {
-  return { ...home.env, [SPAWN_RECOVERY_ENV]: home.layout.spawned };
-}
-
 function run(home: TestHome, script: string): Record<string, unknown> {
   const output = execFileSync("bun", [script], {
     cwd: resolve("."),
     encoding: "utf8",
-    env: phaseEnv(home),
+    env: home.env,
     timeout: PROCESS_TIMEOUT,
   });
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
@@ -86,7 +78,7 @@ function runKilled(home: TestHome, script: string, killOn: string): unknown {
     execFileSync("bun", [script], {
       cwd: resolve("."),
       encoding: "utf8",
-      env: { ...phaseEnv(home), MARBLES_TEST_KILL_ON: killOn },
+      env: { ...home.env, MARBLES_TEST_KILL_ON: killOn },
       stdio: "pipe",
       timeout: PROCESS_TIMEOUT,
     });
@@ -162,7 +154,7 @@ await new Promise(() => undefined);`
   );
   const host = spawn("bun", [crash], {
     cwd: resolve("."),
-    env: phaseEnv(home),
+    env: home.env,
     stdio: ["ignore", "pipe", "inherit"],
   });
   home.track(host.pid, false);
@@ -214,10 +206,7 @@ async function expectRecovered(
     status: "interrupted",
   });
   expect(report.run).toMatchObject({
-    error: {
-      message: "its process exited while it was running",
-      name: "Interrupted",
-    },
+    error: { message: "owner gone", name: "interrupted" },
     status: "failed",
   });
   expect((await runs(home)).find((entry) => entry.id === runId)).toMatchObject({
@@ -245,7 +234,7 @@ it(
     expect(recovered.lines).toEqual(
       expect.arrayContaining([
         "[recovery] processes: done, 1 process(es) stopped",
-        `[run] hold ${runId} closed out: its process exited while it was running`,
+        `[run] hold ${runId} closed out: owner gone`,
         "[recovery] runs: done, 1 run(s) closed out",
         "[recovery] activities: done, 1 harness activity(ies) closed out",
       ])
@@ -304,16 +293,24 @@ it(
     const home = testHome();
     const { command, runId } = await crashedHost(home);
     const state = join(home.path, "state");
-    const before = { ownerPid: process.pid, ownerStarted: LONG_AGO };
     await writeDatabase(stateDatabase(state), async (database) => {
-      await database
-        .update(marblesExecutions)
-        .set(before)
-        .where(eq(marblesExecutions.id, runId));
-      await database
-        .update(marblesWorkflowRuns)
-        .set(before)
-        .where(eq(marblesWorkflowRuns.runId, runId));
+      const store = makeSqliteQueueStore({ database, scope: "test" });
+      const left = await runStoreEffect(store.getRun(runId as RunId));
+      if (left?.state.kind !== "running") {
+        throw new Error(`${runId} is not running`);
+      }
+      const owner = { pid: process.pid, started: LONG_AGO };
+      await runStoreEffect(
+        store.commit({
+          runs: [
+            {
+              ...left,
+              revision: left.revision + 1,
+              state: { ...left.state, lease: { ...left.state.lease, owner } },
+            },
+          ],
+        })
+      );
     });
 
     const engine = testEngine({
@@ -334,7 +331,7 @@ it(
         command,
         runId
       );
-      expect(engine.executions.get(runId)?.owner).toEqual(thisProcess());
+      expect(engine.executions.get(runId)?.owner).toBeUndefined();
     } finally {
       await engine.dispose();
     }

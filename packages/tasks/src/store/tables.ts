@@ -27,6 +27,8 @@ export const tasks = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),
     index("tasks_scope_position").on(table.scope, table.position),
+    index("tasks_scope_parent").on(table.scope, table.parentId),
+    index("tasks_scope_status").on(table.scope, table.status),
   ]
 );
 
@@ -41,5 +43,9 @@ export const taskDependencies = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.scope, table.taskId, table.dependsOnId] }),
     index("task_dependencies_scope_position").on(table.scope, table.position),
+    index("task_dependencies_scope_depends_on").on(
+      table.scope,
+      table.dependsOnId
+    ),
   ]
 );

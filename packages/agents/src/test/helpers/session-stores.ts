@@ -1,5 +1,5 @@
 import type { SessionStore } from "../../store";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { SqliteSessionStore } from "../../store/sqlite";
 import { libsqlDatabases } from "./sqlite";
 
@@ -21,7 +21,7 @@ export function sessionStoreKinds(): readonly SessionStoreKind[] {
     ];
   };
   return [
-    ["InMemorySessionStore", () => Promise.resolve(new InMemorySessionStore())],
+    ["MemorySessionStore", () => Promise.resolve(new MemorySessionStore())],
     sqlite("memory"),
     sqlite("file"),
   ];

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -32,18 +32,20 @@ import {
 } from "./helpers/registry";
 
 const TOOL_NAMES = [
-  "list_workspaces",
-  "list_config",
-  "dispatch_workflow",
+  "list",
+  "get",
+  "enqueue_workflow",
   "dispatch_agent",
-  "get_run",
   "cancel_run",
-  "list_tasks",
-  "ready_tasks",
-  "get_task",
-  "task_dependencies",
   "change_tasks",
 ];
+
+const WORKSPACES = { arguments: { resource: "workspaces" }, name: "list" };
+const TASKS = { arguments: { resource: "tasks" }, name: "list" };
+const runOf = (id: string) => ({
+  arguments: { id, resource: "run" },
+  name: "get",
+});
 
 function payload(value: unknown): unknown {
   const content = CallToolResultSchema.parse(value).content.find(
@@ -56,33 +58,38 @@ function payload(value: unknown): unknown {
 }
 
 function runIdentity(value: unknown) {
-  return z.object({ runId: z.string() }).parse(payload(value));
+  return z.object({ id: z.string() }).parse(payload(value));
 }
 
 const summarySchema = z.object({
-  config: z.string().nullable(),
   id: z.string(),
   root: z.string(),
+  source: z.string().nullable(),
   state: z.string(),
 });
 
-it("dispatches workflows and agents through the MCP tools, over a workspace a dry-run host serves", async () => {
+function summaries(value: unknown) {
+  return z.object({ items: summarySchema.array() }).parse(payload(value)).items;
+}
+
+it("dispatches workflows and agents through the MCP tools, over a workspace a host serves", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-"));
   const source = join(root, "marbles.ts");
   const schemaLibrary = createRequire(import.meta.url).resolve("zod");
   await writeFile(
     source,
-    `import { agent, step, workflow } from "@foundry.sh/marbles";
+    `import { agent, observe, step, tasks, workflow } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(schemaLibrary)};
-agent({ name: "helper", prompt: "You help with tasks." });
-const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => {
+export const helper = agent({ name: "helper", prompt: "You help with tasks." });
+export const triage = observe(tasks, () => undefined, { name: "triage", types: ["tasks.changed"] });
+export const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => {
   console.error("workflow diagnostic");
   return { greeting: "Hello " + input.name };
 });
-workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
+export const greeting = workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new RecordedStdioTransport({
-    args: ["--no-env-file", resolve("test/helpers/dry-mcp-host.ts"), source],
+    args: ["--no-env-file", resolve("test/helpers/mcp-host.ts"), source],
     command: "bun",
     cwd: root,
     env: testHome().env,
@@ -99,15 +106,14 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     const listed = await client.listTools();
     expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
     for (const tool of listed.tools) {
-      if (tool.name !== "list_workspaces") {
-        expect(tool.inputSchema.properties, tool.name).toHaveProperty(
-          "workspace"
-        );
-      }
+      expect(tool.inputSchema.type, tool.name).toBe("object");
+      expect(tool.inputSchema.properties, tool.name).toHaveProperty(
+        "workspace"
+      );
     }
     const config = await client.callTool({
-      arguments: {},
-      name: "list_config",
+      arguments: { resource: "workspace" },
+      name: "get",
     });
     expect(config.isError, JSON.stringify(config)).not.toBe(true);
     expect(config.content).toEqual([
@@ -120,16 +126,32 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
         text: expect.stringContaining('"inputSchema"'),
       }),
     ]);
+    expect(payload(config)).toMatchObject({
+      item: {
+        observers: [
+          { name: "triage", source: "tasks", types: ["tasks.changed"] },
+        ],
+      },
+    });
+    const definitions = await client.callTool({
+      arguments: {
+        fields: ["inputSchema"],
+        filter: { kind: "workflow" },
+        resource: "definitions",
+      },
+      name: "list",
+    });
+    expect(payload(definitions)).toMatchObject({
+      items: [{ inputSchema: expect.any(Object), name: "greeting" }],
+      total: 1,
+    });
     const run = await client.callTool({
       arguments: { input: { name: "Ada" }, name: "greeting" },
-      name: "dispatch_workflow",
+      name: "enqueue_workflow",
     });
     const workflow = runIdentity(run);
     await vi.waitFor(async () => {
-      const status = await client.callTool({
-        arguments: { runId: workflow.runId },
-        name: "get_run",
-      });
+      const status = await client.callTool(runOf(workflow.id));
       expect(status.content).toEqual([
         expect.objectContaining({
           text: expect.stringContaining('"greeting":"Hello Ada"'),
@@ -138,14 +160,25 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     });
     const invalid = await client.callTool({
       arguments: { input: { name: 42 }, name: "greet" },
-      name: "dispatch_workflow",
+      name: "enqueue_workflow",
     });
     expect(invalid.isError).toBe(true);
+    const keyed = async () =>
+      runIdentity(
+        await client.callTool({
+          arguments: { input: { name: "Key" }, key: "once", name: "greeting" },
+          name: "enqueue_workflow",
+        })
+      ).id;
+    const firstKeyed = await keyed();
+    expect(firstKeyed).not.toBe(workflow.id);
+    expect(await keyed()).toBe(firstKeyed);
     const missing = await client.callTool({
       arguments: { name: "missing" },
-      name: "dispatch_workflow",
+      name: "enqueue_workflow",
     });
     expect(missing.isError).toBe(true);
+    expect(payload(missing)).toMatchObject({ error: { code: "not_found" } });
     const dispatched = await client.callTool({
       arguments: { agent: "helper", maxTurns: 3, prompt: "Hello agent" },
       name: "dispatch_agent",
@@ -153,10 +186,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     expect(dispatched.isError, JSON.stringify(dispatched)).not.toBe(true);
     const job = runIdentity(dispatched);
     await vi.waitFor(async () => {
-      const status = await client.callTool({
-        arguments: { runId: job.runId },
-        name: "get_run",
-      });
+      const status = await client.callTool(runOf(job.id));
       expect(status.content).toEqual([
         expect.objectContaining({
           text: expect.stringContaining('"status":"completed"'),
@@ -180,15 +210,40 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     expect(continued.isError, JSON.stringify(continued)).not.toBe(true);
     const followUp = runIdentity(continued);
     await vi.waitFor(async () => {
-      const status = await client.callTool({
-        arguments: { runId: followUp.runId },
-        name: "get_run",
-      });
+      const status = await client.callTool(runOf(followUp.id));
       expect(payload(status)).toMatchObject({
-        session: { id: session.id, instance: session.instance },
-        status: "completed",
-        text: expect.stringContaining("Hello again"),
+        item: {
+          session: { id: session.id, instance: session.instance },
+          status: "completed",
+          text: expect.stringContaining("Hello again"),
+        },
       });
+    });
+    const runs = z
+      .object({
+        items: z.array(
+          z.object({ id: z.string(), kind: z.string(), status: z.string() })
+        ),
+        total: z.number(),
+      })
+      .parse(
+        payload(
+          await client.callTool({
+            arguments: { filter: { status: "completed" }, resource: "runs" },
+            name: "list",
+          })
+        )
+      );
+    expect(runs.items.map(({ id, kind }) => ({ id, kind }))).toEqual([
+      { id: followUp.id, kind: "agent" },
+      { id: job.id, kind: "agent" },
+      { id: firstKeyed, kind: "workflow" },
+      { id: workflow.id, kind: "workflow" },
+    ]);
+    expect(runs.items[0]).toEqual({
+      id: followUp.id,
+      kind: "agent",
+      status: "completed",
     });
     const unknown = await client.callTool({
       arguments: { agent: "missing", prompt: "Hello" },
@@ -200,13 +255,11 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       name: "dispatch_agent",
     });
     expect(invalidLimit.isError).toBe(true);
-    const missingJob = await client.callTool({
-      arguments: { runId: "missing" },
-      name: "get_run",
-    });
+    const missingJob = await client.callTool(runOf("missing"));
     expect(missingJob.isError).toBe(true);
+    expect(payload(missingJob)).toMatchObject({ error: { code: "not_found" } });
     const cancelled = await client.callTool({
-      arguments: { runId: job.runId },
+      arguments: { id: job.id },
       name: "cancel_run",
     });
     expect(cancelled.isError).not.toBe(true);
@@ -216,105 +269,6 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   } finally {
     await client.close();
     expect(transport.pid).toBeNull();
-    await rm(root, { force: true, recursive: true });
-  }
-}, 30_000);
-
-function toolAnswer(value: unknown): { isError: boolean; text: string } {
-  const parsed = CallToolResultSchema.parse(value);
-  const [block] = parsed.content;
-  return {
-    isError: parsed.isError === true,
-    text: block?.type === "text" ? block.text : "",
-  };
-}
-
-const DRY_REFUSAL =
-  "A dry run of a workflow goes through `marbles roll --dry-run`.";
-
-it("under --dry-run, loads no source, keeps tasks in memory, and refuses what needs a running instance", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-mcp-dry-"));
-  const source = join(root, "marbles.ts");
-  const home = testHome({ providers: false });
-  const { state } = home.layout;
-  await writeFile(
-    source,
-    `import { step, workflow } from "@foundry.sh/marbles";
-console.error("SOURCE_LOADED");
-workflow("greeting").do(() => step("greet").do(() => "hello")({}));`
-  );
-  const transport = new RecordedStdioTransport({
-    args: [
-      "--no-env-file",
-      resolve("src/cli.ts"),
-      "mcp",
-      "--source",
-      source,
-      "--dry-run",
-    ],
-    command: "bun",
-    cwd: root,
-    env: home.env,
-    stderr: "pipe",
-  });
-  let diagnostics = "";
-  transport.stderr?.on("data", (chunk: Buffer) => {
-    diagnostics += chunk.toString();
-  });
-  const client = new Client({ name: "marbles-test", version: "1.0.0" });
-  try {
-    await client.connect(transport);
-    const listed = await client.listTools();
-    expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
-    const workspaces = summarySchema
-      .array()
-      .parse(payload(await client.callTool({ name: "list_workspaces" })));
-    expect(workspaces).toEqual([
-      expect.objectContaining({ config: source, state: "stopped" }),
-    ]);
-    for (const [name, args] of [
-      ["list_config", {}],
-      ["dispatch_workflow", { name: "greeting" }],
-      ["dispatch_agent", { prompt: "Hello" }],
-      ["get_run", { runId: "any" }],
-      ["cancel_run", { runId: "any" }],
-    ] as const) {
-      const refused = toolAnswer(
-        await client.callTool({ arguments: args, name })
-      );
-      expect(refused.isError, name).toBe(true);
-      expect(refused.text, name).toContain("marbles attach");
-      expect(refused.text, name).toContain(DRY_REFUSAL);
-    }
-    const created = await client.callTool({
-      arguments: {
-        operations: [
-          { input: { title: "Dry" }, key: "dry", kind: "task.create" },
-        ],
-      },
-      name: "change_tasks",
-    });
-    expect(created.isError, JSON.stringify(created)).not.toBe(true);
-    const tasks = await client.callTool({ arguments: {}, name: "list_tasks" });
-    expect(tasks.structuredContent).toMatchObject({
-      items: [{ title: "Dry" }],
-      total: 1,
-    });
-    const elsewhere = toolAnswer(
-      await client.callTool({
-        arguments: { workspace: "other" },
-        name: "list_tasks",
-      })
-    );
-    expect(elsewhere.isError).toBe(true);
-    expect(elsewhere.text).toContain("is available under --dry-run");
-  } catch (error) {
-    throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
-  } finally {
-    await client.close();
-    expect(transport.pid).toBeNull();
-    expect(diagnostics).not.toContain("SOURCE_LOADED");
-    expect(existsSync(state)).toBe(false);
     await rm(root, { force: true, recursive: true });
   }
 }, 30_000);
@@ -337,18 +291,13 @@ process.on("exit", () => {
   );
   const session = await rawMcpSession(
     "bun",
-    ["--no-env-file", resolve("src/cli.ts"), "mcp", "--dry-run"],
+    ["--no-env-file", resolve("src/cli.ts"), "mcp"],
     { cwd: root, env }
   );
   try {
     const listed = z
       .object({ result: z.object({ structuredContent: z.unknown() }) })
-      .parse(
-        await session.request("tools/call", {
-          arguments: {},
-          name: "list_tasks",
-        })
-      );
+      .parse(await session.request("tools/call", WORKSPACES));
     expect(listed.result.structuredContent).toMatchObject({ total: 0 });
   } finally {
     const ended = await session.close();
@@ -381,7 +330,6 @@ Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });`,
       "--no-env-file",
       resolve("src/cli.ts"),
       "mcp",
-      "--dry-run",
     ],
     { cwd: root, env }
   );
@@ -401,6 +349,7 @@ Bun.spawnSync(["echo", "CHILD_STDOUT"], { stdout: "inherit" });`,
 it("refuses to serve without the relay's protocol pipe", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-unrelayed-"));
   const home = testHome({ providers: false });
+  const nonPipe = openSync("/dev/null", "r");
   try {
     const result = spawnSync(
       "bun",
@@ -410,7 +359,7 @@ it("refuses to serve without the relay's protocol pipe", async () => {
         encoding: "utf8",
         env: { ...home.env, MARBLES_MCP_SERVER: "1" },
         input: "",
-        stdio: ["pipe", "pipe", "pipe", "ignore"],
+        stdio: ["pipe", "pipe", "pipe", nonPipe],
         timeout: 15_000,
       }
     );
@@ -421,15 +370,15 @@ it("refuses to serve without the relay's protocol pipe", async () => {
     );
     expect(existsSync(home.layout.state)).toBe(false);
   } finally {
+    closeSync(nonPipe);
     await rm(root, { force: true, recursive: true });
   }
 }, 20_000);
 
-it("under --dry-run, never runs a source that throws at load, and still serves the task tools", async () => {
+it("never runs a source that throws at load, and still serves the task tools", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-mcp-broken-"));
   const source = join(root, "marbles.ts");
   const home = testHome({ providers: false });
-  const { state } = home.layout;
   const ran = join(root, "ran");
   await writeFile(
     source,
@@ -441,14 +390,7 @@ throw new Error("broken source");
   );
   const session = await rawMcpSession(
     "bun",
-    [
-      "--no-env-file",
-      resolve("src/cli.ts"),
-      "mcp",
-      "--source",
-      source,
-      "--dry-run",
-    ],
+    ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
     { cwd: root, env: home.env }
   );
   const resultSchema = z.object({
@@ -470,10 +412,7 @@ throw new Error("broken source");
     );
     expect(created.result.isError).not.toBe(true);
     const listed = resultSchema.parse(
-      await session.request("tools/call", {
-        arguments: {},
-        name: "list_tasks",
-      })
+      await session.request("tools/call", TASKS)
     );
     expect(listed.result.structuredContent).toMatchObject({
       items: [{ title: "Kept" }],
@@ -484,7 +423,6 @@ throw new Error("broken source");
     expect(ended.code).toBe(0);
     expect(ended.stderr).not.toContain("SOURCE_LOADED");
     expect(existsSync(ran)).toBe(false);
-    expect(existsSync(state)).toBe(false);
     expect(strayLines(ended.stdout)).toEqual([]);
     await rm(root, { force: true, recursive: true });
   }
@@ -501,9 +439,9 @@ it("answers from stored state with no Marbles process, and starts nothing", asyn
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, schedule, step, tasks } from "@foundry.sh/marbles";
-observe(tasks, () => appendFileSync(${JSON.stringify(observed)}, "x"));
-const tick = step("tick").do(() => appendFileSync(${JSON.stringify(ticked)}, "x"));
-schedule(tick).every("1s");`
+export const watched = observe(tasks, () => appendFileSync(${JSON.stringify(observed)}, "x"));
+export const tick = step("tick").do(() => appendFileSync(${JSON.stringify(ticked)}, "x"));
+export const tickSchedule = schedule(tick).every("1s");`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
@@ -528,7 +466,7 @@ schedule(tick).every("1s");`
       name: "change_tasks",
     });
     expect(created.isError, JSON.stringify(created)).not.toBe(true);
-    const listed = await client.callTool({ arguments: {}, name: "list_tasks" });
+    const listed = await client.callTool(TASKS);
     expect(listed.structuredContent).toMatchObject({
       items: [{ title: "Stored" }],
       total: 1,
@@ -542,30 +480,33 @@ schedule(tick).every("1s");`
         },
         name: "change_tasks",
       }),
-      client.callTool({ arguments: {}, name: "list_tasks" }),
-      client.callTool({ arguments: {}, name: "ready_tasks" }),
+      client.callTool(TASKS),
+      client.callTool({
+        arguments: { filter: { ready: true }, resource: "tasks" },
+        name: "list",
+      }),
     ]);
     for (const answered of together) {
       expect(answered.isError, JSON.stringify(answered)).not.toBe(true);
     }
-    const after = await client.callTool({ arguments: {}, name: "list_tasks" });
+    const after = await client.callTool(TASKS);
     expect(after.structuredContent).toMatchObject({ total: 2 });
-    expect(
-      summarySchema
-        .array()
-        .parse(payload(await client.callTool({ name: "list_workspaces" })))
-    ).toEqual([expect.objectContaining({ config: source, state: "stopped" })]);
+    expect(summaries(await client.callTool(WORKSPACES))).toEqual([
+      expect.objectContaining({ source, state: "stopped" }),
+    ]);
     for (const [name, args] of [
-      ["list_config", {}],
-      ["dispatch_workflow", { name: "tick" }],
+      ["list", { resource: "definitions" }],
+      ["list", { resource: "runs" }],
+      ["get", { fields: ["agents"], resource: "workspace" }],
+      ["enqueue_workflow", { name: "tick" }],
       ["dispatch_agent", { prompt: "Hello" }],
-      ["get_run", { runId: "rn-missing" }],
-      ["cancel_run", { runId: "rn-missing" }],
+      ["get", { id: "rn-missing", resource: "run" }],
+      ["cancel_run", { id: "rn-missing" }],
     ] as const) {
       const refused = await client.callTool({ arguments: args, name });
       expect(refused.isError, name).toBe(true);
       expect(JSON.stringify(refused.content), name).toContain(
-        "`marbles attach` in its root hosts it"
+        "`marbles start` in its root hosts it"
       );
     }
     await new Promise((settle) => setTimeout(settle, 1500));
@@ -637,13 +578,11 @@ it("starts without a source and serves the stored tasks of every recorded worksp
   const client = new Client({ name: "marbles-test", version: "1.0.0" });
   try {
     await client.connect(transport);
-    const listed = summarySchema
-      .array()
-      .parse(payload(await client.callTool({ name: "list_workspaces" })));
+    const listed = summaries(await client.callTool(WORKSPACES));
     expect(listed.map((entry) => entry.id)).toContain(recorded.id);
     const fromB = await client.callTool({
-      arguments: { workspace: recorded.id },
-      name: "list_tasks",
+      arguments: { resource: "tasks", workspace: recorded.id },
+      name: "list",
     });
     expect(fromB.isError, JSON.stringify(fromB)).not.toBe(true);
     expect(fromB.structuredContent).toMatchObject({
@@ -660,7 +599,7 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       name: "change_tasks",
     });
     expect(intoB.isError, JSON.stringify(intoB)).not.toBe(true);
-    const created = await client.callTool({
+    const noWorkspace = await client.callTool({
       arguments: {
         operations: [
           { input: { title: "In A" }, key: "a", kind: "task.create" },
@@ -668,16 +607,29 @@ it("starts without a source and serves the stored tasks of every recorded worksp
       },
       name: "change_tasks",
     });
-    expect(created.isError, JSON.stringify(created)).not.toBe(true);
+    expect(noWorkspace.isError).toBe(true);
+    expect(payload(noWorkspace)).toMatchObject({
+      error: {
+        code: "invalid_argument",
+        message: expect.stringContaining(
+          "workspace is required when no default workspace is active"
+        ),
+      },
+    });
     for (const id of ["missing", "..", `../${recorded.id}`, state]) {
       const unknown = await client.callTool({
-        arguments: { workspace: id },
-        name: "list_tasks",
+        arguments: { resource: "tasks", workspace: id },
+        name: "list",
       });
       expect(unknown.isError, id).toBe(true);
-      expect(JSON.stringify(unknown.content), id).toContain(
-        "list_workspaces names them"
-      );
+      expect(payload(unknown), id).toMatchObject({
+        error: {
+          code: "not_found",
+          message: expect.stringContaining(
+            "list (resource: workspaces) names them"
+          ),
+        },
+      });
     }
     const linked = await client.callTool({
       arguments: {
@@ -690,18 +642,57 @@ it("starts without a source and serves the stored tasks of every recorded worksp
     });
     expect(linked.isError).toBe(true);
     expect(JSON.stringify(linked.content)).toContain(
-      "list_workspaces names them"
+      "list (resource: workspaces) names them"
     );
     expect(await readdir(outside)).toEqual([]);
     expect(listed.map((entry) => entry.id)).not.toContain("abc");
+    expect(listed.map((entry) => entry.id)).not.toContain(
+      workspaceState(state, here).id
+    );
     const config = await client.callTool({
-      arguments: {},
-      name: "list_config",
+      arguments: { resource: "definitions" },
+      name: "list",
     });
     expect(config.isError).toBe(true);
-    expect(JSON.stringify(config.content)).toContain("no Marbles source at");
+    expect(JSON.stringify(config.content)).toContain(
+      "workspace is required when no default workspace is active"
+    );
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
+  } finally {
+    await client.close();
+    await rm(root, { force: true, recursive: true });
+  }
+}, 60_000);
+
+it("explains the missing source when its default workspace is not hosted", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mm-"));
+  const home = testHome();
+  const source = join(root, "marbles.ts");
+  const own = workspaceState(home.layout.state, root);
+  const transport = new RecordedStdioTransport({
+    args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
+    command: "bun",
+    cwd: root,
+    env: home.env,
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "marbles-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    for (const target of [{}, { workspace: own.id }]) {
+      const definitions = await client.callTool({
+        arguments: { ...target, resource: "definitions" },
+        name: "list",
+      });
+      expect(definitions.isError).toBe(true);
+      expect(payload(definitions)).toMatchObject({
+        error: {
+          code: "not_hosted",
+          message: expect.stringContaining(`no Marbles source at "${source}"`),
+        },
+      });
+    }
   } finally {
     await client.close();
     await rm(root, { force: true, recursive: true });
@@ -720,7 +711,13 @@ it("refuses its own workspace's tasks when its state links out of the state root
   const own = workspaceState(state, here);
   await symlink(outside, own.dir);
   const transport = new RecordedStdioTransport({
-    args: ["--no-env-file", resolve("src/cli.ts"), "mcp"],
+    args: [
+      "--no-env-file",
+      resolve("src/cli.ts"),
+      "mcp",
+      "--source",
+      join(here, "marbles.ts"),
+    ],
     command: "bun",
     cwd: here,
     env: home.env,
@@ -766,8 +763,8 @@ it("serves a workspace the Marbles process hosts, by default and by id", async (
     source,
     `import { step, workflow } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(schemaLibrary)};
-const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => ({ greeting: "Hello " + input.name }));
-workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
+export const greet = step("greet").input(z.object({ name: z.string() })).do(({ input }) => ({ greeting: "Hello " + input.name }));
+export const greeting = workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => greet({}, input));`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
@@ -784,7 +781,7 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
   try {
     const attached = spawnSync(
       "bun",
-      ["--no-env-file", resolve("src/cli.ts"), "attach", "--source", source],
+      ["--no-env-file", resolve("src/cli.ts"), "start", "--source", source],
       { cwd: root, encoding: "utf8", env: home.env, timeout: 60_000 }
     );
     expect(attached.status, attached.stderr).toBe(0);
@@ -793,19 +790,17 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
     await client.connect(transport);
     const listed = await client.listTools();
     expect(listed.tools.map(({ name }) => name)).toEqual(TOOL_NAMES);
-    const hosted = summarySchema
-      .array()
-      .parse(payload(await client.callTool({ name: "list_workspaces" })));
+    const hosted = summaries(await client.callTool(WORKSPACES));
     expect(hosted).toHaveLength(1);
     const [workspace] = hosted;
     if (workspace === undefined) {
       throw new Error("no workspace is hosted");
     }
-    expect(workspace.config).toBe(source);
+    expect(workspace.source).toBe(source);
     expect(workspace.state).toBe("ready");
     const byDefault = await client.callTool({
-      arguments: {},
-      name: "list_config",
+      arguments: { resource: "definitions" },
+      name: "list",
     });
     expect(byDefault.isError, JSON.stringify(byDefault)).not.toBe(true);
     expect(byDefault.content).toEqual([
@@ -814,8 +809,8 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       }),
     ]);
     const byId = await client.callTool({
-      arguments: { workspace: workspace.id },
-      name: "list_config",
+      arguments: { resource: "definitions", workspace: workspace.id },
+      name: "list",
     });
     expect(byId.isError, JSON.stringify(byId)).not.toBe(true);
     expect(byId.content).toEqual(byDefault.content);
@@ -825,16 +820,13 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
         name: "greeting",
         workspace: workspace.id,
       },
-      name: "dispatch_workflow",
+      name: "enqueue_workflow",
     });
     expect(run.isError, JSON.stringify(run)).not.toBe(true);
-    const { runId } = runIdentity(run);
+    const { id: runId } = runIdentity(run);
     await vi.waitFor(
       async () => {
-        const status = await client.callTool({
-          arguments: { runId },
-          name: "get_run",
-        });
+        const status = await client.callTool(runOf(runId));
         expect(status.content).toEqual([
           expect.objectContaining({
             text: expect.stringContaining('"status":"completed"'),
@@ -848,69 +840,19 @@ workflow("greeting").input(z.object({ name: z.string() })).do(({ input }) => gre
       },
       { timeout: 15_000 }
     );
+    expect(
+      payload(
+        await client.callTool({
+          arguments: { fields: ["status"], resource: "runs" },
+          name: "list",
+        })
+      )
+    ).toEqual({ items: [{ id: runId, status: "completed" }], total: 1 });
     const unknown = await client.callTool({
-      arguments: { workspace: "missing" },
-      name: "list_config",
+      arguments: { resource: "definitions", workspace: "missing" },
+      name: "list",
     });
     expect(unknown.isError).toBe(true);
-    const dry = new Client({ name: "marbles-dry", version: "1.0.0" });
-    const dryTransport = new RecordedStdioTransport({
-      args: [
-        "--no-env-file",
-        resolve("src/cli.ts"),
-        "mcp",
-        "--source",
-        source,
-        "--dry-run",
-      ],
-      command: "bun",
-      cwd: root,
-      env: home.env,
-      stderr: "pipe",
-    });
-    try {
-      await dry.connect(dryTransport);
-      expect(
-        summarySchema
-          .array()
-          .parse(payload(await dry.callTool({ name: "list_workspaces" })))
-      ).toEqual([
-        expect.objectContaining({ id: workspace.id, state: "stopped" }),
-      ]);
-      const refused = toolAnswer(
-        await dry.callTool({
-          arguments: { input: { name: "Dry" }, name: "greeting" },
-          name: "dispatch_workflow",
-        })
-      );
-      expect(refused.isError).toBe(true);
-      expect(refused.text).toContain(DRY_REFUSAL);
-      expect(
-        toolAnswer(
-          await dry.callTool({ arguments: { runId }, name: "get_run" })
-        ).isError
-      ).toBe(true);
-      const created = await dry.callTool({
-        arguments: {
-          operations: [
-            { input: { title: "Dry only" }, key: "d", kind: "task.create" },
-          ],
-        },
-        name: "change_tasks",
-      });
-      expect(created.isError, JSON.stringify(created)).not.toBe(true);
-      expect(
-        (await dry.callTool({ arguments: {}, name: "list_tasks" }))
-          .structuredContent
-      ).toMatchObject({ items: [{ title: "Dry only" }], total: 1 });
-    } finally {
-      await dry.close();
-    }
-    expect(
-      JSON.stringify(
-        await client.callTool({ arguments: {}, name: "list_tasks" })
-      )
-    ).not.toContain("Dry only");
   } catch (error) {
     throw new Error(`MCP session failed:\n${diagnostics}`, { cause: error });
   } finally {

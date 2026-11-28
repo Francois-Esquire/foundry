@@ -1,4 +1,6 @@
-import type { Notation, PromptReference, PromptSource } from "./language";
+import type { Notation } from "./notation";
+import type { PromptReference } from "./reference";
+import type { PromptSource } from "./source";
 import { namesSource, type PromptNames } from "./source";
 
 export interface DialectSpec {

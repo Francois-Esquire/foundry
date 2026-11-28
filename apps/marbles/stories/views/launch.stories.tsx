@@ -1,6 +1,6 @@
 import { defineStories, story } from "textbook-sh";
-import type { DefinitionSnapshot } from "~/cli/state/dashboard-model";
-import { LaunchView } from "~/cli/views/launch";
+import type { DefinitionSnapshot } from "~/tui/state/dashboard-model";
+import { LaunchView } from "~/tui/views/launch";
 import { previewScenarios } from "../fixtures/scenarios";
 import { ignore } from "../frame";
 import { renderReactStory } from "../render-react-story";

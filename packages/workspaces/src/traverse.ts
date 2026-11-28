@@ -1,14 +1,37 @@
-import type { DirectoryEntry, StorageReader } from "@foundry/core/storage";
+import type {
+  DirectoryEntry,
+  StorageNode,
+  StorageReader,
+} from "@foundry/core/storage";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import {
   joinFilesystemPath,
   lastPathSegment,
   normalizeStoragePath,
 } from "@foundry/lib/paths";
+import type { Ignore } from "ignore";
 import ignore from "ignore";
-import { BASELINE_IGNORE_PATTERNS } from "./constants";
 import { sourceIssueFor, WorkspaceSourceUnavailableError } from "./errors";
-import type { IgnoreScope, WalkedEntry } from "./types";
+
+const BASELINE_IGNORE_PATTERNS: readonly string[] = [
+  ".git/",
+  ".foundry/",
+  ".turbo/",
+  "node_modules/",
+  ".DS_Store",
+  "Thumbs.db",
+];
+
+interface IgnoreScope {
+  readonly base: string;
+  readonly matcher: Ignore;
+}
+
+export interface WalkedEntry {
+  readonly absolutePath: string;
+  readonly relativePath: string;
+  readonly type: StorageNode["type"];
+}
 
 function baselineIgnoreScope(): IgnoreScope {
   return {

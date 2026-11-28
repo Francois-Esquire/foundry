@@ -1,13 +1,14 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createContainers } from "@foundry/sandbox/node";
+import { createFakeDriver } from "@foundry/sandbox/testing";
+import { artifactBlobs } from "~/database/local-artifacts";
 import { openDatabase } from "~/database/open";
-import { artifactBlobs, workspaceStores } from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
-import { localCatalogue } from "~/lib/managers/workspaces";
+import { localWorkspaces } from "~/lib/managers/workspaces";
 
 const SCOPE = "ws";
 
@@ -33,17 +34,16 @@ if (opened === undefined) {
   throw new Error(`no Marbles database under ${state}`);
 }
 const stores = workspaceStores(opened.database, SCOPE);
-const manager = new ArtifactManager({
+const manager = new Artifacts({
   files: blobFiles(artifactBlobs(artifacts, SCOPE)),
   store: stores.artifacts,
 });
 const containers = createContainers({
-  allowedMountRoots: [],
+  driver: createFakeDriver(),
   instanceLabel: `store-writer-${name}`,
-  runtime: createFakeContainerRuntime(),
   store: stores.containers,
 });
-const catalogue = localCatalogue({}, stores.workspaces);
+const catalogue = localWorkspaces({}, stores.workspaces);
 process.stdout.write("ready\n");
 while (!existsSync(go)) {
   await new Promise((settle) => setTimeout(settle, 5));
@@ -60,7 +60,6 @@ try {
       type: "text/plain",
     });
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       mounts: [],
       workdir: "/workspace",
     });

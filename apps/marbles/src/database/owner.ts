@@ -1,16 +1,16 @@
-import {
-  isGone,
-  ownerOf,
-  type ProcessIdentity,
-  thisProcess,
-} from "@foundry/lib/process-identity";
+import { ownerOf, type ProcessIdentity } from "@foundry/lib/process-identity";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 
-export function ownedHere(ownerId: string): {
+export function ownedHere(
+  ownerId: string,
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
+): {
   readonly ownerId: string;
   readonly ownerPid: number;
   readonly ownerStarted: string | null;
 } {
-  const { pid, started } = thisProcess();
+  const { pid, started } = liveness.identity();
   return { ownerId, ownerPid: pid, ownerStarted: started };
 }
 
@@ -20,19 +20,22 @@ export const NO_OWNER = {
   ownerStarted: null,
 } as const;
 
-export function rowOwner(row: {
+function rowOwner(row: {
   readonly ownerPid: number | null;
   readonly ownerStarted: string | null;
 }): ProcessIdentity | null {
   return ownerOf(row.ownerPid, row.ownerStarted);
 }
 
-export function heldBy(row: {
-  readonly ownerPid: number | null;
-  readonly ownerStarted: string | null;
-}): ProcessIdentity | null {
+export function heldBy(
+  row: {
+    readonly ownerPid: number | null;
+    readonly ownerStarted: string | null;
+  },
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
+): ProcessIdentity | null {
   const owner = rowOwner(row);
-  return owner === null || isGone(owner) ? null : owner;
+  return owner === null || liveness.isGone(owner) ? null : owner;
 }
 
 export const CHANGED: unique symbol = Symbol("the owner changed");

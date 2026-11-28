@@ -1,42 +1,52 @@
-import { step } from "@foundry.sh/marbles";
-import { z } from "zod";
-import {
-  issueInput,
-  maxAttempts,
-  recordEvent,
-  recordSchema,
-  requireRecord,
-} from "./record";
+import { observe, runs, tasks, workflow } from "@foundry.sh/marbles";
 
-export const revisionInput = issueInput.extend({ note: z.string().min(1) });
-export const revise = step("factory-revision-request")
-  .input(revisionInput)
-  .output(recordSchema)
-  .do(async ({ input, run }) => {
-    const work = await requireRecord(input.issue);
-    if (
-      !(
-        work.change &&
-        work.plan &&
-        ["needs-changes", "declined", "pr-open"].includes(work.status)
-      )
-    ) {
-      throw new Error(
-        "Revise a reviewed candidate. Reconcile blocked work before continuing."
-      );
-    }
-    if (work.attempts >= maxAttempts) {
-      throw new Error("Attempt limit reached. Record a handoff for a person.");
-    }
-    return recordEvent(
+const maxAttempts = 3;
+
+export async function sendBack(id: string, findings: string): Promise<void> {
+  const task = await tasks.get(id);
+  if (!task) {
+    return;
+  }
+  const attempts = Number(task.metadata.attempts ?? 0) + 1;
+  if (attempts >= maxAttempts) {
+    await tasks.update(id, {
+      metadata: { attempts, findings },
+      tags: ["needs-owner"],
+    });
+    return;
+  }
+  await tasks.change({
+    operations: [
       {
-        ...work,
-        decision: undefined,
-        status: "planned",
-        verification: undefined,
+        kind: "task.update",
+        patch: { metadata: { attempts, findings } },
+        task: { id },
       },
-      run.id,
-      "revision requested",
-      input.note
-    );
+      { kind: "task.set_status", status: "open", task: { id } },
+    ],
   });
+}
+
+observe(
+  workflow,
+  async function factoryFailures({ runId }) {
+    const run = await runs.get(runId);
+    const input = run?.input as { task?: string } | undefined;
+    const task = input?.task ? await tasks.get(input.task) : null;
+    if (!(run?.name.startsWith("factory-") && task)) {
+      return;
+    }
+    if (task.metadata.failedRun === runId) {
+      return;
+    }
+    await tasks.update(task.id, {
+      metadata: {
+        attempts: Number(task.metadata.attempts ?? 0) + 1,
+        failedRun: runId,
+        failure: `${run.name}: ${run.error ?? "failed"}`,
+      },
+      tags: ["needs-owner"],
+    });
+  },
+  { types: ["run.cancelled", "run.failed"] }
+);

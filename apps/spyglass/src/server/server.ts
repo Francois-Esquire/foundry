@@ -1,6 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
-import { hasErrorCode, isMissingPath } from "@foundry/lib/atomic-file";
+import { hasErrorCode, isMissingPath } from "@foundry/lib/node/atomic-file";
 import { COLLECTION_MANIFEST } from "../lib/dataset-layout";
 
 interface CollectionData {

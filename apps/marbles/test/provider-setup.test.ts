@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Provider } from "@foundry/models";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { DatabaseProviderStore } from "~/database/providers";
+import { providerStoreForState } from "~/database/open";
 import {
   discoverProviderSetup,
   setupProviders,
@@ -24,7 +24,6 @@ const detected = (id: string, found: boolean) =>
         id: name,
         languageModel: () => ({}) as never,
         models: [],
-        offline: false,
       } satisfies Provider,
     }),
     detect: () => (found ? {} : null),
@@ -48,9 +47,9 @@ afterEach(() => {
 });
 
 async function machineIds(): Promise<string[] | undefined> {
-  return (
-    await DatabaseProviderStore.forState(state).read()
-  ).machine?.providers.map((entry) => entry.id);
+  return (await providerStoreForState(state).read()).machine?.providers.map(
+    (entry) => entry.id
+  );
 }
 
 async function configure(
@@ -61,7 +60,7 @@ async function configure(
     providers: ids.map((id) => ({ enabled: true, id, plugin: id })),
     version: 1 as const,
   };
-  await DatabaseProviderStore.forState(state).update(scope, () =>
+  await providerStoreForState(state).update(scope, () =>
     scope === undefined
       ? { machine: configuration }
       : { workspace: configuration }
@@ -106,6 +105,27 @@ it("writes nothing when declined, and asks nothing once configured", async () =>
   expect(confirm).not.toHaveBeenCalled();
 });
 
+it("adds newly detected adapters without replacing the providers already configured", async () => {
+  await configure(["codex"]);
+  const confirm = vi.fn(() => Promise.resolve(true));
+  await setupProviders({
+    confirm,
+    plugins: PLUGINS,
+    print: () => undefined,
+    state,
+  });
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(await machineIds()).toEqual(["codex", "claude-code"]);
+  confirm.mockClear();
+  await setupProviders({
+    confirm,
+    plugins: PLUGINS,
+    print: () => undefined,
+    state,
+  });
+  expect(confirm).not.toHaveBeenCalled();
+});
+
 it("leaves out an id a workspace already uses, and never fails on it", async () => {
   await configure(["claude-code"], "abc123");
   const lines: string[] = [];
@@ -129,6 +149,24 @@ it("leaves out an id a workspace already uses, and never fails on it", async () 
     state,
   });
   expect(await machineIds()).toEqual(["codex"]);
+});
+
+it("reports providers saved before a later id is reserved during confirmation", async () => {
+  await configure(["codex"]);
+  const lines: string[] = [];
+  await setupProviders({
+    confirm: async () => {
+      await configure(["pi"], "other");
+      return true;
+    },
+    plugins: [detected("claude-code", true), detected("pi", true)],
+    print: (line) => lines.push(line),
+    state,
+  });
+  expect(await machineIds()).toEqual(["codex", "claude-code"]);
+  expect(lines.at(-1)).toContain("Saved claude-code");
+  expect(lines.at(-1)).toContain("pi");
+  expect(lines.at(-1)).not.toContain("Nothing saved");
 });
 
 it("keeps a configuration another process wrote while the question was open", async () => {
@@ -177,7 +215,7 @@ it("saves nothing when a workspace takes an offered id while the question is ope
   expect(lines.at(-1)).toContain("workspace other");
 });
 
-it("offers only Claude Code and Codex by default, with Pi on PATH beside them", async () => {
+it("offers installed Claude Code, Codex and Pi adapters with their CLIs on PATH", async () => {
   const bin = mkdtempSync(join(tmpdir(), "marbles-setup-bin-"));
   try {
     fakeClaude(bin);
@@ -190,6 +228,7 @@ it("offers only Claude Code and Codex by default, with Pi on PATH beside them", 
     expect(setup.offered.map((entry) => entry.id).sort()).toEqual([
       "claude-code",
       "codex",
+      "pi",
     ]);
   } finally {
     vi.unstubAllEnvs();

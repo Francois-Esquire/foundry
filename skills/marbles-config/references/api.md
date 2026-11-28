@@ -287,13 +287,13 @@ publish.parallel({ a: x({}), b: y({}) }); // children together
 - One definition can be locked many times; each lock is its own node.
 - `.parallel` is the only combinator besides the default series. There is no
   race, branch, or loop yet. A workflow is a definition too: `weekly({})`
-  locks it. A workflow lock is only ever the root of a run, launched,
-  scheduled, or returned by a monitor. As a child in another tree it throws
-  `a workflow can only be the root of a run`.
+  locks it as a root, a trigger target, or a nested child inside another
+  workflow tree (direct or indirect cycles are rejected, and `$workflow` is
+  reserved as a child key).
 
 In a parallel group the first failure fails the run; the siblings are
-aborted and awaited before the failure is reported. A sibling that parks on
-a question parks the parent with it while the others finish.
+aborted and awaited before the failure is reported. A sibling that suspends on
+a question suspends the parent with it while the others finish.
 
 ## Context
 
@@ -586,7 +586,7 @@ monitor("https://tracker.example.com/latest")
   glob that matches nothing fires nothing.
 - **Keys.** A schedule is keyed `slug(target)[-sha8(input)]`, a monitor
   `slug(source)-sha6(source)`; an exact duplicate gets `-2`. `list` prints
-  the keys. They name the state files and `roll <key>`.
+  the keys. They name the state files and `marbles run <key>`.
 
 ## Composition and durability
 
@@ -598,10 +598,10 @@ by new commands and sessions. Session options can select a different host
 | Situation | Rule |
 | --- | --- |
 | Continue the same run | Reuse completed step results. |
-| Resume a parked step | Replay its unfinished body from the top. Recorded managed operations are matched by call order. |
+| Resume a suspended step | Replay its unfinished body from the top. Recorded managed operations are matched by call order. |
 | Retry a failed attempt | Apply that step's policy with fresh managed operations; completed children keep their results. |
 | Launch again | Create a new run and execute fresh work. |
-| Restart the host | Adopt eligible parked runs. Interrupted queued or running work is not adopted. |
+| Restart the host | Adopt eligible suspended runs. Interrupted queued or running work is not adopted. |
 | Rebuild workflow setup | Recreate the tree; recovered nodes retain their recorded literal input. |
 
 Keep managed call order stable. Branch on recorded input when it controls
@@ -653,7 +653,7 @@ Do not write modules that depend on these.
 - Race, branch, and loops between steps. Only series and parallel.
 - A built-in model provider. No `provider` means the first installed CLI.
 - Recovery of a step that was mid-body when the process stopped. A step
-  parked on an `ask` or a pause does survive a quit, a crash, or a kill.
+  suspended on an `ask` or a pause does survive a quit, a crash, or a kill.
 - Scheduling a tree with children without wrapping it in `workflow`.
 - Remote deployment commands, a remote dashboard, or distributed workers.
 

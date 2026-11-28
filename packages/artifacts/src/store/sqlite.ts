@@ -1,23 +1,46 @@
+import type { Page } from "@foundry/core/pagination";
+import { pageFromRows } from "@foundry/lib/pagination";
+import {
+  assertScope,
+  batches,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableText,
+  whyUnstorable,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
   and,
   asc,
   count,
   eq,
   getTableColumns,
+  gt,
   inArray,
   is,
+  isNotNull,
+  isNull,
   ne,
   or,
   sql,
 } from "drizzle-orm";
-import type { BaseSQLiteDatabase, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
-
-import type { ArtifactCursor } from "../listing";
-import { ownedListQuery } from "../listing";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
+import type {
+  ArtifactCursor,
+  NormalizedBlobPageQuery,
+  NormalizedContentPageQuery,
+} from "../listing";
+import {
+  compareCreated,
+  ownedBlobPageQuery,
+  ownedContentPageQuery,
+  ownedListQuery,
+} from "../listing";
 import type { Artifact, Blob, Content } from "../schema";
 import type {
   ArtifactListing,
@@ -26,7 +49,10 @@ import type {
   ArtifactStoreDurability,
   ArtifactStoreWrite,
   BlobListing,
+  BlobPageQuery,
   BlobReferences,
+  ContentLookup,
+  ContentPageQuery,
 } from "./index";
 import { ownedWrite } from "./owned";
 import {
@@ -37,18 +63,9 @@ import {
   artifacts,
 } from "./tables";
 
-export type ArtifactDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type ArtifactDatabase = SqliteDatabase;
 
-export type ArtifactDatabaseTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type ArtifactDatabaseTransaction = SqliteTransaction;
 
 export interface SqliteArtifactStoreOptions {
   readonly database: ArtifactDatabase;
@@ -78,9 +95,18 @@ const { scope: _contentScope, ...contentColumns } =
 
 const { scope: _blobScope, ...blobColumns } = getTableColumns(artifactBlobs);
 
-const replaceArtifact = replacing(getTableColumns(artifacts));
-const replaceContent = replacing(getTableColumns(artifactContents));
-const replaceBlob = replacing(getTableColumns(artifactBlobs));
+const replaceArtifact = replacing(getTableColumns(artifacts), [
+  artifacts.scope,
+  artifacts.id,
+]);
+const replaceContent = replacing(getTableColumns(artifactContents), [
+  artifactContents.scope,
+  artifactContents.id,
+]);
+const replaceBlob = replacing(getTableColumns(artifactBlobs), [
+  artifactBlobs.scope,
+  artifactBlobs.id,
+]);
 
 const REENTRY =
   "SqliteArtifactStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead";
@@ -97,11 +123,7 @@ export class SqliteArtifactStore implements ArtifactStore {
   #open: { value: boolean } | undefined;
 
   constructor(options: SqliteArtifactStoreOptions) {
-    if (options.scope.length === 0 || !storable(options.scope)) {
-      throw new RangeError(
-        "scope must be a nonempty string with no U+0000 and no lone surrogate"
-      );
-    }
+    assertScope(options.scope);
     const joined = is(options.database, SQLiteTransaction);
     if (joined && options.durability === "commit") {
       throw new RangeError(
@@ -157,7 +179,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   getArtifact(id: ArtifactId): Promise<Artifact | null> {
     return this.#run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -170,7 +192,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   getContent(id: ContentId): Promise<Content | null> {
     return this.#run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -188,7 +210,7 @@ export class SqliteArtifactStore implements ArtifactStore {
 
   getBlob(id: BlobId): Promise<Blob | null> {
     return this.#run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -201,9 +223,28 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
+  findBlobByPath(path: string): Promise<Blob | null> {
+    return this.#run(async () => {
+      if (!storableText(path)) {
+        return null;
+      }
+      const [row] = await this.#database
+        .select(blobColumns)
+        .from(artifactBlobs)
+        .where(
+          and(
+            eq(artifactBlobs.scope, this.#scope),
+            eq(artifactBlobs.path, path)
+          )
+        )
+        .limit(1);
+      return row ? blobOf(this.#scope, row) : null;
+    });
+  }
+
   findBlobs(digest: string): Promise<readonly Blob[]> {
     return this.#run(async () => {
-      if (!storable(digest)) {
+      if (!storableText(digest)) {
         return [];
       }
       const rows = await this.#database
@@ -219,9 +260,83 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
+  findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    const { messageId, sessionId } = by;
+    return this.#run(async () => {
+      if (
+        !storableText(artifactId) ||
+        typeof sessionId !== "string" ||
+        typeof messageId !== "string"
+      ) {
+        return null;
+      }
+      if (!(storableText(sessionId) && storableText(messageId))) {
+        const rows = await this.#database
+          .select(contentColumns)
+          .from(artifactContents)
+          .where(
+            and(
+              eq(artifactContents.scope, this.#scope),
+              eq(artifactContents.artifactId, artifactId)
+            )
+          );
+        return (
+          rows
+            .filter(
+              (row) =>
+                row.metadata.sessionId === sessionId &&
+                row.metadata.messageId === messageId
+            )
+            .sort(compareCreated)
+            .at(-1) ?? null
+        );
+      }
+      const rows = await this.#database
+        .select(contentColumns)
+        .from(artifactContents)
+        .where(
+          and(
+            eq(artifactContents.scope, this.#scope),
+            eq(artifactContents.artifactId, artifactId),
+            sql`json_type(${artifactContents.metadata}, '$.sessionId') = 'text'`,
+            sql`json_extract(${artifactContents.metadata}, '$.sessionId') = ${sessionId}`,
+            sql`json_type(${artifactContents.metadata}, '$.messageId') = 'text'`,
+            sql`json_extract(${artifactContents.metadata}, '$.messageId') = ${messageId}`
+          )
+        );
+      return rows.sort(compareCreated).at(-1) ?? null;
+    });
+  }
+
+  findContentByTag(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null> {
+    return this.#run(async () => {
+      if (!(storableText(artifactId) && storableText(tag))) {
+        return null;
+      }
+      const [row] = await this.#database
+        .select(contentColumns)
+        .from(artifactContents)
+        .where(
+          and(
+            eq(artifactContents.scope, this.#scope),
+            eq(artifactContents.artifactId, artifactId),
+            eq(artifactContents.tag, tag)
+          )
+        )
+        .limit(1);
+      return row ?? null;
+    });
+  }
+
   findReferences(id: BlobId): Promise<BlobReferences> {
     return this.#run(() => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return Promise.resolve({ blobIds: [], contentIds: [] });
       }
       return this.#database.transaction(async (transaction) => {
@@ -265,7 +380,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     return this.#run(() => {
       const needle = query.text?.toLowerCase();
       if (
-        (query.type !== undefined && !storable(query.type)) ||
+        (query.type !== undefined && !storableText(query.type)) ||
         needle?.includes("\u0000")
       ) {
         return Promise.resolve({ artifacts: [], total: 0 });
@@ -311,9 +426,44 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
+  listBlobsPage(query?: BlobPageQuery): Promise<Page<BlobListing, BlobId>> {
+    let owned: NormalizedBlobPageQuery;
+    try {
+      owned = ownedBlobPageQuery(query);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run(async () => {
+      if (owned.cursor !== undefined && !storableText(owned.cursor)) {
+        return { items: [] };
+      }
+      const rows = await this.#database
+        .select({ id: artifactBlobs.id, path: artifactBlobs.path })
+        .from(artifactBlobs)
+        .where(
+          and(
+            eq(artifactBlobs.scope, this.#scope),
+            owned.cursor === undefined
+              ? undefined
+              : gt(artifactBlobs.id, owned.cursor)
+          )
+        )
+        .orderBy(asc(artifactBlobs.id))
+        .limit(owned.limit + 1);
+      return pageFromRows(
+        rows.map((row) =>
+          row.path === null ? { id: row.id } : { id: row.id, path: row.path }
+        ),
+        owned.limit,
+        undefined,
+        (blob) => blob.id
+      );
+    });
+  }
+
   listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return this.#run(() => {
-      if (artifactId !== undefined && !storable(artifactId)) {
+      if (artifactId !== undefined && !storableText(artifactId)) {
         return Promise.resolve([]);
       }
       return this.#database
@@ -327,6 +477,51 @@ export class SqliteArtifactStore implements ArtifactStore {
               : eq(artifactContents.artifactId, artifactId)
           )
         );
+    });
+  }
+
+  listContentsPage(
+    query?: ContentPageQuery
+  ): Promise<Page<Content, ContentId>> {
+    let owned: NormalizedContentPageQuery;
+    try {
+      owned = ownedContentPageQuery(query);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#run(async () => {
+      if (
+        (owned.artifactId !== undefined && !storableText(owned.artifactId)) ||
+        (owned.cursor !== undefined && !storableText(owned.cursor))
+      ) {
+        return { items: [] };
+      }
+      const states = owned.states?.filter(storableText);
+      if (owned.states !== undefined && (states?.length ?? 0) === 0) {
+        return { items: [] };
+      }
+      const rows = await this.#database
+        .select(contentColumns)
+        .from(artifactContents)
+        .where(
+          and(
+            eq(artifactContents.scope, this.#scope),
+            owned.artifactId === undefined
+              ? undefined
+              : eq(artifactContents.artifactId, owned.artifactId),
+            states === undefined
+              ? undefined
+              : inArray(artifactContents.state, states),
+            owned.tagged === true ? isNotNull(artifactContents.tag) : undefined,
+            owned.tagged === false ? isNull(artifactContents.tag) : undefined,
+            owned.cursor === undefined
+              ? undefined
+              : gt(artifactContents.id, owned.cursor)
+          )
+        )
+        .orderBy(asc(artifactContents.id))
+        .limit(owned.limit + 1);
+      return pageFromRows(rows, owned.limit, undefined, (row) => row.id);
     });
   }
 
@@ -379,51 +574,54 @@ export class SqliteArtifactStore implements ArtifactStore {
       rows.deleteBlobs
     );
 
-    await inOrder(batches(rows.artifacts, perStatement(artifacts)), (batch) =>
-      transaction
+    for (const batch of batches(rows.artifacts, perStatement(artifacts))) {
+      await transaction
         .insert(artifacts)
         .values(batch)
         .onConflictDoUpdate({
           set: replaceArtifact,
           target: [artifacts.scope, artifacts.id],
-        })
-    );
-    await inOrder(
-      batches(rows.contents, perStatement(artifactContents)),
-      (batch) =>
-        transaction
-          .insert(artifactContents)
-          .values(batch)
-          .onConflictDoUpdate({
-            set: replaceContent,
-            target: [artifactContents.scope, artifactContents.id],
-          })
-    );
-    await inOrder(batches(rows.blobs, perStatement(artifactBlobs)), (batch) =>
-      transaction
+        });
+    }
+    for (const batch of batches(
+      rows.contents,
+      perStatement(artifactContents)
+    )) {
+      await transaction
+        .insert(artifactContents)
+        .values(batch)
+        .onConflictDoUpdate({
+          set: replaceContent,
+          target: [artifactContents.scope, artifactContents.id],
+        });
+    }
+    for (const batch of batches(rows.blobs, perStatement(artifactBlobs))) {
+      await transaction
         .insert(artifactBlobs)
         .values(batch)
         .onConflictDoUpdate({
           set: replaceBlob,
           target: [artifactBlobs.scope, artifactBlobs.id],
-        })
-    );
-    await inOrder(
-      batches(rows.contentBlobs, perStatement(artifactContentBlobs)),
-      (batch) =>
-        transaction
-          .insert(artifactContentBlobs)
-          .values(batch)
-          .onConflictDoNothing()
-    );
-    await inOrder(
-      batches(rows.blobChunks, perStatement(artifactBlobChunks)),
-      (batch) =>
-        transaction
-          .insert(artifactBlobChunks)
-          .values(batch)
-          .onConflictDoNothing()
-    );
+        });
+    }
+    for (const batch of batches(
+      rows.contentBlobs,
+      perStatement(artifactContentBlobs)
+    )) {
+      await transaction
+        .insert(artifactContentBlobs)
+        .values(batch)
+        .onConflictDoNothing();
+    }
+    for (const batch of batches(
+      rows.blobChunks,
+      perStatement(artifactBlobChunks)
+    )) {
+      await transaction
+        .insert(artifactBlobChunks)
+        .values(batch)
+        .onConflictDoNothing();
+    }
   }
 }
 
@@ -478,7 +676,7 @@ function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
     ),
     blobs: putBlobs.map((blob) => ({
       byteLength: blob.byteLength,
-      bytes: blob.bytes === undefined ? null : Buffer.from(blob.bytes),
+      bytes: blob.bytes === undefined ? null : new Uint8Array(blob.bytes),
       chunks: blob.chunks ?? null,
       createdAt: blob.createdAt,
       digest: blob.digest,
@@ -506,9 +704,9 @@ function writeRows(scope: string, write: ArtifactStoreWrite): WriteRows {
       tree: content.tree,
       updatedAt: content.updatedAt,
     })),
-    deleteArtifacts: (write.deleteArtifacts ?? []).filter(storable),
-    deleteBlobs: (write.deleteBlobs ?? []).filter(storable),
-    deleteContents: (write.deleteContents ?? []).filter(storable),
+    deleteArtifacts: (write.deleteArtifacts ?? []).filter(storableText),
+    deleteBlobs: (write.deleteBlobs ?? []).filter(storableText),
+    deleteContents: (write.deleteContents ?? []).filter(storableText),
   };
 }
 
@@ -587,26 +785,14 @@ function codeUnitText(text: string): string {
   return units;
 }
 
-function codeUnitOrder(id: string): Buffer {
-  const bytes = Buffer.alloc(id.length * 2);
+function codeUnitOrder(id: string): Uint8Array {
+  const bytes = new Uint8Array(id.length * 2);
+  const view = new DataView(bytes.buffer);
   for (let index = 0; index < id.length; index += 1) {
-    bytes.writeUInt16BE(id.charCodeAt(index), index * 2);
+    view.setUint16(index * 2, id.charCodeAt(index), false);
   }
   return bytes;
 }
-
-function storable(text: unknown): text is string {
-  return (
-    typeof text === "string" && text.isWellFormed() && !text.includes("\u0000")
-  );
-}
-
-const TEXT =
-  "text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite";
-const TIME =
-  "a time that is not a valid Date has no epoch milliseconds to store";
-const INTEGER =
-  "SQLite keeps an integer column as a safe integer, and reads -0 back as 0";
 
 interface Fault {
   readonly name: string;
@@ -642,25 +828,6 @@ function unstorableField(write: ArtifactStoreWrite): Fault | undefined {
     if (fault !== undefined) {
       return typeof fault === "string" ? { name, reason: fault } : fault;
     }
-  }
-}
-
-function whyUnstorable(
-  value: unknown,
-  kind: Exclude<Put[2], "json">
-): string | undefined {
-  switch (kind) {
-    case "text":
-      return typeof value === "string" && !storable(value) ? TEXT : undefined;
-    case "time":
-      return value instanceof Date && !Number.isFinite(value.getTime())
-        ? TIME
-        : undefined;
-    default:
-      return typeof value === "number" &&
-        (!Number.isSafeInteger(value) || Object.is(value, -0))
-        ? INTEGER
-        : undefined;
   }
 }
 
@@ -806,8 +973,6 @@ function member(key: string): string {
   return IDENTIFIER.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
 }
 
-const MAX_PARAMETERS = 32_766;
-
 function perStatement(
   table:
     | typeof artifacts
@@ -816,7 +981,7 @@ function perStatement(
     | typeof artifactContentBlobs
     | typeof artifactBlobChunks
 ): number {
-  return MAX_PARAMETERS / Object.keys(getTableColumns(table)).length;
+  return SQLITE_MAX_PARAMETERS / Object.keys(getTableColumns(table)).length;
 }
 
 async function deleteIn(
@@ -831,39 +996,9 @@ async function deleteIn(
   key: SQLiteColumn,
   ids: readonly string[]
 ): Promise<void> {
-  await inOrder(batches(ids, MAX_PARAMETERS - 1), (batch) =>
-    transaction
+  for (const batch of batches(ids, SQLITE_MAX_PARAMETERS - 1)) {
+    await transaction
       .delete(table)
-      .where(and(eq(table.scope, scope), inArray(key, batch)))
-  );
-}
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
+      .where(and(eq(table.scope, scope), inArray(key, batch)));
   }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function replacing(columns: Record<string, SQLiteColumn>): Record<string, SQL> {
-  return Object.fromEntries(
-    Object.entries(columns)
-      .filter(([field]) => field !== "scope" && field !== "id")
-      .map(([field, column]) => [field, excluded(column)])
-  );
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
 }

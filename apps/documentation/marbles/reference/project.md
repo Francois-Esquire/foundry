@@ -12,7 +12,7 @@ Discovery is owned by the CLI; file operations inside a step use
 [Workspaces](https://github.com/Francois-Esquire/foundry/blob/main/packages/workspaces/README.md).
 The resolved project path also scopes local state and declared artifact
 identity. Keep it stable to retain access to the same saved runs and artifacts. See
-[Durability](/marbles/foundation/durability).
+[Durability](/marbles/concepts/durability).
 
 ## Discovery and ignored files
 
@@ -101,7 +101,7 @@ Marbles process starts with.
 ## Names and the catalog
 
 A named step or workflow is a marble, and together they are the catalog:
-`list` prints it, `roll <name>` runs one, the dashboard launches one from its
+`list` prints it, `run <name>` runs one, `enqueue <name>` queues one, the dashboard launches one from its
 Marbles panel, and a schedule or monitor can target one.
 Name launchable work explicitly with `step("review")` or `workflow("review", tree)`.
 
@@ -158,7 +158,7 @@ first available provider that lists it, or `{ model?, provider? }` with
 `provider` one of `codex`, `claude-code`, or `pi`; omitted means the first
 installed CLI), and `timeoutMs` for the turn, two minutes by default, with
 no retries.
-Using Pi needs `defineProvider(pi)` in the workspace's source.
+Using Pi needs its optional adapter installed alongside Marbles and its CLI on `PATH`.
 
 | Factory | Input | Result |
 | --- | --- | --- |
@@ -188,4 +188,4 @@ keeps the form open and shows the error; nothing is registered in the run
 table. On acceptance the dashboard selects the new run and clears run
 filters. Schedules and monitors keep running. Tab moves focus, Ctrl+Enter
 submits, Esc returns without launching. Nested input that the form cannot
-express is reachable with `marbles roll <name> --input '<json>'`.
+express is reachable with `marbles run <name> --input '<json>'`.

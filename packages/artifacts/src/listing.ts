@@ -1,7 +1,9 @@
 import { byCodeUnit } from "@foundry/lib/ordering";
+import { pageLimit } from "@foundry/lib/pagination";
 
-import type { ArtifactId } from "./ref";
-import type { Artifact } from "./schema";
+import type { ArtifactId, BlobId, ContentId } from "./ids";
+import type { Artifact, ContentState } from "./schema";
+import type { BlobPageQuery, ContentPageQuery } from "./store";
 
 export interface ArtifactCursor {
   readonly createdAt: Date;
@@ -72,4 +74,71 @@ export function compareCreated(
   b: { readonly createdAt: Date; readonly id: string }
 ): number {
   return a.createdAt.getTime() - b.createdAt.getTime() || compareIds(a, b);
+}
+
+export function byCodePoint(left: string, right: string): number {
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const a = left.charCodeAt(index);
+    const b = right.charCodeAt(index);
+    if (a !== b) {
+      return codePointRank(a) - codePointRank(b);
+    }
+  }
+  return left.length - right.length;
+}
+
+function codePointRank(unit: number): number {
+  if (unit >= 0xd8_00 && unit <= 0xdf_ff) {
+    return unit + 0x20_00;
+  }
+  return unit >= 0xe0_00 ? unit - 0x08_00 : unit;
+}
+
+export interface NormalizedBlobPageQuery {
+  readonly cursor?: BlobId;
+  readonly limit: number;
+}
+
+export function ownedBlobPageQuery(
+  query: BlobPageQuery | undefined
+): NormalizedBlobPageQuery {
+  const cursor = query?.cursor;
+  if (cursor !== undefined && typeof cursor !== "string") {
+    throw new RangeError("Page cursor is invalid");
+  }
+  return {
+    ...(cursor === undefined ? {} : { cursor }),
+    limit: pageLimit(query?.limit),
+  };
+}
+
+export interface NormalizedContentPageQuery {
+  readonly artifactId?: ArtifactId;
+  readonly cursor?: ContentId;
+  readonly limit: number;
+  readonly states?: readonly ContentState[];
+  readonly tagged?: boolean;
+}
+
+export function ownedContentPageQuery(
+  query: ContentPageQuery | undefined
+): NormalizedContentPageQuery {
+  const cursor = query?.cursor;
+  if (cursor !== undefined && typeof cursor !== "string") {
+    throw new RangeError("Page cursor is invalid");
+  }
+  let states: readonly ContentState[] | undefined;
+  if (query?.state !== undefined) {
+    states = typeof query.state === "string" ? [query.state] : [...query.state];
+  }
+  return {
+    ...(query?.artifactId === undefined
+      ? {}
+      : { artifactId: query.artifactId }),
+    ...(cursor === undefined ? {} : { cursor }),
+    limit: pageLimit(query?.limit),
+    ...(states === undefined ? {} : { states }),
+    ...(query?.tagged === undefined ? {} : { tagged: query.tagged }),
+  };
 }

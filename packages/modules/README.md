@@ -16,14 +16,16 @@ A Module has stable identity separate from its backing Artifact. A version is a 
 SemVer-tagged Content of that Artifact; nothing else persists it.
 
 ```ts
-import type { Artifacts, ContentId } from "@foundry/artifacts";
-import type { ModuleId } from "@foundry/modules/domain";
-import type { ModuleRegistry } from "@foundry/modules/registry";
-import { createModuleVersions } from "@foundry/modules/version";
+import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
+import {
+  createModuleVersions,
+  type ModuleId,
+  type Modules,
+} from "@foundry/modules";
 
 export async function loadVersion(
-  artifacts: Artifacts,
-  store: ModuleRegistry,
+  artifacts: ArtifactSubstrate,
+  store: Modules,
   moduleId: ModuleId,
   contentId: ContentId,
 ) {
@@ -86,7 +88,7 @@ capabilities that still need Grants, matched by the digest each provider resolve
 the raw requested constraints, the same digest invocation admission compares. The
 registry keeps the exact approved Grant set for each Installation.
 
-`@foundry/modules/grants` lists what a version asks for and matches Grants:
+`@foundry/modules` lists what a version asks for and matches Grants:
 `moduleAccessRequests` (each capability request with its availability and
 provider-resolved digest, plus the strict Manifest's network request), `isGranted`,
 and `carriedGrants` (Grants whose capability, version and digest survive a version
@@ -96,7 +98,7 @@ destinations only when the Installation holds a matching Grant. The container
 runtime then starts the Program with that sandbox allowlist; otherwise network
 stays disabled.
 
-`createModuleAccess` from `@foundry/modules/access` changes Grants. `approve` takes
+`createModuleAccess` from `@foundry/modules` changes Grants. `approve` takes
 an existing Installation and refuses a capability its Version does not request, one
 the host cannot provide, or an Installation whose generation or selected Content
 moved since the caller read it. `revoke` refuses a Grant that is not held and, once
@@ -105,30 +107,34 @@ the revoke commits, cancels its active Invocations through the injected
 allowlist, read when it starts, so revoking a network Grant takes effect for them
 only once the Program restarts. `carryOver` keeps the Grants a new Version's requests still
 match and revokes the rest. How approval is asked for, and which Installation a host
-creates for it, stay with the host; `ensureInstallation` from `management` creates a
+creates for it, stay with the host; `ensureInstallation` creates a
 host-named Installation (for example one per Module) when it is absent.
 
-## Import source modules
+## Import entry points
 
-The package has no barrel entry points. Import each API from the source module that
-defines it, as `@foundry/modules/<path>` for `src/<path>.ts`:
+The package publishes explicit canonical subpaths with no wildcards. The `.` root and
+`./store/memory` are 100% Web-standard (zero `node:*` imports or unguarded runtime globals):
 
-| Role     | Modules under `@foundry/modules/`                                                                                         | Use                                                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Domain   | `domain`, `manifest`, `manifest-schema`, `settings`, `grants`, `access`, `version`, `registry`, `errors`, `schema`, `preflight`, `package`, `projects`, `build`, `proposals`, `management`, `source` | Domain, Manifest and its JSON Schema, settings, Grant matching and changes, versions, the registry of Module records with its errors and record schemas, packages, projects and fenced publication, build audit, source proposals, source capture and admission, Installation management, and declared Views |
-| Storage  | `store`, `store/memory`, `store/sqlite`, `store/tables`                                                                   | The store seam, the default in-memory store, the SQLite store, and its Drizzle table definitions                         |
-| Gateway  | `gateway/module-gateway`, `gateway/types`, `gateway/catalog`, `gateway/runtime-dispatcher`, `gateway/runtime-context`, `gateway/generator` | Host Gateway, protocol types, capability catalog, runtime dispatcher, runtime admission, and generated Program client |
-| Platform | `platform/system`, `platform/program-supervisor`, `platform/runtime-recovery`, `platform/installations`, `platform/container-runtime`, `platform/files` | System composition, container acquisition, Program supervision, cleanup, recovery, on-demand activation, and portable filesystem contracts |
-| Node     | `node/system`, `node/source`, `node/checkouts`, `node/selected-checkouts`, `node/installation-files`, `node/application-recovery` | System composition with disk adapters, source capture, digest-named and selected checkouts, Installation files and backup, and recovery observation |
-| Template | `template/compose`, `template/upgrade`                                                                                    | Compose a Module workspace from a `ModuleBase` and upgrade composed workspaces                                            |
-| Testing  | `testing/store`                                                                                                           | Run the shared `ModuleStore` conformance suite against a store                                                            |
+| Entry point                       | Use                                                                                                                                                                   |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@foundry/modules`                | Core `Modules` domain, Manifest and its JSON Schema, settings, Grant matching and access, versions, errors, schemas, preflight, packages, projects, build audit, proposals, management, and portable source capture |
+| `@foundry/modules/store`          | `ModuleStore` port interface and query/write contracts                                                                                                                |
+| `@foundry/modules/store/memory`   | Default Web-standard `MemoryModuleStore` adapter                                                                                                                      |
+| `@foundry/modules/store/sqlite`   | `SqliteModuleStore` adapter over Drizzle/libSQL                                                                                                                       |
+| `@foundry/modules/store/tables`   | Drizzle schema table definitions for host migrations                                                                                                                  |
+| `@foundry/modules/gateway`        | Host Gateway, protocol types, capability catalog, runtime dispatcher, and generated Program client                                                                    |
+| `@foundry/modules/platform`       | `createModulePlatform`, container acquisition, Program supervision, cleanup, recovery, on-demand activation, and portable filesystem contracts                        |
+| `@foundry/modules/node`           | `createNodeModulePlatform`, disk source capture, digest-named and selected checkouts, Installation files and backup, and recovery observation                         |
+| `@foundry/modules/sdk`            | Emitted `@foundry/module-sdk` pack builder                                                                                                                            |
+| `@foundry/modules/template`       | Compose a Module workspace from a `ModuleBase` and upgrade composed workspaces                                                                                        |
+| `@foundry/modules/testing/store`  | Run the shared `ModuleStore` conformance suite against a store                                                                                                        |
 
 The package has no sandbox backend or network provider; the host supplies the runtime
 and provider implementations. See [Storage](#storage) for where Module records live.
 
 ## Storage
 
-`ModuleRegistry` from `@foundry/modules/registry` holds every rule of the Module
+`Modules` from `@foundry/modules` holds every rule of the Module
 records: one Module per Artifact and one Artifact per Module, retained manifests owned
 by the Module that retained them, unique Installation ids, an Installation selecting a
 version of a registered Module, the generation compare-and-set, status and start-budget
@@ -142,7 +148,7 @@ one pass that reads each of its properties once. Lists come
 back in id order (UTF-16 code units), paged by id; the registry reads every matching
 record and sorts it, which suits a local library.
 
-`new ModuleRegistry({ store, artifactOfContent })`: `artifactOfContent(contentId)`
+`new Modules({ store, artifactOfContent })`: `artifactOfContent(contentId)`
 answers which Artifact a Content belongs to, or `null` when there is none, as
 `async (id) => (await artifacts.getContent(id))?.artifactId ?? null` does. With it, an
 Installation can be created at, or moved to, only a version whose Content exists and
@@ -164,7 +170,7 @@ cancels Invocations once a revoke commits and a rollback could then restore the 
 `commit(write)` and an optional `transaction(work)`. It enforces nothing. A write puts
 and deletes Modules, retained manifests (`StoredManifest`) and Installations with their
 whole Grant set (`StoredInstallation`), deletes before puts; the record schemas are in
-`@foundry/modules/schema`. A store takes a write by reading each property the write
+`@foundry/modules`. A store takes a write by reading each property the write
 names once, by name, when `commit` is called, captures each record field by field into
 plain objects, and copies the capture; both stores share that capture
 (`store/captured`). It refuses, with a `TypeError` naming the property and before
@@ -178,13 +184,13 @@ tables and swaps the copy in only once the whole write applied. Reads return
 detached copies, list in the order records were first put (a record put again keeps its
 place), filter by exact values and page by an opaque cursor. A position is never handed
 out twice in a scope, so a cursor stays valid however many records are deleted around
-it. `MemoryModuleStore` from `store/memory` is the default:
+it. `MemoryModuleStore` from `@foundry/modules/store/memory` is the default:
 
 ```ts
-import { ModuleRegistry } from "@foundry/modules/registry";
+import { Modules } from "@foundry/modules";
 import { SqliteModuleStore } from "@foundry/modules/store/sqlite";
 
-const registry = new ModuleRegistry({
+const modules = new Modules({
   store: new SqliteModuleStore({
     database, // a drizzle-orm/libsql database, or a transaction on one
     scope: workspaceId,
@@ -272,25 +278,24 @@ through a transaction's view as well, a write that puts any of these, with a
   property or array item, a hole, anything but a plain object or array (a `Date`, a
   `Map`), or a value that contains itself.
 
-The package therefore needs a runtime with `node:async_hooks`: Node, Bun, Deno, or a
-worker runtime with Node compatibility.
+Best-effort reentrancy detection uses `@foundry/lib/async-scope` (backed by
+`AsyncLocalStorage` on Node/Bun, and a no-op fallback in Web-standard runtimes).
 
-## Compose a Module system
+## Compose a Module platform
 
-`createModuleSystem` from `@foundry/modules/platform/system` composes management,
+`createModulePlatform` from `@foundry/modules/platform` composes management,
 Gateway, invocation dispatch, container acquisition, supervision, and recovery. Its
 `ModuleCheckouts` and `ModuleInstallationFiles` contracts require no Node imports.
-`createModuleSystem` from `@foundry/modules/node/system` supplies disk
+`createNodeModulePlatform` from `@foundry/modules/node` supplies disk
 implementations from explicit roots:
 
 ```ts
-import { createModuleSystem } from "@foundry/modules/node/system";
+import { createNodeModulePlatform } from "@foundry/modules/node";
 
-const system = createModuleSystem({
+const platform = createNodeModulePlatform({
   artifacts,
   store,
   containers,
-  containerRuntime,
   transport,
   providers,
   checkoutsRoot,
@@ -298,27 +303,27 @@ const system = createModuleSystem({
 });
 ```
 
-Options contain the existing `artifacts`, `store`, `containers`, their
-`containerRuntime`, `transport`, and `providers`; `checkoutsRoot` and
+Options contain the existing `artifacts`, `store`, `containers`,
+`transport`, and `providers`; `checkoutsRoot` and
 `files: { root, snapshotDatabase }` configure the Node adapters. The optional
 `observeInvocation` is told of each Gateway invocation of an admitted runtime (fail-soft),
 for a host's audit record. Neither composition
 creates storage engines or installs a sandbox backend. Construction starts no
-Program. Each `system.programs.start` carries a `launch`: whether the Program's
+Program. Each `platform.programs.start` carries a `launch`: whether the Program's
 private files persist (`files`) and the CPU and memory it starts with (`resources`).
 The host resolves both from the Manifest and its settings. The host runs recovery
 explicitly and releases Programs before shutting down its shared container registry.
 
-`system.modules` creates projects from supplied source, imports packages, manages
+`platform.modules` creates projects from supplied source, imports packages, manages
 installations, and resolves declared Views as identity, path, and title. The host
-supplies URLs and presentation. `system.programs` controls Program lifetimes;
-`selectVersion` requires a stopped Installation. `system.gateway` admits connections
-and `system.invocations` handles capability dispatch and revocation. Persist Grant
+supplies URLs and presentation. `platform.programs` controls Program lifetimes;
+`selectVersion` requires a stopped Installation. `platform.gateway` admits connections
+and `platform.invocations` handles capability dispatch and revocation. Persist Grant
 changes before invoking revocation; `createModuleAccess` does both in that order.
 User approval remains a host workflow.
 
 A host that starts Programs on demand composes `createModuleInstallations` from
-`@foundry/modules/platform/installations` over the same supervisor, store, providers
+`@foundry/modules/platform` over the same supervisor, store, providers
 and dispatcher. `selectVersion` carries Grants over before the supervisor records
 the selection, inside a selected checkout's swap when the host keeps one per Module;
 `start` preflights against the Grants left after selection and the host's settings
@@ -326,7 +331,7 @@ policy, throws `ModuleActivationRefusedError` with the blocking facts, and start
 the selected generation; `stop` stops at the current generation. Each is a separate
 call, so the host can run selection as its own unit of work. At boot such a host calls
 `recovery.stopInterrupted(reason)` instead of `recoverEnabled`.
-`createModuleSelectedCheckouts` from `@foundry/modules/node/selected-checkouts`
+`createModuleSelectedCheckouts` from `@foundry/modules/node`
 keeps one checkout per Module at a host-chosen path and implements both
 `ModuleCheckouts` and the swap.
 
@@ -344,7 +349,7 @@ while the Artifact step runs.
 
 That order needs the Artifact step to commit when it returns, so each of these
 operations must own its Artifact commit. Called inside a caller's Artifact transaction
-(which `ArtifactManager.transaction` would join, committing the Artifact only with the
+(which `Artifacts.transaction` would join, committing the Artifact only with the
 caller's), it is refused before anything is written, Installations included, with a
 `ModuleCrossStoreError`. The manager offers no way to ask whether a transaction is open,
 so the operation asks by effect: it runs an empty Artifact transaction whose
@@ -379,8 +384,8 @@ A registry a host implements itself (Works keeps registrations in Artifact metad
 offers `transaction` as one Artifact transaction that its commands join, so the whole
 operation commits as one there.
 
-`captureModuleWorkspaceSource(filesystem, root)` from `@foundry/modules/source` uses
-its `ModuleSourceFileSystem` interface. `@foundry/modules/node/source` exposes the same
+`captureModuleWorkspaceSource(filesystem, root)` from `@foundry/modules` uses
+its `ModuleSourceFileSystem` interface. `@foundry/modules/node` exposes the disk
 operation as `captureModuleWorkspaceSource(root)`. Capture excludes generated files, credentials,
 and databases while retaining `bun.lock` and the authored SDK. Saves use a
 `ModuleSourceBinding` containing Artifact ID, Content ID, and `updatedAt`. Saving frozen
@@ -388,7 +393,7 @@ source creates editable Content and removes stale outputs without rewriting the
 released Content. Reads refuse corrupt blobs, unsupported entries, and invalid UTF-8.
 Editor saves accept incomplete Manifest edits; creation and version resolution
 validate the Manifest. `admitModuleSource` and `MODULE_SOURCE_LIMITS` from
-`@foundry/modules/source` bound any source a host admits by file count, path length,
+`@foundry/modules` bound any source a host admits by file count, path length,
 file length and total bytes.
 
 `projects.publish` freezes a build's source and outputs as a tagged Version in one
@@ -396,16 +401,16 @@ write, fenced on the binding the build read: it refuses a moved binding or a use
 tag with `ModuleStoreConflictError`, outputs outside `packages/*/dist/`, Manifests
 selecting a capability the given catalog lacks, and requirements no host can meet.
 `metadata` lands in the same write, so a host can attribute the Version.
-`auditModuleBuildWorkspace` from `@foundry/modules/build` checks a finished build
+`auditModuleBuildWorkspace` from `@foundry/modules` checks a finished build
 workspace before its outputs are read: saved files unchanged, everything else
-derived. `@foundry/modules/proposals` diffs proposed source against its snapshot
-and validates a proposal like saved source; the owner of that source decides
+derived. `moduleSourceChanges` and `validateModuleSourceProposal` from `@foundry/modules` diff proposed source against its snapshot
+and validate a proposal like saved source; the owner of that source decides
 whether to apply it. Workspace upgrades remain explicit through
-`upgradeModuleWorkspaceSource` in `@foundry/modules/template/upgrade`.
+`upgradeModuleWorkspaceSource` in `@foundry/modules/template`.
 
 ## Compose a Module workspace
 
-`composeModuleTemplate` in `@foundry/modules/template/compose` builds a Module
+`composeModuleTemplate` in `@foundry/modules/template` builds a Module
 workspace from a `ModuleBase`: an `id`, a `name`, a file tree, and optional agent
 `instructions`. The base becomes `packages/app`; the composer adds the server,
 database, SDK, and workspace files and records the base digest and SDK version in
@@ -475,7 +480,7 @@ builds, and serves a composed workspace with real processes; run it on purpose w
 `FOUNDRY_RUN_GENERATED_MODULE_WORKSPACE=1 bun run --cwd=packages/modules test:integration`.
 
 `bun run --cwd=packages/modules emit-sdk` rewrites checked-in generated SDK output in
-`src/sdk/emitted.ts` and `src/sdk/generator-source.ts`, then formats both with Biome.
+`src/sdk/emitted.generated.ts` and `src/sdk/generator-entrypoint.generated.ts`.
 Run it only when the authored SDK source or generator changes. Tests verify emitted
 parity, store conformance, registry rules over every store, package integrity, Gateway admission, and the package
 import boundary.

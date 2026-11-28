@@ -1,5 +1,8 @@
 import type { Dialect } from "./dialect";
-import type { MatchContext, Notation, PromptSource, Token } from "./language";
+import type { MatchContext, Notation } from "./notation";
+import type { PromptReference, PromptReferenceKind } from "./reference";
+import type { PromptSource } from "./source";
+import type { Span } from "./spans";
 
 const BLANK = /\S/;
 
@@ -121,3 +124,21 @@ function matchAt(
   }
   return null;
 }
+
+export type TokenKind = PromptReferenceKind | "escape" | "hole" | "text";
+
+export interface ReferenceToken {
+  readonly kind: PromptReferenceKind;
+  readonly notation: string;
+  readonly reference: PromptReference;
+  readonly span: Span;
+  readonly text: string;
+}
+
+export interface PlainToken {
+  readonly kind: "escape" | "hole" | "text";
+  readonly span: Span;
+  readonly text: string;
+}
+
+export type Token = PlainToken | ReferenceToken;

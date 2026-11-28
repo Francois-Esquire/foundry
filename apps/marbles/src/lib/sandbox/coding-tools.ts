@@ -1,12 +1,14 @@
 import { posix } from "node:path";
 
 import { tagTools } from "@foundry/agents/harness";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox/constants";
-import type { Container } from "@foundry/sandbox/container/containers";
-import { createSandboxToolkit } from "@foundry/sandbox/tools/toolkit";
+import type { Container } from "@foundry/sandbox";
+import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
+import { createSandboxToolkit } from "@foundry/sandbox/tools";
 import type { ToolSet } from "ai";
 
-export type CodingToolsContainer = Pick<Container, "files" | "commands">;
+export type CodingToolsContainer = Pick<Container, "files" | "commands"> & {
+  readonly storage?: Container["storage"];
+};
 
 const WORKSPACE = DEFAULT_SANDBOX_WORKING_DIRECTORY;
 
@@ -19,18 +21,27 @@ function assertWorkspace(path: string): string {
 
 export function createCodingTools(container: CodingToolsContainer): ToolSet {
   let canonicalRoot: Promise<void> | undefined;
+  const resolveRealpath = (target: string): Promise<string> | undefined =>
+    container.storage
+      ? container.storage.realpath(target)
+      : container.files.realpath?.(target);
   const checkRoot = (): Promise<void> => {
-    canonicalRoot ??= container.files
-      .realpath(WORKSPACE)
-      .then((real) => {
-        if (real !== WORKSPACE) {
-          throw new Error("Coding workspace root must be canonical.");
-        }
-      })
-      .catch((error: unknown) => {
-        canonicalRoot = undefined;
-        throw error;
-      });
+    canonicalRoot ??= (() => {
+      const resolved = resolveRealpath(WORKSPACE);
+      if (resolved === undefined) {
+        return Promise.resolve();
+      }
+      return resolved
+        .then((real) => {
+          if (real !== WORKSPACE) {
+            throw new Error("Coding workspace root must be canonical.");
+          }
+        })
+        .catch((error: unknown) => {
+          canonicalRoot = undefined;
+          throw error;
+        });
+    })();
     return canonicalRoot;
   };
   const isAbsent = async (path: string): Promise<boolean> => {
@@ -45,14 +56,22 @@ export function createCodingTools(container: CodingToolsContainer): ToolSet {
     allowMissing = false
   ): Promise<string> => {
     const requested = assertWorkspace(path);
+    if (
+      container.storage === undefined &&
+      container.files.realpath === undefined
+    ) {
+      return requested;
+    }
     await checkRoot();
     let candidate = requested;
     const missing: string[] = [];
     while (candidate.length > 0) {
       try {
-        const existing = assertWorkspace(
-          await container.files.realpath(candidate)
-        );
+        const resolved = resolveRealpath(candidate);
+        if (resolved === undefined) {
+          return assertWorkspace(posix.join(candidate, ...missing.reverse()));
+        }
+        const existing = assertWorkspace(await resolved);
         return assertWorkspace(posix.join(existing, ...missing.reverse()));
       } catch (error) {
         if (

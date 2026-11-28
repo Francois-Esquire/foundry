@@ -7,7 +7,11 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import type { MessageMetadata, SessionPart } from "../schema";
-import { MESSAGE_STATUSES, SESSION_ROLES, SESSION_STATUSES } from "../schema";
+import {
+  MESSAGE_STATUSES,
+  SESSION_ROLES,
+  SESSION_STATUSES,
+} from "../session/constants";
 
 export const agentSessions = sqliteTable(
   "agent_sessions",

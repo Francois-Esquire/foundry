@@ -1,38 +1,30 @@
-import { randomUUID } from "node:crypto";
+import type { Authorization } from "@foundry/authorization";
+import type {
+  AgentModel,
+  HarnessPermissionCallback,
+  ModelRoute,
+} from "@foundry/core/agents";
+import { routeOf } from "@foundry/core/agents";
 import type { GenerateTextResult, Output, StreamTextResult, ToolSet } from "ai";
-
+import { createMemoryAuthorization } from "../authorization/authorization";
 import type {
   LoopAgentCallParameters,
   LoopAgentSettings,
   LoopAgentStreamParameters,
   TurnContext,
-} from "../agents/loop-agent";
-import { LoopAgent } from "../agents/loop-agent";
-import type { AgentModel, ModelRoute } from "../agents/model";
-import { routeOf } from "../agents/model";
-import type { AgentAuthorizer } from "../authorization/authorization";
-import { createInMemoryAgentAuthorizer } from "../authorization/authorization";
-import { createToolContext } from "../tools/context";
-import { directToolEffectPort } from "./effect-port";
+} from "./loop-agent";
+import { LoopAgent } from "./loop-agent";
 import type { StreamPart } from "./stream-transform";
 import { compileTools, withToolCallRegistration } from "./tool-compiler";
-import type { HarnessPermissionCallback } from "./turn-driver";
-import type { ToolEffectPort } from "./types";
 
 const DEFAULT_AGENT_ID = "agent";
-
-function defaultPermissiveAuthorizer(): AgentAuthorizer {
-  return createInMemoryAgentAuthorizer({
-    policy: { byKind: { "tool.call": "allow" }, global: "allow" },
-  }).authorizer;
-}
 
 export type AgentHarnessSettings = Omit<LoopAgentSettings, "toolsContext"> & {
   toolsContext?: Record<string, unknown>;
   agentId?: string;
-  policy?: AgentAuthorizer;
+  authoritySessionId?: string;
+  authorization?: Authorization;
   agentGeneration?: number;
-  effectPort?: ToolEffectPort;
   permission?: HarnessPermissionCallback;
   sessionId?: string;
 };
@@ -46,7 +38,7 @@ export class AgentHarness {
   readonly agent: LoopAgent;
   readonly model: AgentModel;
   readonly route: ModelRoute;
-  readonly policy: AgentAuthorizer;
+  readonly authorization: Authorization;
   readonly agentId: string;
   readonly agentGeneration?: number;
   readonly sessionId: string;
@@ -56,8 +48,8 @@ export class AgentHarness {
   constructor(settings: AgentHarnessSettings, context?: TurnContext) {
     const {
       tools,
-      policy,
-      effectPort,
+      authorization,
+      authoritySessionId,
       agentId,
       agentGeneration,
       sessionId,
@@ -68,25 +60,21 @@ export class AgentHarness {
 
     this.model = settings.model;
     this.route = routeOf(settings.model);
-    this.policy = policy ?? defaultPermissiveAuthorizer();
+    this.authorization = authorization ?? createMemoryAuthorization();
     this.agentId = agentId ?? DEFAULT_AGENT_ID;
     this.agentGeneration = agentGeneration;
-    this.sessionId = sessionId || context?.sessionId || randomUUID();
+    this.sessionId = sessionId || context?.sessionId || crypto.randomUUID();
     const compiled = compileTools(tools ?? {}, {
       agentGeneration,
       agentId: this.agentId,
-      effectPort: effectPort ?? directToolEffectPort,
+      authoritySessionId,
+      authorization: this.authorization,
       permission,
-      policy: this.policy,
       sessionId: this.sessionId,
     });
     this.#registrationFor = compiled.registrationFor;
 
-    this.#toolsContext = (
-      toolsContext === undefined
-        ? createToolContext({ policy: this.policy })
-        : createToolContext({ policy: this.policy }, toolsContext)
-    ) as Record<string, unknown>;
+    this.#toolsContext = toolsContext ?? {};
 
     const agentSettings: LoopAgentSettings = { ...rest, tools: compiled.tools };
     (agentSettings as { toolsContext?: Record<string, unknown> }).toolsContext =

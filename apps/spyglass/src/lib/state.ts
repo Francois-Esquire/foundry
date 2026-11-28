@@ -3,12 +3,20 @@ import { existsSync, mkdirSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { isMissingPath, writeFileAtomicSync } from "@foundry/lib/atomic-file";
-import type { FileLockHolder } from "@foundry/lib/file-lock";
-import { tryFileLock } from "@foundry/lib/file-lock";
+import {
+  FOUNDRY_ROOT_DIR,
+  FOUNDRY_ROOT_ENV,
+  resolveFoundryPaths,
+} from "@foundry/core/paths";
+import {
+  isMissingPath,
+  writeFileAtomicSync,
+} from "@foundry/lib/node/atomic-file";
+import type { FileLockHolder } from "@foundry/lib/node/file-lock";
+import { tryFileLock } from "@foundry/lib/node/file-lock";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { byCodeUnit } from "@foundry/lib/ordering";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
-import { processAlive } from "@foundry/lib/process-identity";
 import { version } from "../../package.json" with { type: "json" };
 
 export interface WorkspaceState {
@@ -27,12 +35,17 @@ interface WorkspaceRecord {
   spyglassVersion?: string;
 }
 
-const DEFAULT_STATE_ROOT = join(homedir(), ".foundry", "spyglass");
-const LEGACY_STATE_ROOT = join(homedir(), ".foundry", "atlas");
+const LEGACY_STATE_ROOT = join(homedir(), FOUNDRY_ROOT_DIR, "atlas");
 const WORKSPACE_ID_LENGTH = 12;
 const byResolvedRoot = byCodeUnit((state: WorkspaceState) => state.root);
 const byString = byCodeUnit((value: string) => value);
 const byDirectory = byCodeUnit((state: WorkspaceState) => state.directory);
+
+function defaultStateRoot(): string {
+  const root =
+    process.env[FOUNDRY_ROOT_ENV] || join(homedir(), FOUNDRY_ROOT_DIR);
+  return resolveFoundryPaths(resolve(root), sep).spyglass;
+}
 
 export async function resolveRoot(target: string): Promise<string> {
   const path = resolve(target);
@@ -62,7 +75,7 @@ export async function workspaceState(
     .update(resolved)
     .digest("hex")
     .slice(0, WORKSPACE_ID_LENGTH);
-  const current = join(resolve(state ?? DEFAULT_STATE_ROOT), id);
+  const current = join(resolve(state ?? defaultStateRoot()), id);
   const previous = join(LEGACY_STATE_ROOT, id);
   const directory =
     state === undefined && !existsSync(current) && existsSync(previous)

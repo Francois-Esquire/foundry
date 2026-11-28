@@ -43,16 +43,17 @@ export type {
   Snapshot,
   Span,
   SpendCap,
+  Usage,
   Window,
 } from "@foundry/usage";
-export { usage } from "@foundry/usage";
 export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
 export { dispose } from "~/authoring/runtime";
-export type { CommandResult, Exec, ExecOptions } from "~/lib/command";
-export { CommandError } from "~/lib/command";
+export type { CommandResult, Exec, ExecOptions } from "~/lib/command-error";
+export { CommandError } from "~/lib/command-error";
 export type { LockedNode, StepConfig } from "~/lib/definition";
 export type { Log, LogLevel } from "~/lib/log";
+export type { RunQuery, RunView } from "~/lib/managers/runs";
 export type {
   Change,
   FileChange,
@@ -60,6 +61,7 @@ export type {
   MonitorContext,
   MonitorHandler,
 } from "~/lib/monitor";
+export type { MonitorRecord } from "~/lib/registry";
 export type {
   CalendarSlot,
   Schedule,
@@ -77,7 +79,6 @@ export type {
   ArtifactDefinition,
   ArtifactInstance,
   ArtifactRef,
-  Artifacts,
   ArtifactVersion,
   ArtifactWriteOptions,
   Ask,
@@ -95,6 +96,8 @@ export type {
   SandboxInstance,
   SandboxResources,
   SandboxSpec,
+  ScopedArtifacts,
+  ScopedWorkspaces,
   Session,
   SessionOptions,
   SessionRef,
@@ -105,14 +108,36 @@ export type {
   WorkspaceDefinition,
   WorkspaceHandle,
   WorkspaceInstance,
-  Workspaces,
 } from "~/lib/types";
 export { step, workflow } from "./builder";
+export type {
+  CollectInput,
+  DeclaredObserver,
+  ModuleSource,
+  WorkspaceDeclaration,
+  WorkspaceDeclarationItem,
+  WorkspaceInput,
+  WorkspaceModule,
+} from "./catalog";
+export { Catalog, collectCatalog } from "./catalog";
+export type { MarblesConfig, PoolConfig } from "./config";
+export { defineConfig } from "./config";
+export { defineWorkspace, moduleSource } from "./declarations";
 export type { AgentSpec, DefineAgent } from "./instances";
-export type { Runnable, StepDefinition, WorkflowDefinition } from "./lock";
+export type {
+  Enqueued,
+  EnqueueOptions,
+  Runnable,
+  StepDefinition,
+  WorkflowDefinition,
+} from "./lock";
 export { models } from "./models";
+export type { ObserveOptions, Observer } from "./observe";
 export { observe } from "./observe";
 export { agent, artifact, sandbox, skills, workspace } from "./resources";
+export type { RunReads } from "./runs";
+export { runs } from "./runs";
 export { tasks } from "./tasks";
 export type { MonitorBuilder, ScheduleBuilder } from "./triggers";
 export { monitor, schedule } from "./triggers";
+export { usage } from "./usage";

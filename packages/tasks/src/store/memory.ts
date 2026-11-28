@@ -1,6 +1,5 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
-import { edgeKey } from "../edges";
 import type {
   Task,
   TaskDependency,
@@ -8,7 +7,8 @@ import type {
   TaskSnapshot,
   TaskStoreWrite,
 } from "../schema";
-import type { TaskStore } from "./index";
+import { edgeKey } from "../schema";
+import type { TaskStore, TaskStoreListQuery } from "./index";
 
 const REENTRY =
   "MemoryTaskStore was called from inside its own transaction; use the view passed to the transaction's work instead";
@@ -44,6 +44,40 @@ export class MemoryTaskStore implements TaskStore {
     return this.turns.run(() => {
       const task = this.tasks.get(id);
       return Promise.resolve(task ? structuredClone(task) : null);
+    });
+  }
+
+  list(query: TaskStoreListQuery = {}): Promise<readonly Task[]> {
+    return this.turns.run(() =>
+      Promise.resolve(
+        [...this.tasks.values()]
+          .filter(
+            (task) =>
+              (query.status === undefined || task.status === query.status) &&
+              (query.parentId === undefined || task.parentId === query.parentId)
+          )
+          .map((task) => structuredClone(task))
+      )
+    );
+  }
+
+  children(parentId: TaskId): Promise<readonly Task[]> {
+    return this.list({ parentId });
+  }
+
+  dependenciesOf(ids: readonly TaskId[]): Promise<readonly TaskDependency[]> {
+    return this.turns.run(() => {
+      if (ids.length === 0) {
+        return Promise.resolve([]);
+      }
+      const wanted = new Set(ids);
+      return Promise.resolve(
+        [...this.dependencies.values()]
+          .filter(
+            (edge) => wanted.has(edge.taskId) || wanted.has(edge.dependsOnId)
+          )
+          .map((edge) => ({ ...edge }))
+      );
     });
   }
 

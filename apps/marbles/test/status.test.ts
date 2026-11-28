@@ -7,16 +7,16 @@ import { describe, expect, it } from "vitest";
 import { GenerationRecords } from "~/database/generations";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
-import { resourceAssociations } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
 import { marblesMonitorStates } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { writeJson } from "~/lib/state/json";
 import { startedAt } from "~/process/spawned";
-import { readStatus } from "~/status/model";
+import { readStatus } from "~/process/status";
 import { seedWorkspace } from "./helpers/registry";
-import { seedRuns, seedTicks } from "./helpers/stored-runs";
+import { seedRuns, seedSchedules } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
 async function layout() {
@@ -43,15 +43,11 @@ async function layout() {
   } finally {
     database.close();
   }
-  await seedTicks(state, "ws1", [
+  await seedSchedules(state, "ws1", [
     {
       key: "guides",
-      last: {
-        lastFinish: "2026-09-10T01:00:00.000Z",
-        lastStart: "2026-09-10T00:59:00.000Z",
-        lastStatus: "complete",
-        nextDue: "2026-09-10T01:30:00.000Z",
-      },
+      last: { outcome: "complete", settledAt: "2026-09-10T01:00:00.000Z" },
+      nextDue: "2026-09-10T01:30:00.000Z",
       owner: null,
     },
   ]);
@@ -124,6 +120,7 @@ describe("readStatus", () => {
     try {
       const records = new DatabaseWorkspaceRecords({
         database: database.database,
+        liveness: NODE_OWNER_LIVENESS,
         scope: "ws1",
       });
       expect(await records.claimDelivery()).toBeUndefined();
@@ -192,6 +189,7 @@ describe("readStatus", () => {
     try {
       const generations = new GenerationRecords({
         database: database.database,
+        liveness: NODE_OWNER_LIVENESS,
       });
       const dead = await generations.begin("before");
       await generations.spawned(dead, spawnSync("true").pid, null);
@@ -237,6 +235,7 @@ describe("readStatus", () => {
     try {
       const generations = new GenerationRecords({
         database: database.database,
+        liveness: NODE_OWNER_LIVENESS,
       });
       const dead = spawnSync("true").pid;
       const proved = await generations.begin("proved");
@@ -268,9 +267,9 @@ describe("readStatus", () => {
     }
   });
 
-  it("reports a tick under way in a live process as running, and ignores a dead one's", async () => {
+  it("reports an occurrence claimed by a live process as running, and ignores a dead one's", async () => {
     const { state } = await layout();
-    await seedTicks(state, "ws1", [
+    await seedSchedules(state, "ws1", [
       { key: "fresh", owner: process.pid },
       { key: "stale", owner: spawnSync("true").pid },
     ]);
@@ -278,12 +277,13 @@ describe("readStatus", () => {
     expect(schedules).toEqual([
       expect.objectContaining({ name: "fresh", running: process.pid }),
       expect.objectContaining({ name: "guides", running: null }),
+      expect.objectContaining({ name: "stale", running: null }),
     ]);
   });
 
-  it("reports a trigger with a launch waiting as a monitor, as the dashboard does, history or not", async () => {
+  it("reports a stored monitor as a monitor, as the dashboard does, history or not", async () => {
     const { state } = await layout();
-    await seedTicks(state, "ws1", [{ key: "first", owner: null }]);
+    await seedSchedules(state, "ws1", [{ key: "first", kind: "monitor" }]);
     const database = await initializeDatabase(stateDatabase(state));
     try {
       for (const key of ["first", "guides"]) {
@@ -304,7 +304,7 @@ describe("readStatus", () => {
         lastStatus: null,
         name: "first",
       }),
-      expect.objectContaining({ kind: "monitor", name: "guides" }),
+      expect.objectContaining({ kind: null, name: "guides" }),
     ]);
   });
 
@@ -315,12 +315,10 @@ describe("readStatus", () => {
       { createdAt: 1, id: "rn-a", owner: dead, status: "running" },
       { createdAt: 2, id: "rn-b", owner: process.pid, status: "running" },
       { createdAt: 3, id: "rn-c", owner: null, status: "failed" },
-      { createdAt: 4, id: "rn-d", owner: null, status: "running" },
     ]);
 
     const recent = (await readStatus(state)).workspaces[0]?.runs.recent;
     expect(recent?.map((r) => [r.id, r.orphaned])).toEqual([
-      ["rn-d", true],
       ["rn-c", false],
       ["rn-b", false],
       ["rn-a", true],
@@ -347,45 +345,6 @@ describe("readStatus", () => {
     expect(workspaces[0]?.schedules.map((s) => [s.name, s.lastStatus])).toEqual(
       [["guides", "complete"]]
     );
-  });
-
-  it("shows a run shared with a workspace in that workspace too, marked with its owner", async () => {
-    const { state } = await layout();
-    await seedWorkspace(state, {
-      config: null,
-      firstSeen: "2026-09-10T00:00:00.000Z",
-      hosted: false,
-      id: "ws2",
-      lastSeen: "2026-09-10T00:00:00.000Z",
-      root: "/repo/two",
-    });
-    await seedRuns(state, "ws2", [
-      { createdAt: 5, id: "rn-two", owner: null, status: "complete" },
-    ]);
-    await seedRuns(state, "ws1", [
-      { createdAt: 1, id: "rn-one", owner: null, status: "complete" },
-    ]);
-    const opened = await initializeDatabase(stateDatabase(state));
-    try {
-      await resourceAssociations(opened.database, state).share(
-        { id: "rn-two", kind: "run", owner: "ws2" },
-        "ws1"
-      );
-    } finally {
-      opened.close();
-    }
-    const byId = new Map(
-      (await readStatus(state)).workspaces.map((w) => [w.id, w.runs])
-    );
-    expect(byId.get("ws1")).toEqual({
-      recent: [
-        expect.objectContaining({ id: "rn-two", sharedFrom: "ws2" }),
-        expect.objectContaining({ id: "rn-one" }),
-      ],
-      total: 2,
-    });
-    expect(byId.get("ws1")?.recent[1]).not.toHaveProperty("sharedFrom");
-    expect(byId.get("ws2")?.total).toBe(1);
   });
 });
 

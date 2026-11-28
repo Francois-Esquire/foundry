@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 import { Engine } from "~/lib/engine";
 
-const { takeQueued } = Engine.prototype;
-Engine.prototype.takeQueued = function (
+const { adoptQueued } = Engine.prototype;
+Engine.prototype.adoptQueued = function (
   this: Engine,
-  ...args: Parameters<Engine["takeQueued"]>
+  ...args: Parameters<Engine["adoptQueued"]>
 ) {
   process.stderr.write(`take asked for ${args[0]}\n`);
-  return takeQueued.apply(this, args);
-} as Engine["takeQueued"];
+  return adoptQueued.apply(this, args);
+} as Engine["adoptQueued"];
 await import("~/process/generation");

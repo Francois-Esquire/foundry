@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import type { StepSpec } from "../step";
+
 import { Step } from "../step";
-import { makeEchoSpec } from "./fixtures/steps";
+
+function makeEchoSpec<T>(input: T, name = "echo"): StepSpec<T, T> {
+  return {
+    execute: async (i) => i,
+    input,
+    name,
+  };
+}
 
 describe("Step.make — construction", () => {
   it("allocates a Step", async () => {

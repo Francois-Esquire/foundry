@@ -1,11 +1,22 @@
 import type { ContentId } from "@foundry/artifacts";
+import type { Page } from "@foundry/core/pagination";
+import { byCodeUnit } from "@foundry/lib/ordering";
+import { pageAfter } from "@foundry/lib/pagination";
 import { Turns } from "@foundry/lib/turns";
 
 import type { InstallationId, ModuleId } from "../domain";
+import {
+  capturedQuery,
+  capturedWrite,
+  ownedIdPageQuery,
+  ownedQuery,
+} from "./captured";
 import type {
+  InstallationIdPageQuery,
   InstallationListQuery,
   ManifestListQuery,
   Module,
+  ModuleIdPageQuery,
   ModuleListQuery,
   ModuleStore,
   ModuleStoreDurability,
@@ -14,9 +25,7 @@ import type {
   ModuleStoreWrite,
   StoredInstallation,
   StoredManifest,
-} from "../store";
-import { capturedQuery, capturedWrite } from "./captured";
-import { ownedQuery } from "./query";
+} from "./index";
 
 const REENTRY =
   "MemoryModuleStore was called from inside its own transaction; use the view passed to the transaction's work instead";
@@ -75,6 +84,18 @@ export class MemoryModuleStore implements ModuleStore {
     );
   }
 
+  listInstallationsPage(
+    query: InstallationIdPageQuery = {}
+  ): Promise<Page<StoredInstallation, string>> {
+    let owned: InstallationIdPageQuery & { readonly limit: number };
+    try {
+      owned = ownedIdPageQuery(capturedQuery(query));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#read((tables) => tables.listInstallationsPage(owned));
+  }
+
   listManifests(
     query: ManifestListQuery = {}
   ): Promise<readonly StoredManifest[]> {
@@ -89,6 +110,18 @@ export class MemoryModuleStore implements ModuleStore {
 
   listModules(query: ModuleListQuery): Promise<ModuleStorePage<Module>> {
     return this.#list(query, (tables, owned) => tables.listModules(owned));
+  }
+
+  listModulesPage(
+    query: ModuleIdPageQuery = {}
+  ): Promise<Page<Module, string>> {
+    let owned: ModuleIdPageQuery & { readonly limit: number };
+    try {
+      owned = ownedIdPageQuery(capturedQuery(query));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#read((tables) => tables.listModulesPage(owned));
   }
 
   #read<T>(read: (tables: Tables) => T): Promise<T> {
@@ -155,6 +188,14 @@ class MemoryView implements ModuleStore {
     );
   }
 
+  listInstallationsPage(
+    query: InstallationIdPageQuery = {}
+  ): Promise<Page<StoredInstallation, string>> {
+    return this.#run(() =>
+      this.tables.listInstallationsPage(ownedIdPageQuery(capturedQuery(query)))
+    );
+  }
+
   listManifests(
     query: ManifestListQuery = {}
   ): Promise<readonly StoredManifest[]> {
@@ -164,6 +205,14 @@ class MemoryView implements ModuleStore {
   listModules(query: ModuleListQuery): Promise<ModuleStorePage<Module>> {
     return this.#run(() =>
       this.tables.listModules(ownedQuery(capturedQuery(query)))
+    );
+  }
+
+  listModulesPage(
+    query: ModuleIdPageQuery = {}
+  ): Promise<Page<Module, string>> {
+    return this.#run(() =>
+      this.tables.listModulesPage(ownedIdPageQuery(capturedQuery(query)))
     );
   }
 
@@ -242,6 +291,28 @@ class Tables {
     );
   }
 
+  listInstallationsPage(
+    query: InstallationIdPageQuery & { readonly limit: number }
+  ): Page<StoredInstallation, string> {
+    const ordered = [...this.installations.values()]
+      .map((row) => row.record)
+      .filter(
+        (stored) =>
+          query.moduleId === undefined ||
+          stored.installation.moduleId === query.moduleId
+      )
+      .sort(byCodeUnit((stored) => stored.installation.id));
+    const result = pageAfter(
+      ordered,
+      query,
+      (stored) => stored.installation.id
+    );
+    return {
+      ...result,
+      items: result.items.map((stored) => structuredClone(stored)),
+    };
+  }
+
   listManifests(query: ManifestListQuery): StoredManifest[] {
     return [...this.manifests.values()]
       .filter(
@@ -258,6 +329,24 @@ class Tables {
       (module) =>
         query.artifactId === undefined || module.artifactId === query.artifactId
     );
+  }
+
+  listModulesPage(
+    query: ModuleIdPageQuery & { readonly limit: number }
+  ): Page<Module, string> {
+    const ordered = [...this.modules.values()]
+      .map((row) => row.record)
+      .filter(
+        (module) =>
+          query.artifactId === undefined ||
+          module.artifactId === query.artifactId
+      )
+      .sort(byCodeUnit((module) => module.id));
+    const result = pageAfter(ordered, query, (module) => module.id);
+    return {
+      ...result,
+      items: result.items.map((module) => structuredClone(module)),
+    };
   }
 
   applied(write: OwnedWrite): Tables {

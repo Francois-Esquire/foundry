@@ -1,29 +1,28 @@
 import type { ContentId } from "@foundry/artifacts";
 import { withAbort } from "@foundry/lib/abort";
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import type { Installation, InstallationId, ModuleVersion } from "../domain";
 import type {
   ModuleGateway,
   ModuleGatewaySession,
   ModuleRuntimeIdentity,
 } from "../gateway/types";
-import type { ModuleCommands } from "../registry";
+import type { ModuleCommands } from "../modules";
 import type { ModuleVersions } from "../version";
 import { validateModuleActivation } from "./activation";
+import { ModuleRuntimeCleanupError } from "./container-cleanup";
 import type {
   ModuleProgramLaunch,
   ModuleProgramRuntimeAdapter,
   ModuleProgramRuntimeHandle,
   ModuleProgramSupervisor,
 } from "./contracts";
-import { ModuleRuntimeCleanupError } from "./contracts";
 import type { ModuleInstallationFiles } from "./files";
-import { settledTransitionNotifier } from "./observation";
 import {
   ModuleProgramSupervisorError,
   startupFailureMessage,
   supervisorError,
 } from "./program-supervisor-errors";
-import { KeyedTurns } from "./turns";
 
 // biome-ignore lint/performance/noBarrelFile: Preserve the supervisor's existing public error import path while the error model lives in its own module.
 export {
@@ -68,7 +67,7 @@ const DEFAULT_TEARDOWN_OBSERVATION_MS = 10_000;
 class DefaultModuleProgramSupervisor implements ModuleProgramSupervisor {
   readonly #active = new Map<InstallationId, ActiveRecord>();
   readonly #teardowns = new Map<InstallationId, TeardownRecord>();
-  readonly #turns = new KeyedTurns<InstallationId>();
+  readonly #turns = new KeyedQueue<InstallationId>();
   readonly #closing = new AbortController();
   readonly #now: () => Date;
   readonly #notifySettled: (installationId: InstallationId) => void;
@@ -941,4 +940,19 @@ async function attempt(
   } catch (error) {
     failures.push(error);
   }
+}
+
+function settledTransitionNotifier(
+  observer: ((installationId: InstallationId) => void) | undefined
+): (installationId: InstallationId) => void {
+  return (installationId) => {
+    try {
+      observer?.(installationId);
+    } catch (error) {
+      console.error(
+        `[modules] settled-transition observer failed for ${installationId}:`,
+        error
+      );
+    }
+  };
 }

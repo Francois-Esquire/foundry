@@ -1,4 +1,4 @@
-import type { SessionMessage, SessionRecord } from "@foundry/agents/schema";
+import type { SessionMessage, SessionRecord } from "@foundry/agents/session";
 import type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
 import type {
   MessageTally,
@@ -9,11 +9,11 @@ import {
   SqliteSessionStore,
 } from "@foundry/agents/store/sqlite";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { busyError } from "~/database/busy";
 import { ChangeRecorder } from "~/database/changes";
-import { busyError } from "~/database/client";
 import { batches } from "~/database/lists";
-import type { StoreDatabase } from "~/database/open";
 import { marblesSessionRevisions } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
 import { SESSIONS, sourceKey } from "~/lib/events/source";
 import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
 

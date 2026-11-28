@@ -1,14 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
+import { sameProcess } from "@foundry/lib/process-identity";
 import type { TaskStore } from "@foundry/tasks";
-import { Tasks } from "@foundry/tasks";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
 import { and, eq } from "drizzle-orm";
-import { aroundCalls } from "~/database/busy";
+import { aroundCalls, busyError } from "~/database/busy";
 import { ChangeRecorder, DatabaseChangeLog } from "~/database/changes";
-import { busyError } from "~/database/client";
-import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
 import {
   CHANGED,
   claimJudged,
@@ -18,13 +13,14 @@ import {
   sameOwnerColumns,
 } from "~/database/owner";
 import { marblesDeliveryClaims } from "~/database/tables";
-import type { HostDatabaseOptions } from "~/database/workspaces";
-import { writeAsHost } from "~/database/workspaces";
-import { stateDatabase } from "~/layout";
+import type { StoreDatabase } from "~/database/types";
+
 import type { ChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
 import { sourceKey, TASKS } from "~/lib/events/source";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
 
 const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 
@@ -35,6 +31,7 @@ export class TaskStorageError extends Error {
 export interface DatabaseWorkspaceRecordsOptions {
   readonly changes?: ChangeRecorder;
   readonly database: StoreDatabase;
+  readonly liveness?: OwnerLiveness;
   readonly scope: string;
 }
 
@@ -44,7 +41,8 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
   readonly changes: ChangeRecorder;
   readonly #database: StoreDatabase;
   readonly #scope: string;
-  readonly #owner = randomUUID();
+  readonly #liveness: OwnerLiveness;
+  readonly #owner = crypto.randomUUID();
   #claimed = false;
   readonly #gate = new RecordsGate();
 
@@ -52,6 +50,7 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     const { database, scope } = options;
     this.#database = database;
     this.#scope = scope;
+    this.#liveness = options.liveness ?? PORTABLE_OWNER_LIVENESS;
     const changes = options.changes ?? new ChangeRecorder(scope);
     if (changes.scope !== scope) {
       throw new Error(
@@ -74,15 +73,35 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
     const committing = <T>(call: () => Promise<T>): Promise<T> =>
       this.#call(call);
     this.taskStore = {
+      children: (parentId) => this.#call(() => store.children(parentId)),
       commit: (write) => committing(() => storing(store.commit(write))),
+      dependenciesOf: (ids) => this.#call(() => store.dependenciesOf(ids)),
       get: (id) => this.#call(() => store.get(id)),
+      list: (query) => this.#call(() => store.list(query)),
       snapshot: () => this.#call(() => store.snapshot()),
       transaction: (work) =>
         committing(() =>
           store.transaction((view) =>
             work({
+              ...(view.children === undefined
+                ? {}
+                : {
+                    children: (parentId) =>
+                      view.children?.(parentId) ?? Promise.resolve([]),
+                  }),
               commit: (write) => storing(view.commit(write)),
+              ...(view.dependenciesOf === undefined
+                ? {}
+                : {
+                    dependenciesOf: (ids) =>
+                      view.dependenciesOf?.(ids) ?? Promise.resolve([]),
+                  }),
               get: (id) => view.get(id),
+              ...(view.list === undefined
+                ? {}
+                : {
+                    list: (query) => view.list?.(query) ?? Promise.resolve([]),
+                  }),
               snapshot: () => view.snapshot(),
             })
           )
@@ -121,7 +140,7 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
       (seen) =>
         seen === undefined || seen.ownerId === this.#owner
           ? null
-          : heldBy(seen),
+          : heldBy(seen, this.#liveness),
       (seen, holder) =>
         this.#database.transaction(
           async (transaction): Promise<string | undefined | typeof CHANGED> => {
@@ -129,11 +148,11 @@ export class DatabaseWorkspaceRecords implements WorkspaceRecords {
               return CHANGED;
             }
             if (holder !== null) {
-              return sameProcess(holder, thisProcess())
+              return sameProcess(holder, this.#liveness.identity())
                 ? "another engine in this process"
                 : `pid ${String(holder.pid)}`;
             }
-            const owner = ownedHere(this.#owner);
+            const owner = ownedHere(this.#owner, this.#liveness);
             await transaction
               .insert(marblesDeliveryClaims)
               .values({ ...owner, scope: this.#scope })
@@ -204,53 +223,4 @@ async function storing(commit: Promise<void>): Promise<void> {
 
 function storageError(error: unknown): Error | undefined {
   return busyError(error);
-}
-
-export async function readTasks<T>(
-  state: string,
-  scope: string,
-  work: (tasks: Tasks) => Promise<T>
-): Promise<T> {
-  const read = await busyAsMarbles(
-    readDatabase(stateDatabase(state), async (database) => ({
-      value: await work(tasksOver(database, scope)),
-    }))
-  );
-  return read === undefined ? work(new Tasks()) : read.value;
-}
-
-export function changeTasks<T>(
-  state: string,
-  scope: string,
-  work: (tasks: Tasks) => Promise<T>,
-  options: HostDatabaseOptions = {}
-): Promise<T> {
-  return busyAsMarbles(
-    writeAsHost(
-      state,
-      async (database) => {
-        const records = new DatabaseWorkspaceRecords({ database, scope });
-        try {
-          return await work(new Tasks({ store: records.taskStore }));
-        } finally {
-          await records.close();
-        }
-      },
-      options
-    )
-  );
-}
-
-async function busyAsMarbles<T>(opening: Promise<T>): Promise<T> {
-  try {
-    return await opening;
-  } catch (error) {
-    throw busyError(error) ?? error;
-  }
-}
-
-function tasksOver(database: StoreDatabase, scope: string): Tasks {
-  return new Tasks({
-    store: new DatabaseWorkspaceRecords({ database, scope }).taskStore,
-  });
 }

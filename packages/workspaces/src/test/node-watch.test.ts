@@ -1,12 +1,17 @@
 import { EventEmitter } from "node:events";
-
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import type { WorkspaceChange } from "../catalog";
+import { workspaces } from "../node";
 import { nodeObserver } from "../node/watch";
 
-const mocks = vi.hoisted(() => ({ subscribe: vi.fn(), watch: vi.fn() }));
-vi.mock("@parcel/watcher", () => ({ subscribe: mocks.subscribe }));
-vi.mock("node:fs", () => ({ watch: mocks.watch }));
+const mocks = vi.hoisted(() => ({ watch: vi.fn() }));
+vi.mock("node:fs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs")>()),
+  watch: mocks.watch,
+}));
 
 afterEach(() => {
   vi.useRealTimers();
@@ -14,29 +19,8 @@ afterEach(() => {
 });
 
 describe("Node observation backends", () => {
-  it("uses Parcel signals and awaits unsubscribe", async () => {
-    const unsubscribe = vi.fn().mockResolvedValue(undefined);
-    mocks.subscribe.mockResolvedValue({ unsubscribe });
-    const changed = vi.fn();
-    const failed = vi.fn();
-    const subscription = await nodeObserver.watch("/root", changed, failed);
-    const callback = mocks.subscribe.mock.calls[0]?.[1] as (
-      error: Error | null,
-      events: unknown[]
-    ) => void;
-    callback(null, []);
-    callback(null, [{}]);
-    expect(changed).toHaveBeenCalledTimes(1);
-    await subscription.close();
-    callback(null, [{}]);
-    expect(changed).toHaveBeenCalledTimes(1);
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
-    expect(mocks.watch).not.toHaveBeenCalled();
-  });
-
-  it("falls back to Node, then polling on a runtime watcher failure", async () => {
+  it("uses recursive fs.watch, skips ignored paths, and falls back to polling on error", async () => {
     vi.useFakeTimers();
-    mocks.subscribe.mockRejectedValue(new Error("native unavailable"));
     const handle = Object.assign(new EventEmitter(), { close: vi.fn() });
     mocks.watch.mockReturnValue(handle);
     const changed = vi.fn();
@@ -60,9 +44,8 @@ describe("Node observation backends", () => {
     expect(changed).toHaveBeenCalledTimes(2);
   });
 
-  it("polls when neither native backend starts", async () => {
+  it("polls when fs.watch fails to start", async () => {
     vi.useFakeTimers();
-    mocks.subscribe.mockRejectedValue(new Error("native unavailable"));
     mocks.watch.mockImplementation(() => {
       throw new Error("root unavailable");
     });
@@ -74,5 +57,42 @@ describe("Node observation backends", () => {
     expect(failed).toHaveBeenCalledTimes(1);
     await subscription.close();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("reconciles an external disk write and does not duplicate a save", async () => {
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    mocks.watch.mockImplementation(actual.watch);
+    const root = await mkdtemp(join(tmpdir(), "workspace-watch-"));
+    const host = workspaces();
+    try {
+      const workspace = await host.load({ path: root });
+      const changed = vi.fn<(change: WorkspaceChange) => void>();
+      host.on("change", changed);
+      await writeFile(join(root, "a.txt"), "external");
+      await vi.waitFor(
+        () => {
+          expect(changed).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 3000 }
+      );
+      expect(changed.mock.calls.at(-1)?.[0]).toMatchObject({
+        action: "add",
+        entry: { path: "a.txt" },
+      });
+      const [file] = await workspace.files();
+      if (!file) {
+        throw new Error("Expected observed file");
+      }
+      await workspace.save({
+        expectedDigest: file.digest,
+        fileId: file.id,
+        text: "saved",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(changed).toHaveBeenCalledTimes(2);
+    } finally {
+      await host.closeAll();
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });

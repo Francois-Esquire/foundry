@@ -17,8 +17,8 @@ Improve the standalone CLI, TypeScript authoring, and the path from a first
 automation to a complete workflow. The CLI already supports steps,
 workflows, workspaces, agents, sandboxes, artifacts, schedules, and monitors.
 
-[Using Marbles](/marbles/get-started/using-marbles) shows these capabilities;
-[Foundation](/marbles/foundation/api) explains how they fit together.
+[Get Started](/marbles/get-started/quickstart) shows these capabilities;
+[Concepts](/marbles/concepts) explains how they fit together.
 
 <span id="next--browser-automation-and-mcp"></span>
 
@@ -28,8 +28,8 @@ workflows, workspaces, agents, sandboxes, artifacts, schedules, and monitors.
 
 Add a `browser` resource that a step can invoke. Load a saved profile and
 reuse it across browser tasks. Its output, cancellation, and lifetime
-should follow the step's [execution context](/marbles/foundation/contexts),
-using the same [definition and instance model](/marbles/foundation/definitions-and-instances)
+should follow the step's [execution context](/marbles/concepts/steps-and-workflows#contexts),
+using the same [definition and instance model](/marbles/concepts)
 as other resources.
 
 ### Expose Marbles through an MCP definition
@@ -63,6 +63,6 @@ the current position, and the solutions for running Marbles as a service
 and as a library inside a serverless backend.
 
 For what is possible today, see [Remote execution](/marbles/reference/remote)
-and [Schedules and monitors](/marbles/foundation/triggers). Those pages
+and [Monitoring and scheduling](/marbles/concepts/monitoring-and-scheduling). Those pages
 describe the current CLI; hosted services, remote tooling, and webhook
 triggers above are planned work.

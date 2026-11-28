@@ -1,26 +1,23 @@
+import type { HarnessTurnDriver } from "@foundry/core/agents";
 import { describe, expect, it, vi } from "vitest";
-
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { createDriverSession } from "../../harness/driver-session";
-import type {
-  DriverSessionSettings,
-  HarnessTurnDriver,
-} from "../../harness/turn-driver";
+import type { DriverSessionSettings } from "../../harness/harness-session";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";
 import type { SessionStore } from "../../store";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { recordingStore } from "../helpers/recording-store";
 import { textDelta } from "../helpers/stream-parts";
 
 function settings(
-  store: SessionStore = new InMemorySessionStore(),
+  store: SessionStore = new MemorySessionStore(),
   sessionId = "host-session"
 ): DriverSessionSettings {
   return {
     agentId: "coder",
+    authorization: createMemoryAuthorization(),
     model: { harness: "native", id: "model" },
-    policy: createInMemoryAgentAuthorizer().authorizer,
     profile: {
       allowedTools: [],
       disallowedTools: [],
@@ -150,7 +147,7 @@ describe("native driver session", () => {
   });
 
   it("keeps concurrent sessions and their native IDs isolated", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const a = createDriverSession(settings(store, "a"), driver());
     const b = createDriverSession(settings(store, "b"), driver());
     const results = await Promise.all([
@@ -172,7 +169,7 @@ describe("native driver session", () => {
       release = resolve;
     });
     const { store, writes } = recordingStore(
-      new InMemorySessionStore(),
+      new MemorySessionStore(),
       async (write) => {
         if (write.putMessages?.some((m) => m.role === "assistant")) {
           await persist;

@@ -1,11 +1,10 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 
@@ -14,7 +13,7 @@ import { startEngine } from "../helpers/engine";
 import { openFeed } from "../helpers/feed";
 import { storedRun } from "../helpers/stored-runs";
 
-const NOT_RUNNING_PATTERN = /not running here/;
+const NOT_PAUSED_PATTERN = /is not paused/;
 const CANCELLED_PATTERN = /cancelled/;
 
 let root: string;
@@ -24,7 +23,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -43,8 +41,8 @@ async function openEntry(
 }
 
 describe("lib2 through the engine", () => {
-  it("parks on an approval, resumes on the answer, and settles the run scope", async () => {
-    step("release").do(async ({ ask, report, run }) => {
+  it("suspends on an approval, resumes on the answer, and settles the run scope", async () => {
+    const release = step("release").do(async ({ ask, report, run }) => {
       report.milestone({ title: "Ready to release" });
       const { approved, note } = await ask.approval({
         body: "Ship v2?",
@@ -57,6 +55,7 @@ describe("lib2 through the engine", () => {
     const engine = await startEngine({
       artifacts: store.artifacts,
       askable: true,
+      collect: [release],
       print: () => undefined,
       root,
     });
@@ -113,10 +112,10 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
-  it("a run parked on an approval survives a restart and replays with its ledger", async () => {
+  it("a run suspended on an approval survives a restart and replays with its ledger", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
-    const sessions = new InMemorySessionStore();
+    const sessions = new MemorySessionStore();
     const reviewer = agent({ prompt: "Review." });
     const bodies: number[] = [];
     const define = () =>
@@ -135,13 +134,14 @@ describe("lib2 through the engine", () => {
         return approved;
       });
 
-    define();
+    const firstRelease = define();
     const first = bindMock(() => "ok", { root, sessions });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await startEngine({
       ...first.instances,
       artifacts: feedOne.artifacts,
       askable: true,
+      collect: [reviewer, firstRelease],
       print: () => undefined,
       root,
       state,
@@ -177,8 +177,7 @@ describe("lib2 through the engine", () => {
     });
     expect((await feedOne.read())[0]?.input?.status).toBe("open");
 
-    catalog.reset();
-    define();
+    const secondRelease = define();
     const second = bindMock(() => "ok", { root, sessions });
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const lines: string[] = [];
@@ -186,11 +185,11 @@ describe("lib2 through the engine", () => {
       ...second.instances,
       artifacts: feedTwo.artifacts,
       askable: true,
+      collect: [reviewer, secondRelease],
       print: (line) => lines.push(line),
       root,
       state,
     });
-    expect(lines).toContain(`[run] release recovered ${launched.id}`);
     const stillOpen = (await feedTwo.read()).find(
       (entry) => entry.id === question.id
     );
@@ -213,6 +212,7 @@ describe("lib2 through the engine", () => {
       (entry) => (entry as unknown as { status: string }).status === "complete"
     );
     expect(done).toBeDefined();
+    expect(lines).toContain(`[run] release taken up ${launched.id}`);
     expect(bodies).toHaveLength(2);
     expect(two.scopes.has(launched.id)).toBe(false);
     expect((await storedRun(state, launched.id))?.status).toBe("complete");
@@ -220,15 +220,15 @@ describe("lib2 through the engine", () => {
     await second.dispose();
   });
 
-  it("a quit that cancels running work keeps a parked run for the next process", async () => {
+  it("a quit that cancels running work keeps a suspended run for the next process", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
     let held: (() => void) | undefined;
-    const define = () => {
+    const define = () => [
       step("release").do(async ({ ask }) => {
         const { approved } = await ask.approval({ title: "Release v2" });
         return approved;
-      });
+      }),
       step("linger").do(
         ({ signal }) =>
           new Promise<void>((resolve, reject) => {
@@ -237,22 +237,22 @@ describe("lib2 through the engine", () => {
               once: true,
             });
           })
-      );
-    };
+      ),
+    ];
 
-    define();
     const first = bindMock(() => "ok", { root });
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await startEngine({
       ...first.instances,
       artifacts: feedOne.artifacts,
       askable: true,
+      collect: define(),
       print: () => undefined,
       root,
       state,
     });
-    const parked = await one.launch<boolean>("release", {});
-    parked.result.catch(() => undefined);
+    const suspended = await one.launch<boolean>("release", {});
+    suspended.result.catch(() => undefined);
     const running = await one.launch<void>("linger", {});
     const lingered = running.result.catch((error: unknown) => error);
     const question = await openEntry(
@@ -270,14 +270,12 @@ describe("lib2 through the engine", () => {
       (await one.runs()).map((run) => [run.id, run.status])
     );
     expect(statuses.get(running.id)).toBe("cancelled");
-    expect(statuses.get(parked.id)).toBe("suspended");
+    expect(statuses.get(suspended.id)).toBe("suspended");
     expect(
       (await feedOne.read()).find((entry) => entry.id === question.id)?.input
         ?.status
     ).toBe("open");
 
-    catalog.reset();
-    define();
     const second = bindMock(() => "ok", { root });
     const feedTwo = openFeed(feedRoot, { id: "ws", root });
     const lines: string[] = [];
@@ -285,12 +283,11 @@ describe("lib2 through the engine", () => {
       ...second.instances,
       artifacts: feedTwo.artifacts,
       askable: true,
+      collect: define(),
       print: (line) => lines.push(line),
       root,
       state,
     });
-    expect(lines).toContain(`[run] release recovered ${parked.id}`);
-    expect(lines).not.toContain(`[run] linger recovered ${running.id}`);
     await two.answer(question.id, "reject");
     const done = await openEntry(
       async () =>
@@ -300,67 +297,75 @@ describe("lib2 through the engine", () => {
         })) as never,
       (entry) => {
         const run = entry as unknown as { id: string; status: string };
-        return run.id === parked.id && run.status === "complete";
+        return run.id === suspended.id && run.status === "complete";
       }
     );
     expect(done).toBeDefined();
+    expect(lines).toContain(`[run] release taken up ${suspended.id}`);
+    expect(lines.join("\n")).not.toContain(running.id);
     await two.stop();
     await second.dispose();
   });
 
-  it("leaves a parked run alone when this process cannot answer or the step is gone", async () => {
+  it("leaves a suspended run and its question alone when this process cannot answer or the step is gone", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
-    step("release").do(
+    const release = step("release").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
     const feedOne = openFeed(feedRoot, { id: "ws", root });
     const one = await startEngine({
       artifacts: feedOne.artifacts,
       askable: true,
+      collect: [release],
       print: () => undefined,
       root,
       state,
     });
     const launched = await one.launch<boolean>("release", {});
     launched.result.catch(() => undefined);
-    await openEntry(feedOne.read, (entry) => entry.input?.status === "open");
-    await one.stop();
-
-    catalog.reset();
-    step("release").do(
-      async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
+    const question = await openEntry(
+      feedOne.read,
+      (entry) => entry.input?.status === "open"
     );
-    const lines: string[] = [];
+    await one.stop();
+    const untouched = async () => {
+      expect((await storedRun(state, launched.id))?.status).toBe("suspended");
+      expect(
+        (await openFeed(feedRoot, { id: "ws", root }).read()).find(
+          (entry) => entry.id === question?.id
+        )?.input?.status
+      ).toBe("open");
+    };
+
     const quiet = await startEngine({
       artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
-      print: (line) => lines.push(line),
+      collect: [
+        step("release").do(
+          async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
+        ),
+      ],
+      print: () => undefined,
       root,
       state,
     });
-    expect((await quiet.runs()).map((run) => run.id)).not.toContain(
-      launched.id
-    );
-    expect(lines.join("\n")).toContain("nothing here can resume it");
     await quiet.stop();
+    await untouched();
 
-    catalog.reset();
-    step("ship").do(
-      async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
-    );
-    const renamed: string[] = [];
     const later = await startEngine({
       artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
-      print: (line) => renamed.push(line),
+      collect: [
+        step("ship").do(
+          async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
+        ),
+      ],
+      print: () => undefined,
       root,
       state,
     });
-    expect((await later.runs()).map((run) => run.id)).not.toContain(
-      launched.id
-    );
-    expect(renamed.join("\n")).toContain("nothing here can resume it");
     await later.stop();
+    await untouched();
   });
 
   it("pauses a running step and resumes it with a prompt on the recorded session", async () => {
@@ -378,7 +383,7 @@ describe("lib2 through the engine", () => {
       release = resolve;
     });
     const attempts: string[] = [];
-    step("review").do(async ({ agents, signal, stream }) => {
+    const review = step("review").do(async ({ agents, signal, stream }) => {
       const session = await agents.session(reviewer);
       attempts.push(session.ref.id);
       const reply = await session.generate("look at the tests");
@@ -395,6 +400,7 @@ describe("lib2 through the engine", () => {
     });
     const engine = await startEngine({
       ...mock.instances,
+      collect: [reviewer, review],
       print: () => undefined,
       root,
     });
@@ -425,13 +431,13 @@ describe("lib2 through the engine", () => {
     expect(prompts).toHaveLength(2);
     expect(prompts[1]).toContain("focus on flaky ones\n\nlook at the tests");
     await expect(engine.resume(launched.id, "review", "again")).rejects.toThrow(
-      NOT_RUNNING_PATTERN
+      NOT_PAUSED_PATTERN
     );
     await engine.stop();
     await mock.dispose();
   });
 
-  it("pausing a workflow root parks its running child, and nothing runs after the cut turn", async () => {
+  it("pausing a workflow root suspends its running child, and nothing runs after the cut turn", async () => {
     const mock = bindMock(
       ({ prompt }) => `reply to ${prompt.split("\n").at(-1) ?? ""}`,
       { hold: ({ prompt }) => prompt.endsWith("count slowly"), root }
@@ -458,23 +464,24 @@ describe("lib2 through the engine", () => {
     const parent = step("parent")
       .input(z.object({ text: z.string() }))
       .do(({ input }) => input.text.toUpperCase());
-    workflow("flow", parent({ text: child({}) }));
+    const flow = workflow("flow", parent({ text: child({}) }));
     const engine = await startEngine({
       ...mock.instances,
+      collect: [reviewer, child, parent, flow],
       print: () => undefined,
       root,
     });
     const launched = await engine.launch<string>("flow", {});
     await started;
     expect(engine.pause(launched.id, "flow", "hold")).toBe(true);
-    const parked = await openEntry(
+    const suspended = await openEntry(
       async () =>
         (await engine.runs())
           .filter((run) => run.id === launched.id && run.status === "suspended")
           .map(() => ({})) as never,
       () => true
     );
-    expect(parked).toBeDefined();
+    expect(suspended).toBeDefined();
     expect(after).toEqual([]);
     await engine.resume(launched.id, "flow");
     await expect(launched.result).resolves.toBe("REPLY TO AGAIN");
@@ -490,7 +497,7 @@ describe("lib2 through the engine", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    step("gated").do(async ({ ask, signal }) => {
+    const gated = step("gated").do(async ({ ask, signal }) => {
       const { approved } = await ask.approval({ title: "Go?" });
       await Promise.race([
         gate,
@@ -506,6 +513,7 @@ describe("lib2 through the engine", () => {
     const engine = await startEngine({
       artifacts: store.artifacts,
       askable: true,
+      collect: [gated],
       print: () => undefined,
       root,
       state,
@@ -537,74 +545,6 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
-  it("adopting a parked run claims it until it settles, and no other engine takes it meanwhile", async () => {
-    const state = join(root, "state");
-    const feedRoot = join(root, "feed");
-    const define = () =>
-      step("release").do(
-        async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
-      );
-    define();
-    const one = await startEngine({
-      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
-      askable: true,
-      print: () => undefined,
-      root,
-      state,
-    });
-    const launched = await one.launch<boolean>("release", {});
-    launched.result.catch(() => undefined);
-    const feedOne = openFeed(feedRoot, { id: "ws", root });
-    const question = await openEntry(
-      feedOne.read,
-      (entry) => entry.input?.status === "open"
-    );
-    await one.stop();
-
-    catalog.reset();
-    define();
-    const rebound = bindMock(() => "ok", { root });
-    const two = await startEngine({
-      ...rebound.instances,
-      artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
-      askable: true,
-      print: () => undefined,
-      root,
-      state,
-    });
-    expect(two.scopes.has(launched.id)).toBe(true);
-    expect((await storedRun(state, launched.id))?.owner).toBe(process.pid);
-
-    const three = await startEngine({
-      ...rebound.instances,
-      askable: true,
-      print: () => undefined,
-      root,
-      state,
-    });
-    expect(three.scopes.has(launched.id)).toBe(false);
-    expect((await three.runs()).map((run) => run.id)).not.toContain(
-      launched.id
-    );
-    await three.stop();
-    expect((await storedRun(state, launched.id))?.owner).toBe(process.pid);
-
-    if (!question) {
-      throw new Error("expected an open approval");
-    }
-    await two.answer(question.id, "approve");
-    await openEntry(
-      async () =>
-        (await two.runs())
-          .filter((run) => run.id === launched.id && run.status === "complete")
-          .map(() => ({})) as never,
-      () => true
-    );
-    expect((await storedRun(state, launched.id))?.owner).toBeNull();
-    await two.stop();
-    await rebound.dispose();
-  });
-
   it("a recovered step runs with the input it was locked with, not a rebuilt one", async () => {
     const state = join(root, "state");
     const feedRoot = join(root, "feed");
@@ -616,12 +556,12 @@ describe("lib2 through the engine", () => {
           await ask.approval({ title: "Count?" });
           return input.n;
         });
-      workflow("counting").do(() => tally({}, { n: seed }));
+      return [tally, workflow("counting").do(() => tally({}, { n: seed }))];
     };
-    define();
     const one = await startEngine({
       artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
+      collect: define(),
       print: () => undefined,
       root,
       state,
@@ -639,13 +579,12 @@ describe("lib2 through the engine", () => {
     });
 
     seed = 2;
-    catalog.reset();
-    define();
     const rebound = bindMock(() => "ok", { root });
     const two = await startEngine({
       ...rebound.instances,
       artifacts: openFeed(feedRoot, { id: "ws", root }).artifacts,
       askable: true,
+      collect: define(),
       print: () => undefined,
       root,
       state,
@@ -666,14 +605,15 @@ describe("lib2 through the engine", () => {
     await rebound.dispose();
   });
 
-  it("cancelling a parked run closes its question", async () => {
-    step("release").do(
+  it("cancelling a suspended run closes its question", async () => {
+    const release = step("release").do(
       async ({ ask }) => (await ask.approval({ title: "Go?" })).approved
     );
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine({
       artifacts: store.artifacts,
       askable: true,
+      collect: [release],
       print: () => undefined,
       root,
     });
@@ -700,7 +640,7 @@ describe("lib2 through the engine", () => {
 
   it("a launch with input the schema rejects fails at dispatch, parsing once", async () => {
     let parsed = 0;
-    step("typed")
+    const typed = step("typed")
       .input(
         z.object({
           n: z.string().transform((value) => {
@@ -711,6 +651,7 @@ describe("lib2 through the engine", () => {
       )
       .do(({ input }) => input.n);
     const engine = await startEngine({
+      collect: [typed],
       print: () => undefined,
       root,
     });
@@ -724,7 +665,7 @@ describe("lib2 through the engine", () => {
   });
 
   it("cancels one run", async () => {
-    step("wait").do(
+    const wait = step("wait").do(
       ({ signal }) =>
         new Promise((_, reject) => {
           signal.addEventListener("abort", () => reject(signal.reason), {
@@ -733,6 +674,7 @@ describe("lib2 through the engine", () => {
         })
     );
     const engine = await startEngine({
+      collect: [wait],
       print: () => undefined,
       root,
     });
@@ -744,7 +686,7 @@ describe("lib2 through the engine", () => {
   });
 
   it("records a cancelled run as cancelled when its body rejects with its own error", async () => {
-    step("wait").do(
+    const wait = step("wait").do(
       ({ signal }) =>
         new Promise((_, reject) => {
           signal.addEventListener(
@@ -754,7 +696,11 @@ describe("lib2 through the engine", () => {
           );
         })
     );
-    const engine = await startEngine({ print: () => undefined, root });
+    const engine = await startEngine({
+      collect: [wait],
+      print: () => undefined,
+      root,
+    });
     const launched = await engine.launch("wait", {});
     const failure = launched.result.catch((error: unknown) => error);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -766,7 +712,7 @@ describe("lib2 through the engine", () => {
     await engine.stop();
   });
 
-  it("a parallel child that asks parks the run and its sibling finishes", async () => {
+  it("a parallel child that asks suspends the run and its sibling finishes", async () => {
     const sibling: string[] = [];
     const asks = step("asks").do(async ({ ask }) =>
       (await ask.approval({ title: "Go?" })).approved ? "yes" : "no"
@@ -779,11 +725,12 @@ describe("lib2 through the engine", () => {
     const both = step("both")
       .input(z.object({ a: z.string(), b: z.string() }))
       .do(({ input }) => `${input.a}+${input.b}`);
-    workflow("pair", both.parallel({ a: asks({}), b: slow({}) }));
+    const pair = workflow("pair", both.parallel({ a: asks({}), b: slow({}) }));
     const store = openFeed(undefined, { id: "ws", root });
     const engine = await startEngine({
       artifacts: store.artifacts,
       askable: true,
+      collect: [asks, slow, both, pair],
       print: () => undefined,
       root,
     });
@@ -805,10 +752,14 @@ describe("lib2 through the engine", () => {
 
 describe("a result that is not JSON", () => {
   it("fails the run with where it stops being JSON, instead of hanging", async () => {
-    step("listing").do(() => ({
+    const listing = step("listing").do(() => ({
       files: [{ path: "a.md", updatedAt: new Date() }],
     }));
-    const engine = await startEngine({ print: () => undefined, root });
+    const engine = await startEngine({
+      collect: [listing],
+      print: () => undefined,
+      root,
+    });
     const launched = await engine.launch("listing", {});
     await expect(launched.result).rejects.toThrow(
       "files[0].updatedAt is a Date"

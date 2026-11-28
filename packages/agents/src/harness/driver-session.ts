@@ -1,6 +1,10 @@
-import { randomUUID } from "node:crypto";
+import type {
+  HarnessActivity,
+  HarnessToolEvent,
+  HarnessTurnDriver,
+} from "@foundry/core/agents";
+import { validateHarnessProfile } from "@foundry/core/agents";
 import type { Output } from "ai";
-
 import type { SessionInput, SessionStream } from "../session/events";
 import { Sessions } from "../session/sessions";
 import {
@@ -10,19 +14,12 @@ import {
 } from "./activity";
 import type { EventQueue } from "./event-queue";
 import { createEventQueue } from "./event-queue";
+import type { DriverSessionSettings, HarnessSession } from "./harness-session";
 import { createHarnessPermission, redactHarnessSummary } from "./permission";
 import { createHarnessQuestionCallback } from "./question";
 import type { TurnOptions } from "./session-harness";
 import type { StreamPart } from "./stream-transform";
 import { transformStream } from "./stream-transform";
-import type {
-  DriverSessionSettings,
-  HarnessActivity,
-  HarnessSession,
-  HarnessToolEvent,
-  HarnessTurnDriver,
-} from "./turn-driver";
-import { validateHarnessProfile } from "./turn-driver";
 import type { GatedTurn } from "./turn-gate";
 import { createTurnGate } from "./turn-gate";
 
@@ -33,7 +30,7 @@ export function createDriverSession(
   driver: HarnessTurnDriver
 ): HarnessSession {
   validateHarnessProfile(settings.profile);
-  const sessionId = settings.sessionId || randomUUID();
+  const sessionId = settings.sessionId || crypto.randomUUID();
   const gate = createTurnGate("Harness");
   const lifetime = new AbortController();
   const sessions = new Sessions({ store: settings.store });

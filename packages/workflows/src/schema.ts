@@ -1,20 +1,61 @@
 import { z } from "zod";
 
 import type { JsonValue } from "./json-value";
-import { isJsonValue, isPlainRecord } from "./json-value";
-import {
-  anyNumber,
-  anyValue,
-  counter,
-  JSON_VALUE_MESSAGE,
-  jsonSafe,
-  type ReadonlyArraySchema,
-  readonlyArray,
-  recordOf,
-  stringList,
-  timestamp,
-  unknownRecord,
-} from "./record-fields";
+import { isJsonValue } from "./json-value";
+import { defineOwnEntry } from "./own-entry";
+
+const anyNumber = z.union([
+  z.number(),
+  z.nan(),
+  z.literal([Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]),
+]);
+
+const anyValue = z.unknown().default(undefined);
+
+const counter = z.number().int().nonnegative();
+
+function readonlyArray<T extends z.ZodType>(item: T): ReadonlyArraySchema<T> {
+  return z.array(item) as unknown as ReadonlyArraySchema<T>;
+}
+
+export interface ReadonlyArraySchema<T extends z.ZodType>
+  extends z.ZodType<readonly z.output<T>[], readonly z.input<T>[]> {
+  readonly element: T;
+}
+
+const stringList = readonlyArray(z.string());
+
+function recordOf<T extends z.ZodType>(entry: T) {
+  return z
+    .custom<Readonly<Record<string, unknown>>>(isDictionary)
+    .transform((input, context) => {
+      const output: Record<string, z.output<T>> = {};
+      for (const key of Object.keys(input)) {
+        const decoded = entry.safeParse(input[key]);
+        if (decoded.success) {
+          defineOwnEntry(output, key, decoded.data);
+        } else {
+          for (const issue of decoded.error.issues) {
+            context.issues.push({
+              ...issue,
+              path: [key, ...issue.path],
+            } as z.core.$ZodRawIssue);
+          }
+        }
+      }
+      return output;
+    });
+}
+
+function isDictionary(
+  value: unknown
+): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const unknownRecord = recordOf(z.unknown());
+
+export const JSON_VALUE_MESSAGE = "Expected a finite, acyclic JSON value";
 
 export const JsonValueSchema = z.custom<JsonValue>(
   isJsonValue,
@@ -94,6 +135,7 @@ export const StepSnapshotSchema = z.object({
   suspendedAt: z.string().optional(),
   suspension: z
     .object({
+      correlationId: z.string().optional(),
       meta: unknownRecord.optional(),
       name: z.string(),
       reason: z.string(),
@@ -112,6 +154,7 @@ export const SnapshotStateSchema = z.object({
 export type SnapshotState = z.infer<typeof SnapshotStateSchema>;
 
 export const SuspensionStateSchema = z.object({
+  correlationId: z.string().optional(),
   kind: z.string().optional(),
   meta: unknownRecord.optional(),
   name: z.string(),
@@ -209,150 +252,7 @@ export const ChannelEventSchema = z.discriminatedUnion("_tag", [
 ]);
 export type ChannelEvent = z.infer<typeof ChannelEventSchema>;
 
-const JobIdSchema = z.string().regex(/^jb-.+/);
-const RunIdSchema = z.string().regex(/^rn-.+/);
-const SuspensionIdSchema = z.string().regex(/^su-.+/);
-
-const ExtensionsSchema = recordOf(JsonValueSchema);
-
-export const DefinitionReferenceSchema = z.object({
-  name: z.string(),
-  version: z.string().optional(),
-});
-export type DefinitionReference = z.infer<typeof DefinitionReferenceSchema>;
-
-export const JobLinksSchema = z.object({
-  invocationId: z.string().optional(),
-  parentJobId: JobIdSchema.optional(),
-  principalId: z.string().optional(),
-  sessionId: z.string().optional(),
-  subjectId: z.string().optional(),
-  taskId: z.string().optional(),
-});
-export type JobLinks = z.infer<typeof JobLinksSchema>;
-
-export const RunLinksSchema = z.object({
-  invocationId: z.string().optional(),
-  jobId: JobIdSchema.optional(),
-  parentRunId: RunIdSchema.optional(),
-  principalId: z.string().optional(),
-  sessionId: z.string().optional(),
-  subjectId: z.string().optional(),
-});
-export type RunLinks = z.infer<typeof RunLinksSchema>;
-
-export const QUEUE_STATUSES = [
-  "active",
-  "paused",
-  "draining",
-  "stopped",
-] as const;
-export const QueueStatusSchema = z.enum(QUEUE_STATUSES);
-export type QueueStatus = z.infer<typeof QueueStatusSchema>;
-
-export const QueueRecordSchema = z.object({
-  createdAt: timestamp,
-  extensions: ExtensionsSchema,
-  id: z.string(),
-  lastError: ErrorShapeSchema.nullable(),
-  name: z.string(),
-  status: QueueStatusSchema,
-});
-export type QueueRecord = z.infer<typeof QueueRecordSchema>;
-
-export const JOB_STATUSES = [
-  "pending",
-  "active",
-  "waiting",
-  "complete",
-  "failed",
-  "cancelled",
-] as const;
-export const JobStatusSchema = z.enum(JOB_STATUSES);
-export type JobStatus = z.infer<typeof JobStatusSchema>;
-
-export const JobRecordSchema = z.object({
-  definition: DefinitionReferenceSchema,
-  id: JobIdSchema,
-  input: JsonValueSchema,
-  links: JobLinksSchema,
-  status: JobStatusSchema,
-  timestamps: z.object({
-    cancelledAt: timestamp.nullable(),
-    completedAt: timestamp.nullable(),
-    createdAt: timestamp,
-    failedAt: timestamp.nullable(),
-  }),
-});
-export type JobRecord = z.infer<typeof JobRecordSchema>;
-
-export const RUN_STATUSES = [
-  "queued",
-  "running",
-  "suspended",
-  "complete",
-  "failed",
-  "cancelled",
-] as const;
-export const RunStatusSchema = z.enum(RUN_STATUSES);
-export type RunStatus = z.infer<typeof RunStatusSchema>;
-
-const RunTimestampsSchema = z.object({
-  completedAt: timestamp.nullable(),
-  createdAt: timestamp,
-  failedAt: timestamp.nullable(),
-  startedAt: timestamp.nullable(),
-});
-export type RunTimestamps = z.infer<typeof RunTimestampsSchema>;
-
-export const RunRecordShapeSchema = z.object({
-  definition: DefinitionReferenceSchema.exactOptional(),
-  error: ErrorShapeSchema.nullable(),
-  extensions: ExtensionsSchema,
-  id: RunIdSchema,
-  input: jsonSafe,
-  links: RunLinksSchema.exactOptional(),
-  metadata: recordOf(jsonSafe),
-  output: jsonSafe,
-  queueId: z.string(),
-  snapshot: WorkflowSnapshotSchema.extend({ input: jsonSafe }),
-  status: RunStatusSchema,
-  step: z.string(),
-  tags: recordOf(z.string()),
-  timestamps: RunTimestampsSchema,
-});
-export type RunRecord = z.infer<typeof RunRecordShapeSchema>;
-
-const AdmittedRunFieldsSchema = RunRecordShapeSchema.extend({
-  definition: DefinitionReferenceSchema.optional(),
-  links: RunLinksSchema.optional(),
-});
-
-function isRunRecord(value: unknown): value is RunRecord {
-  return (
-    isPlainRecord(value) &&
-    isPlainRecord(value.timestamps) &&
-    (value.error === null || isPlainRecord(value.error)) &&
-    isPlainRecord(value.tags) &&
-    isJsonContainer(value.metadata) &&
-    isJsonContainer(value.extensions) &&
-    isJsonValue(value.snapshot) &&
-    isPlainRecord(value.snapshot) &&
-    Object.hasOwn(value.snapshot, "input") &&
-    AdmittedRunFieldsSchema.safeParse(value).success
-  );
-}
-
-function isJsonContainer(value: unknown): boolean {
-  return isPlainRecord(value) && isJsonValue(value);
-}
-
-export const RunRecordSchema = z.custom<RunRecord>(
-  isRunRecord,
-  "Expected a valid, JSON-safe Run record"
-);
-
-const WorkflowTelemetrySchema = z.object({
+export const WorkflowTelemetrySchema = z.object({
   logs: readonlyArray(
     z.object({
       at: z.string(),
@@ -368,159 +268,3 @@ const WorkflowTelemetrySchema = z.object({
     values: recordOf(anyNumber),
   }),
 });
-
-export const PersistedWorkflowSchema = z.object({
-  attempt: anyNumber.optional(),
-  completedAt: z.string().optional(),
-  createdAt: z.string().optional(),
-  error: ErrorShapeSchema.optional(),
-  input: z.unknown().optional(),
-  metadata: unknownRecord.optional(),
-  output: z.unknown().optional(),
-  runId: z.string().optional(),
-  startedAt: z.string().optional(),
-  status: RunStatusSchema.optional(),
-  step: z.string().optional(),
-  steps: recordOf(StepSnapshotSchema).optional(),
-  suspendedAt: z.string().optional(),
-  suspension: SuspensionStateSchema.optional(),
-  tags: recordOf(z.string()).optional(),
-  telemetry: WorkflowTelemetrySchema.optional(),
-  tree: WorkflowSnapshotSchema.nullable().optional(),
-});
-export type PersistedWorkflow = z.infer<typeof PersistedWorkflowSchema>;
-
-export const PersistedMetadataSchema = z.object({
-  stream: readonlyArray(ChannelEventSchema).optional(),
-  workflow: PersistedWorkflowSchema.nullable().optional(),
-});
-export type PersistedMetadata = z.infer<typeof PersistedMetadataSchema>;
-
-export const SUSPENSION_STATUSES = [
-  "pending",
-  "resolved",
-  "cancelled",
-] as const;
-export const SuspensionStatusSchema = z.enum(SUSPENSION_STATUSES);
-export type SuspensionStatus = z.infer<typeof SuspensionStatusSchema>;
-
-export const SuspensionRecordSchema = z.object({
-  id: SuspensionIdSchema,
-  kind: z.string(),
-  name: z.string(),
-  occurrence: counter,
-  reason: z.string(),
-  request: JsonValueSchema,
-  resolution: JsonValueSchema.nullable(),
-  revision: counter,
-  runId: RunIdSchema,
-  status: SuspensionStatusSchema,
-  stepPath: stringList,
-  timestamps: z.object({
-    cancelledAt: timestamp.nullable(),
-    createdAt: timestamp,
-    resolvedAt: timestamp.nullable(),
-  }),
-});
-export type SuspensionRecord = z.infer<typeof SuspensionRecordSchema>;
-
-export const RunFramePayloadSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("output"), value: JsonValueSchema }),
-  z.object({ kind: z.literal("progress"), value: z.number() }),
-  z.object({ kind: z.literal("log"), value: JsonValueSchema }),
-  z.object({ kind: z.literal("lifecycle"), value: JsonValueSchema }),
-  z.object({ kind: z.literal("suspension"), value: SuspensionRecordSchema }),
-]);
-export type RunFramePayload = z.infer<typeof RunFramePayloadSchema>;
-
-export const RunFrameSchema = z
-  .object({
-    at: timestamp,
-    cursor: counter,
-    payload: RunFramePayloadSchema,
-    runId: RunIdSchema,
-  })
-  .refine(
-    (frame) =>
-      frame.payload.kind !== "suspension" ||
-      frame.runId === frame.payload.value.runId,
-    "Suspension frame and payload must share one Run"
-  );
-export type RunFrame = z.infer<typeof RunFrameSchema>;
-
-export const RUN_EVENT_TYPES = [
-  "run.queued",
-  "run.started",
-  "run.parked",
-  "run.resumed",
-  "run.completed",
-  "run.failed",
-  "run.cancelled",
-  "run.updated",
-  "run.removed",
-] as const;
-export const RunEventTypeSchema = z.enum(RUN_EVENT_TYPES);
-export type RunEventType = z.infer<typeof RunEventTypeSchema>;
-
-export const RUN_FIELDS = [
-  "error",
-  "extensions",
-  "metadata",
-  "output",
-  "tags",
-  "timestamps",
-] as const;
-export const RunFieldSchema = z.enum(RUN_FIELDS);
-export type RunField = z.infer<typeof RunFieldSchema>;
-
-const runEventFields = {
-  at: z.iso.datetime(),
-  id: z.string().min(1),
-  queueId: z.string(),
-  runId: RunIdSchema,
-};
-
-const LIFECYCLE_EVENT_TYPES = [
-  "run.queued",
-  "run.started",
-  "run.parked",
-  "run.resumed",
-  "run.completed",
-  "run.failed",
-  "run.cancelled",
-] as const satisfies readonly RunEventType[];
-
-export const RunEventSchema = z.discriminatedUnion("type", [
-  z.strictObject({
-    ...runEventFields,
-    type: z.enum(LIFECYCLE_EVENT_TYPES),
-  }),
-  z.strictObject({
-    ...runEventFields,
-    changed: z.array(RunFieldSchema).min(1).readonly(),
-    type: z.literal("run.updated"),
-  }),
-  z.strictObject({
-    ...runEventFields,
-    definition: DefinitionReferenceSchema.exactOptional(),
-    links: RunLinksSchema.exactOptional(),
-    step: z.string(),
-    tags: recordOf(z.string()),
-    type: z.literal("run.removed"),
-  }),
-]);
-export type RunEvent = z.infer<typeof RunEventSchema>;
-
-export const ORCHESTRATOR_STORE_SNAPSHOT_VERSION = 1 as const;
-
-export const OrchestratorStoreSnapshotSchema = z.object({
-  frames: readonlyArray(RunFrameSchema),
-  jobs: readonlyArray(JobRecordSchema),
-  queues: readonlyArray(QueueRecordSchema),
-  runs: readonlyArray(RunRecordSchema),
-  suspensions: readonlyArray(SuspensionRecordSchema),
-  version: z.literal(ORCHESTRATOR_STORE_SNAPSHOT_VERSION),
-});
-export type OrchestratorStoreSnapshot = z.infer<
-  typeof OrchestratorStoreSnapshotSchema
->;

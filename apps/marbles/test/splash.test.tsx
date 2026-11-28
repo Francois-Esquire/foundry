@@ -1,10 +1,10 @@
 import { sleep } from "bun";
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { summarizeConfig } from "../src/cli/state/splash-model";
-import { DashboardView } from "../src/cli/views/dashboard";
-import { SplashView } from "../src/cli/views/splash";
 import type { SplashState } from "../src/model/splash";
+import { summarizeConfig } from "../src/tui/state/splash-model";
+import { DashboardView } from "../src/tui/views/dashboard";
+import { SplashView } from "../src/tui/views/splash";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import { click, ctrlC, flush, mount, press, unmount } from "./helpers/render";
 

@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createVirtualSystem } from "../virtual/system";
+import { createVirtualSandbox } from "../virtual/index";
 
 describe("virtual storage observation", () => {
   it("sees direct writes, shell mutations, and link changes through the same filesystem", async () => {
-    const sandbox = createVirtualSystem({ files: { "a.txt": "initial" } });
+    const sandbox = createVirtualSandbox({ files: { "a.txt": "initial" } });
     const changed = vi.fn();
     const subscription = await sandbox.files.watch(
       "/workspace",

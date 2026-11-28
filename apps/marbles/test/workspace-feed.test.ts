@@ -1,16 +1,15 @@
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 import { describe, expect, it } from "vitest";
-import { ALL_WORKSPACES, scopedFeed } from "~/cli/state/feed-model";
+import { artifactBlobs } from "~/database/local-artifacts";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
-import { resourceAssociations } from "~/database/resources";
-import { artifactBlobs } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 import { feedPublisher } from "~/lib/feed/publish";
 import { feedReader } from "~/lib/feed/read";
+import { ALL_WORKSPACES, scopedFeed } from "~/tui/state/feed-model";
 import { workspaceFeed } from "~/workspace/feed";
 import { seedWorkspace } from "./helpers/registry";
 import { temporaryDirectory } from "./helpers/temporary";
@@ -19,7 +18,7 @@ const SEEN = "2026-11-01T00:00:00.000Z";
 const SOURCE = { definition: "d", path: ["d"], runId: "rn-1" };
 
 function manager(database: StoreDatabase, artifacts: string, scope: string) {
-  return new ArtifactManager({
+  return new Artifacts({
     files: blobFiles(artifactBlobs(artifacts, scope)),
     store: new SqliteArtifactStore({ database, scope }),
   });
@@ -42,7 +41,7 @@ async function post(
 }
 
 describe("the workspace feed", () => {
-  it("shows every workspace's entries, and a shared one in each workspace it belongs to", async () => {
+  it("shows every workspace's entries", async () => {
     const home = temporaryDirectory("marbles-feed-");
     const state = join(home, "marbles");
     const artifacts = join(home, "artifacts");
@@ -60,7 +59,7 @@ describe("the workspace feed", () => {
     try {
       const { database } = opened;
       await post(database, artifacts, "ws1", "mine");
-      const theirs = await post(database, artifacts, "ws2", "theirs");
+      await post(database, artifacts, "ws2", "theirs");
       const feed = workspaceFeed({
         artifacts,
         database,
@@ -80,26 +79,6 @@ describe("the workspace feed", () => {
       expect(await titles(ALL_WORKSPACES)).toEqual(["mine", "theirs"]);
       expect(await titles("ws1")).toEqual(["mine"]);
       expect(await titles("ws2")).toEqual(["theirs"]);
-
-      await resourceAssociations(database, state).share(
-        { id: theirs, kind: "artifact", owner: "ws2" },
-        "ws1"
-      );
-      expect(await titles("ws1")).toEqual(["mine", "theirs"]);
-      expect(await titles(ALL_WORKSPACES)).toEqual(["mine", "theirs"]);
-      const shared = (await feed(later())).find((entry) => entry.id === theirs);
-      expect(shared?.workspace.id).toBe("ws2");
-      expect(shared?.workspaces).toEqual(["ws2", "ws1"]);
-      await resourceAssociations(database, state).unshare(
-        { id: theirs, kind: "artifact", owner: "ws2" },
-        "ws1"
-      );
-      expect(
-        (await feed(new Date(clock + 1000))).find(
-          (entry) => entry.id === theirs
-        )?.workspaces
-      ).toEqual(["ws2", "ws1"]);
-      expect(await titles("ws1")).toEqual(["mine"]);
     } finally {
       opened.close();
     }

@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import {
   ALL_WORKSPACES,
   feedItem,
@@ -6,9 +7,8 @@ import {
   feedMeta,
   feedModel,
   feedRows,
-} from "~/cli/state/feed-model";
-import type { FeedState } from "~/cli/state/use-feed";
-import type { FeedEntrySnapshot } from "~/lib/feed/read";
+} from "~/tui/state/feed-model";
+import type { FeedState } from "~/tui/state/use-feed";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
 it("keys feed rows by workspace and id and marks the selected one", () => {

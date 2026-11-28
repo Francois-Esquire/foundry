@@ -2,17 +2,13 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gatewayProvider } from "@foundry/models/gateway";
-import { afterEach, expect, it } from "vitest";
+import { gatewayProvider } from "@foundry/models/providers/gateway";
+import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import type { Session, SessionReply } from "~/lib/types";
-
-afterEach(() => {
-  catalog.reset();
-});
 
 for (const harness of ["builtin", "claude-code", "codex"] as const) {
   it(`${harness} asks, waits for approval, resumes turns, respects denial, and cancels through the Marbles feed in MicroSandbox`, async () => {
@@ -21,10 +17,95 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
     );
     const root = join(parent, "workspace");
     await mkdir(root);
+    const model = {
+      builtin: "openai/gpt-5-mini",
+      "claude-code": "sonnet",
+      codex: "gpt-5.5",
+    }[harness];
+    const questionTool =
+      harness === "claude-code" ? "AskUserQuestion" : "ask_user";
+    let bodies = 0;
+    let phase = 0;
+    let session: Session | undefined;
+    const replies: SessionReply[] = [];
+    const coding = step("interactive-coding").do(
+      async ({ agents, sandboxes }) => {
+        bodies += 1;
+        const sandbox = await sandboxes.start({
+          executable: true,
+          image: "docker.io/oven/bun:1-slim",
+          network:
+            harness === "builtin"
+              ? "none"
+              : {
+                  destinations: [
+                    {
+                      host:
+                        harness === "claude-code"
+                          ? "api.anthropic.com"
+                          : "chatgpt.com",
+                      ports: [443],
+                    },
+                  ],
+                  mode: "allowlist",
+                },
+        });
+        session = await agents.session(
+          {
+            id: `interactive-${harness}`,
+            kind: "agent",
+            model,
+            prompt: `Work only in /workspace. Use ${questionTool} whenever asked to ask the user. Use the shell tool for requested bun commands. Do not use file-edit tools or alternate commands. When a tool is denied, stop that task and report the refusal without retrying or finding another route.`,
+            provider: harness === "builtin" ? "gateway" : harness,
+          },
+          {
+            profile: {
+              allowedTools:
+                harness === "builtin"
+                  ? ["read", "glob", "grep"]
+                  : ["Read", "Glob", "Grep", "Edit", "Write"],
+              disallowedTools: [],
+              maxSteps: 12,
+              mode: "attended",
+              unresolved: "ask",
+            },
+            sandbox,
+          }
+        );
+        phase = 1;
+        replies.push(
+          await session.generate(
+            `First use ${questionTool} to ask the user for a marker string. Ask exactly one free-text question. After receiving their answer, run a bun -e shell command using node:fs writeFileSync to write that exact marker to /workspace/first.txt. Wait for tool authorization. Report the result.`,
+            { signal: AbortSignal.timeout(150_000) }
+          )
+        );
+        phase = 2;
+        replies.push(
+          await session.generate(
+            "Without asking again or reading any file, recall the marker the user supplied in the preceding turn. Use a bun -e shell command to write it to /workspace/second.txt and report the marker in your answer. Do not use file-edit tools.",
+            { signal: AbortSignal.timeout(150_000) }
+          )
+        );
+        phase = 3;
+        replies.push(
+          await session.generate(
+            'Use the shell tool to run exactly: bun -e \'require("node:fs").writeFileSync("/workspace/denied.txt", "forbidden")\'. If permission is refused, stop and report the refusal. Do not retry or use other tools.',
+            { signal: AbortSignal.timeout(150_000) }
+          )
+        );
+        phase = 4;
+        replies.push(
+          await session.generate(
+            `Use ${questionTool} to ask one free-text question: "What should the cancellation marker be?" Wait for the user answer before doing anything else. Only after receiving an answer, run a shell command to write it to /workspace/cancelled.txt.`,
+            { signal: AbortSignal.timeout(150_000) }
+          )
+        );
+        return replies;
+      }
+    );
     const engine = createEngine({
       askable: true,
-      catalog,
-      dry: false,
+      catalog: Catalog.collect([coding]),
       print: () => undefined,
       providers:
         harness === "builtin"
@@ -47,90 +128,6 @@ for (const harness of ["builtin", "claude-code", "codex"] as const) {
       root,
       stateDir: join(parent, "state"),
       workspaceId: "interactive",
-    });
-    const model = {
-      builtin: "openai/gpt-5-mini",
-      "claude-code": "sonnet",
-      codex: "gpt-5.5",
-    }[harness];
-    const questionTool =
-      harness === "claude-code" ? "AskUserQuestion" : "ask_user";
-    let bodies = 0;
-    let phase = 0;
-    let session: Session | undefined;
-    const replies: SessionReply[] = [];
-    step("interactive-coding").do(async ({ agents, sandboxes }) => {
-      bodies += 1;
-      const sandbox = await sandboxes.start({
-        executable: true,
-        image: "docker.io/oven/bun:1-slim",
-        network:
-          harness === "builtin"
-            ? "disabled"
-            : {
-                destinations: [
-                  {
-                    host:
-                      harness === "claude-code"
-                        ? "api.anthropic.com"
-                        : "chatgpt.com",
-                    ports: [443],
-                  },
-                ],
-                mode: "allowlist",
-              },
-      });
-      session = await agents.session(
-        {
-          id: `interactive-${harness}`,
-          kind: "agent",
-          model,
-          prompt: `Work only in /workspace. Use ${questionTool} whenever asked to ask the user. Use the shell tool for requested bun commands. Do not use file-edit tools or alternate commands. When a tool is denied, stop that task and report the refusal without retrying or finding another route.`,
-          provider: harness === "builtin" ? "gateway" : harness,
-        },
-        {
-          profile: {
-            allowedTools:
-              harness === "builtin"
-                ? ["read", "glob", "grep"]
-                : ["Read", "Glob", "Grep", "Edit", "Write"],
-            disallowedTools: [],
-            maxSteps: 12,
-            mode: "attended",
-            unresolved: "ask",
-          },
-          sandbox,
-        }
-      );
-      phase = 1;
-      replies.push(
-        await session.generate(
-          `First use ${questionTool} to ask the user for a marker string. Ask exactly one free-text question. After receiving their answer, run a bun -e shell command using node:fs writeFileSync to write that exact marker to /workspace/first.txt. Wait for tool authorization. Report the result.`,
-          { signal: AbortSignal.timeout(150_000) }
-        )
-      );
-      phase = 2;
-      replies.push(
-        await session.generate(
-          "Without asking again or reading any file, recall the marker the user supplied in the preceding turn. Use a bun -e shell command to write it to /workspace/second.txt and report the marker in your answer. Do not use file-edit tools.",
-          { signal: AbortSignal.timeout(150_000) }
-        )
-      );
-      phase = 3;
-      replies.push(
-        await session.generate(
-          'Use the shell tool to run exactly: bun -e \'require("node:fs").writeFileSync("/workspace/denied.txt", "forbidden")\'. If permission is refused, stop and report the refusal. Do not retry or use other tools.',
-          { signal: AbortSignal.timeout(150_000) }
-        )
-      );
-      phase = 4;
-      replies.push(
-        await session.generate(
-          `Use ${questionTool} to ask one free-text question: "What should the cancellation marker be?" Wait for the user answer before doing anything else. Only after receiving an answer, run a shell command to write it to /workspace/cancelled.txt.`,
-          { signal: AbortSignal.timeout(150_000) }
-        )
-      );
-      return replies;
     });
     await engine.start();
     let settled = false;

@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { openHostDatabase } from "~/database/workspaces";
 
-vi.mock("~/database/workspaces", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("~/database/workspaces")>();
+import { openHostDatabase } from "~/database/open";
+
+vi.mock("~/database/open", async (importOriginal) => {
+  const original = await importOriginal<typeof import("~/database/open")>();
   return { ...original, openHostDatabase: vi.fn(original.openHostDatabase) };
 });
 
@@ -17,7 +17,6 @@ it("keeps its recovery report over the one handle it opens for a state dir", asy
   const lines: string[] = [];
   const engine = createEngine({
     catalog: new Catalog(),
-    dry: false,
     print: (line) => lines.push(line),
     providers: [],
     root: process.cwd(),

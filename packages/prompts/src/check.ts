@@ -1,199 +1,45 @@
+import type { Diagnostic } from "./diagnose";
+import { diagnose } from "./diagnose";
 import type { Dialect } from "./dialect";
-import type {
-  Diagnostic,
-  Notation,
-  PromptReference,
-  PromptSource,
-  ReferenceToken,
-  Span,
-  Surface,
-  Token,
-} from "./language";
-import { nameOf } from "./reference";
-import { SpanSet } from "./spans";
+import { claudeCode } from "./dialects/claude-code";
+import { codex } from "./dialects/codex";
+import { pi } from "./dialects/pi";
+import type { Surface } from "./notation";
+import { Parser } from "./parser";
+import type { PromptSource } from "./source";
+import { isSource, layered, namesSource, type PromptNames } from "./source";
 
-export interface CheckContext {
-  readonly dialect: Dialect;
-  readonly siblings: ReadonlyMap<Dialect, readonly Token[]>;
-  readonly sources: PromptSource;
-  readonly surface: Surface;
+const STOCK: readonly Dialect[] = [claudeCode, codex, pi];
+
+export interface CheckOptions {
+  readonly sources?: PromptSource | PromptNames;
+  readonly surface?: Surface;
 }
 
-type ForeignReference = Extract<PromptReference, { kind: "agent" | "skill" }>;
-
-const FOREIGN_KINDS: ReadonlySet<PromptReference["kind"]> = new Set([
-  "agent",
-  "skill",
-]);
-
-function isForeign(reference: PromptReference): reference is ForeignReference {
-  return FOREIGN_KINDS.has(reference.kind);
-}
-
-export function diagnose(
-  tokens: readonly Token[],
-  context: CheckContext
+export function check(
+  dialect: Dialect,
+  chunks: readonly string[],
+  options: CheckOptions = {}
 ): Diagnostic[] {
-  const foreign = foreignNotation(tokens, context);
-  const foreignSpans = new SpanSet(foreign.map((item) => item.span));
-  const found: Diagnostic[] = [...foreign];
-  for (const token of tokens) {
-    if (!("reference" in token)) {
-      continue;
-    }
-    const item = context.dialect.notation(token.notation);
-    if (item === undefined) {
-      continue;
-    }
-    if (foreignSpans.overlaps(token.span)) {
-      continue;
-    }
-    found.push(...placement(token, item, context));
-    const unresolved = resolution(token, context.sources);
-    if (unresolved !== null) {
-      found.push(unresolved);
-    }
+  const layers = [dialect.builtins];
+  if (options.sources !== undefined) {
+    layers.push(
+      isSource(options.sources) ? options.sources : namesSource(options.sources)
+    );
   }
-  return found;
-}
-
-function foreignNotation(
-  own: readonly Token[],
-  context: CheckContext
-): Diagnostic[] {
-  const found: Diagnostic[] = [];
-  let read: Readings | undefined;
-  for (const [sibling, tokens] of context.siblings) {
-    for (const token of tokens) {
-      if (!("reference" in token)) {
-        continue;
-      }
-      const { reference } = token;
-      if (
-        !(
-          isForeign(reference) &&
-          context.sources.has(reference.kind, reference.name)
-        )
-      ) {
-        continue;
-      }
-      read ??= ownReadings(own);
-      if (readsTheSame(read, token.span, reference)) {
-        continue;
-      }
-      const right = context.dialect.write({
-        kind: reference.kind,
-        name: reference.name,
-      });
-      found.push({
-        code: "foreign-notation",
-        message: `"${token.text}" is ${sibling.label} notation; ${context.dialect.label} ${right === null ? `has no notation for a ${reference.kind}` : `reads a ${reference.kind} as "${right}"`}.`,
-        reference,
-        severity: "error",
-        span: token.span,
-      });
-    }
-  }
-  return dedupe(found);
-}
-
-type Readings = Map<PromptReference["kind"], Map<string | undefined, SpanSet>>;
-
-function ownReadings(own: readonly Token[]): Readings {
-  const spans = new Map<
-    PromptReference["kind"],
-    Map<string | undefined, Span[]>
-  >();
-  for (const token of own) {
-    if (!("reference" in token)) {
-      continue;
-    }
-    const { kind } = token.reference;
-    const name = nameOf(token.reference);
-    const byName = spans.get(kind) ?? new Map<string | undefined, Span[]>();
-    spans.set(kind, byName);
-    const found = byName.get(name) ?? [];
-    byName.set(name, found);
-    found.push(token.span);
-  }
-  const read: Readings = new Map();
-  for (const [kind, byName] of spans) {
-    const sets = new Map<string | undefined, SpanSet>();
-    for (const [name, found] of byName) {
-      sets.set(name, new SpanSet(found));
-    }
-    read.set(kind, sets);
-  }
-  return read;
-}
-
-function readsTheSame(
-  read: Readings,
-  span: Span,
-  reference: PromptReference
-): boolean {
-  return (
-    read.get(reference.kind)?.get(nameOf(reference))?.overlaps(span) ?? false
+  const sources = layered(layers);
+  const tokens = new Parser(dialect, sources).tokenizeTemplate(chunks);
+  const siblings = new Map(
+    STOCK.filter((item) => item !== dialect).map((sibling) => [
+      sibling,
+      new Parser(sibling).tokenizeTemplate(chunks),
+    ])
   );
-}
-
-function dedupe(diagnostics: readonly Diagnostic[]): Diagnostic[] {
-  const seen = new Set<string>();
-  return diagnostics.filter((item) => {
-    const key = `${item.span.start}:${item.span.end}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
+  const found = diagnose(tokens, {
+    dialect,
+    siblings,
+    sources,
+    surface: options.surface ?? "message",
   });
-}
-
-function placement(
-  token: ReferenceToken,
-  item: Notation,
-  context: CheckContext
-): Diagnostic[] {
-  const found: Diagnostic[] = [];
-  const { label } = context.dialect;
-  if (item.surface === "template" && context.surface === "message") {
-    found.push({
-      code: "template-only",
-      message: `${label} substitutes "${token.text}" only inside a skill or template file; in a message it is sent as literal text.`,
-      reference: token.reference,
-      severity: "warning",
-      span: token.span,
-    });
-  }
-  if (item.consumes) {
-    found.push({
-      code: "consumed-by-harness",
-      message: `${label} handles "${token.text}" itself; the model does not receive this message.`,
-      reference: token.reference,
-      severity: "warning",
-      span: token.span,
-    });
-  }
-  return found;
-}
-
-function resolution(
-  token: ReferenceToken,
-  sources: PromptSource
-): Diagnostic | null {
-  const { reference } = token;
-  const name = nameOf(reference);
-  if (name === undefined) {
-    return null;
-  }
-  if (!sources.covers(reference.kind) || sources.has(reference.kind, name)) {
-    return null;
-  }
-  return {
-    code: "unresolved-reference",
-    message: `Unknown ${reference.kind} "${name}".`,
-    reference,
-    severity: "error",
-    span: token.span,
-  };
+  return found.sort((a, b) => a.span.start - b.span.start);
 }

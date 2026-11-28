@@ -1,14 +1,17 @@
-import type { ProcessIdentity } from "@foundry/lib/process-identity";
-import { ExecutionCoordinator } from "@foundry/workflows";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
-import { and, eq } from "drizzle-orm";
-import { openDatabase, readDatabase } from "~/database/open";
-import { readResourceView } from "~/database/resources";
+import {
+  nodeStartedAt,
+  type ProcessIdentity,
+} from "@foundry/lib/node/process-identity";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
+import { type Occurrence, occurrenceId } from "@foundry/scheduling";
+import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";
+import { openDatabase, readDatabase, readResourceView } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
-import { marblesScheduleTicks, marblesWorkflowRuns } from "~/database/tables";
 import { stateDatabase } from "~/layout";
+import { ownerOfRun } from "~/lib/execution-record";
 import type { StoredScope } from "~/lib/run-store";
-import type { ScheduleHistory } from "~/lib/trigger-store";
+import { isRunId, readRun, runStoreEffect } from "~/lib/workflow-runs";
+import { putRun } from "./queue-runs";
 
 export interface StoredRunState {
   readonly owner: number | null;
@@ -25,31 +28,23 @@ export async function storedRun(
   const read = await readDatabase(
     stateDatabase(state),
     async (database): Promise<StoredRunState | undefined> => {
-      const workflows = new SqliteWorkflowStore({ database, scope });
-      const run = await workflows.getRun(runId);
-      if (run === null) {
+      const workflows = makeSqliteQueueStore({ database, scope });
+      const run = await readRun(workflows, runId);
+      if (run === null || !isRunId(runId)) {
         return undefined;
       }
-      const suspensions = await workflows.listSuspensions({
-        limit: 100,
-        runId,
-      });
-      const [owned] = await database
-        .select({ owner: marblesWorkflowRuns.ownerPid })
-        .from(marblesWorkflowRuns)
-        .where(
-          and(
-            eq(marblesWorkflowRuns.scope, scope),
-            eq(marblesWorkflowRuns.runId, runId)
-          )
-        );
+      const suspensions = await runStoreEffect(
+        workflows.listSuspensions({ runId })
+      );
+      const stored = await runStoreEffect(workflows.getRun(runId));
+      const owner = stored && ownerOfRun(stored);
       return {
-        owner: owned?.owner ?? null,
+        owner: owner?.pid ?? null,
         recorded: await new DatabaseRunStore({ database, scope }).recorded(
           runId
         ),
         status: run.status,
-        suspensions: suspensions.items.map((suspension) => suspension.status),
+        suspensions: suspensions.map((wait) => wait.state.kind),
       };
     }
   );
@@ -74,62 +69,117 @@ export async function seedRuns(
   }
   try {
     const { database } = opened;
-    const store = new ExecutionCoordinator({
-      store: new SqliteWorkflowStore({ database, scope }),
-    });
-    const queue = await store.ensureQueue({ id: "qu-seeded", name: "marbles" });
+    const store = makeSqliteQueueStore({ database, scope });
     for (const run of runs) {
-      await store.createRun({
-        id: run.id,
-        input: null,
-        queueId: queue.id,
+      await putRun(store, run.id, "running", {
+        at: run.createdAt,
+        ...(run.owner === null
+          ? {}
+          : {
+              owner: {
+                pid: run.owner,
+                started: nodeStartedAt(run.owner) ?? null,
+              },
+            }),
         step: "guides",
       });
-      await store.updateRun(run.id, {
-        status: "running",
-        timestamps: { createdAt: run.createdAt },
-      });
       if (run.status !== "running") {
-        await store.updateRun(run.id, { status: run.status });
+        await putRun(store, run.id, run.status, { at: run.createdAt });
       }
-      await database.insert(marblesWorkflowRuns).values({
-        ledger: {},
-        literals: {},
-        ownerId: run.owner === null ? null : "seeded",
-        ownerPid: run.owner,
-        runId: run.id,
-        scope,
-      });
     }
   } finally {
     opened.close();
   }
 }
 
-export interface SeededTick {
+export interface SeededSchedule {
   readonly key: string;
-  readonly last?: ScheduleHistory;
-  readonly owner: number | null;
+  readonly kind?: "schedule" | "monitor";
+  readonly label?: string;
+  readonly last?: {
+    readonly outcome: "complete" | "failed" | "cancelled";
+    readonly settledAt: string;
+  };
+  readonly nextDue?: string;
+  readonly owner?: number | null;
 }
 
-export async function seedTicks(
+function occurrenceOf({
+  key,
+  last,
+  owner,
+}: SeededSchedule): Occurrence | undefined {
+  if (owner !== undefined && owner !== null) {
+    return {
+      id: occurrenceId(key, 1),
+      scheduledFor: 1,
+      scheduleId: key,
+      state: {
+        claimedAt: 1,
+        kind: "claimed" as const,
+        lease: {
+          claimedAt: 1,
+          owner: { pid: owner, started: nodeStartedAt(owner) ?? null },
+        },
+      },
+    };
+  }
+  if (last === undefined) {
+    return;
+  }
+  const settledAt = Date.parse(last.settledAt);
+  return {
+    id: occurrenceId(key, settledAt),
+    scheduledFor: settledAt,
+    scheduleId: key,
+    state: {
+      jobId: "rn-seeded",
+      kind: "settled" as const,
+      outcome: last.outcome,
+      settledAt,
+    },
+  };
+}
+
+export async function seedSchedules(
   state: string,
   scope: string,
-  ticks: readonly SeededTick[]
+  schedules: readonly SeededSchedule[]
 ): Promise<void> {
   const opened = await openDatabase(stateDatabase(state));
   if (opened === undefined) {
     throw new Error("no Marbles database to seed");
   }
   try {
-    for (const { key, last, owner } of ticks) {
-      await opened.database.insert(marblesScheduleTicks).values({
-        key,
-        ...(last ?? {}),
-        ownerId: owner === null ? null : "seeded",
-        ownerPid: owner,
-        scope,
-      });
+    const store = makeSqliteScheduleStore({ database: opened.database, scope });
+    for (const seeded of schedules) {
+      const { key, kind = "schedule", label = key, nextDue } = seeded;
+      const occurrence = occurrenceOf(seeded);
+      await runStoreEffect(
+        store.commit({
+          cursors: [
+            {
+              nextDueAt: nextDue === undefined ? null : Date.parse(nextDue),
+              scheduleId: key,
+            },
+          ],
+          occurrences: occurrence === undefined ? [] : [occurrence],
+          schedules: [
+            {
+              cadence: { afterSettleMs: 60_000, kind: "delay" },
+              createdAt: 0,
+              id: key,
+              misfire: "run-once",
+              overlap: "skip",
+              state: "active",
+              target: {
+                handler: { name: key },
+                input: { input: null, kind, label },
+              },
+            },
+          ],
+        })
+      );
     }
   } finally {
     opened.close();

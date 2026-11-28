@@ -1,16 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { SessionWindow } from "../../contexts/session-window";
 import type { SessionChangeEvent } from "../../schema";
 import type { SessionStore } from "../../store";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { describeSessionStore } from "../../testing/store";
 
 describeSessionStore(
-  "InMemorySessionStore",
+  "MemorySessionStore",
   () => {
     const scopes = new Map<string, SessionStore>();
     return (scope) => {
-      const store = scopes.get(scope) ?? new InMemorySessionStore();
+      const store = scopes.get(scope) ?? new MemorySessionStore();
       scopes.set(scope, store);
       return store;
     };
@@ -18,23 +17,9 @@ describeSessionStore(
   { hooked: false }
 );
 
-describeSessionStore(
-  "SessionWindow over InMemorySessionStore",
-  () => {
-    const scopes = new Map<string, SessionStore>();
-    return (scope) => {
-      const store =
-        scopes.get(scope) ?? new SessionWindow(new InMemorySessionStore());
-      scopes.set(scope, store);
-      return store;
-    };
-  },
-  { hooked: false }
-);
-
-describe("InMemorySessionStore events", () => {
+describe("MemorySessionStore events", () => {
   it("refuses whole a write whose events it cannot copy", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const unplain = {
       at: () => "now",
       id: "e",

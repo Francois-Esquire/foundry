@@ -1,10 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { Tasks } from "@foundry/tasks";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import { openWorkspaceRecords } from "~/database/managed";
 import type { Engine } from "~/lib/engine";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
@@ -22,7 +21,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
   await rm(root, { force: true, recursive: true });
 });

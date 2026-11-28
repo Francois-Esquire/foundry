@@ -1,0 +1,85 @@
+{
+  "name": "@foundry/queue",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Durable execution queue: Jobs, Runs, Suspensions, and named concurrency pools.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./src/client.ts",
+      "default": "./src/client.ts"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./src/node.ts",
+      "default": "./src/node.ts"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
+    },
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
+    },
+    "./store/sqlite": {
+      "types": "./dist/store/sqlite.d.ts",
+      "import": "./src/store/sqlite.ts",
+      "default": "./src/store/sqlite.ts"
+    },
+    "./store/tables": {
+      "types": "./dist/store/tables.d.ts",
+      "import": "./src/store/tables.ts",
+      "default": "./src/store/tables.ts"
+    },
+    "./testing/store": {
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts",
+      "default": "./src/testing/store.ts"
+    }
+  },
+  "files": [
+    "./dist/**/*",
+    "./src/**/*",
+    "!**/*.test.*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist .cache .turbo coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@foundry/lib": "workspace:*",
+    "effect": "^3.22.5"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.87.5",
+    "@foundry/tsconfig": "workspace:*",
+    "@libsql/client": "^0.18.0",
+    "@types/bun": "1.4.5",
+    "@vitest/coverage-v8": "^4.1.12",
+    "drizzle-orm": "^0.45.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.12"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.4"
+  },
+  "peerDependenciesMeta": {
+    "drizzle-orm": {
+      "optional": true
+    }
+  }
+}

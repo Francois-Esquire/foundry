@@ -65,9 +65,16 @@ export interface WorkspaceConfig {
     readonly source: MonitorSpec;
     readonly trigger: Trigger;
   }[];
+  readonly observers: readonly ObserverEntry[];
   readonly root: string;
   readonly schedules: readonly Schedule[];
   readonly source: string | null;
+}
+
+export interface ObserverEntry {
+  readonly name: string;
+  readonly source: string;
+  readonly types?: readonly string[];
 }
 
 export interface DispatchOptions {
@@ -83,21 +90,56 @@ export interface DispatchOptions {
   readonly timeoutMs?: number;
 }
 
+type RunInfoStatus = TerminalStatus | "queued" | "running" | "suspended";
+
 export interface RunInfo {
+  endedAt?: string;
   error?: string;
   readonly kind: "agent" | "workflow";
   readonly name: string;
   output?: unknown;
+  queuedAt?: string;
   readonly runId: string;
   readonly session?: SessionRef;
-  readonly status: TerminalStatus | "queued" | "running" | "suspended";
+  startedAt?: string;
+  readonly status: RunInfoStatus;
   text?: string;
+}
+
+export interface RunSummary {
+  readonly endedAt?: string;
+  readonly error?: string;
+  readonly id: string;
+  readonly kind: "agent" | "workflow";
+  readonly name: string;
+  readonly queuedAt: string;
+  readonly session?: SessionRef;
+  readonly startedAt?: string;
+  readonly status: RunInfoStatus;
+}
+
+export interface RunListQuery {
+  readonly cursor?: number;
+  readonly kind?: "agent" | "workflow";
+  readonly limit?: number;
+  readonly name?: string;
+  readonly status?: readonly RunInfoStatus[];
+}
+
+export interface RunPage {
+  readonly items: readonly RunSummary[];
+  readonly nextCursor?: number;
+  readonly total: number;
 }
 
 export type DispatchInfo = Pick<
   RunInfo,
   "kind" | "name" | "runId" | "session" | "status"
 >;
+
+export interface EnqueueOptions {
+  readonly key?: string;
+}
 
 export interface RollResult {
   readonly lines: readonly string[];
@@ -111,9 +153,14 @@ export interface WorkspaceConnection {
   readonly config: string | null;
   describe(): Promise<WorkspaceConfig>;
   dispatchAgent(options: DispatchOptions): Promise<DispatchInfo>;
-  dispatchWorkflow(name: string, input: unknown): Promise<DispatchInfo>;
+  dispatchWorkflow(
+    name: string,
+    input: unknown,
+    options?: EnqueueOptions
+  ): Promise<DispatchInfo>;
   getRun(runId: string): Promise<RunInfo>;
   readonly id: string;
+  listRuns(query?: RunListQuery): Promise<RunPage>;
   roll(name: string, input?: unknown): Promise<RollResult>;
   readonly root: string;
   snapshot(): Promise<DashboardSnapshot>;

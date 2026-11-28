@@ -1,19 +1,52 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import type { BlobFiles, BlobStagingArea } from "./blob";
-import { CHUNK_BYTES } from "./constants";
 import { FileTooLargeError, InvalidArtifactInputError } from "./errors";
-import type { BlobId } from "./ref";
+import type { BlobId } from "./ids";
 import type { EntryInput, EntryInputs, FileInput } from "./substrate";
 
+export const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+export const MAX_TREE_BYTES = 8 * 1024 * 1024 * 1024;
+
+export const CHUNK_BYTES = 8 * 1024 * 1024;
+
+export interface BlobFiles {
+  list(): AsyncIterable<string>;
+  publish(bytes: Uint8Array): Promise<string>;
+  read(
+    path: string,
+    range: { readonly start: number; readonly end: number }
+  ): AsyncIterable<Uint8Array>;
+  remove(path: string): Promise<void>;
+  readonly staging?: BlobStagingArea;
+}
+
+export interface BlobStagingArea {
+  abandon(): Promise<void>;
+  discard(staged: string): Promise<void>;
+  promote(staged: string): Promise<string>;
+  stage(bytes: Uint8Array): Promise<string>;
+}
+
+export type ExternalBlobInput = Extract<
+  FileInput,
+  { readonly path: string; readonly digest: string; readonly bytes: number }
+>;
 export type ReferenceInput =
   | Extract<FileInput, { readonly blobId: unknown }>
-  | Extract<FileInput, { readonly digest: string }>;
-export type ByteInput = Exclude<FileInput, ReferenceInput>;
+  | Exclude<Extract<FileInput, { readonly digest: string }>, ExternalBlobInput>;
+export type ByteInput = Exclude<FileInput, ReferenceInput | ExternalBlobInput>;
+
+export function isExternalBlobInput(
+  input: FileInput
+): input is ExternalBlobInput {
+  return "path" in input && input.path !== undefined;
+}
 
 export function isReferenceInput(input: FileInput): input is ReferenceInput {
-  return "blobId" in input || "digest" in input;
+  return (
+    "blobId" in input || ("digest" in input && !isExternalBlobInput(input))
+  );
 }
 
 export type StagedChunk = {
@@ -297,7 +330,7 @@ export function checkSize(path: string, size: number, max: number): void {
   }
 }
 
-export function digestOf(bytes: Uint8Array): string {
+function digestOf(bytes: Uint8Array): string {
   return bytesToHex(sha256(bytes));
 }
 
@@ -315,7 +348,8 @@ function byteInputs(entries: EntryInputs | undefined): [string, ByteInput][] {
 function isByteInput(entry: EntryInput): entry is ByteInput {
   return (
     (entry.type === undefined || entry.type === "file") &&
-    !isReferenceInput(entry as FileInput)
+    !isReferenceInput(entry as FileInput) &&
+    !isExternalBlobInput(entry as FileInput)
   );
 }
 

@@ -1,24 +1,26 @@
-import { createHash } from "node:crypto";
 import { canonicalizeJson } from "@foundry/lib/json";
-import { captureScope, declaringCatalog } from "~/authoring/runtime";
+import { trackCreatedDeclaration } from "~/authoring/runtime";
+import { DEFAULT_EVERY, parseAt } from "~/lib/cadence";
 import type { AnyDefinition, LockedNode } from "~/lib/definition";
-import { launchTarget } from "~/lib/launch";
+import { isLockedNode } from "~/lib/definition";
+import { MONITOR_META, SCHEDULE_META } from "~/lib/handles";
+import { sha256HexSync } from "~/lib/hash";
+import { jsonData } from "~/lib/json-data";
 import type {
   MonitorHandler,
   MonitorRequest,
   MonitorSpec,
 } from "~/lib/monitor";
-import { DEFAULT_EVERY } from "~/lib/monitor";
-import { parseAt } from "~/lib/schedule";
-import { jsonData } from "~/lib/state/json";
-import type { CalendarSlot, Trigger } from "~/lib/triggers";
+import type { MonitorRecord } from "~/lib/registry";
+import type { CalendarSlot, Schedule, Trigger } from "~/lib/triggers";
 
 const KEY_SEPARATORS = /[^a-z0-9]+/g;
 const KEY_TRIM = /^-+|-+$/g;
 const KEY_MAX = 40;
 const HTTP_SOURCE = /^https?:\/\//;
+const WHITESPACE = /\s/;
 
-function slug(text: string): string {
+function triggerSlug(text: string): string {
   const cleaned = text
     .toLowerCase()
     .replace(KEY_SEPARATORS, "-")
@@ -28,49 +30,85 @@ function slug(text: string): string {
   return cleaned || "x";
 }
 
-function sha256(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
+export function scheduleKeyBase(workflow: string, input: unknown): string {
+  return input === null
+    ? triggerSlug(workflow)
+    : `${triggerSlug(workflow)}-${sha256HexSync(canonicalizeJson(jsonData(input))).slice(0, 8)}`;
+}
+
+export interface ScheduleMeta {
+  readonly input: unknown;
+  readonly target: AnyDefinition;
+}
+
+export interface MonitorMeta {
+  readonly explicitKey: boolean;
 }
 
 export interface ScheduleBuilder {
-  at(slot: CalendarSlot): void;
-  every(interval: string): void;
+  at(slot: CalendarSlot): Schedule;
+  every(interval: string): Schedule;
 }
 
 export function schedule(target: AnyDefinition | LockedNode): ScheduleBuilder {
-  const launch = launchTarget(target, "schedule()");
-  const scope = captureScope();
-  const register = (trigger: Trigger) => {
-    const hasInput = launch.input !== null;
-    const base = hasInput
-      ? `${slug(launch.workflow)}-${sha256(canonicalizeJson(jsonData(launch.input))).slice(0, 8)}`
-      : slug(launch.workflow);
-    const into = scope(declaringCatalog);
-    into.schedule({
-      input: launch.input,
-      key: into.uniqueKey(base),
+  const node = isLockedNode(target) ? target : undefined;
+  if (node && node.children.length > 0) {
+    throw new Error(
+      "schedule(): a locked tree has children; wrap it in a named workflow first"
+    );
+  }
+  const definition = node ? node.definition : (target as AnyDefinition);
+  if (
+    definition === null ||
+    definition === undefined ||
+    (definition.kind !== "step" && definition.kind !== "workflow")
+  ) {
+    throw new TypeError(
+      "schedule(): expected a step, workflow, or locked node"
+    );
+  }
+  const literal = node?.literal ?? {};
+  const input = Object.keys(literal).length === 0 ? null : literal;
+  const create = (trigger: Trigger): Schedule => {
+    const workflow = definition.name ?? "";
+    const hasInput = input !== null;
+    const key = workflow === "" ? "" : scheduleKeyBase(workflow, input);
+    let label = "";
+    if (workflow !== "") {
+      label = hasInput ? `${workflow} ${JSON.stringify(input)}` : workflow;
+    }
+    const record: Schedule = {
+      input,
+      key,
       kind: "schedule",
-      label: hasInput
-        ? `${launch.workflow} ${JSON.stringify(launch.input)}`
-        : launch.workflow,
+      label,
       trigger,
-      workflow: launch.workflow,
+      workflow,
+    };
+    Object.defineProperty(record, SCHEDULE_META, {
+      value: { input, target: definition } satisfies ScheduleMeta,
     });
+    const frozen = Object.freeze(record);
+    trackCreatedDeclaration(frozen);
+    return frozen;
   };
   return {
-    at(slot) {
-      register(parseAt(slot));
-    },
-    every(interval) {
-      register(parseAt(interval));
-    },
+    at: (slot) => create(parseAt(slot)),
+    every: (interval) => create(parseAt(interval)),
   };
 }
 
 export interface MonitorBuilder {
-  do(handler: MonitorHandler): void;
+  do(handler: MonitorHandler): MonitorRecord;
   every(interval: string): MonitorBuilder;
+  name(key: string): MonitorBuilder;
   request(init: MonitorRequest): MonitorBuilder;
+}
+
+interface MonitorFields {
+  readonly every: string;
+  readonly key?: string;
+  readonly request?: MonitorRequest;
 }
 
 export function monitor(source: string): MonitorBuilder {
@@ -80,26 +118,41 @@ export function monitor(source: string): MonitorBuilder {
   const spec: MonitorSpec = HTTP_SOURCE.test(source)
     ? { kind: "http", url: source }
     : { glob: source, kind: "files" };
-  const scope = captureScope();
-  const build = (every: string, request?: MonitorRequest): MonitorBuilder => ({
+  const build = (fields: MonitorFields): MonitorBuilder => ({
     do(handler) {
-      const trigger = parseAt(every);
-      const into = scope(declaringCatalog);
-      const key = into.uniqueKey(
-        `${slug(source)}-${sha256(source).slice(0, 6)}`
-      );
-      into.monitor({
+      const trigger = parseAt(fields.every);
+      const key =
+        fields.key ??
+        `${triggerSlug(source)}-${sha256HexSync(source).slice(0, 6)}`;
+      const record: MonitorRecord = {
         handler,
         key,
         label: source,
-        ...(request === undefined ? {} : { request }),
+        ...(fields.request === undefined ? {} : { request: fields.request }),
         source: spec,
         trigger,
+      };
+      Object.defineProperty(record, MONITOR_META, {
+        value: { explicitKey: fields.key !== undefined } satisfies MonitorMeta,
       });
+      const frozen = Object.freeze(record);
+      trackCreatedDeclaration(frozen);
+      return frozen;
     },
     every(interval) {
       parseAt(interval);
-      return build(interval, request);
+      return build({ ...fields, every: interval });
+    },
+    name(key) {
+      if (typeof key !== "string" || !key.trim()) {
+        throw new Error(`monitor("${source}").name(): a name cannot be blank`);
+      }
+      if (WHITESPACE.test(key)) {
+        throw new Error(
+          `monitor("${source}").name(${JSON.stringify(key)}): a name is one word, as \`marbles trigger <name>\` takes it`
+        );
+      }
+      return build({ ...fields, key });
     },
     request(init) {
       if (spec.kind !== "http") {
@@ -107,8 +160,8 @@ export function monitor(source: string): MonitorBuilder {
           `monitor("${source}").request(): only an http or https source sends a request`
         );
       }
-      return build(every, init);
+      return build({ ...fields, request: init });
     },
   });
-  return build(DEFAULT_EVERY);
+  return build({ every: DEFAULT_EVERY });
 }

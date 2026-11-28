@@ -3,10 +3,6 @@ import { useRenderer } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useLayoutEffect } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { DashboardView } from "../src/cli/views/dashboard";
-import { OnboardingView } from "../src/cli/views/onboarding";
-import { WorkspaceWelcome } from "../src/cli/views/onboarding-intro";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
 import {
   type InputField,
@@ -14,6 +10,10 @@ import {
   inputDefaults,
   parseInputs,
 } from "../src/lib/inputs";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { DashboardView } from "../src/tui/views/dashboard";
+import { OnboardingView } from "../src/tui/views/onboarding";
+import { WorkspaceWelcome } from "../src/tui/views/onboarding-intro";
 import type { SetupDraft } from "../src/workspace/templates";
 
 let ui: Awaited<ReturnType<typeof testRender>>;
@@ -117,17 +117,16 @@ test("setup reviews the selected step, retains settings on back, and reports wri
     { exitOnCtrlC: false, height: 40, kittyKeyboard: true, width: 90 }
   );
   await flush();
-  expect(ui.captureCharFrame()).toContain("Product");
-  await click("setup:next");
+  expect(ui.captureCharFrame()).toContain("Step name");
   await click("form:submit");
-  expect(ui.captureCharFrame()).toContain("summarizeCodebase");
+  expect(ui.captureCharFrame()).toContain('step("hello")');
   expect(drafts).toHaveLength(0);
   await click("setup:back");
-  expect(ui.captureCharFrame()).toContain("summarize-codebase");
+  expect(ui.captureCharFrame()).toContain("Step name");
   await click("form:submit");
   await click("setup:create");
   expect(drafts).toHaveLength(1);
-  expect(drafts[0]?.template).toBe("product");
+  expect(drafts[0]?.name).toBe("hello");
   expect(ui.captureCharFrame()).toContain("Config already exists");
 });
 
@@ -151,8 +150,7 @@ test("setup supports keyboard selection, skip, and Ctrl+C confirmation", async (
     { exitOnCtrlC: false, height: 24, kittyKeyboard: true, width: 65 }
   );
   await flush();
-  await key("up");
-  expect(ui.captureCharFrame()).toContain("Choose a starter · Design");
+  expect(ui.captureCharFrame()).toContain("Configure your first step");
   await act(async () => ui.mockInput.pressCtrlC());
   await flush();
   expect(ui.captureCharFrame()).toContain("Quit Marbles?");
@@ -360,7 +358,6 @@ test("short setup forms scroll keyboard focus to their submit action", async () 
     { exitOnCtrlC: false, height: 18, kittyKeyboard: true, width: 55 }
   );
   await flush();
-  await key("enter");
   await act(async () => {
     ui.mockInput.pressTab();
   });
@@ -377,5 +374,5 @@ test("short setup forms scroll keyboard focus to their submit action", async () 
   expect(submit).toBeDefined();
   expect(submit?.y).toBeLessThan(17);
   await key("enter");
-  expect(ui.captureCharFrame()).toContain("summarizeCodebase");
+  expect(ui.captureCharFrame()).toContain('step("hello")');
 });

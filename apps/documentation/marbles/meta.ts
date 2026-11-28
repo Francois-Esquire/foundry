@@ -6,7 +6,7 @@ export default defineMeta({
   pages: [
     "index",
     "get-started",
-    "foundation",
+    "concepts",
     "use-cases",
     "reference",
     "library",

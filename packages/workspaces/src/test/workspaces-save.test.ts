@@ -1,0 +1,602 @@
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import { WorkspaceCatalog } from "../catalog";
+import { WorkspaceFileNotFoundError, WorkspaceNotFoundError } from "../errors";
+import type { WorkspaceFileSystem } from "../file-system";
+import { nodeFileSystem } from "../node";
+import type { WorkspaceId } from "../schema";
+import type { SaveFileResult } from "../source-adapter";
+import type { WorkspaceStore } from "../store";
+import { MemoryWorkspaceStore } from "../store/memory";
+import {
+  fileRecord,
+  hostWorkspace,
+  newWorkspaceEntryId,
+} from "../testing/records";
+import { sha256Hex } from "./helpers/digest";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
+
+const roots: string[] = [];
+
+afterAll(async () => {
+  await Promise.all(
+    roots.map((root) => rm(root, { force: true, recursive: true }))
+  );
+});
+
+async function makeRoot(
+  tree: Record<string, string | Uint8Array>
+): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "foundry-workspace-save-"));
+  roots.push(root);
+  for (const [relativePath, contents] of Object.entries(tree)) {
+    const absolute = join(root, relativePath);
+    await mkdir(join(absolute, ".."), { recursive: true });
+    await writeFile(absolute, contents);
+  }
+  return await nodeFileSystem.realpath(root);
+}
+
+function digestOf(text: string): string {
+  return sha256Hex(new TextEncoder().encode(text));
+}
+
+describe("createFile", () => {
+  it("creates and catalogs a new file without overwriting an existing entry", async () => {
+    const { workspace, root } = await opened({ "existing.txt": "keep" });
+    expect(
+      await workspace.createFile({ path: "created.txt", text: "new" })
+    ).toMatchObject({
+      catalog: "current",
+      kind: "saved",
+      snapshot: { text: "new" },
+    });
+    expect(await readFile(join(root, "created.txt"), "utf8")).toBe("new");
+    expect(await workspace.files()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: "created.txt" })])
+    );
+    expect(
+      await workspace.createFile({ path: "existing.txt", text: "replace" })
+    ).toMatchObject({ kind: "failed" });
+    expect(await readFile(join(root, "existing.txt"), "utf8")).toBe("keep");
+  });
+
+  it("refuses missing parents, escaping paths, and symlink parents", async () => {
+    const { workspace, root } = await opened({});
+    const outside = await makeRoot({});
+    await symlink(outside, join(root, "link"));
+    for (const path of ["missing/new.txt", "../outside.txt", "link/new.txt"]) {
+      expect(await workspace.createFile({ path, text: "no" })).toMatchObject({
+        kind: "failed",
+      });
+    }
+    expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("allows exactly one concurrent creation", async () => {
+    const { workspace, root } = await opened({});
+    const results = await Promise.all([
+      workspace.createFile({ path: "one.txt", text: "first" }),
+      workspace.createFile({ path: "one.txt", text: "second" }),
+    ]);
+    expect(results.filter((result) => result.kind === "saved")).toHaveLength(1);
+    expect(await readFile(join(root, "one.txt"), "utf8")).toBe("first");
+  });
+});
+
+async function opened(
+  tree: Record<string, string | Uint8Array>,
+  filesystem: WorkspaceFileSystem = nodeFileSystem
+) {
+  const root = await makeRoot(tree);
+  const store = new MemoryWorkspaceStore();
+  const workspaces = directoryWorkspaces({ filesystem, store });
+  const workspace = await workspaces.load({ path: root });
+  const files = await workspace.files();
+  return { files, id: workspace.id, root, store, workspace, workspaces };
+}
+
+function one<T>(items: readonly T[]): T {
+  const [item] = items;
+  if (item === undefined) {
+    throw new Error("expected exactly one item");
+  }
+  return item;
+}
+
+function countingWrites(): {
+  filesystem: WorkspaceFileSystem;
+  writes: () => number;
+} {
+  let calls = 0;
+  return {
+    filesystem: {
+      ...nodeFileSystem,
+      replaceFile: (path, bytes) => {
+        calls += 1;
+        return nodeFileSystem.replaceFile(path, bytes);
+      },
+    },
+    writes: () => calls,
+  };
+}
+
+describe("save", () => {
+  it("saves a same-version draft, returns the written snapshot, and records the catalog", async () => {
+    const { filesystem, writes } = countingWrites();
+    const { root, store, workspace, id, files } = await opened(
+      { "README.md": "first" },
+      filesystem
+    );
+    const file = one(files);
+
+    const read = await workspace.read(file.id);
+    if (read.kind !== "text") {
+      throw new Error("expected a text read");
+    }
+
+    const result = await workspace.save({
+      expectedDigest: read.digest,
+      fileId: file.id,
+      text: "second draft",
+    });
+
+    expect(result).toEqual({
+      catalog: "current",
+      kind: "saved",
+      snapshot: {
+        bytes: 12,
+        digest: digestOf("second draft"),
+        text: "second draft",
+      },
+    });
+    expect(await readFile(join(root, "README.md"), "utf8")).toBe(
+      "second draft"
+    );
+    expect(writes()).toBe(1);
+
+    const row = one(await store.listEntries(id));
+    expect(row).toMatchObject({
+      bytes: 12,
+      digest: digestOf("second draft"),
+      id: file.id,
+      path: "README.md",
+    });
+    expect(row.updatedAt.getTime()).toBeGreaterThan(file.updatedAt.getTime());
+    expect(row.createdAt).toEqual(file.createdAt);
+  });
+
+  it("chains read version to save: the returned snapshot's digest is the next expected version", async () => {
+    const { workspace, files } = await opened({ "a.txt": "v1" });
+    const file = one(files);
+
+    const first = await workspace.save({
+      expectedDigest: digestOf("v1"),
+      fileId: file.id,
+      text: "v2",
+    });
+    if (first.kind !== "saved") {
+      throw new Error("expected saved");
+    }
+
+    const second = await workspace.save({
+      expectedDigest: first.snapshot.digest,
+      fileId: file.id,
+      text: "v3",
+    });
+
+    expect(second).toMatchObject({ catalog: "current", kind: "saved" });
+    expect(await workspace.read(file.id)).toMatchObject({
+      digest: digestOf("v3"),
+      text: "v3",
+    });
+  });
+
+  it("returns conflict with the current snapshot when the bytes changed after the read", async () => {
+    const { filesystem, writes } = countingWrites();
+    const { root, store, workspace, id, files } = await opened(
+      { "README.md": "mine base" },
+      filesystem
+    );
+    const file = one(files);
+
+    await writeFile(join(root, "README.md"), "external change");
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("mine base"),
+      fileId: file.id,
+      text: "my draft",
+    });
+
+    expect(result).toEqual({
+      current: {
+        bytes: 15,
+        digest: digestOf("external change"),
+        text: "external change",
+      },
+      kind: "conflict",
+    });
+    expect(await readFile(join(root, "README.md"), "utf8")).toBe(
+      "external change"
+    );
+    expect(one(await store.listEntries(id))).toMatchObject({
+      digest: digestOf("mine base"),
+    });
+    expect(writes()).toBe(0);
+  });
+
+  it("throws for an unknown Workspace or File", async () => {
+    const { workspaces, workspace } = await opened({ "a.txt": "x" });
+
+    await expect(
+      workspaces.open("missing" as WorkspaceId)
+    ).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+    await expect(
+      workspace.save({
+        expectedDigest: digestOf("x"),
+        fileId: newWorkspaceEntryId(),
+        text: "x",
+      })
+    ).rejects.toBeInstanceOf(WorkspaceFileNotFoundError);
+  });
+
+  it("throws once the Workspace behind an instance is removed", async () => {
+    const { workspace, files } = await opened({ "a.txt": "x" });
+    await workspace.remove();
+
+    await expect(
+      workspace.save({
+        expectedDigest: digestOf("x"),
+        fileId: one(files).id,
+        text: "x",
+      })
+    ).rejects.toBeInstanceOf(WorkspaceNotFoundError);
+  });
+});
+
+describe("save refusals", () => {
+  it("reports a removed File as stale with the draft unwritten", async () => {
+    const { filesystem, writes } = countingWrites();
+    const { root, workspace, files } = await opened(
+      { "gone.md": "here" },
+      filesystem
+    );
+
+    await unlink(join(root, "gone.md"));
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("here"),
+      fileId: one(files).id,
+      text: "draft",
+    });
+
+    expect(result).toMatchObject({ kind: "stale" });
+    await expect(lstat(join(root, "gone.md"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(writes()).toBe(0);
+  });
+
+  it("reports a File replaced by a directory as stale", async () => {
+    const { root, workspace, files } = await opened({ "swap.md": "text" });
+
+    await unlink(join(root, "swap.md"));
+    await mkdir(join(root, "swap.md"));
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("text"),
+      fileId: one(files).id,
+      text: "draft",
+    });
+
+    expect(result).toMatchObject({ kind: "stale" });
+    expect((await lstat(join(root, "swap.md"))).isDirectory()).toBe(true);
+  });
+
+  it("refuses a final-component symlink placed after cataloging", async () => {
+    const { root, workspace, files } = await opened({
+      "linked.md": "original",
+      "target.md": "safe",
+    });
+    const linked = files.find((file) => file.path === "linked.md");
+    if (!linked) {
+      throw new Error("expected linked.md");
+    }
+
+    await unlink(join(root, "linked.md"));
+    await symlink(join(root, "target.md"), join(root, "linked.md"));
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("original"),
+      fileId: linked.id,
+      text: "draft through the link",
+    });
+
+    expect(result).toMatchObject({ kind: "stale" });
+    expect(await readFile(join(root, "target.md"), "utf8")).toBe("safe");
+  });
+
+  it("refuses an ancestor symlink that resolves the File outside the root", async () => {
+    const { root, workspace, files } = await opened({
+      "dir/inner.md": "inside",
+    });
+    const outside = await makeRoot({ "inner.md": "outside truth" });
+
+    await rm(join(root, "dir"), { recursive: true });
+    await symlink(outside, join(root, "dir"));
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("inside"),
+      fileId: one(files).id,
+      text: "escape attempt",
+    });
+
+    expect(result).toMatchObject({ kind: "failed" });
+    expect(await readFile(join(outside, "inner.md"), "utf8")).toBe(
+      "outside truth"
+    );
+  });
+
+  it("refuses a stored path that lexically escapes the root", async () => {
+    const root = await makeRoot({ "safe.md": "x" });
+    const store = new MemoryWorkspaceStore();
+    const catalog = new WorkspaceCatalog(store, () => undefined);
+    const registered = hostWorkspace({ path: root });
+    const escaping = fileRecord(registered.id, { path: "../evil.md" });
+    await expect(
+      catalog.create({ entries: [escaping], workspace: registered })
+    ).rejects.toThrow("Invalid storage path");
+    expect(await store.getWorkspace(registered.id)).toBeNull();
+
+    await expect(lstat(join(root, "..", "evil.md"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("reports a File whose current bytes are binary as stale", async () => {
+    const { root, workspace, files } = await opened({ "doc.md": "text" });
+
+    await writeFile(join(root, "doc.md"), Buffer.from([0xff, 0x00, 0x01]));
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("text"),
+      fileId: one(files).id,
+      text: "draft",
+    });
+
+    expect(result).toMatchObject({ kind: "stale" });
+    expect(new Uint8Array(await readFile(join(root, "doc.md")))).toEqual(
+      new Uint8Array([0xff, 0x00, 0x01])
+    );
+  });
+
+  it("refuses a draft that cannot round-trip as UTF-8 text", async () => {
+    const { workspace, root, files } = await opened({ "a.txt": "clean" });
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("clean"),
+      fileId: one(files).id,
+      text: ["nul", "inside"].join(String.fromCharCode(0)),
+    });
+
+    expect(result).toMatchObject({ kind: "failed" });
+    expect(await readFile(join(root, "a.txt"), "utf8")).toBe("clean");
+  });
+
+  it("returns failed with unchanged bytes when the conflict-check read fails", async () => {
+    const { root, store, id, files } = await opened({ "a.txt": "original" });
+    const denied = directoryWorkspaces({
+      filesystem: {
+        ...nodeFileSystem,
+        readFile: () =>
+          Promise.reject(
+            Object.assign(new Error("denied"), { code: "EACCES" })
+          ),
+      },
+      store,
+    });
+
+    const result = await (await denied.open(id)).save({
+      expectedDigest: digestOf("original"),
+      fileId: one(files).id,
+      text: "draft",
+    });
+
+    expect(result).toEqual({
+      kind: "failed",
+      reason: "Could not read a.txt (EACCES)",
+    });
+    expect(await readFile(join(root, "a.txt"), "utf8")).toBe("original");
+  });
+
+  it("returns failed and leaves the original when replacement itself fails", async () => {
+    const { root, workspace, files } = await opened(
+      { "a.txt": "original" },
+      {
+        ...nodeFileSystem,
+        replaceFile: () =>
+          Promise.reject(Object.assign(new Error("boom"), { code: "EIO" })),
+      }
+    );
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("original"),
+      fileId: one(files).id,
+      text: "draft",
+    });
+
+    expect(result).toEqual({
+      kind: "failed",
+      reason: "Could not save a.txt (EIO)",
+    });
+    expect(await readFile(join(root, "a.txt"), "utf8")).toBe("original");
+  });
+
+  it("never places an absolute path in any outcome", async () => {
+    const { root, workspace, files } = await opened({ "a.txt": "original" });
+    const file = one(files);
+    const results: SaveFileResult[] = [];
+
+    await writeFile(join(root, "a.txt"), "changed");
+    results.push(
+      await workspace.save({
+        expectedDigest: digestOf("original"),
+        fileId: file.id,
+        text: "draft",
+      })
+    );
+    await unlink(join(root, "a.txt"));
+    results.push(
+      await workspace.save({
+        expectedDigest: digestOf("original"),
+        fileId: file.id,
+        text: "draft",
+      })
+    );
+
+    for (const result of results) {
+      expect(JSON.stringify(result)).not.toContain(root);
+      expect(JSON.stringify(result)).not.toContain(tmpdir());
+    }
+  });
+});
+
+describe("catalog observation after write", () => {
+  function faultyStore(inner: MemoryWorkspaceStore) {
+    let fault: "commit" | "missing-row" | undefined;
+    const store: WorkspaceStore = {
+      commit: (write) =>
+        fault === "commit"
+          ? Promise.reject(new Error("catalog write refused"))
+          : inner.commit(write),
+      findWorkspaceByPath: (path) => inner.findWorkspaceByPath(path),
+      findWorkspaceBySourceId: (sourceId) =>
+        inner.findWorkspaceBySourceId(sourceId),
+      getEntry: (workspaceId, entryId) => inner.getEntry(workspaceId, entryId),
+      getWorkspace: (workspaceId) => inner.getWorkspace(workspaceId),
+      listEntries: (workspaceId) =>
+        fault === "missing-row"
+          ? Promise.resolve([])
+          : inner.listEntries(workspaceId),
+      listWorkspaces: (input) => inner.listWorkspaces(input),
+    };
+    return {
+      arm: (next: "commit" | "missing-row") => {
+        fault = next;
+      },
+      store,
+    };
+  }
+
+  it("returns saved/refresh-required when the catalog commit throws, then reconciles", async () => {
+    const { filesystem, writes } = countingWrites();
+    const root = await makeRoot({ "README.md": "first" });
+    const inner = new MemoryWorkspaceStore();
+    const faulty = faultyStore(inner);
+    const workspaces = directoryWorkspaces({ filesystem, store: faulty.store });
+    const workspace = await workspaces.load({ path: root });
+    const file = one(await workspace.files());
+    faulty.arm("commit");
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("first"),
+      fileId: file.id,
+      text: "second",
+    });
+
+    expect(result).toEqual({
+      catalog: "refresh-required",
+      kind: "saved",
+      snapshot: {
+        bytes: 6,
+        digest: digestOf("second"),
+        text: "second",
+      },
+    });
+    expect(await readFile(join(root, "README.md"), "utf8")).toBe("second");
+    expect(one(await inner.listEntries(workspace.id))).toMatchObject({
+      digest: digestOf("first"),
+    });
+    expect(writes()).toBe(1);
+
+    const recovered = directoryWorkspaces({ filesystem, store: inner });
+    await (await recovered.open(workspace.id)).refresh();
+    expect(one(await inner.listEntries(workspace.id))).toMatchObject({
+      digest: digestOf("second"),
+    });
+    expect(writes()).toBe(1);
+  });
+
+  it("returns saved/refresh-required when the catalog refuses the update", async () => {
+    const root = await makeRoot({ "README.md": "first" });
+    const faulty = faultyStore(new MemoryWorkspaceStore());
+    const workspaces = directoryWorkspaces({ store: faulty.store });
+    const workspace = await workspaces.load({ path: root });
+    const file = one(await workspace.files());
+    faulty.arm("missing-row");
+
+    const result = await workspace.save({
+      expectedDigest: digestOf("first"),
+      fileId: file.id,
+      text: "second",
+    });
+
+    expect(result).toMatchObject({
+      catalog: "refresh-required",
+      kind: "saved",
+    });
+  });
+
+  it("serializes a save behind a running observation so stale facts never land last", async () => {
+    const root = await makeRoot({ "README.md": "first" });
+    const store = new MemoryWorkspaceStore();
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    const slowScan: WorkspaceFileSystem = {
+      ...nodeFileSystem,
+      readFile: async (path) => {
+        if (!held) {
+          held = true;
+          await gate;
+        }
+        return nodeFileSystem.readFile(path);
+      },
+    };
+    const setup = directoryWorkspaces({ store });
+    const registered = await setup.load({ path: root });
+    const file = one(await registered.files());
+
+    const workspaces = directoryWorkspaces({ filesystem: slowScan, store });
+    const observation = (await workspaces.open(registered.id)).refresh();
+    const save = (await workspaces.open(registered.id)).save({
+      expectedDigest: digestOf("first"),
+      fileId: file.id,
+      text: "second",
+    });
+
+    release?.();
+    await observation;
+    const result = await save;
+
+    expect(result).toMatchObject({ catalog: "current", kind: "saved" });
+    expect(one(await store.listEntries(registered.id))).toMatchObject({
+      digest: digestOf("second"),
+    });
+    expect(await readFile(join(root, "README.md"), "utf8")).toBe("second");
+  });
+});

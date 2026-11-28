@@ -1,5 +1,5 @@
-import type { DashboardSnapshot } from "../../src/cli/state/dashboard-model";
 import type { UsageTotal } from "../../src/model/usage";
+import type { DashboardSnapshot } from "../../src/tui/state/dashboard-model";
 
 const NO_TOKENS = {
   cachedInput: 0,

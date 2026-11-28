@@ -1,18 +1,21 @@
-import { resolve } from "node:path";
 import type { TurnOptions } from "@foundry/agents/harness";
 import type { SessionInput, SessionStream } from "@foundry/agents/session";
 import { PortablePrompt } from "@foundry/prompts";
-import type { Git } from "@foundry/workspaces/git";
+import type { Git } from "@foundry/workspaces/node/git";
 import type { Output } from "ai";
 
 import type { Bindings, ManagerArgs } from "~/lib/bindings";
+import { deferredStream } from "~/lib/deferred-stream";
 import type { AnyDefinition } from "~/lib/definition";
-import { AGENT_DEFINITION, AGENT_PROMPT, SANDBOX_HANDLE } from "~/lib/handles";
-import { deferredStream } from "~/lib/managers/agent-turns";
+import {
+  AGENT_DEFINITION,
+  AGENT_META,
+  AGENT_PROMPT,
+  SANDBOX_HANDLE,
+} from "~/lib/handles";
+import { inputSnapshot } from "~/lib/json-data";
+import type { DefinitionLaunch, Launched } from "~/lib/launcher";
 import type { AgentTurns } from "~/lib/managers/agents";
-import { inputSnapshot } from "~/lib/managers/agents";
-import { WORKSPACE_METHODS } from "~/lib/managers/workspaces";
-import { current } from "~/lib/run-scope";
 import type {
   Agent,
   AgentDefinition,
@@ -33,11 +36,52 @@ import type {
   WorkspaceHandle,
   WorkspaceInstance,
 } from "~/lib/types";
+import { WORKSPACE_METHODS } from "~/lib/workspace-methods";
 import type { InstanceRuntime, Scope } from "./runtime";
-import { captureScope, instanceRoot, instanceRuntime } from "./runtime";
+import {
+  activeAgentId,
+  captureScope,
+  enqueuingRuntime,
+  instanceRoot,
+  instanceRuntime,
+  ownRun,
+} from "./runtime";
+
+const DRIVE_PATH = /^[A-Za-z]:[\\/]/;
+
+function resolvePath(base: string, target: string): string {
+  const normalizedBase = base.replaceAll("\\", "/");
+  const normalizedTarget = target.replaceAll("\\", "/");
+  const absoluteTarget =
+    normalizedTarget.startsWith("/") || DRIVE_PATH.test(normalizedTarget);
+  const raw = absoluteTarget
+    ? normalizedTarget
+    : `${normalizedBase}/${normalizedTarget}`;
+  const drive = DRIVE_PATH.test(raw) ? raw.slice(0, 2) : "";
+  const rest = drive ? raw.slice(2) : raw;
+  const rooted = rest.startsWith("/");
+  const stack: string[] = [];
+  for (const part of rest.split("/")) {
+    if (part === "" || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      if (stack.length > 0 && stack.at(-1) !== "..") {
+        stack.pop();
+      } else if (!rooted) {
+        stack.push("..");
+      }
+      continue;
+    }
+    stack.push(part);
+  }
+  const joined =
+    `${rooted ? "/" : ""}${stack.join("/")}` || (rooted ? "/" : ".");
+  return `${drive}${joined}`;
+}
 
 function inRun(): { bindings: Bindings; args: ManagerArgs } | undefined {
-  const store = current.getStore();
+  const store = ownRun();
   return (
     store && {
       args: { frame: store.frame, scope: store.scope, write: store.write },
@@ -114,6 +158,14 @@ type AgentChanges<OUTPUT extends Output.Output = Output.Output> = Pick<
   "model" | "provider" | "settings"
 >;
 
+export interface AgentMeta {
+  readonly define?: object;
+  readonly digest: string;
+  readonly explicit: boolean;
+  readonly recipe?: AgentRecipe;
+  readonly root?: object;
+}
+
 function invocable<INSTANCE extends AgentLike<Output.Output>>(
   target: object,
   extend: (changes: AgentChanges) => AgentLike<Output.Output>
@@ -154,9 +206,13 @@ function invocable<INSTANCE extends AgentLike<Output.Output>>(
 }
 
 export function agentInstance<OUTPUT extends Output.Output>(
-  definition: AgentDefinition<OUTPUT>
+  definition: AgentDefinition<OUTPUT>,
+  meta?: AgentMeta
 ): Agent<OUTPUT> {
+  const baseId = definition.id;
   const self = definition as AgentDefinition<Output.Output>;
+  const storedMeta =
+    meta === undefined ? undefined : { ...meta, root: meta.root ?? definition };
   const extend = <NEXT extends Output.Output = OUTPUT>(
     changes: AgentChanges<NEXT>
   ): Agent<NEXT> => {
@@ -164,12 +220,26 @@ export function agentInstance<OUTPUT extends Output.Output>(
       self.settings,
       changes.settings as AgentSettings<Output.Output> | undefined
     );
-    return agentInstance({
-      ...self,
-      ...routeOf(changes),
-      ...(merged === undefined ? {} : { settings: merged }),
-    }) as unknown as Agent<NEXT>;
+    const promptRender = self[AGENT_PROMPT];
+    return agentInstance(
+      {
+        ...self,
+        ...(promptRender === undefined ? {} : { [AGENT_PROMPT]: promptRender }),
+        ...routeOf(changes),
+        id: baseId,
+        ...(merged === undefined ? {} : { settings: merged }),
+      },
+      storedMeta
+    ) as unknown as Agent<NEXT>;
   };
+  Object.defineProperty(definition, "id", {
+    configurable: true,
+    enumerable: true,
+    get: () => activeAgentId(self) ?? baseId,
+  });
+  if (storedMeta !== undefined) {
+    Object.defineProperty(definition, AGENT_META, { value: storedMeta });
+  }
   return invocable<Agent<OUTPUT>>(
     definition,
     extend as (changes: AgentChanges) => Agent<Output.Output>
@@ -201,7 +271,7 @@ export type DefineAgent<
   input: INPUT | undefined
 ) => AgentSpec<OUTPUT> | Promise<AgentSpec<OUTPUT>>;
 
-interface AgentRecipe {
+export interface AgentRecipe {
   readonly define: DefineAgent<Output.Output, unknown>;
   readonly id: string;
   readonly input?: unknown;
@@ -244,16 +314,18 @@ function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {
 async function buildRecipe(
   recipe: AgentRecipe,
   kept: AgentRoute,
-  input: unknown
+  input: unknown,
+  resolvedId?: string
 ): Promise<AgentDefinition<Output.Output>> {
+  const id = resolvedId ?? recipe.id;
   const route = { ...pinned(kept), ...pinned(recipe.route) };
-  const spec = checkedSpec(recipe.id, await recipe.define(route, input));
+  const spec = checkedSpec(id, await recipe.define(route, input));
   for (const key of ROUTE_KEYS) {
     const wanted = route[key];
     const returned = spec[key];
     if (wanted !== undefined && returned !== undefined && returned !== wanted) {
       throw new Error(
-        `agent "${recipe.id}": its function returned ${key} "${returned}" for a session on ${key} "${wanted}"; choose from the route it is given`
+        `agent "${id}": its function returned ${key} "${returned}" for a session on ${key} "${wanted}"; choose from the route it is given`
       );
     }
   }
@@ -265,7 +337,7 @@ async function buildRecipe(
     ...spec,
     ...promptFields(spec.prompt),
     ...route,
-    id: recipe.id,
+    id,
     kind: "agent",
     ...(settings === undefined ? {} : { settings }),
   };
@@ -293,33 +365,50 @@ function inputOf(
 }
 
 export function recipeInstance<OUTPUT extends Output.Output, INPUT>(
-  recipe: AgentRecipe
+  recipe: AgentRecipe,
+  meta?: AgentMeta
 ): DeferredAgent<OUTPUT, INPUT> {
+  const baseId = recipe.id;
+  const data: Record<string, unknown> = {
+    id: baseId,
+    ...(recipe.input === undefined ? {} : { input: recipe.input }),
+    kind: "agent",
+    ...pinned(recipe.route),
+  };
+  const self = data as unknown as AgentLike<Output.Output>;
+  const nextMeta =
+    meta === undefined
+      ? undefined
+      : { ...meta, recipe, root: meta.root ?? data };
   const extend = <NEXT extends Output.Output = OUTPUT>(
     changes: AgentChanges<NEXT> & { readonly input?: INPUT }
   ): DeferredAgent<NEXT, INPUT> => {
-    const input = inputOf(recipe.id, changes, recipe.input);
-    return recipeInstance<NEXT, INPUT>({
+    const id = activeAgentId(self) ?? baseId;
+    const input = inputOf(id, changes, recipe.input);
+    const updated: AgentRecipe = {
       define: recipe.define,
-      id: recipe.id,
+      id: baseId,
       ...(input === undefined ? {} : { input }),
       route: { ...recipe.route, ...routeOf(changes) },
       settings: [
         ...recipe.settings,
         changes.settings as AgentSettings<Output.Output> | undefined,
       ],
-    });
+    };
+    return recipeInstance<NEXT, INPUT>(updated, nextMeta);
   };
-  const data = {
-    id: recipe.id,
-    ...(recipe.input === undefined ? {} : { input: recipe.input }),
-    kind: "agent",
-    ...pinned(recipe.route),
-  };
-  Object.defineProperty(data, AGENT_DEFINITION, {
-    value: (kept: AgentRoute, input: unknown) =>
-      buildRecipe(recipe, kept, input),
+  Object.defineProperty(data, "id", {
+    configurable: true,
+    enumerable: true,
+    get: () => activeAgentId(self) ?? baseId,
   });
+  Object.defineProperty(data, AGENT_DEFINITION, {
+    value: (kept: AgentRoute, input: unknown, resolvedId?: string) =>
+      buildRecipe(recipe, kept, input, resolvedId ?? activeAgentId(self)),
+  });
+  if (nextMeta !== undefined) {
+    Object.defineProperty(data, AGENT_META, { value: nextMeta });
+  }
   return invocable<DeferredAgent<OUTPUT, INPUT>>(
     data,
     extend as (changes: AgentChanges) => DeferredAgent<Output.Output, INPUT>
@@ -331,7 +420,7 @@ export function runDefinition(
   input: unknown,
   scope: Scope = (work) => work()
 ): Promise<unknown> {
-  const running = current.getStore();
+  const running = ownRun();
   return running
     ? running.run(definition, input)
     : scope(instanceRuntime).then((runtime) =>
@@ -339,12 +428,89 @@ export function runDefinition(
       );
 }
 
+function quiet(launched: Launched<unknown>): Launched<unknown> {
+  launched.result.catch(() => undefined);
+  return { id: launched.id, result: launched.result };
+}
+
+export function enqueueDefinition(
+  definition: AnyDefinition,
+  input: unknown,
+  scope: Scope = (work) => work(),
+  options: DefinitionLaunch = {}
+): Promise<Launched<unknown>> {
+  const running = ownRun();
+  const runs = running?.bindings.runs;
+  if (running !== undefined && runs !== undefined) {
+    return runs({
+      frame: running.frame,
+      scope: running.scope,
+      write: running.write,
+    })
+      .enqueue(definition, input, options)
+      .then(quiet);
+  }
+  return scope(instanceRuntime)
+    .then((runtime) => runtime.enqueueDefinition(definition, input, options))
+    .then(quiet);
+}
+
+type Kind = AnyDefinition["kind"];
+
+function enqueueable(
+  kind: Kind,
+  name: string,
+  found: AnyDefinition | undefined
+): AnyDefinition {
+  const word = `${kind}.enqueue(${JSON.stringify(name)})`;
+  if (found === undefined) {
+    throw new Error(
+      `${word}: this workspace declares no step or workflow named ${JSON.stringify(name)}`
+    );
+  }
+  if (found.kind !== kind) {
+    throw new Error(
+      `${word}: ${JSON.stringify(name)} is a ${found.kind}, not a ${kind}; use ${found.kind}.enqueue(${JSON.stringify(name)})`
+    );
+  }
+  return found;
+}
+
+export async function enqueueNamed(
+  kind: Kind,
+  name: unknown,
+  input: unknown,
+  options: DefinitionLaunch = {}
+): Promise<Launched<unknown>> {
+  if (typeof name !== "string" || name.trim() === "") {
+    throw new TypeError(
+      `${kind}.enqueue(): give it the name of a ${kind} the workspace declares`
+    );
+  }
+  const running = ownRun();
+  const runs = running?.bindings.runs;
+  if (running !== undefined && runs !== undefined) {
+    const scoped = runs({
+      frame: running.frame,
+      scope: running.scope,
+      write: running.write,
+    });
+    const found = scoped.named(name);
+    return await scoped
+      .enqueue(enqueueable(kind, name, found), input, options)
+      .then(quiet);
+  }
+  const { runtime } = await enqueuingRuntime(`${kind}.enqueue()`);
+  const definition = enqueueable(kind, name, runtime.definition(name));
+  return quiet(await runtime.enqueueDefinition(definition, input, options));
+}
+
 export function workspaceInstance(
   definition: WorkspaceDefinition
 ): WorkspaceInstance {
   const scope = captureScope();
   const root = () =>
-    resolve(inRun()?.bindings.root ?? scope(instanceRoot), definition.path);
+    resolvePath(inRun()?.bindings.root ?? scope(instanceRoot), definition.path);
   const loaded = (): Promise<WorkspaceHandle> => {
     const run = inRun();
     return run

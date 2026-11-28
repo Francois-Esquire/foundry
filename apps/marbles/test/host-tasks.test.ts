@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import { readDatabase } from "~/database/open";
 import { marblesChangeLogs, marblesObservers } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { stateDatabase } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { connect } from "~/process/client";
 import type { Daemon } from "~/process/daemon";
 import { startDaemon } from "~/process/daemon";
@@ -48,7 +49,7 @@ async function workspace(root: string, name: string): Promise<string> {
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, tasks } from "@foundry.sh/marbles";
-observe(tasks, function seenTitles(payload) {
+export const seenTitles = observe(tasks, function seenTitles(payload) {
   if (process.env.MARBLES_TEST_FAIL) throw new Error("down");
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
   appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + "\\n");
@@ -73,14 +74,13 @@ async function inHost(
   await writeFile(
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
-import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
+import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 import { tasks } from ${JSON.stringify(join(SRC, "authoring/tasks.ts"))};
 const report = {};
-const open = async (source, state, dry = false) => {
-  const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, dry, state };
+const open = async (source, state) => {
+  const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: source, state };
   const opened = await openWorkspace(args, { print: () => undefined });
-  // As \`hostWorkspace\` does: one handle, opened under the state root's rule.
-  const database = dry ? undefined : await openHostDatabase(state);
+  const database = await openHostDatabase(state);
   const engine = await hostEngine(args, opened, { database, print: () => undefined });
   await engine.start();
   return { engine, opened };
@@ -206,39 +206,19 @@ await b.engine.dispose();`
   expect(report.two).toEqual(["in two"]);
 }, 120_000);
 
-it("keeps a dry run's tasks in memory and writes nothing to the state dir", async () => {
-  const root = await scratch();
-  const source = await workspace(root, "dry");
-  const state = join(root, "state");
-  const report = await inHost(
-    root,
-    `const { engine } = await open(${JSON.stringify(source)}, ${JSON.stringify(state)}, true);
-await tasks.create({ title: "dry" });
-report.listed = (await tasks.list()).items.map((task) => task.title);
-await engine.dispose();`
-  );
-  expect(report.listed).toEqual(["dry"]);
-  const files = existsSync(state)
-    ? readdirSync(state, { recursive: true }).map(String)
-    : [];
-  expect(files.filter((file) => file.endsWith("tasks.json"))).toEqual([]);
-  expect(files.filter((file) => file.includes("marbles.db"))).toEqual([]);
-  expect(files.filter((file) => file.includes("locks"))).toEqual([]);
-}, 120_000);
-
 it("loses no update when two OS processes change one workspace's tasks at once", async () => {
   const root = await scratch();
   const state = join(root, "state");
   const rounds = 15;
   const seeded = await inHost(
     root,
-    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 report.id = (await changeTasks(${JSON.stringify(state)}, "shared", (tasks) => tasks.create({ metadata: { count: 0 }, title: "counter" }))).id;`
   );
   const counter = join(root, "counter.ts");
   await writeFile(
     counter,
-    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/tasks.ts"))};
+    `import { changeTasks } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 const [name] = process.argv.slice(2);
 let refused = 0;
 for (let round = 0; round < ${String(rounds)}; round += 1) {
@@ -279,7 +259,11 @@ process.stdout.write(JSON.stringify({ refused }) + "\\n");
   await Promise.all([run("a"), run("b")]);
 
   const after = await readDatabase(stateDatabase(state), async (database) => {
-    const records = new DatabaseWorkspaceRecords({ database, scope: "shared" });
+    const records = new DatabaseWorkspaceRecords({
+      database,
+      liveness: NODE_OWNER_LIVENESS,
+      scope: "shared",
+    });
     const { tasks: all } = await records.taskStore.snapshot();
     return {
       changes: (await records.log.read({ after: 0, source: "tasks" })).length,
@@ -299,12 +283,12 @@ function generationSource(dir: string, revision: number): string {
   return `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
 import { z } from ${JSON.stringify(zod)};
-// Each revision edits the handler's body: it stays the same observer.
-observe(tasks, function seenTitles(payload) {
+export const seenTitles = observe(tasks, function seenTitles(payload) {
   const revision = ${String(revision)};
   const titles = payload.tasks.map((change) => change.after?.title ?? "-");
   appendFileSync(${JSON.stringify(join(dir, "seen.log"))}, titles.join(",") + (revision > 0 ? "\\n" : ""));
 });
+
 const titles = async () => (await tasks.list()).items.map((task) => task.title);
 export const add = step("add")
   .input(z.object({ title: z.string() }))

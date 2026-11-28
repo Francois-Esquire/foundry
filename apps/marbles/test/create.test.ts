@@ -1,26 +1,14 @@
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Provider } from "@foundry/models";
 import { agent, step } from "@foundry.sh/marbles";
-import { Output } from "ai";
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { z } from "zod";
-import { Catalog, catalog } from "~/authoring/catalog";
+import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
-import { DatabaseProviderStore } from "~/database/providers";
-import { stateDatabase } from "~/layout";
 import { Engine } from "~/lib/engine";
+import { claudeCode } from "~/lib/providers/claude-code";
+import { codex } from "~/lib/providers/codex";
 import { vercel } from "~/lib/providers/vercel";
 import { RunScope } from "~/lib/run-scope";
 
@@ -29,19 +17,15 @@ import { testInstances } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";
 
 const NOT_A_REPOSITORY = /not a git repository/;
-const ECHOED_EXEC = /^\[exec\] .*git status$/;
-const ECHOED_TURN = /^\[paid\/chosen\] /;
+const _ECHOED_EXEC = /^\[exec\] .*git status$/;
+const _ECHOED_TURN = /^\[paid\/chosen\] /;
 
-afterEach(() => {
-  catalog.reset();
-});
-
-it("exposes the config directory and dry-run git through the engine's workspaces", async () => {
+it("exposes the config directory through the engine's workspaces", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "runtime-")));
   const lines: string[] = [];
   const engine = createEngine({
-    catalog,
-    dry: true,
+    catalog: new Catalog(),
+    plugins: [claudeCode, codex],
     print: (line) => lines.push(line),
     root,
     workspaceId: "ws",
@@ -62,41 +46,8 @@ it("exposes the config directory and dry-run git through the engine's workspaces
     const loaded = await workspaces.load({ path: root });
     expect(loaded.root).toBe(root);
     expect(() => workspaces.current.git).toThrow(NOT_A_REPOSITORY);
-
-    await mkdir(join(root, ".git"));
-    const seen = await workspaces.current.git.withWorktree(
-      { base: "HEAD" },
-      (worktree) => Promise.resolve(worktree.root)
-    );
-    expect(seen).not.toBe(root);
-    expect(lines.some((line) => line.includes("git worktree add"))).toBe(true);
-    expect(lines.some((line) => line.includes("git worktree remove"))).toBe(
-      true
-    );
-    expect(existsSync(seen)).toBe(false);
   } finally {
     await scope.settle();
-    await engine.dispose();
-    await rm(root, { force: true, recursive: true });
-  }
-});
-
-it("echoes git under dry in the workspace system the engine builds, too", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "runtime-git-")));
-  execFileSync("git", ["init", "--quiet"], { cwd: root });
-  const lines: string[] = [];
-  const engine = createEngine({
-    catalog,
-    dry: true,
-    print: (line) => lines.push(line),
-    root,
-    workspaceId: "ws",
-  });
-  try {
-    const loaded = await engine.workspaces.system.load({ path: root });
-    await loaded.git?.withWorktree({ base: "HEAD" }, () => Promise.resolve());
-    expect(lines.some((line) => line.includes("git worktree add"))).toBe(true);
-  } finally {
     await engine.dispose();
     await rm(root, { force: true, recursive: true });
   }
@@ -106,7 +57,6 @@ it("builds an engine with no providers from an empty plugin list and an empty ca
   const root = await realpath(await mkdtemp(join(tmpdir(), "runtime-")));
   const engine = createEngine({
     catalog: new Catalog(),
-    dry: true,
     plugins: [],
     print: () => undefined,
     root,
@@ -134,7 +84,6 @@ it("refuses a plugin given to the engine under the id of a provider the workspac
   expect(() =>
     createEngine({
       catalog: defined,
-      dry: true,
       plugins: [{ ...vercel }],
       print: () => undefined,
       root: process.cwd(),
@@ -145,7 +94,6 @@ it("refuses a plugin given to the engine under the id of a provider the workspac
   );
   const same = createEngine({
     catalog: defined,
-    dry: true,
     plugins: [vercel],
     print: () => undefined,
     root: process.cwd(),
@@ -156,8 +104,7 @@ it("refuses a plugin given to the engine under the id of a provider the workspac
 
 it("runs deterministic steps without any provider", async () => {
   const engine = createEngine({
-    catalog,
-    dry: false,
+    catalog: new Catalog(),
     print: () => undefined,
     providers: [],
     root: process.cwd(),
@@ -175,38 +122,10 @@ it("runs deterministic steps without any provider", async () => {
   }
 });
 
-it("persists nothing under dry, even when handed a state dir", async () => {
-  const stateDir = await mkdtemp(join(tmpdir(), "create-dry-"));
-  const reviewer = agent({ prompt: "Review." });
-  step("review").do(async ({ agents }) => {
-    const session = await agents.session(reviewer);
-    return (await session.generate("Look.")).text;
-  });
-  const engine = createEngine({
-    catalog,
-    dry: true,
-    print: () => undefined,
-    root: process.cwd(),
-    stateDir,
-    workspaceId: "ws",
-  });
-  try {
-    expect(engine.state).toBeUndefined();
-    await engine.start();
-    await engine.run("review", {});
-    await engine.stop();
-    await engine.dispose();
-    expect(await readdir(stateDir)).toEqual([]);
-  } finally {
-    await rm(stateDir, { force: true, recursive: true });
-  }
-});
-
 it("keeps a persisting engine's worktrees under its state dir", async () => {
   const stateDir = await mkdtemp(join(tmpdir(), "create-state-"));
   const engine = createEngine({
-    catalog,
-    dry: false,
+    catalog: new Catalog(),
     print: () => undefined,
     root: process.cwd(),
     stateDir,
@@ -222,16 +141,16 @@ it("keeps a persisting engine's worktrees under its state dir", async () => {
 });
 
 it("declares the config to the engine it builds", () => {
-  step("count").do(() => 1);
+  const count = step("count").do(() => 1);
+  const collected = Catalog.collect([count]);
   const engine = createEngine({
-    catalog,
-    dry: true,
+    catalog: collected,
     print: () => undefined,
     root: process.cwd(),
     workspaceId: "ws",
   });
   expect(engine.definitions().map((entry) => entry.name)).toEqual(["count"]);
-  expect([...catalog.definitions.keys()]).toEqual(["count"]);
+  expect([...collected.definitions.keys()]).toEqual(["count"]);
   expect(engine.has("__automation_monitor")).toBe(true);
 });
 
@@ -272,14 +191,13 @@ it("runs model-free work without provider configuration, and refuses a session w
   const stateRoot = join(root, "state");
   await mkdir(stateRoot);
   const reviewer = agent({ prompt: "Review." });
-  step("count").do(() => 1);
-  step("review").do(async ({ agents }) => {
+  const count = step("count").do(() => 1);
+  const review = step("review").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     return (await session.generate("Look.")).text;
   });
   const engine = createEngine({
-    catalog,
-    dry: true,
+    catalog: Catalog.collect([reviewer, count, review]),
     print: () => undefined,
     root: process.cwd(),
     stateRoot,
@@ -289,7 +207,7 @@ it("runs model-free work without provider configuration, and refuses a session w
     await engine.start();
     await expect(engine.run("count", {})).resolves.toBe(1);
     await expect(engine.run("review", {})).rejects.toThrow(
-      "No model providers are configured. Run marbles without --dry-run in a terminal to set them up."
+      "No model providers are configured. Run marbles in a terminal to set them up."
     );
     await engine.providers?.add(
       { id: "codex", plugin: "codex", settings: { binPath: fakeCodex(root) } },
@@ -298,177 +216,8 @@ it("runs model-free work without provider configuration, and refuses a session w
     expect(engine.providers?.list().map((entry) => entry.id)).toEqual([
       "codex",
     ]);
-    expect(await readdir(stateRoot)).toEqual([]);
   } finally {
     await engine.dispose();
     await rm(root, { force: true, recursive: true });
-  }
-});
-
-it("echoes the configured providers under dry, lets a programmatic set supersede them, and gives each engine its own Airplane", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "create-configured-"));
-  await DatabaseProviderStore.forState(stateRoot).update(undefined, () => ({
-    machine: {
-      providers: [
-        {
-          enabled: true,
-          id: "codex",
-          plugin: "codex",
-          settings: { binPath: fakeCodex(stateRoot) },
-        },
-      ],
-      version: 1,
-    },
-  }));
-  const before = await readFile(stateDatabase(stateRoot));
-  const base = {
-    catalog,
-    print: () => undefined,
-    root: process.cwd(),
-    stateRoot,
-    workspaceId: "ws",
-  };
-  const dry = createEngine({ ...base, dry: true });
-  const other = createEngine({ ...base, dry: true });
-  const programmatic = createEngine({ ...base, dry: false, providers: [] });
-  await Promise.all([dry, other].map((each) => each.providers?.refresh()));
-  try {
-    expect(dry.models.providers.map((provider) => provider.id)).toEqual([
-      "codex",
-    ]);
-    expect(dry.providers?.list().map((entry) => entry.state)).toEqual([
-      "ready",
-    ]);
-    expect(programmatic.models.providers).toEqual([]);
-    dry.airplane.set(true);
-    expect(() => dry.models.resolve("text", "codex/gpt-5.5")).toThrow(
-      "refused by airplane"
-    );
-    expect(other.models.resolve("text", "codex/gpt-5.5").provider).toBe(
-      "codex"
-    );
-    const session = await other.agents.session({
-      id: "reviewer",
-      kind: "agent",
-      model: "gpt-5.5",
-      prompt: "Review.",
-      provider: "codex",
-    });
-    await session.generate("Look.");
-    expect(session.ref.instance).toEqual(expect.any(String));
-    expect(
-      await DatabaseProviderStore.forState(stateRoot).identityKey(false)
-    ).toBeUndefined();
-    expect((await readFile(stateDatabase(stateRoot))).equals(before)).toBe(
-      true
-    );
-  } finally {
-    await Promise.all([dry.dispose(), other.dispose(), programmatic.dispose()]);
-    await rm(stateRoot, { force: true, recursive: true });
-  }
-});
-
-it("echoes a programmatic set under dry, so a supplied provider is never called", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "create-dry-fixed-"));
-  const languageModel = vi.fn(() => {
-    throw new Error("the real provider was called");
-  });
-  const dispose = vi.fn(() => Promise.resolve());
-  const real: Provider = {
-    available: true,
-    defaults: { text: "chosen" },
-    dispose,
-    id: "paid",
-    languageModel,
-    models: [
-      { id: "m", kind: "text", modelId: "m" },
-      { id: "chosen", kind: "text", modelId: "chosen" },
-    ],
-    offline: false,
-  };
-  const lines: string[] = [];
-  const engine = createEngine({
-    catalog,
-    dry: true,
-    print: (line) => lines.push(line),
-    providers: [real],
-    root: process.cwd(),
-    stateRoot,
-    workspaceId: "ws",
-  });
-  try {
-    const session = await engine.agents.session({
-      id: "reviewer",
-      kind: "agent",
-      prompt: "Review.",
-    });
-    await session.generate("Look.");
-    expect(languageModel).not.toHaveBeenCalled();
-    expect(lines.some((line) => line.includes("[paid/chosen]"))).toBe(true);
-  } finally {
-    await engine.dispose();
-    await rm(stateRoot, { force: true, recursive: true });
-  }
-  expect(dispose).toHaveBeenCalledTimes(1);
-});
-
-it("answers every dry-run command and model turn with the same fixed reply", async () => {
-  const stateRoot = await mkdtemp(join(tmpdir(), "create-dry-replies-"));
-  const real: Provider = {
-    available: true,
-    defaults: { text: "chosen" },
-    id: "paid",
-    languageModel: () => {
-      throw new Error("the real provider was called");
-    },
-    models: [{ id: "chosen", kind: "text", modelId: "chosen" }],
-    offline: false,
-  };
-  const lines: string[] = [];
-  step("on-host").do(({ exec }) => exec(["git", "status"]));
-  step("in-sandbox").do(async ({ sandboxes }) => {
-    const box = await sandboxes.start({ image: "docker.io/oven/bun:1-slim" });
-    return box.exec(["make", "test"]);
-  });
-  const engine = createEngine({
-    catalog,
-    dry: true,
-    print: (line) => lines.push(line),
-    providers: [real],
-    root: process.cwd(),
-    stateRoot,
-    workspaceId: "ws",
-  });
-  try {
-    await engine.start();
-    await expect(engine.run("on-host", {})).resolves.toEqual({
-      exitCode: 0,
-      stderr: "",
-      stdout: "",
-    });
-    await expect(engine.run("in-sandbox", {})).resolves.toMatchObject({
-      exitCode: 0,
-      stderr: "",
-      stdout: "",
-    });
-    expect(lines).toContainEqual(expect.stringMatching(ECHOED_EXEC));
-    expect(lines).toContain("[sandbox] make test");
-    const session = await engine.agents.session({
-      id: "reviewer",
-      kind: "agent",
-      prompt: "Review.",
-    });
-    const text = await session.generate("Look.");
-    expect(text.text).toMatch(ECHOED_TURN);
-    expect(text.text).toContain("Look.");
-    const verdict = await session.generate("Decide.", {
-      output: Output.object({
-        schema: z.object({ verdict: z.enum(["approve", "reject"]) }),
-      }),
-    });
-    expect(verdict.output).toEqual({ verdict: "approve" });
-  } finally {
-    await engine.dispose();
-    await rm(stateRoot, { force: true, recursive: true });
   }
 });

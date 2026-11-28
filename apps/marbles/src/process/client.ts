@@ -12,6 +12,7 @@ import type {
   DispatchOptions,
   RollResult,
   RunInfo,
+  RunPage,
   WorkspaceConfig,
   WorkspaceConnection,
   WorkspaceSummary,
@@ -34,11 +35,11 @@ import {
   workspaceSummarySchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { recordSpawned } from "~/process/spawned";
 import { version } from "../../package.json";
 
 export interface ConnectOptions {
-  readonly cliEntry?: string;
+  readonly daemonEntry?: string;
   readonly layout: Layout;
   readonly start?: boolean;
   readonly timeoutMs?: number;
@@ -149,10 +150,10 @@ const STOP_PROCESS_TIMEOUT_MS =
 const RETRY_MS = 100;
 const LOG_FILE = "daemon.log";
 
-function cliEntry(): string {
+function daemonEntry(): string {
   return fileURLToPath(
     new URL(
-      import.meta.url.endsWith(".ts") ? "../cli.ts" : "./cli.js",
+      import.meta.url.endsWith(".ts") ? "./daemon-entry.ts" : "./daemon.js",
       import.meta.url
     )
   );
@@ -206,10 +207,10 @@ function startDetachedDaemon(options: ConnectOptions): void {
   try {
     child = spawn(
       runtime(),
-      [...RUNTIME_FLAGS, options.cliEntry ?? cliEntry(), "daemon"],
+      [...RUNTIME_FLAGS, options.daemonEntry ?? daemonEntry()],
       {
         detached: true,
-        env: { ...process.env, FOUNDRY_HOME: layout.home },
+        env: { ...process.env, FOUNDRY_ROOT: layout.home },
         stdio: ["ignore", log, log],
       }
     );
@@ -217,12 +218,8 @@ function startDetachedDaemon(options: ConnectOptions): void {
     closeSync(log);
   }
   child.unref();
-  recordSpawned(child.pid, true, {
-    ...process.env,
-    [SPAWN_RECOVERY_ENV]: undefined,
-  });
+  recordSpawned(child.pid, true, { recovery: false });
 }
-
 interface Opened {
   readonly channel: Channel;
   readonly hello: HelloResult;
@@ -297,7 +294,7 @@ export async function connect(options: ConnectOptions): Promise<MarblesClient> {
       );
     }
     throw new NoProcessError(
-      `no Marbles process runs for ${layout.state}; start one with \`marbles daemon\``
+      `no Marbles process runs for ${layout.state}; start one with \`marbles start\``
     );
   }
   return clientOver(
@@ -524,10 +521,16 @@ function remoteWorkspace(
     describe: () => call<WorkspaceConfig>(WORKSPACE_METHODS.describe),
     dispatchAgent: (options: DispatchOptions) =>
       call<DispatchInfo>(WORKSPACE_METHODS.dispatchAgent, options),
-    dispatchWorkflow: (name, input) =>
-      call<DispatchInfo>(WORKSPACE_METHODS.dispatchWorkflow, { input, name }),
+    dispatchWorkflow: (name, input, options) =>
+      call<DispatchInfo>(WORKSPACE_METHODS.dispatchWorkflow, {
+        input,
+        name,
+        ...(options?.key === undefined ? {} : { key: options.key }),
+      }),
     getRun: (runId) => call<RunInfo>(WORKSPACE_METHODS.getRun, { runId }),
     id,
+    listRuns: (query = {}) =>
+      call<RunPage>(WORKSPACE_METHODS.listRuns, { query }),
     roll: (name, input) =>
       call<RollResult>(WORKSPACE_METHODS.roll, { input, name }),
     root,

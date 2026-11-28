@@ -2,7 +2,7 @@ import type {
   ArtifactId,
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   ContentId,
   FileInputs,
 } from "@foundry/artifacts";
@@ -11,11 +11,10 @@ import { isUsableContent } from "@foundry/artifacts";
 import { isStoragePath } from "@foundry/core/storage";
 import { sha256Hex } from "@foundry/lib/digest";
 import { decodeUtf8 } from "@foundry/lib/encoding";
-import { isModuleBuildOutputPath } from "./build";
-import { MODULE_MIME } from "./constants";
-import { assertOwnsArtifactCommit } from "./cross-store";
+import { assertOwnsArtifactCommit } from "./artifact-commit";
+import { isModuleBuildOutputPath } from "./build-audit";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
-import { defineModule, defineModuleVersion } from "./domain";
+import { defineModule, defineModuleVersion, MODULE_MIME } from "./domain";
 import { ModuleStoreConflictError } from "./errors";
 import type { ModuleCapabilityCatalog } from "./gateway/types";
 import {
@@ -24,9 +23,9 @@ import {
   parseModuleManifestSourceText,
   validateModuleManifestBuild,
 } from "./manifest";
+import type { ModuleUnit } from "./modules";
 import { unsupportedModuleRequirements } from "./preflight";
-import type { ModuleRegistryUnit } from "./registry";
-import { admitModuleSource } from "./source";
+import { admitModuleSource } from "./source-admission";
 
 const SOURCE_PREFIX = "source/";
 
@@ -93,8 +92,8 @@ export class ModuleProjectError extends Error {
 }
 
 export function createModuleProjects(options: {
-  readonly artifacts: Artifacts;
-  readonly store: ModuleRegistryUnit<"loadModule" | "registerModule">;
+  readonly artifacts: ArtifactSubstrate;
+  readonly store: ModuleUnit<"loadModule" | "registerModule">;
 }): ModuleProjects {
   const { artifacts, store } = options;
 

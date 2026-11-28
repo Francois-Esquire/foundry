@@ -1,12 +1,12 @@
 # `@foundry/artifacts`
 
-Package constants live in `@foundry/artifacts/constants`. General MIME helpers live in `@foundry/lib/mime`.
+General MIME helpers live in `@foundry/lib/mime`.
 
 `@foundry/artifacts` defines the shared Artifact vocabulary and the
-[`Artifacts`](src/substrate.ts) contract. An Artifact keeps stable product identity
-while its active Content changes. `ArtifactManager` owns behavior and every rule, and accepts an
+[`ArtifactSubstrate`](src/substrate.ts) contract. An Artifact keeps stable product identity
+while its active Content changes. `Artifacts` owns behavior and every rule, and accepts an
 `ArtifactStore` from `@foundry/artifacts/store`. It defaults to
-`InMemoryArtifactStore` from `@foundry/artifacts/store/memory`; a host may supply a
+`MemoryArtifactStore` from `@foundry/artifacts/store/memory`; a host may supply a
 persistent store.
 
 Content extends the shared `StorageTree` vocabulary with `blobId` on file entries.
@@ -31,15 +31,15 @@ contribute to the digest.
 
 ## Use the contract
 
-Accept `Artifacts`, or the smallest `Pick<Artifacts, ...>` your code needs. Let the host
+Accept `ArtifactSubstrate`, or the smallest `Pick<ArtifactSubstrate, ...>` your code needs. Let the host
 provide the implementation.
 
 ```ts
-import type { Artifacts } from "@foundry/artifacts";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
 
 import { HTML_MIME } from "@foundry/lib/mime";
 
-export function createPage(artifacts: Artifacts) {
+export function createPage(artifacts: ArtifactSubstrate) {
   return artifacts.create({
     name: "Home",
     type: HTML_MIME,
@@ -55,13 +55,13 @@ export function createPage(artifacts: Artifacts) {
 ```
 
 The returned `ArtifactResolved` contains the Artifact and its active Content.
-Create a manager over the in-memory store, the default:
+Create an `Artifacts` instance over the in-memory store, the default:
 
 ```ts
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 
 export function createArtifacts() {
-  return new ArtifactManager();
+  return new Artifacts();
 }
 ```
 
@@ -108,7 +108,7 @@ do not change persisted types. Duplicate registrations fail; registries are inde
 Handlers are caller-supplied values. They may be async functions or objects with
 host-specific operations; matching never invokes them. Application hosts own
 domain registrations; `@foundry/modules` owns Module runtime resolution.
-Module constants live in `@foundry/modules/constants`.
+Module constants live in `@foundry/modules`.
 
 ## Working model
 
@@ -168,15 +168,17 @@ await artifacts.transaction(async (transaction) => {
 });
 ```
 
-While a transaction's callback runs, any other call on the same manager joins it, from
-however deep in the call stack. Reads see its uncommitted writes, and a nested
-`transaction` commits with the outer one. Joined calls are not savepoints: if one fails
-and the callback still returns, the whole transaction rolls back with
-`TransactionRolledBackError` (its `cause` is the failure). So does an operation on the
-callback's own handle that is refused after writing part of the change; one refused
-before writing anything leaves the transaction to go on. Work scheduled during the
-callback but run after it returns starts its own transaction, once the callback's
-transaction has settled.
+`Artifacts` uses one explicit-handle transaction semantics everywhere: always pass and use the
+`ArtifactOperations` handle given to `transaction(work)` for every read and write in that unit.
+Reads on that handle see uncommitted writes from the same transaction, and an operation on the
+handle that is refused after writing part of the change rolls the whole transaction back with
+`TransactionRolledBackError` (its `cause` is the failure), even if caught; one refused before
+writing anything leaves the transaction to go on. Calling the outer `Artifacts` instance while
+a transaction's callback is running rejects immediately with `ReentrantCallError` on Node and
+Bun (via `@foundry/lib/async-scope`); on runtimes without `AsyncLocalStorage`, that guard is
+best-effort and an outer-handle call inside `transaction(work)` degrades to waiting/hanging until
+the transaction settles. Work scheduled during the callback that runs after it returns starts
+its own transaction once the callback's transaction settles.
 
 The callback's second argument is a transaction-scoped effects handle:
 `effects.afterCommit(async () => ...)` registers work with the outermost commit.
@@ -208,10 +210,10 @@ each operation.
 
 ```ts
 import { artifactFileSystem } from "@foundry/artifacts/node";
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { directory, Workspaces } from "@foundry/workspaces";
 
 const filesystem = artifactFileSystem({ artifacts, root });
-const workspaces = new WorkspaceSystem({ store }).extend(
+const workspaces = new Workspaces({ store }).extend(
   directory({ filesystem }),
 );
 const ws = await workspaces.load({ artifactId });
@@ -234,8 +236,8 @@ Options narrow and hook the filesystem. `includes(artifact)` limits which Artifa
 get a directory; others are never written to disk and are refused. `mutation`
 runs inside each write's own transaction: it may refuse by throwing, stamp Content
 metadata into the same write, and learn the committed Content through `committed`.
-That runs after the outermost transaction commits, so a write joined to an enclosing
-transaction that rolls back reports nothing; a throwing `committed` is logged.
+`committed` runs after that transaction commits (never when it rolls back);
+a throwing `committed` is logged.
 `synchronize` wraps each write of polled disk edits, for example in a host run.
 Disk content that differs from what was last applied is copied to
 `<root>/.conflicts/<directory>/<time>-<id>/` before anything overwrites it, and
@@ -247,7 +249,7 @@ process can tell stale bytes from a real disk edit.
 paths from one frozen Content in a directory of the caller's choosing, outside the
 filesystem's directories. Hosts use them for a selected release's files.
 
-Use `blobFiles(root)` as `ArtifactManager`'s optional `files` capability to store blob
+Use `blobFiles(root)` as `Artifacts`'s optional `files` capability to store blob
 bytes in files. Those backing files remain separate from editable directories.
 Changed bytes are staged before record commit. A rewritten object's previous
 backing file and every unreferenced blob are removed after commit. Each operation
@@ -259,7 +261,7 @@ and the filesystem when their owner stops.
 ## Public entries
 
 Import the contract, model, errors, identifiers, artifact cursor, constants,
-`digestTree` and the manager from `@foundry/artifacts`; the stores live on their
+`digestTree` and the `Artifacts` instance from `@foundry/artifacts`; the stores live on their
 own paths (see Storage).
 `fileResponse` in `@foundry/artifacts/delivery` builds a ranged HTTP `Response`
 for one stored file. Shared hashing,
@@ -272,45 +274,45 @@ canonical JSON, and Base64 helpers live in `@foundry/lib/digest`,
 
 Persistent stores implement `ArtifactStore`: detached reads, and one atomic
 `commit(write)` that carries a whole change as puts and deletes. A store enforces
-nothing; the manager checks every rule before a write reaches it. Artifact listings
+nothing; the `Artifacts` instance checks every rule before a write reaches it. Artifact listings
 take the filter, cursor and limit, so a page never loads the catalogue. An optional
-`transaction(work)` keeps other managers over the same store from writing between a
+`transaction(work)` keeps other `Artifacts` instances over the same store from writing between a
 change's reads and its commit; a plain commit waits for it, and a failed `work` keeps
 none of its commits. Inside `work`, call the view: a `commit` or `transaction` on the
-store itself from there rejects at once rather than waiting on itself. The manager runs
-every change, and every read of several records, through it. A manager also takes its
+store itself from there rejects at once rather than waiting on itself. The `Artifacts` instance runs
+every change, and every read of several records, through it. An `Artifacts` instance also takes its
 own changes one at a time, since its turn keeps each Artifact's changes in call order
-while their bytes are checked and staged (below). A call on a second manager over the
-same store, made from inside the first manager's `transaction`, could wait in that turn
-behind the second manager's own call, which waits for the transaction; the manager
+while their bytes are checked and staged (below). A call on a second `Artifacts` instance over the
+same store, made from inside the first `Artifacts` instance's `transaction`, could wait in that turn
+behind the second `Artifacts` instance's own call, which waits for the transaction; the `Artifacts` instance
 refuses such a call at once instead, before any wait of its own. It sees only
-transactions a manager opened over the same store object. A call made from inside a
+transactions an `Artifacts` instance opened over the same store object. A call made from inside a
 `transaction` opened on the store directly, or on another wrapper of it, is not caught,
-and waits forever when that manager already has a call waiting for the transaction.
-Over a store without `transaction`, a manager runs its own changes one at a time and no
+and waits forever when that `Artifacts` instance already has a call waiting for the transaction.
+Over a store without `transaction`, an `Artifacts` instance runs its own changes one at a time and no
 further.
 
 `create`, `write` and `revise` take their bytes in before the change enters that
 exclusion when `files` offers staging (`BlobFiles.staging`, an optional capability that
 `blobFiles` implements): every input is read, hashed and written to the staging area
 (`.staging/` under the blob root, which listing never reaches), so a slow or stalled
-source holds neither the manager's queue nor the store, nor the JSON file lock. A
+source holds neither the `Artifacts` instance's queue nor the store, nor the JSON file lock. A
 `BlobFiles` without `staging` keeps publishing the bytes inside the change. Before any
 byte is staged, the change is checked against a consistent view that includes every
-change this manager queued before it: names, ids, paths, blob references, fences, and
+change this `Artifacts` instance queued before it: names, ids, paths, blob references, fences, and
 which objects an in-place write would rewrite. Inside the transaction the change checks
 again, refuses with `StaleContentError` if a fence or the ownership of an object it would
 rewrite changed meanwhile, resolves deduplication, promotes the staged files it keeps to
 published names, and commits. Staging stops as soon as the bytes taken in exceed the tree
-limit, and one manager reads at most eight streams ahead at once.
+limit, and one `Artifacts` instance reads at most eight streams ahead at once.
 
-Changes one manager makes to the same Artifact commit in call order: a later change to
+Changes one `Artifacts` instance makes to the same Artifact commit in call order: a later change to
 an Artifact waits for an earlier stream change to it to settle. A stalled stream
 therefore delays later changes to that Artifact only; other Artifacts, reads and other
-managers go on. Changes named by Content (`freeze`, `tag`, `setMetadata`, `deleteContent`, `fork`)
+`Artifacts` instances go on. Changes named by Content (`freeze`, `tag`, `setMetadata`, `deleteContent`, `fork`)
 take their place in their Artifact's order while a stream change is pending. Order
-across managers is not promised, nor for calls made inside `transaction(work)`. A stream that never ends holds back later
-changes to its own Artifact through that manager for as long as it is pending; there is no
+across `Artifacts` instances is not promised, nor for calls made inside `transaction(work)`. A stream that never ends holds back later
+changes to its own Artifact through that `Artifacts` instance for as long as it is pending; there is no
 timeout, and the caller ends it by ending or erroring the source.
 
 Staged files a change does not keep are discarded when it settles. Each `blobFiles`
@@ -326,11 +328,11 @@ inside `transaction(work)`, or when `files` has no `staging`. Pass streams to `c
 
 Blob bytes commit as records: inline bytes inside the blob, or the name of an
 immutable file `blobFiles` promoted or published before the commit. When a commit fails, the
-manager removes those files only once the store shows the write absent; a commit that
+`Artifacts` instance removes those files only once the store shows the write absent; a commit that
 failed after its write landed (a failed directory sync, say) keeps them.
 `JsonArtifactStore` from `@foundry/artifacts/node` keeps every record in one JSON file,
 rewritten per commit under a `<path>.lock` file so several processes can share it.
-Manager reads take that lock too: they need a writable directory, create it and a
+`Artifacts` reads take that lock too: they need a writable directory, create it and a
 transient lock file, can wait on another process, and can throw `FileLockTimeoutError`.
 It is interim: `SqliteArtifactStore` (below) is its replacement. Pair it with
 `blobFiles` for bytes. The in-memory store does not import Node or SQLite.
@@ -340,11 +342,11 @@ It is interim: `SqliteArtifactStore` (below) is its replacement. Pair it with
 | Path                                  | Holds                                                         |
 | ------------------------------------- | ------------------------------------------------------------- |
 | `@foundry/artifacts/store`            | `ArtifactStore`, its write and listing types.                 |
-| `@foundry/artifacts/store/memory`     | `InMemoryArtifactStore`, the default the manager uses.        |
+| `@foundry/artifacts/store/memory`     | `MemoryArtifactStore`, the default `Artifacts` uses.          |
 | `@foundry/artifacts/store/sqlite`     | `SqliteArtifactStore`, over a host's Drizzle database.        |
 | `@foundry/artifacts/store/tables`     | The Drizzle tables it uses.                                   |
 | `@foundry/artifacts/testing/store`    | `describeArtifactStore`, the suite every store passes.        |
-| `@foundry/artifacts/node`             | `JsonArtifactStore` (interim) and `blobFiles`.                |
+| `@foundry/artifacts/node`             | `JsonArtifactStore` (interim), `blobFiles`, and `artifactFileSystem`. |
 
 `SqliteArtifactStore` takes the host's database and never opens one. The host
 composes the tables from `./store/tables` into its own schema and owns the
@@ -355,7 +357,7 @@ store keeps records only: blob bytes stay inline in a blob record or in the
 files `blobFiles` publishes, whose names the records hold.
 
 ```ts
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
 
@@ -367,7 +369,7 @@ const store = new SqliteArtifactStore({
     await transaction.insert(changes).values({ write: summarize(write) });
   },
 });
-const artifacts = new ArtifactManager({ files: blobFiles(blobRoot), store });
+const artifacts = new Artifacts({ files: blobFiles(blobRoot), store });
 ```
 
 The tables are `artifacts`, `artifact_contents` and `artifact_blobs`, one row per
@@ -407,7 +409,7 @@ refused. The hook receives the write as committed, which is all it can learn of 
 change: each record put, whole, as it now stands, and only the id of each record
 deleted. A put does not say whether the record is new or replaced, there is no record
 as it stood before, and a deleted Content or blob does not say which Artifact it
-belonged to. The manager makes one commit per change, and none for a change that
+belonged to. The `Artifacts` instance makes one commit per change, and none for a change that
 writes nothing:
 
 | Change                                          | The write holds                                         |
@@ -430,7 +432,7 @@ id the store never held.
 
 The write also carries `events`: what the change did, as change events
 (`ArtifactEvent`, schema `artifactEventSchema` in `./schema`, types exported from
-`.`), in the order its operations made them. The manager's operations build them,
+`.`), in the order its operations made them. The `Artifacts` instance's operations build them,
 never a store; a host records them in `onCommit`, on the transaction it is handed,
 so an event lands exactly when its change does: once per commit that succeeds, never
 for one refused or rolled back.
@@ -448,8 +450,8 @@ suite then proves the hook is handed every kept commit's events, in order, and n
 a refused or rolled-back one.
 
 An event is plain JSON: `{ type, id, at, artifactId, ... }`. `id` is a UUID, unique,
-made with the write before `commit`. `at` is when the manager built the event, an ISO
-time: it cannot establish commit order, as managers' clocks and commits interleave. A
+made with the write before `commit`. `at` is when the `Artifacts` instance built the event, an ISO
+time: it cannot establish commit order, as `Artifacts` instances' clocks and commits interleave. A
 host orders events by its own sequence, such as the position of the row its `onCommit`
 writes. An event about one version names it as `contentId`. A handler reads the records
 for anything more, except after `artifact.removed`, which carries what identified the
@@ -493,14 +495,14 @@ it wrote anything leaves the transaction as it was, and the operation may catch 
 refusal and go on. One refused after it wrote part of the change (a `create` whose first
 Content refuses, say) leaves the transaction unable to commit: it rejects with
 `TransactionRolledBackError`, keeping no record and no event, whatever the operation
-caught, as a failed joined call does.
+caught.
 
 `transaction(work)` runs `work` in one database transaction over a view; each commit
 through the view is a savepoint, and the view refuses calls once `work` settles. In this
 process the store's calls take turns, so one made while a transaction runs waits for it.
 Across connections, every transaction takes SQLite's write lock at its first statement:
 Drizzle's libSQL driver begins every transaction with `BEGIN IMMEDIATE` and offers no
-deferred one through the database type the store accepts. So every manager read of
+deferred one through the database type the store accepts. So every `Artifacts` read of
 several records, every change's pre-staging check, and `recover`'s walk of the blob
 directory hold the write lock while they run. Staging bytes holds no lock: a change
 checks in one transaction, takes its bytes in outside any, then commits in another.
@@ -516,7 +518,7 @@ settings such as WAL and the busy timeout are the host's.
 On a local libSQL file, a commit either lands or throws having landed nothing,
 `SQLITE_BUSY` included: libSQL rolls back a transaction whose `COMMIT` fails. (Over a
 remote connection, a failure reported after the commit reached the server could leave
-it landed; the read-back below covers that case too.) The manager then reads
+it landed; the read-back below covers that case too.) The `Artifacts` instance then reads
 the store back, finds the write absent, and removes the files the change published.
 Only if that read fails too does it keep them, with no record naming them, until
 `recover` removes them.
@@ -562,18 +564,18 @@ transaction passed as `database`, which it detects, and refuses `durability:
 in its `database` (none arises with Drizzle's libSQL driver, which hands every
 transaction over as such an object, so this path is not exercised on libSQL). The memory
 and JSON stores are `"commit"`, and every store's transaction view is `"host"`: its
-commits stand only if the transaction's work succeeds, so a manager built over a view
+commits stand only if the transaction's work succeeds, so an `Artifacts` instance built over a view
 keeps what it retires too.
 
-Over a `"host"` store the manager cannot know a landed change will last, so it never
+Over a `"host"` store the `Artifacts` instance cannot know a landed change will last, so it never
 removes a file committed records may name: not the files a change stopped naming, and
-not in `recover`, which it refuses with an error saying to run it from a manager over
+not in `recover`, which it refuses with an error saying to run it from an `Artifacts` instance over
 the durable store, outside the host's transaction. A host rollback therefore reads every
 file the change retired. A retired file, and a file a rolled-back change published, stays
 until such a durable `recover` runs; nothing removes it before then, however long that
 is.
 
-Reclaiming is a manager over a `"commit"` store: retired files go once its own commit
+Reclaiming is an `Artifacts` instance over a `"commit"` store: retired files go once its own commit
 lands, and its `recover` removes every file no record names. It reads committed records
 under the store's exclusion, so it never runs while a host transaction on its database is
 unsettled: on SQLite that transaction holds the write lock, and the durable `recover`
@@ -583,7 +585,7 @@ sees its outcome.
 
 Over a `"host"` store, bindings, observers and `afterCommit` effects still run once the
 store's commit resolves, before the host's outcome is known. A directory bound to such a
-manager may then show a change the host rolled back until it applies the records again.
+`Artifacts` instance may then show a change the host rolled back until it applies the records again.
 
 Known limits:
 
@@ -601,10 +603,10 @@ Known limits:
   rollback-journal mode that failed transaction also leaves a lock behind that stops
   every other connection's `COMMIT` to the file, in any process, and closing the client
   did not release it in testing. In WAL mode only that client is affected, and a
-  new client works. Nothing lands either way, and the manager removes what such a change
+  new client works. Nothing lands either way, and the `Artifacts` instance removes what such a change
   published. A host meets this only once its busy timeout runs out; it should use WAL
   and reopen a client that has reported `SQLITE_BUSY`.
-- Some manager calls make one query per item: `putBlob` lists every blob for each
+- Some `Artifacts` calls make one query per item: `putBlob` lists every blob for each
   published file it puts, to refuse a backing path another blob holds; collecting
   unreferenced blobs reads each candidate and its references; `sweep` reads each old
   Content's Artifact; and a listing inside a change reads each Artifact the change
@@ -615,8 +617,8 @@ Known limits:
 
 The store takes calls in turns through `Turns` from `@foundry/lib/turns`, as the memory
 and JSON stores do, and refuses a call from inside its own transaction or hook with a
-`ReentrantCallError` saying to use the view or the transaction instead. It needs
-`AsyncLocalStorage` from `node:async_hooks`: Node, Bun or Deno.
+`ReentrantCallError` saying to use the view or the transaction instead (via
+`@foundry/lib/async-scope` on Node and Bun).
 
 ## Development
 
@@ -629,9 +631,9 @@ bun run check packages/artifacts
 bun run build --filter=@foundry/artifacts
 ```
 
-Package tests own manager, blob, and directory behavior. The store conformance
-suite in `@foundry/artifacts/testing/store` and the manager suite in
-`@foundry/artifacts/testing/manager` also support host-provided store implementations.
+Package tests own `Artifacts`, blob, and directory behavior. The store conformance
+suite in `@foundry/artifacts/testing/store` and the `Artifacts` suite in
+`@foundry/artifacts/testing/artifacts` also support host-provided store implementations.
 `@foundry/artifacts/testing` holds test doubles: `interceptCommits` wraps a store's
 commits for fault injection. Hosts own their persistence and
 migration tests. Lib owns encoding and pagination helper tests.

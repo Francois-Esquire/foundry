@@ -1,5 +1,5 @@
-import { RecordsGate } from "~/lib/events/records";
-import { storableJson } from "~/lib/state/json";
+import { RecordsGate } from "~/lib/events/records-gate";
+import { storableJson } from "~/lib/json-data";
 import type { AutomationRecord } from "./service";
 
 export interface AutomationStore extends AutomationView {

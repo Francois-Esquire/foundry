@@ -1,36 +1,38 @@
 import { StringDecoder } from "node:string_decoder";
-import type {
-  Container,
-  Containers,
-} from "@foundry/sandbox/container/containers";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { prepareSandboxProcess } from "@foundry/sandbox/process";
+import type { Container, Containers } from "@foundry/sandbox";
+import { createContainers, prepareSandboxProcess } from "@foundry/sandbox/node";
+import { createMicrosandboxDriver } from "@foundry/sandbox/providers/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { beforeAll, describe, expect, it } from "vitest";
 import { prepareGuest } from "~/lib/sandbox/prepare";
+
+function requireSpawn(target: Container) {
+  const spawn = target.processes?.spawn;
+  if (spawn === undefined) {
+    throw new Error("Expected piped spawn facet");
+  }
+  return spawn;
+}
 
 describe("pinned native CLI control protocols in MicroSandbox", () => {
   let containers: Containers;
   let container: Container;
 
   beforeAll(async () => {
-    const runtime = createMicrosandboxRuntime();
-    if (!(await runtime.isInstalled())) {
+    const runtime = createMicrosandboxDriver();
+    if (runtime.isInstalled !== undefined && !(await runtime.isInstalled())) {
       throw new Error(
         "MicroSandbox must be installed for native CLI integration tests."
       );
     }
     containers = createContainers({
-      allowedMountRoots: [],
+      driver: runtime,
       instanceLabel: `native-cli-${crypto.randomUUID()}`,
-      runtime,
       store: new MemoryContainerStore(),
     });
     container = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1-slim",
-      network: "disabled",
+      network: "none",
       workdir: "/",
     });
     const prepared = await container.commands.exec([
@@ -51,7 +53,7 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
       signal: abort.signal,
     });
     const child = prepareSandboxProcess(() =>
-      container.processes.spawn(
+      requireSpawn(container)(
         [
           guest.executable,
           "--mode",
@@ -100,7 +102,7 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
     ]);
     expect(version.stdout).toContain("2.1.205");
     const child = prepareSandboxProcess(() =>
-      container.processes.spawn(
+      requireSpawn(container)(
         [
           guest.executable,
           "--input-format",
@@ -156,7 +158,7 @@ describe("pinned native CLI control protocols in MicroSandbox", () => {
     ]);
     expect(version.stdout).toContain("0.144.6");
     const child = prepareSandboxProcess(() =>
-      container.processes.spawn([guest.executable, "app-server"], {
+      requireSpawn(container)([guest.executable, "app-server"], {
         cwd: "/workspace",
         environment: guest.environment,
         signal: abort.signal,

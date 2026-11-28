@@ -1,0 +1,772 @@
+import type { FileInputs } from "@foundry/artifacts";
+import { Artifacts, digestTree } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import type { StorageNode, StorageTree } from "@foundry/core/storage";
+import { storageTree, withParentDirectories } from "@foundry/core/storage";
+import { sha256Hex } from "@foundry/lib/digest";
+import { bytesToBase64 } from "@foundry/lib/encoding";
+import { canonicalizeJson } from "@foundry/lib/json";
+import { describe, expect, it, vi } from "vitest";
+import { ModuleCrossStoreError } from "../artifact-commit";
+import { defineModule, defineModuleVersion, moduleIdSchema } from "../domain";
+import { Modules } from "../modules";
+import { encodeModulePackage, importModulePackage } from "../package";
+import { createModuleVersions, MODULE_CONTENT_MANIFEST_PATH } from "../version";
+import { failingArtifacts } from "./helpers/failing-artifacts";
+import { faultyRegistry } from "./helpers/faulty-modules";
+import {
+  moduleFixture,
+  PROGRAM_FILES,
+  STRICT_MANIFEST,
+  VALID_MANIFEST,
+} from "./helpers/module-fixture";
+
+vi.mock("@foundry/core/storage", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("@foundry/core/storage")>();
+  return {
+    ...original,
+    withParentDirectories: vi.fn(original.withParentDirectories),
+  };
+});
+
+async function fixture(files?: FileInputs, manifest: unknown = VALID_MANIFEST) {
+  const { artifact, content, bytes } = await moduleFixture(
+    files === undefined ? {} : { files }
+  );
+  const module = defineModule({
+    artifact,
+    id: moduleIdSchema.parse("module-1"),
+  });
+  const version = defineModuleVersion({
+    artifact,
+    content,
+    manifest,
+    module,
+  });
+  return { artifact, bytes, content, module, version };
+}
+
+function withEmbeddedManifest(manifest: unknown): FileInputs {
+  return {
+    ...PROGRAM_FILES,
+    [MODULE_CONTENT_MANIFEST_PATH]: {
+      bytes: JSON.stringify(manifest),
+      mime: "application/json",
+    },
+  };
+}
+
+async function encoded(source: Awaited<ReturnType<typeof fixture>>) {
+  return encodeModulePackage({
+    artifact: source.artifact,
+    content: source.content,
+    files: source.bytes,
+    module: source.module,
+    version: source.version,
+  });
+}
+
+function importPackage(artifacts: Artifacts, text: string) {
+  return importModulePackage({
+    artifacts,
+    encoded: text,
+    modules: new Modules(),
+  });
+}
+
+function rejectingModules(registry: Modules, refusing: { on: boolean }) {
+  return faultyRegistry(registry, (commands) => ({
+    retainManifest: (input) =>
+      refusing.on
+        ? Promise.reject(new Error("injected Module persistence failure"))
+        : commands.retainManifest(input),
+  }));
+}
+
+interface Envelope {
+  content: {
+    digest: string;
+    tree: StorageTree;
+    blobs: Record<string, string>;
+    manifest: { program: { entry: string }; capabilities: unknown[] };
+    manifestDigest: string;
+  };
+  format: string;
+  module: { id: string };
+}
+
+async function alteredManifestPackage(
+  source: Awaited<ReturnType<typeof fixture>>,
+  text: string
+): Promise<string> {
+  const envelope = JSON.parse(await encoded(source)) as Envelope;
+  const bytes = new TextEncoder().encode(text);
+  const digest = await sha256Hex(bytes);
+  envelope.content.tree = storageTree([
+    ...Object.entries(envelope.content.tree)
+      .filter(([path]) => path !== MODULE_CONTENT_MANIFEST_PATH)
+      .map(([path, node]) => ({ path, ...node })),
+    {
+      bytes: bytes.length,
+      digest,
+      mime: "application/json",
+      path: MODULE_CONTENT_MANIFEST_PATH,
+      type: "file",
+    },
+    { path: "source", type: "directory" },
+  ]);
+  envelope.content.blobs[digest] = bytesToBase64(bytes);
+  envelope.content.digest = await digestTree(envelope.content.tree);
+  return canonicalizeJson(envelope);
+}
+
+describe("Module Package", () => {
+  it.each([
+    { target: "program/server.js", type: "symlink" },
+    { type: "socket" },
+    { type: "device" },
+    { type: "pipe" },
+  ] as const)("rejects $type outputs before persisting", async (entry) => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    envelope.content.tree = {
+      ...envelope.content.tree,
+      "outputs/unsupported": entry,
+    };
+    envelope.content.digest = await digestTree(envelope.content.tree);
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
+    });
+    const modules = new Modules();
+
+    await expect(
+      importModulePackage({
+        artifacts,
+        encoded: canonicalizeJson(envelope),
+        modules,
+      })
+    ).rejects.toThrow("must be a file or directory");
+    expect(await artifacts.get(source.artifact.id)).toBeNull();
+    expect(await modules.loadModule(source.module.id)).toBeNull();
+  });
+
+  it("preserves source links and empty output directories", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    envelope.content.tree = {
+      ...envelope.content.tree,
+      "outputs/empty": { type: "directory" },
+      source: { type: "directory" },
+      "source/program": {
+        target: "../outputs/program/server.js",
+        type: "symlink",
+      },
+    };
+    envelope.content.digest = await digestTree(envelope.content.tree);
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
+    });
+
+    const release = await importPackage(artifacts, canonicalizeJson(envelope));
+
+    expect(await artifacts.getContent(release.contentId)).toMatchObject({
+      tree: envelope.content.tree,
+    });
+  });
+
+  it("round-trips one version as a frozen, tagged Content on the target", async () => {
+    const source = await fixture();
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+    const modules = new Modules();
+
+    const imported = await importModulePackage({
+      artifacts: target,
+      encoded: await encoded(source),
+      modules,
+    });
+
+    expect(imported).toMatchObject({
+      artifactId: source.artifact.id,
+      digest: source.content.digest,
+      moduleId: source.module.id,
+      tag: "1.0.0",
+    });
+    const landed = await target.get(source.artifact.id);
+    expect(landed).toMatchObject({
+      name: source.artifact.name,
+      status: "published",
+      type: source.artifact.type,
+    });
+    expect(landed?.content).toMatchObject({
+      digest: source.content.digest,
+      state: "frozen",
+      tag: "1.0.0",
+      tree: storageTree(
+        Object.entries(source.content.tree).map(([path, node]) => ({
+          ...node,
+          path,
+        }))
+      ),
+    });
+    expect(await modules.loadModule(source.module.id)).toEqual(source.module);
+    expect(await modules.loadRetainedManifest(imported.contentId)).toEqual(
+      imported.manifest
+    );
+    expect(
+      await createModuleVersions({ artifacts: target, store: modules }).load({
+        contentId: imported.contentId,
+        moduleId: source.module.id,
+      })
+    ).toEqual(imported);
+  });
+
+  it("retains nothing when the Content embeds the manifest it was packaged with", async () => {
+    const source = await fixture(withEmbeddedManifest(VALID_MANIFEST));
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+    const modules = new Modules();
+
+    const imported = await importModulePackage({
+      artifacts: target,
+      encoded: await encoded(source),
+      modules,
+    });
+
+    expect(await modules.loadModule(source.module.id)).toEqual(source.module);
+    expect(await modules.listRetainedManifests()).toEqual([]);
+    expect(
+      await createModuleVersions({ artifacts: target, store: modules }).load({
+        contentId: imported.contentId,
+        moduleId: source.module.id,
+      })
+    ).toEqual(imported);
+  });
+
+  it.each([
+    ["legacy foundry.module/1", VALID_MANIFEST],
+    ["strict foundry.module-manifest/1", STRICT_MANIFEST],
+  ])(
+    "round-trips a %s version whose source embeds it",
+    async (_name, manifest) => {
+      const reordered = Object.fromEntries(Object.entries(manifest).reverse());
+      const source = await fixture(
+        {
+          ...PROGRAM_FILES,
+          [MODULE_CONTENT_MANIFEST_PATH]: {
+            bytes: JSON.stringify(reordered, null, 4),
+            mime: "application/json",
+          },
+        },
+        manifest
+      );
+      const target = new Artifacts({
+        store: new MemoryArtifactStore(),
+      });
+      const modules = new Modules();
+
+      const imported = await importModulePackage({
+        artifacts: target,
+        encoded: await encoded(source),
+        modules,
+      });
+
+      expect(imported.manifest).toEqual(source.version.manifest);
+      expect(imported.manifest.format).toBe(manifest.format);
+      expect(await modules.listRetainedManifests()).toEqual([]);
+      const reloaded = await createModuleVersions({
+        artifacts: target,
+        store: modules,
+      }).load({ contentId: imported.contentId, moduleId: source.module.id });
+      expect(reloaded).toEqual(imported);
+    }
+  );
+
+  it("retains a strict output-only manifest and resolves it", async () => {
+    const source = await fixture(undefined, STRICT_MANIFEST);
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+    const modules = new Modules();
+
+    const imported = await importModulePackage({
+      artifacts: target,
+      encoded: await encoded(source),
+      modules,
+    });
+
+    expect(await modules.loadRetainedManifest(imported.contentId)).toEqual(
+      source.version.manifest
+    );
+  });
+
+  it("rejects a package whose embedded manifest source disagrees, before persisting", async () => {
+    const source = await fixture();
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+    const modules = new Modules();
+
+    await expect(
+      importModulePackage({
+        artifacts: target,
+        encoded: await alteredManifestPackage(
+          source,
+          JSON.stringify({ ...VALID_MANIFEST, views: { home: { path: "/" } } })
+        ),
+        modules,
+      })
+    ).rejects.toThrow("disagrees with its embedded source");
+    expect(await target.get(source.artifact.id)).toBeNull();
+    expect(await modules.loadModule(source.module.id)).toBeNull();
+    expect(await modules.listRetainedManifests()).toEqual([]);
+  });
+
+  it("rejects unparseable embedded manifest source", async () => {
+    const source = await fixture();
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await expect(
+      importPackage(target, await alteredManifestPackage(source, "{ not json"))
+    ).rejects.toThrow("embedded Manifest source is invalid");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("refuses to export a retained legacy manifest that disagrees with frozen source", async () => {
+    const source = await fixture(
+      withEmbeddedManifest({
+        ...VALID_MANIFEST,
+        views: { home: { path: "/" } },
+      })
+    );
+    await expect(encoded(source)).rejects.toThrow(
+      "Cannot export a legacy version"
+    );
+  });
+
+  it("importing the same version twice reuses the existing tagged Content", async () => {
+    const source = await fixture();
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+    const text = await encoded(source);
+
+    const first = await importPackage(target, text);
+    const second = await importPackage(target, text);
+
+    expect(second.contentId).toBe(first.contentId);
+    expect(
+      await target.listContents(source.artifact.id, { state: "frozen" })
+    ).toHaveLength(1);
+  });
+
+  it("adds a second version to an existing Artifact as another frozen Content", async () => {
+    const one = await fixture();
+    const two = await moduleFixture({
+      artifactId: one.artifact.id,
+      files: {
+        "outputs/program/server.js": {
+          bytes: "export const v = 2;",
+          mime: "text/javascript",
+        },
+      },
+      tag: "1.1.0",
+    });
+    const twoVersion = defineModuleVersion({
+      artifact: two.artifact,
+      content: two.content,
+      manifest: VALID_MANIFEST,
+      module: one.module,
+    });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await importPackage(target, await encoded(one));
+    const imported = await importPackage(
+      target,
+      await encodeModulePackage({
+        artifact: two.artifact,
+        content: two.content,
+        files: two.bytes,
+        module: one.module,
+        version: twoVersion,
+      })
+    );
+
+    expect(imported.tag).toBe("1.1.0");
+    expect(
+      (await target.listContents(one.artifact.id, { state: "frozen" })).map(
+        (content) => content.tag
+      )
+    ).toEqual(["1.0.0", "1.1.0"]);
+  });
+
+  it("rejects a changed Content digest before persisting", async () => {
+    const source = await fixture();
+    const tampered = JSON.parse(await encoded(source)) as Envelope;
+    tampered.content.digest = "not-the-real-digest";
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await expect(
+      importPackage(target, canonicalizeJson(tampered))
+    ).rejects.toThrow("Content digest mismatch");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("rejects blob bytes that do not match their digest", async () => {
+    const source = await fixture();
+    const tampered = JSON.parse(await encoded(source)) as Envelope;
+    for (const digest of Object.keys(tampered.content.blobs)) {
+      tampered.content.blobs[digest] = "bm90LXRoZS1yZWFsLWJ5dGVz";
+    }
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await expect(
+      importPackage(target, canonicalizeJson(tampered))
+    ).rejects.toThrow("blob digest mismatch");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("refuses to encode a mismatched Artifact, Release, or bytes", async () => {
+    const source = await fixture();
+    const other = await fixture();
+    await expect(
+      encodeModulePackage({
+        artifact: source.artifact,
+        content: other.content,
+        files: other.bytes,
+        module: source.module,
+        version: other.version,
+      })
+    ).rejects.toThrow("belongs to another Artifact");
+    await expect(
+      encodeModulePackage({
+        artifact: source.artifact,
+        content: source.content,
+        files: {
+          "outputs/program/server.js": new TextEncoder().encode("tampered"),
+        },
+        module: source.module,
+        version: source.version,
+      })
+    ).rejects.toThrow("do not match the tree");
+  });
+
+  it("rejects an invalid Manifest before persisting", async () => {
+    const source = await fixture();
+    const tampered = JSON.parse(await encoded(source)) as Envelope;
+    tampered.content.manifest.program.entry = "outputs/program/missing.js";
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await expect(
+      importPackage(target, canonicalizeJson(tampered))
+    ).rejects.toThrow("absent from the Content tree");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("rejects a valid-looking Manifest whose digest no longer matches", async () => {
+    const source = await fixture();
+    const tampered = JSON.parse(await encoded(source)) as Envelope;
+    tampered.content.manifest.capabilities.push({
+      alias: "network",
+      capability: "host.network.fetch",
+      reason: "Fetches data",
+      required: false,
+      version: 1,
+    });
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await expect(
+      importPackage(target, canonicalizeJson(tampered))
+    ).rejects.toThrow("Manifest digest mismatch");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("imports a file-only format 2 package by adding its parent directories", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    envelope.format = "foundry.module/2";
+    envelope.content.tree = Object.fromEntries(
+      Object.entries(envelope.content.tree).filter(
+        ([, node]) => node.type === "file"
+      )
+    );
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    const version = await importPackage(target, canonicalizeJson(envelope));
+    expect(version.contentId).toBeDefined();
+    expect((await target.getContent(version.contentId))?.digest).toBe(
+      source.content.digest
+    );
+  });
+
+  it("adds every missing parent once, including those above a listed directory", () => {
+    const file: StorageNode = {
+      bytes: 0,
+      digest: "0".repeat(64),
+      mime: null,
+      type: "file",
+    };
+    expect(
+      Object.keys(
+        withParentDirectories({
+          "a/b": { type: "directory" },
+          "a/b/c/d": file,
+          "a/b/c/e": file,
+          "x/y/z": file,
+        })
+      ).sort()
+    ).toEqual(["a", "a/b", "a/b/c", "a/b/c/d", "a/b/c/e", "x", "x/y", "x/y/z"]);
+  });
+
+  it("rejects a format 2 tree whose implied directories pass the entry limit, before persisting", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    const file = Object.values(envelope.content.tree).find(
+      (node) => node.type === "file"
+    );
+    if (file === undefined) {
+      throw new Error("fixture has no file");
+    }
+    const tree: Record<string, StorageNode> = {};
+    for (let branch = 0; branch < 100; branch += 1) {
+      const segments = Array.from(
+        { length: 50 },
+        (_, depth) => `b${branch}d${depth}`
+      );
+      tree[`${segments.join("/")}/file`] = file;
+    }
+    envelope.format = "foundry.module/2";
+    envelope.content.tree = tree;
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+    vi.mocked(withParentDirectories).mockClear();
+
+    await expect(
+      importPackage(target, canonicalizeJson(envelope))
+    ).rejects.toThrow("entry limit");
+    expect(withParentDirectories).not.toHaveBeenCalled();
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("rejects a tree path too long to check out, before expanding it", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    const file = Object.values(envelope.content.tree).find(
+      (node) => node.type === "file"
+    );
+    if (file === undefined) {
+      throw new Error("fixture has no file");
+    }
+    envelope.format = "foundry.module/2";
+    envelope.content.tree = {
+      [`${"a/".repeat(4096)}file`]: file,
+    };
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await expect(
+      importPackage(target, canonicalizeJson(envelope))
+    ).rejects.toThrow("tree path exceeds 1024 characters");
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("rejects paths sharing one blob whose combined size passes the budget, before persisting", async () => {
+    const source = await fixture();
+    const envelope = JSON.parse(await encoded(source)) as Envelope;
+    const bytes = new Uint8Array(1024 * 1024).fill(7);
+    const digest = await sha256Hex(bytes);
+    envelope.content.blobs[digest] = bytesToBase64(bytes);
+    const tree: Record<string, StorageNode> = {
+      ...envelope.content.tree,
+      "outputs/copies": { type: "directory" },
+    };
+    for (let copy = 0; copy < 40; copy += 1) {
+      tree[`outputs/copies/${copy}.bin`] = {
+        bytes: bytes.byteLength,
+        digest,
+        mime: null,
+        type: "file",
+      };
+    }
+    envelope.content.tree = tree;
+    envelope.content.digest = await digestTree(envelope.content.tree);
+    const text = canonicalizeJson(envelope);
+    expect(text.length).toBeLessThan(4 * 1024 * 1024);
+    const target = new Artifacts({ store: new MemoryArtifactStore() });
+
+    await expect(importPackage(target, text)).rejects.toThrow(
+      "exceed 32 MiB in total"
+    );
+    expect(await target.get(source.artifact.id)).toBeNull();
+  });
+
+  it("rejects malformed package text and the previous format", async () => {
+    await expect(
+      importPackage(new Artifacts({ store: new MemoryArtifactStore() }), "{}")
+    ).rejects.toThrow("Unsupported Module Package format");
+    await expect(
+      importPackage(
+        new Artifacts({ store: new MemoryArtifactStore() }),
+        canonicalizeJson({ format: "foundry.module/1" })
+      )
+    ).rejects.toThrow("Unsupported Module Package format");
+  });
+
+  describe("refuses, leaving the target Artifact exactly as it was", () => {
+    async function sharedArtifactPackage(moduleId: string) {
+      const source = await moduleFixture({
+        artifactId: "shared-artifact",
+        files: {
+          ...PROGRAM_FILES,
+          "outputs/program/server.js": {
+            bytes: "export const foreign = true;",
+            mime: "text/javascript",
+          },
+        },
+        tag: "2.0.0",
+      });
+      const module = defineModule({
+        artifact: source.artifact,
+        id: moduleIdSchema.parse(moduleId),
+      });
+      return encodeModulePackage({
+        artifact: source.artifact,
+        content: source.content,
+        files: source.bytes,
+        module,
+        version: defineModuleVersion({
+          artifact: source.artifact,
+          content: source.content,
+          manifest: VALID_MANIFEST,
+          module,
+        }),
+      });
+    }
+
+    async function state(artifacts: Artifacts, id: string) {
+      const artifactId = id as Parameters<Artifacts["get"]>[0];
+      return {
+        artifact: await artifacts.get(artifactId),
+        contents: await artifacts.listContents(artifactId),
+      };
+    }
+
+    it("an Artifact another Module owns", async () => {
+      const target = await moduleFixture({ artifactId: "shared-artifact" });
+      const registry = new Modules();
+      const owner = defineModule({
+        artifact: target.artifact,
+        id: moduleIdSchema.parse("owner"),
+      });
+      await registry.registerModule({ module: owner });
+      const before = await state(target.system, "shared-artifact");
+
+      await expect(
+        importModulePackage({
+          artifacts: target.system,
+          encoded: await sharedArtifactPackage("foreign"),
+          modules: registry,
+        })
+      ).rejects.toThrow(
+        "Artifact shared-artifact already belongs to Module owner"
+      );
+
+      expect(await state(target.system, "shared-artifact")).toEqual(before);
+      expect(
+        await registry.loadModule(moduleIdSchema.parse("foreign"))
+      ).toBeNull();
+      expect(await registry.loadModule(owner.id)).toEqual(owner);
+    });
+
+    it("a Module id registered on another Artifact", async () => {
+      const target = new Artifacts({
+        store: new MemoryArtifactStore(),
+      });
+      const registry = new Modules();
+      const elsewhere = await moduleFixture();
+      await registry.registerModule({
+        module: defineModule({
+          artifact: elsewhere.artifact,
+          id: moduleIdSchema.parse("owner"),
+        }),
+      });
+
+      await expect(
+        importModulePackage({
+          artifacts: target,
+          encoded: await sharedArtifactPackage("owner"),
+          modules: registry,
+        })
+      ).rejects.toThrow("Module owner already belongs to another Artifact");
+      expect(await state(target, "shared-artifact")).toEqual({
+        artifact: null,
+        contents: [],
+      });
+    });
+
+    it("a call inside a caller's Artifact transaction", async () => {
+      const target = await moduleFixture({ artifactId: "shared-artifact" });
+      const registry = new Modules();
+      const before = await state(target.system, "shared-artifact");
+      const encodedPackage = await sharedArtifactPackage("joined");
+
+      await expect(
+        target.system.transaction(() =>
+          importModulePackage({
+            artifacts: target.system,
+            encoded: encodedPackage,
+            modules: registry,
+          })
+        )
+      ).rejects.toBeInstanceOf(ModuleCrossStoreError);
+      expect(await state(target.system, "shared-artifact")).toEqual(before);
+      expect(
+        await registry.loadModule(moduleIdSchema.parse("joined"))
+      ).toBeNull();
+    });
+  });
+
+  it("keeps the landed Content when registering fails, and a retry completes the import", async () => {
+    const source = await fixture(undefined, STRICT_MANIFEST);
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
+    });
+    const registry = new Modules();
+    const refusing = { on: true };
+    const modules = rejectingModules(registry, refusing);
+    const text = await encoded(source);
+    await expect(
+      importModulePackage({ artifacts, encoded: text, modules })
+    ).rejects.toThrow("injected Module persistence failure");
+    expect(await artifacts.get(source.artifact.id)).not.toBeNull();
+    expect(await registry.loadModule(source.module.id)).toBeNull();
+
+    refusing.on = false;
+    const imported = await importModulePackage({
+      artifacts,
+      encoded: text,
+      modules,
+    });
+    expect(await registry.loadModule(source.module.id)).toEqual(source.module);
+    expect(await registry.loadRetainedManifest(imported.contentId)).toEqual(
+      imported.manifest
+    );
+  });
+
+  it("registers nothing when the Artifact write fails, and a retry completes the import", async () => {
+    const source = await fixture();
+    const failing = failingArtifacts();
+    const registry = new Modules();
+    const text = await encoded(source);
+    await expect(
+      importModulePackage({
+        artifacts: failing.artifacts,
+        encoded: text,
+        modules: registry,
+      })
+    ).rejects.toThrow("simulated Artifact commit failure");
+    expect(await registry.loadModule(source.module.id)).toBeNull();
+
+    failing.fail = false;
+    const imported = await importModulePackage({
+      artifacts: failing.artifacts,
+      encoded: text,
+      modules: registry,
+    });
+    expect(await registry.loadModule(source.module.id)).toEqual(source.module);
+    expect(
+      await failing.artifacts.getContent(imported.contentId)
+    ).not.toBeNull();
+  });
+});

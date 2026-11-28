@@ -1,14 +1,17 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-import type { ModelManager } from "@foundry/models";
+import type { Models } from "@foundry/models";
 import type { TaskStore } from "@foundry/tasks";
+import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
-import { catalog } from "~/authoring/catalog";
-import { forgetLoad } from "~/authoring/identity";
-import { newLoad } from "~/authoring/load-tag";
-import { initializeUsage } from "~/authoring/usage";
 import type { Engine } from "~/lib/engine";
 import type { ExecutionContext } from "~/lib/execution-context";
-import { activeContext } from "~/lib/execution-context";
+import type { Current } from "~/lib/run-scope";
+import {
+  currentExecutionContext,
+  currentRun,
+  currentSetupCounters,
+  scopeStorageFor,
+} from "~/lib/scope-bridge";
+import type { AgentLike } from "~/lib/types";
 
 export type InstanceRuntime = Pick<
   Engine,
@@ -16,10 +19,14 @@ export type InstanceRuntime = Pick<
   | "artifacts"
   | "bindings"
   | "context"
+  | "definition"
   | "dispose"
   | "disposed"
   | "execute"
+  | "enqueueDefinition"
   | "models"
+  | "readRun"
+  | "readRuns"
   | "sandboxes"
   | "taskStore"
   | "workspaceId"
@@ -33,177 +40,307 @@ interface Binding {
   readonly workspaceId: string;
 }
 
-const bound = new Set<Binding>();
+interface Hosting {
+  readonly binding: Binding;
+  readonly catalog: Catalog | undefined;
+  readonly id: string;
+}
+
+export interface LoadScope {
+  readonly workspaceId: string;
+}
+
+interface LoadingRoute extends LoadScope {
+  readonly created: Set<object>;
+  readonly definitions: Map<string, number>;
+  finished: boolean;
+  readonly kind: "loading";
+  readonly locked: Set<object>;
+}
+
+type Route =
+  | { readonly binding: Binding; readonly kind: "binding" }
+  | { readonly kind: "workspace"; readonly workspaceId: string }
+  | { readonly kind: "unbound-context"; readonly workspaceId: string }
+  | LoadingRoute;
+
+interface RuntimeState {
+  bound: Set<Binding>;
+  bunEvaluatingLoads: Set<LoadingRoute>;
+  contextBindings: WeakMap<ExecutionContext, Binding>;
+  createFallback: (() => Promise<InstanceRuntime>) | undefined;
+  fallback: Promise<InstanceRuntime> | undefined;
+  fallbackRoot: () => string;
+  hostings: Map<string, Hosting>;
+  hostState: "unhosted" | "loading" | "hosted";
+  pendingHostings: Set<string>;
+  released: Set<string>;
+  unnamedRefused: boolean;
+}
+
+const RUNTIME_STATE_KEY = Symbol.for("marbles.runtime.state.v1");
+const ROUTE_STORAGE_KEY = Symbol.for("marbles.runtime.route.v1");
+
+function runtimeState(): RuntimeState {
+  const holder = globalThis as Record<symbol, RuntimeState | undefined>;
+  let state = holder[RUNTIME_STATE_KEY];
+  if (state === undefined) {
+    state = {
+      bound: new Set<Binding>(),
+      bunEvaluatingLoads: new Set<LoadingRoute>(),
+      contextBindings: new WeakMap<ExecutionContext, Binding>(),
+      createFallback: undefined,
+      fallback: undefined,
+      fallbackRoot: () => "/",
+      hostings: new Map<string, Hosting>(),
+      hostState: "unhosted",
+      pendingHostings: new Set<string>(),
+      released: new Set<string>(),
+      unnamedRefused: false,
+    };
+    holder[RUNTIME_STATE_KEY] = state;
+  }
+  return state;
+}
+
+function routeScope() {
+  return scopeStorageFor<Route>(ROUTE_STORAGE_KEY);
+}
+
+function activeBunLoads(): LoadingRoute[] {
+  const active: LoadingRoute[] = [];
+  for (const route of runtimeState().bunEvaluatingLoads) {
+    if (!route.finished) {
+      active.push(route);
+    }
+  }
+  return active;
+}
+
+function activeLoadingRoute(): LoadingRoute | undefined {
+  const scoped = routeScope().getStore();
+  if (scoped?.kind === "loading") {
+    return scoped.finished ? undefined : scoped;
+  }
+  if (scoped !== undefined || currentExecutionContext() !== undefined) {
+    return undefined;
+  }
+  const bunLoads = activeBunLoads();
+  return bunLoads.length === 1 ? bunLoads[0] : undefined;
+}
+
+function anyActiveLoadingRoute(): LoadingRoute | undefined {
+  const scoped = routeScope().getStore();
+  if (scoped?.kind === "loading") {
+    return scoped.finished ? undefined : scoped;
+  }
+  if (scoped !== undefined || currentExecutionContext() !== undefined) {
+    return undefined;
+  }
+  return activeBunLoads()[0];
+}
+
+export async function withBunEvaluatingLoad<T>(
+  work: () => Promise<T>
+): Promise<T> {
+  const scoped = routeScope().getStore();
+  const route =
+    scoped?.kind === "loading" && !scoped.finished ? scoped : undefined;
+  if (route === undefined) {
+    return await work();
+  }
+  const loads = runtimeState().bunEvaluatingLoads;
+  loads.add(route);
+  try {
+    return await work();
+  } finally {
+    loads.delete(route);
+  }
+}
+
+export function expectHost(): void {
+  const state = runtimeState();
+  if (state.hostState === "unhosted") {
+    state.hostState = "loading";
+  }
+}
 
 function isReleased(binding: Binding): boolean {
+  const state = runtimeState();
   if (!binding.released && binding.runtime?.disposed !== false) {
     binding.released = true;
     binding.runtime = undefined;
     binding.catalog = undefined;
-    bound.delete(binding);
+    state.bound.delete(binding);
   }
   return binding.released;
 }
 
 function liveBindings(workspaceId: string): Binding[] {
-  return [...bound].filter(
+  const state = runtimeState();
+  return [...state.bound].filter(
     (binding) => binding.workspaceId === workspaceId && !isReleased(binding)
   );
 }
 
-const contextBindings = new WeakMap<ExecutionContext, Binding>();
-
-interface Hosting {
-  readonly binding: Binding | undefined;
-  readonly catalog: Catalog;
-  readonly dry?: boolean;
-  readonly id: string;
-}
-
-const hostings = new Map<string, Hosting>();
-const released = new Set<string>();
-interface Load {
-  abandoned: boolean;
-  binding: Binding | undefined;
-  readonly catalog: Catalog;
-  readonly workspaceId: string;
-}
-
-const loads = new Map<number, Load>();
-const retired = new Map<number, string>();
-
 function sweep(): void {
-  for (const binding of [...bound]) {
+  const state = runtimeState();
+  for (const binding of [...state.bound]) {
     isReleased(binding);
   }
-  for (const [number, load] of loads) {
-    if (load.abandoned || load.binding?.released === true) {
-      loads.delete(number);
-      retired.set(number, load.workspaceId);
-      forgetLoad(number);
-    }
-  }
-  for (const id of [...hostings.keys()]) {
+  for (const id of [...state.hostings.keys()]) {
     liveHosting(id);
   }
 }
-type Route =
-  | { readonly load: number }
-  | { readonly binding: Binding }
-  | { readonly workspaceId: string };
 
-const routeScope = new AsyncLocalStorage<Route>();
-let unnamedRefused = false;
-let importing = 0;
-let hostState: "unhosted" | "loading" | "hosted" = "unhosted";
-const fallbacks = new Map<boolean, Promise<InstanceRuntime>>();
-let createFallback: (options: {
-  readonly dry: boolean;
-}) => Promise<InstanceRuntime> = async ({ dry }) => {
-  const { createDefaultEngine } = await import("~/create");
-  const engine = createDefaultEngine({ dry });
-  const problems =
-    (await engine.providers
-      ?.refresh()
-      .catch((error: unknown) => [String(error)])) ?? [];
-  for (const problem of problems) {
-    process.stderr.write(`[providers] ${problem}\n`);
+class AmbiguousWorkspaceError extends Error {
+  override readonly name = "AmbiguousWorkspaceError";
+}
+
+class WorkspaceReleasedError extends Error {
+  override readonly name = "WorkspaceReleasedError";
+}
+
+class WorkspaceLoadingError extends Error {
+  override readonly name = "WorkspaceLoadingError";
+}
+
+function loadingError(
+  word: string,
+  workspaceId: string
+): WorkspaceLoadingError {
+  return new WorkspaceLoadingError(
+    `workspace ${workspaceId}: ${word} is not available while its source loads`
+  );
+}
+
+function missingRuntimeError(): Error {
+  return new Error(
+    'no Marbles host or default runtime is configured; run via `marbles`, or import "@foundry.sh/marbles/engine" (or "@foundry.sh/marbles/lib") to enable the default Node runtime'
+  );
+}
+
+export interface LoadScopeResult<T> {
+  readonly created: ReadonlySet<object>;
+  readonly locked: ReadonlySet<object>;
+  readonly value: T;
+}
+
+export async function runLoadScope<T>(
+  scope: LoadScope,
+  work: () => Promise<T>
+): Promise<LoadScopeResult<T>> {
+  const state = runtimeState();
+  const route: LoadingRoute = {
+    created: new Set<object>(),
+    definitions: new Map<string, number>(),
+    finished: false,
+    kind: "loading",
+    locked: new Set<object>(),
+    workspaceId: scope.workspaceId,
+  };
+  if (liveHosting(scope.workspaceId) === undefined) {
+    state.pendingHostings.add(scope.workspaceId);
   }
-  return engine;
-};
+  try {
+    const value = await routeScope().run(route, work);
+    return {
+      created: new Set(route.created),
+      locked: new Set(route.locked),
+      value,
+    };
+  } catch (error) {
+    state.pendingHostings.delete(scope.workspaceId);
+    throw error;
+  } finally {
+    route.finished = true;
+    route.created.clear();
+    route.locked.clear();
+    route.definitions.clear();
+  }
+}
 
-export function inLoad<T>(load: number, work: () => T): T {
-  return routeScope.run({ load }, work);
+export async function withLoadScope<T>(
+  scope: LoadScope,
+  work: () => Promise<T>
+): Promise<T> {
+  const { value } = await runLoadScope(scope, work);
+  return value;
+}
+
+export function trackCreatedDeclaration(declaration: object): void {
+  activeLoadingRoute()?.created.add(declaration);
+}
+
+export function trackLockedDeclaration(declaration: object): void {
+  activeLoadingRoute()?.locked.add(declaration);
+}
+
+export function claimLoadDefinition(hash: string): string | undefined {
+  const route = activeLoadingRoute();
+  if (route === undefined) {
+    return undefined;
+  }
+  const occurrence = route.definitions.get("definition") ?? 0;
+  route.definitions.set("definition", occurrence + 1);
+  return `load:definition#${String(occurrence)}:${hash}`;
 }
 
 export type Scope = <T>(work: () => T) => T;
 
 export function captureScope(): Scope {
-  const context = activeContext();
-  let route = routeScope.getStore();
-  if (context !== undefined && !loadOfAnother(route, context)) {
-    const binding = contextBindings.get(context);
-    route =
+  const state = runtimeState();
+  const context = currentExecutionContext();
+  let captured: Exclude<Route, LoadingRoute> | undefined;
+  if (context === undefined) {
+    const currentRoute = routeScope().getStore();
+    if (currentRoute?.kind === "loading") {
+      captured = { kind: "workspace", workspaceId: currentRoute.workspaceId };
+    } else if (currentRoute !== undefined) {
+      captured = currentRoute;
+    }
+  } else {
+    const binding = state.contextBindings.get(context);
+    captured =
       binding === undefined
-        ? { workspaceId: context.workspaceId }
-        : { binding };
+        ? { kind: "unbound-context", workspaceId: context.workspaceId }
+        : { binding, kind: "binding" };
   }
-  if (route === undefined) {
+  if (captured === undefined) {
     return (work) => work();
   }
-  const kept = route;
-  return (work) => routeScope.run(kept, work);
+  const kept = captured;
+  return (work) => {
+    if (anyActiveLoadingRoute() !== undefined) {
+      return work();
+    }
+    return routeScope().run(kept, work);
+  };
 }
 
 export function refuseUnnamedWork(): void {
-  unnamedRefused = true;
-}
-
-export async function loadInto<T>(
-  workspaceId: string,
-  into: Catalog,
-  load: (n: number) => Promise<T>,
-  { dry }: { readonly dry?: boolean } = {}
-): Promise<T> {
-  sweep();
-  const n = newLoad();
-  const loaded: Load = {
-    abandoned: false,
-    binding: undefined,
-    catalog: into,
-    workspaceId,
-  };
-  loads.set(n, loaded);
-  if (liveHosting(workspaceId) === undefined) {
-    hostings.set(workspaceId, {
-      binding: undefined,
-      catalog: into,
-      ...(dry === undefined ? {} : { dry }),
-      id: workspaceId,
-    });
-    released.delete(workspaceId);
-  }
-  importing += 1;
-  try {
-    return await load(n);
-  } catch (error) {
-    into.reset();
-    abandonHost(workspaceId, into);
-    throw error;
-  } finally {
-    importing -= 1;
-  }
+  runtimeState().unnamedRefused = true;
 }
 
 export function setHost(runtime: InstanceRuntime, declared?: Catalog): void {
+  const state = runtimeState();
   sweep();
-  const hosting = hostings.get(runtime.workspaceId);
-  const taken = declared ?? hosting?.catalog ?? catalog;
   const binding: Binding = {
-    catalog: taken,
+    catalog: declared,
     released: false,
     runtime,
     workspaceId: runtime.workspaceId,
   };
-  bound.add(binding);
-  contextBindings.set(runtime.context, binding);
-  hostings.set(runtime.workspaceId, {
+  state.bound.add(binding);
+  state.contextBindings.set(runtime.context, binding);
+  state.hostings.set(runtime.workspaceId, {
     binding,
-    catalog: taken,
+    catalog: declared,
     id: runtime.workspaceId,
   });
-  for (const load of loads.values()) {
-    if (
-      load.workspaceId === runtime.workspaceId &&
-      load.catalog === taken &&
-      load.binding === undefined &&
-      !load.abandoned
-    ) {
-      load.binding = binding;
-    }
-  }
-  released.delete(runtime.workspaceId);
-  hostState = "hosted";
+  state.pendingHostings.delete(runtime.workspaceId);
+  state.released.delete(runtime.workspaceId);
+  state.hostState = "hosted";
 }
 
 export function releaseEngine(runtime: InstanceRuntime): void {
@@ -213,78 +350,28 @@ export function releaseEngine(runtime: InstanceRuntime): void {
   sweep();
 }
 
-export function expectHost(): void {
-  hostState = "loading";
-}
-
-export function abandonHost(workspaceId: string, given: Catalog): void {
-  for (const load of loads.values()) {
-    if (
-      load.workspaceId === workspaceId &&
-      load.catalog === given &&
-      load.binding === undefined
-    ) {
-      load.abandoned = true;
-    }
-  }
-  const hosting = hostings.get(workspaceId);
-  if (
-    hosting === undefined ||
-    (hosting.catalog === given && hosting.binding === undefined)
-  ) {
-    hostings.delete(workspaceId);
-    released.add(workspaceId);
-  }
-}
-
-type Owner =
-  | { readonly binding: Binding }
-  | { readonly load: Load }
-  | { readonly workspaceId: string };
-
-function loadOfAnother(
-  route: Route | undefined,
-  context: ExecutionContext
-): boolean {
-  if (route === undefined || !("load" in route)) {
-    return false;
-  }
-  const workspaceId =
-    loads.get(route.load)?.workspaceId ?? retired.get(route.load);
-  return workspaceId !== undefined && workspaceId !== context.workspaceId;
-}
-
-function owner(): Owner | undefined {
-  const context = activeContext();
-  const route = routeScope.getStore();
-  if (context !== undefined && !loadOfAnother(route, context)) {
-    const binding = contextBindings.get(context);
+function owner(): Route | undefined {
+  const state = runtimeState();
+  const context = currentExecutionContext();
+  if (context !== undefined) {
+    const binding = state.contextBindings.get(context);
     return binding === undefined
-      ? { workspaceId: context.workspaceId }
-      : { binding };
+      ? { kind: "unbound-context", workspaceId: context.workspaceId }
+      : { binding, kind: "binding" };
   }
-  if (route === undefined || !("load" in route)) {
-    return route;
+  const scoped = routeScope().getStore();
+  if (scoped?.kind === "loading" && scoped.finished) {
+    return { kind: "workspace", workspaceId: scoped.workspaceId };
   }
-  if (retired.has(route.load)) {
-    throw releasedError();
-  }
-  const load = loads.get(route.load);
-  if (load === undefined) {
-    return;
-  }
-  if (load.abandoned) {
-    throw releasedError(load.workspaceId);
-  }
-  return load.binding === undefined ? { load } : { binding: load.binding };
+  return scoped;
 }
 
 function live(binding: Binding): {
-  readonly catalog: Catalog;
+  readonly catalog: Catalog | undefined;
   readonly runtime: InstanceRuntime;
 } {
   const { catalog: taken, runtime } = binding;
-  if (isReleased(binding) || taken === undefined || runtime === undefined) {
+  if (isReleased(binding) || runtime === undefined) {
     throw releasedError(binding.workspaceId);
   }
   return { catalog: taken, runtime };
@@ -300,58 +387,45 @@ function soleHosting(workspaceId: string): Hosting | undefined {
   return liveHosting(workspaceId);
 }
 
-function namedBy(
-  own: { readonly load: Load } | { readonly workspaceId: string } | undefined
-): string | undefined {
-  if (own === undefined) {
-    return;
-  }
-  return "load" in own ? own.load.workspaceId : own.workspaceId;
-}
-
 interface Answer {
-  readonly catalog: Catalog;
-  readonly dry?: boolean;
+  readonly catalog: Catalog | undefined;
   readonly id: string;
-  readonly runtime: InstanceRuntime | undefined;
+  readonly runtime: InstanceRuntime;
 }
 
 function liveHosting(id: string): Hosting | undefined {
-  const hosting = hostings.get(id);
-  if (hosting?.binding !== undefined && isReleased(hosting.binding)) {
-    hostings.delete(id);
-    released.add(id);
+  const state = runtimeState();
+  const hosting = state.hostings.get(id);
+  if (hosting !== undefined && isReleased(hosting.binding)) {
+    state.hostings.delete(id);
+    state.released.add(id);
     return;
   }
   return hosting;
 }
 
-function answerOf(hosting: Hosting): Answer {
+function answerOf(hosting: Hosting): Answer | undefined {
+  const { runtime } = hosting.binding;
+  if (runtime === undefined) {
+    return;
+  }
   return {
     catalog: hosting.catalog,
-    ...(hosting.dry === undefined ? {} : { dry: hosting.dry }),
     id: hosting.id,
-    runtime: hosting.binding?.runtime,
+    runtime,
   };
 }
 
 function refuseUnbound(workspaceId: string): void {
+  const state = runtimeState();
   if (liveBindings(workspaceId).length > 0) {
     throw new AmbiguousWorkspaceError(
       `this call comes from a run of an engine of workspace ${workspaceId} that no host here bound, and another engine is bound to that workspace here, so neither answers it`
     );
   }
-  if (released.has(workspaceId)) {
+  if (state.released.has(workspaceId)) {
     throw releasedError(workspaceId);
   }
-}
-
-class AmbiguousWorkspaceError extends Error {
-  override readonly name = "AmbiguousWorkspaceError";
-}
-
-class WorkspaceReleasedError extends Error {
-  override readonly name = "WorkspaceReleasedError";
 }
 
 function releasedError(id?: string): WorkspaceReleasedError {
@@ -368,30 +442,55 @@ function unnamedError(): AmbiguousWorkspaceError {
   );
 }
 
-function answering(): Answer | undefined {
+function answerWorkspace(
+  workspaceId: string,
+  word: string | undefined
+): Answer | undefined {
+  const state = runtimeState();
+  const sole = soleHosting(workspaceId);
+  if (sole !== undefined) {
+    return answerOf(sole);
+  }
+  if (state.released.has(workspaceId)) {
+    throw releasedError(workspaceId);
+  }
+  if (state.pendingHostings.has(workspaceId) && word !== undefined) {
+    throw loadingError(word, workspaceId);
+  }
+  return undefined;
+}
+
+function answering(word?: string): Answer | undefined {
+  const state = runtimeState();
   const own = owner();
-  if (own !== undefined && "binding" in own) {
+  if (own?.kind === "binding") {
     const { catalog: taken, runtime } = live(own.binding);
     return { catalog: taken, id: runtime.workspaceId, runtime };
   }
-  if (own !== undefined && "workspaceId" in own) {
+  if (own?.kind === "unbound-context") {
     refuseUnbound(own.workspaceId);
     return undefined;
   }
-  const named = namedBy(own);
-  if (named !== undefined) {
-    const hosting = soleHosting(named);
-    if (hosting !== undefined) {
-      return answerOf(hosting);
+  if (own?.kind === "loading") {
+    if (word !== undefined) {
+      throw loadingError(word, own.workspaceId);
     }
-    if (released.has(named)) {
-      throw releasedError(named);
-    }
+    return undefined;
   }
-  if (named === undefined && unnamedRefused) {
+  if (own?.kind === "workspace") {
+    return answerWorkspace(own.workspaceId, word);
+  }
+  const loading = anyActiveLoadingRoute();
+  if (loading !== undefined) {
+    if (word !== undefined) {
+      throw loadingError(word, loading.workspaceId);
+    }
+    return undefined;
+  }
+  if (state.unnamedRefused) {
     throw unnamedError();
   }
-  const hosted = [...hostings.keys()].flatMap((id) => {
+  const hosted = [...state.hostings.keys()].flatMap((id) => {
     const each = liveHosting(id);
     return each === undefined ? [] : [each];
   });
@@ -408,68 +507,56 @@ function answering(): Answer | undefined {
   return sole === undefined ? undefined : answerOf(sole);
 }
 
-export function declaringCatalog(): Catalog {
-  const own = owner();
-  if (own !== undefined) {
-    if ("binding" in own) {
-      return live(own.binding).catalog;
-    }
-    if ("load" in own) {
-      return own.load.catalog;
-    }
-    refuseUnbound(own.workspaceId);
-    return catalog;
-  }
-  if (importing > 0) {
-    throw new AmbiguousWorkspaceError(
-      "this declaration comes from a package, which one process shares between every workspace it hosts, while a workspace's source loads, so it belongs to none of them. A package's module has no workspace of its own: export a function that takes the words it uses and call it from the workspace's source with that source's own, as in `export const make = ({ step }) => step(\"helper\").do(…)` and `make({ step })`"
-    );
-  }
-  if (unnamedRefused) {
-    throw unnamedError();
-  }
-  return catalog;
-}
-
-export function providingCatalog(id: string): Catalog {
-  const own = owner();
-  if (own !== undefined && "load" in own) {
-    return own.load.catalog;
-  }
-  if (own !== undefined || fallbacks.size > 0) {
-    throw new Error(
-      `defineProvider(${id}): call it at the top level of a workspace's source, while that source loads; a workspace's providers are fixed once its engine is built`
-    );
-  }
-  return declaringCatalog();
-}
-
 function activeHost(): InstanceRuntime | undefined {
   return answering()?.runtime;
 }
 
-export function hostModels(): ModelManager | undefined {
-  const context = activeContext();
-  if (
-    context !== undefined &&
-    !contextBindings.has(context) &&
-    !loadOfAnother(routeScope.getStore(), context)
-  ) {
+export function activeAgentId(
+  agent: AgentLike<Output.Output>
+): string | undefined {
+  const state = runtimeState();
+  const context = currentExecutionContext();
+  if (context !== undefined) {
+    const fromContext = context.agentIdOf?.(agent);
+    if (fromContext !== undefined) {
+      return fromContext;
+    }
+    const binding = state.contextBindings.get(context);
+    if (binding !== undefined && !isReleased(binding)) {
+      return binding.catalog?.agentIdOf(agent);
+    }
+    return undefined;
+  }
+  if (anyActiveLoadingRoute() !== undefined) {
+    return undefined;
+  }
+  try {
+    return answering()?.catalog?.agentIdOf(agent);
+  } catch {
+    return undefined;
+  }
+}
+
+export function hostModels(): Models | undefined {
+  const state = runtimeState();
+  const context = currentExecutionContext();
+  if (context !== undefined && !state.contextBindings.has(context)) {
     return context.models;
   }
   return activeHost()?.models;
 }
 
 export function hostTaskStore(): TaskStore | undefined {
-  const hosting = answering();
-  if (hosting === undefined && hostState === "unhosted") {
+  const state = runtimeState();
+  const hosting = answering("tasks");
+  if (hosting === undefined && state.hostState === "unhosted") {
     return;
   }
-  if (hosting?.runtime !== undefined) {
+  if (hosting !== undefined) {
     return hosting.runtime.taskStore;
   }
-  if (hosting !== undefined || hostState === "loading") {
-    throw new Error(
+  if (state.hostState === "loading") {
+    throw new WorkspaceLoadingError(
       "tasks: the workspace's tasks are not available while its source loads; use them in a step, an observe handler, or once the host has started"
     );
   }
@@ -478,51 +565,108 @@ export function hostTaskStore(): TaskStore | undefined {
   );
 }
 
-export function setDefaultRuntime(
-  create: (options: { readonly dry: boolean }) => Promise<InstanceRuntime>
-): void {
-  createFallback = create;
+export function ownRun(): Current | undefined {
+  return currentRun();
 }
 
-export function instanceRoot(): string {
-  return activeHost()?.bindings.root ?? process.cwd();
+export function activeSetupCounters(): Map<string, number> | undefined {
+  return currentSetupCounters();
 }
 
-export function instanceRuntime(): Promise<InstanceRuntime> {
-  let answer: Answer | undefined;
+function hostless(
+  word: string,
+  verb: "enqueue" | "read",
+  loading: boolean
+): Error {
+  return loading
+    ? new WorkspaceLoadingError(
+        `${word}: the workspace's runs are not available while its source loads; ${verb} them in a step, an observe handler, or once the host has started`
+      )
+    : new Error(
+        `${word}: the workspace host that held these runs was disposed; nothing was ${verb === "enqueue" ? "enqueued" : "read"}`
+      );
+}
+
+export function readingRuntime(word: string): Promise<InstanceRuntime | null> {
+  const state = runtimeState();
+  let hosting: Answer | undefined;
   try {
-    answer = answering();
+    hosting = answering(word);
   } catch (error) {
     return Promise.reject(error);
   }
-  if (answer?.runtime) {
+  if (hosting !== undefined) {
+    return Promise.resolve(hosting.runtime);
+  }
+  if (state.hostState === "unhosted") {
+    return state.fallback ?? Promise.resolve(null);
+  }
+  return Promise.reject(hostless(word, "read", state.hostState === "loading"));
+}
+
+export interface Enqueuing {
+  readonly runtime: InstanceRuntime;
+}
+
+export function enqueuingRuntime(word: string): Promise<Enqueuing> {
+  const state = runtimeState();
+  let hosting: Answer | undefined;
+  try {
+    hosting = answering(word);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  if (hosting !== undefined) {
+    return Promise.resolve({ runtime: hosting.runtime });
+  }
+  if (state.hostState === "unhosted") {
+    return instanceRuntime().then((runtime) => ({ runtime }));
+  }
+  return Promise.reject(
+    hostless(word, "enqueue", state.hostState === "loading")
+  );
+}
+
+export function hasDefaultRuntime(): boolean {
+  return runtimeState().createFallback !== undefined;
+}
+
+export function setDefaultRuntime(
+  create: () => Promise<InstanceRuntime>
+): void {
+  runtimeState().createFallback = create;
+}
+
+export function setDefaultRoot(get: () => string): void {
+  runtimeState().fallbackRoot = get;
+}
+
+export function instanceRoot(): string {
+  return activeHost()?.bindings.root ?? runtimeState().fallbackRoot();
+}
+
+export function instanceRuntime(): Promise<InstanceRuntime> {
+  const state = runtimeState();
+  let answer: Answer | undefined;
+  try {
+    answer = answering("runtime");
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  if (answer !== undefined) {
     return Promise.resolve(answer.runtime);
   }
-  const dry = answer === undefined ? false : answer.dry;
-  if (dry === undefined) {
-    return Promise.reject(
-      new Error(
-        `a definition was used while workspace ${answer?.id ?? ""}'s source was loading, and whether it loads under a dry run is not known here; use it in a step, which the host's engine runs`
-      )
-    );
+  const create = state.createFallback;
+  if (create === undefined) {
+    return Promise.reject(missingRuntimeError());
   }
-  let runtime = fallbacks.get(dry);
-  if (runtime === undefined) {
-    runtime = Promise.all([createFallback({ dry }), initializeUsage()]).then(
-      ([created]) => created
-    );
-    fallbacks.set(dry, runtime);
-    process.once("beforeExit", () => {
-      dispose().catch(() => undefined);
-    });
-  }
-  return runtime;
+  state.fallback ??= create();
+  return state.fallback;
 }
 
 export async function dispose(): Promise<void> {
-  const pending = [...fallbacks.values()];
-  fallbacks.clear();
-  for (const runtime of pending) {
-    await (await runtime).dispose();
-  }
+  const state = runtimeState();
+  const pending = state.fallback;
+  state.fallback = undefined;
+  await (await pending)?.dispose();
 }

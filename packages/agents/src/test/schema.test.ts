@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
-
+import type { SessionPart } from "../schema";
 import {
   sessionMessageSchema,
   sessionPartSchema,
   sessionRecordSchema,
-  summarySchema,
 } from "../schema";
 import { Sessions } from "../session/sessions";
-import type { SessionPart } from "../session/types";
-import { InMemorySessionStore } from "../store/memory";
+import { MemorySessionStore } from "../store/memory";
 
 const everyPart: SessionPart[] = [
   {
@@ -82,7 +80,7 @@ const everyPart: SessionPart[] = [
 
 describe("session record schemas", () => {
   it("accept the records the in-memory store writes", async () => {
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     const parent = await sessions.createSession({ title: "parent" });
     const child = await sessions.createSession({
@@ -128,11 +126,5 @@ describe("session record schemas", () => {
     expect(
       sessionRecordSchema.safeParse({ ...record, status: "paused" }).success
     ).toBe(false);
-  });
-
-  it("accepts a cross-session digest", () => {
-    const summary = { digestText: "digest", subjectSessionId: "session-1" };
-
-    expect(summarySchema.parse(summary)).toEqual(summary);
   });
 });

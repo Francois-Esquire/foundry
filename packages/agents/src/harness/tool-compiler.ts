@@ -1,4 +1,10 @@
 import type {
+  AccessRequest,
+  Authorization,
+  Permit,
+} from "@foundry/authorization";
+import type { HarnessPermissionCallback } from "@foundry/core/agents";
+import type {
   ModelMessage,
   TextStreamPart,
   Tool,
@@ -6,33 +12,31 @@ import type {
   ToolSet,
   TypedToolCall,
 } from "ai";
-
 import { z } from "zod";
-
-import type {
-  AgentAuthorizationRequest,
-  AgentAuthorizer,
+import {
+  agentPrincipal,
+  agentPrincipalMatcher,
+  capabilityToAccessRequest,
+  capabilityToScope,
+  HOST_APPROVER,
 } from "../authorization/authorization";
-import { agentSubject } from "../authorization/authorization";
 import type { Capability, ToolSource } from "../authorization/capability";
-import { createEventQueue } from "./event-queue";
 import { isHarnessQuestionTool } from "./question";
 import type { StreamPart } from "./stream-transform";
-import type { HarnessPermissionCallback } from "./turn-driver";
+import { keepToolOutput } from "./tool-output";
 import type {
   AgentIdentity,
   AgentInvocationContext,
   HarnessToolRegistration,
   RegisteredToolCall,
   ToolEffectLocation,
-  ToolEffectPort,
-} from "./types";
-import { registrationsOf } from "./types";
+} from "./tool-registration";
+import { registrationsOf } from "./tool-registration";
 
 export interface ToolCompilerDeps extends AgentIdentity {
-  effectPort: ToolEffectPort;
+  authoritySessionId?: string;
+  authorization: Authorization;
   permission?: HarnessPermissionCallback;
-  policy: AgentAuthorizer;
 }
 
 type ToolCallContext = Omit<AgentInvocationContext, keyof AgentIdentity>;
@@ -65,7 +69,7 @@ function deniedOutput(reason: string): PolicyDeniedOutput {
   return output;
 }
 
-function deriveInvocationId(
+export function deriveInvocationId(
   { agentId, sessionId }: AgentIdentity,
   toolCallId: string
 ): string {
@@ -116,53 +120,32 @@ function registeredCallFor<TInput>(
   });
 }
 
-export interface ToolAuthorizationContext {
-  readonly agentId: string;
-  readonly input: unknown;
-  readonly sessionId?: string;
-  readonly tool: { readonly name: string; readonly source: ToolSource };
-}
-
-export function toolAuthorizationContext(
-  request: AgentAuthorizationRequest
-): ToolAuthorizationContext | undefined {
-  const { context } = request;
-  if (typeof context !== "object" || context === null) {
-    return undefined;
-  }
-  const candidate = context as Partial<ToolAuthorizationContext>;
-  return typeof candidate.agentId === "string" && candidate.tool
-    ? (candidate as ToolAuthorizationContext)
-    : undefined;
-}
-
-interface ToolAuthorizationRequestArgs extends AgentIdentity {
+export interface ToolAccessRequestArgs extends AgentIdentity {
+  readonly authoritySessionId?: string;
   readonly capability: Capability;
   readonly input: unknown;
   readonly tool: { readonly name: string; readonly source: ToolSource };
   readonly toolCallId: string;
 }
 
-export function toolAuthorizationRequest(
-  args: ToolAuthorizationRequestArgs
-): AgentAuthorizationRequest {
-  return {
+export function toolAccessRequest(args: ToolAccessRequestArgs): AccessRequest {
+  return capabilityToAccessRequest({
+    agentGeneration: args.agentGeneration,
+    agentId: args.agentId,
     capability: args.capability,
-    context: {
-      agentId: args.agentId,
-      input: args.input,
-      sessionId: args.sessionId,
-      tool: args.tool,
-    } satisfies ToolAuthorizationContext,
+    input: args.input,
     invocationId: deriveInvocationId(args, args.toolCallId),
-    scopeId: args.sessionId,
-    subject: agentSubject(args.agentId, args.agentGeneration),
-  };
+    sessionId: args.authoritySessionId ?? args.sessionId,
+  });
 }
 
-function requestFor(call: RegisteredToolCall): AgentAuthorizationRequest {
-  return toolAuthorizationRequest({
+function requestFor(
+  call: RegisteredToolCall,
+  authoritySessionId?: string
+): AccessRequest {
+  return toolAccessRequest({
     ...call,
+    ...(authoritySessionId === undefined ? {} : { authoritySessionId }),
     tool: { name: call.toolName, source: call.source },
   });
 }
@@ -234,57 +217,90 @@ function wasApprovalGrantedFor(
   );
 }
 
+type ToolAuthResult =
+  | { readonly denied: PolicyDeniedOutput; readonly permit?: undefined }
+  | { readonly denied?: undefined; readonly permit?: Permit };
+
 interface ToolAuthorization {
   authorize(
     call: RegisteredToolCall,
     options: ToolExecutionOptions<unknown>
-  ): Promise<PolicyDeniedOutput | undefined>;
+  ): Promise<ToolAuthResult>;
   requiresApproval(call: RegisteredToolCall): Promise<boolean>;
 }
 
-function policyAuthorization(policy: AgentAuthorizer): ToolAuthorization {
+function standardAuthorization(
+  authorization: Authorization,
+  authoritySessionId?: string
+): ToolAuthorization {
   return {
     async authorize(call, options) {
-      const request = requestFor(call);
-      let decision = await policy.decide(request);
+      const request = requestFor(call, authoritySessionId);
+      const decision = await authorization.check(request);
       if (decision.kind === "deny") {
-        return deniedOutput(decision.reason);
+        return { denied: deniedOutput(decision.reason) };
       }
-      if (decision.kind === "requires-approval") {
+      if (decision.kind === "ask") {
         if (!wasApprovalGrantedFor(options.toolCallId, options.messages)) {
-          return deniedOutput("Approval required but not yet resolved.");
+          return {
+            denied: deniedOutput("Approval required but not yet resolved."),
+          };
         }
-        decision = await policy.resolveApproval(request, { approved: true });
-        if (decision.kind !== "allow") {
-          return deniedOutput(
-            decision.kind === "deny"
-              ? decision.reason
-              : "Approval required but not yet resolved."
-          );
-        }
+        const pending = await authorization.request({
+          holder: agentPrincipalMatcher(call.agentId, call.agentGeneration),
+          invocationId: call.invocationId,
+          requestedBy: agentPrincipal(call.agentId, call.agentGeneration),
+          scope: capabilityToScope(call.capability),
+          sessionId: authoritySessionId ?? call.sessionId,
+          usesRemaining: 1,
+        });
+        await authorization.approve(pending.id, {
+          approver: HOST_APPROVER,
+          rootAuthority: true,
+        });
       }
 
-      const claim = await policy.claim(request, decision);
-      return claim.kind === "authorized"
-        ? undefined
-        : deniedOutput(claim.reason);
+      const outcome = await authorization.authorize(
+        request,
+        call.invocationId,
+        {
+          openPending: false,
+          ...(options.abortSignal === undefined
+            ? {}
+            : { signal: options.abortSignal }),
+        }
+      );
+      if (outcome.kind === "permitted") {
+        return { permit: outcome.permit };
+      }
+      return {
+        denied: deniedOutput(
+          outcome.kind === "denied"
+            ? outcome.reason
+            : "Approval required but not yet resolved."
+        ),
+      };
     },
     async requiresApproval(call) {
-      const decision = await policy.decide(requestFor(call));
-      return decision.kind === "requires-approval";
+      const decision = await authorization.check(
+        requestFor(call, authoritySessionId)
+      );
+      return decision.kind === "ask";
     },
   };
 }
 
 function liveAuthorization(
   permission: HarnessPermissionCallback,
-  policy: AgentAuthorizer
+  authorization: Authorization,
+  authoritySessionId?: string
 ): ToolAuthorization {
   return {
     async authorize(call, options) {
-      const current = await policy.decide(requestFor(call));
+      const request = requestFor(call, authoritySessionId);
+      const current = await authorization.check(request);
       if (current.kind === "deny") {
-        return deniedOutput(current.reason);
+        return { denied: deniedOutput(current.reason) };
       }
       const result = await permission({
         capability: call.capability,
@@ -295,9 +311,30 @@ function liveAuthorization(
         toolCallId: call.toolCallId,
         toolName: call.toolName,
       });
-      return result.behavior === "allow"
-        ? undefined
-        : deniedOutput(result.message);
+      if (result.behavior !== "allow") {
+        return { denied: deniedOutput(result.message) };
+      }
+      const outcome = await authorization.authorize(
+        request,
+        call.invocationId,
+        {
+          idempotent: true,
+          openPending: false,
+          ...(options.abortSignal === undefined
+            ? {}
+            : { signal: options.abortSignal }),
+        }
+      );
+      if (outcome.kind === "permitted") {
+        return { permit: outcome.permit };
+      }
+      return {
+        denied: deniedOutput(
+          outcome.kind === "denied"
+            ? outcome.reason
+            : "Approval required but not yet resolved."
+        ),
+      };
     },
     requiresApproval: () => Promise.resolve(false),
   };
@@ -315,8 +352,12 @@ export function compileTool(
 
   const originalNeedsApproval = original.needsApproval;
   const authorization = deps.permission
-    ? liveAuthorization(deps.permission, deps.policy)
-    : policyAuthorization(deps.policy);
+    ? liveAuthorization(
+        deps.permission,
+        deps.authorization,
+        deps.authoritySessionId
+      )
+    : standardAuthorization(deps.authorization, deps.authoritySessionId);
   const callFor = (
     input: unknown,
     options: { toolCallId: string; messages: ModelMessage[]; context: unknown }
@@ -353,13 +394,23 @@ export function compileTool(
     options: ToolExecutionOptions<unknown>
   ): Promise<unknown> => {
     const call = callFor(input, options);
-    const denied = await authorization.authorize(call, options);
+    const { denied, permit } = await authorization.authorize(call, options);
     if (denied) {
       return denied;
     }
-    return deps.effectPort.execute(call, () =>
-      Promise.resolve(originalExecute(input, options))
-    );
+    try {
+      if (permit?.signal.aborted) {
+        throw permit.signal.reason;
+      }
+      const output = await originalExecute(
+        input,
+        permit ? { ...options, abortSignal: permit.signal } : options
+      );
+      keepToolOutput(output, registration.name, options.toolCallId);
+      return output;
+    } finally {
+      permit?.release();
+    }
   };
 
   const streamingExecute = async function* (
@@ -367,34 +418,31 @@ export function compileTool(
     options: ToolExecutionOptions<unknown>
   ): AsyncGenerator<unknown, void, undefined> {
     const call = callFor(input, options);
-    const denied = await authorization.authorize(call, options);
+    const { denied, permit } = await authorization.authorize(call, options);
     if (denied) {
       yield denied;
       return;
     }
-    const queue = createEventQueue<unknown>();
-    const effect = deps.effectPort
-      .execute(call, async () => {
-        const iterable = originalExecute(
-          input,
-          options
-        ) as AsyncIterable<unknown>;
-        for await (const item of iterable) {
-          queue.push(item);
-        }
-      })
-      .finally(() => {
-        queue.close();
-      });
-    const iterator = queue.iterator();
-    for (
-      let next = await iterator.next();
-      !next.done;
-      next = await iterator.next()
-    ) {
-      yield next.value;
+    try {
+      if (permit?.signal.aborted) {
+        throw permit.signal.reason;
+      }
+      let lastOutput: unknown;
+      let yielded = false;
+      for await (const output of originalExecute(
+        input,
+        permit ? { ...options, abortSignal: permit.signal } : options
+      ) as AsyncIterable<unknown>) {
+        lastOutput = output;
+        yielded = true;
+        yield output;
+      }
+      if (yielded) {
+        keepToolOutput(lastOutput, registration.name, options.toolCallId);
+      }
+    } finally {
+      permit?.release();
     }
-    await effect;
   };
 
   const streaming = isAsyncGeneratorFunction(originalExecute);

@@ -10,9 +10,13 @@ export function interceptCommits(
   store: ArtifactStore,
   intercept: CommitInterceptor
 ): ArtifactStore {
+  const { findBlobByPath } = store;
   const wrapped: ArtifactStore = {
     commit: (write) => intercept(write, (landing) => store.commit(landing)),
     ...(store.durability === undefined ? {} : { durability: store.durability }),
+    ...(findBlobByPath === undefined
+      ? {}
+      : { findBlobByPath: (path) => findBlobByPath.call(store, path) }),
     findBlobs: (digest) => store.findBlobs(digest),
     findReferences: (id) => store.findReferences(id),
     getArtifact: (id) => store.getArtifact(id),

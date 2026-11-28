@@ -3,19 +3,20 @@ import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve as resolvePath } from "node:path";
-import { ModelManager } from "@foundry/models";
-import { isJsonValue } from "@foundry/workflows";
-import { Orchestrator } from "@foundry/workflows/orchestrator";
+import { Models } from "@foundry/models";
+import { step } from "@foundry.sh/marbles";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
-import { CLAUDE_CODE, CODEX } from "~/lib/harnesses";
+import { RunQueue } from "~/lib/run-queue";
 import type { SessionRef } from "~/lib/types";
+import { isJsonValue } from "~/lib/workflow-runs";
 import type { RunInfo } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { testEngine } from "./helpers/engine";
+import { CODEX } from "./helpers/harnesses";
 
 const engines: Engine[] = [];
 afterEach(async () => {
@@ -268,14 +269,13 @@ it("runs multiple model/tool steps and stops at maxTurns", async () => {
       });
     },
   });
-  const models = new ModelManager({
+  const models = new Models({
     providers: [
       {
         available: true,
         id: "network",
         languageModel: () => model,
         models: [{ id: "test", kind: "text", modelId: "test" }],
-        offline: false,
       },
     ],
   });
@@ -323,7 +323,7 @@ it("reports cancellation requested directly through the engine", async () => {
 it("reuses one registered agent step and records serializable dispatch input", async () => {
   const engine = testEngine();
   engines.push(engine);
-  const registrations = vi.spyOn(Orchestrator.prototype, "register");
+  const registrations = vi.spyOn(RunQueue.prototype, "register");
   try {
     const jobs = new BackgroundRuns(engine, new Catalog());
     await engine.start();
@@ -352,22 +352,6 @@ it("reuses one registered agent step and records serializable dispatch input", a
     registrations.mockRestore();
   }
 });
-
-it.each([CLAUDE_CODE, CODEX])(
-  "uses SDK steps for a dry run routed through $harness",
-  async (executor) => {
-    const jobs = await dispatches({ dry: true });
-    const run = await jobs.start({
-      maxTurns: 101,
-      model: executor.model,
-      prompt: "Hello",
-      provider: executor.provider,
-    });
-    await vi.waitFor(async () =>
-      expect((await jobs.get(run.runId)).status).toBe("completed")
-    );
-  }
-);
 
 it("can register the MCP dispatcher after the engine has started", async () => {
   const engine = testEngine();
@@ -406,7 +390,7 @@ it("returns only an acknowledgement even when a workflow has already completed",
 it.each(["workflow", "agent"] as const)(
   "acknowledges a queued background %s and retains it until admission",
   async (kind) => {
-    const engine = testEngine({ queues: { default: { concurrency: 1 } } });
+    const engine = testEngine({ pools: { default: { limit: 1 } } });
     engines.push(engine);
     const { promise, resolve: release } = Promise.withResolvers<void>();
     engine.define({ fn: () => promise, kind: "step", name: "blocking" });
@@ -436,3 +420,306 @@ it.each(["workflow", "agent"] as const)(
     }
   }
 );
+
+it.each(["running", "suspended"] as const)(
+  "closing a peer that enqueues a keyed %s run leaves its owner's run alone",
+  async (status) => {
+    const state = await mkdtemp(join(tmpdir(), "marbles-background-peer-"));
+    const release = Promise.withResolvers<void>();
+    const peerKeyed = step("peer-keyed").do(async ({ ask }) => {
+      if (status === "suspended") {
+        await ask.approval({ title: "Continue?" });
+      } else {
+        await release.promise;
+      }
+      return "done";
+    });
+    const owner = testEngine({ askable: true, collect: [peerKeyed], state });
+    const peer = testEngine({ askable: true, collect: [peerKeyed], state });
+    const ownJobs = new BackgroundRuns(owner, new Catalog());
+    const peerJobs = new BackgroundRuns(peer, new Catalog());
+    try {
+      await owner.start();
+      await peer.start();
+      const started = await ownJobs.startWorkflow(
+        "peer-keyed",
+        {},
+        { key: "shared" }
+      );
+      await vi.waitFor(async () =>
+        expect(
+          await ownJobs.get(started.runId),
+          "owner before peer enqueue"
+        ).toMatchObject({ status })
+      );
+      const joined = await peerJobs.startWorkflow(
+        "peer-keyed",
+        {},
+        { key: "shared" }
+      );
+      expect(joined.runId).toBe(started.runId);
+      expect(peer.executions.get(joined.runId)).toBeDefined();
+      expect(await peerJobs.list({ status: [status] })).toMatchObject({
+        items: [{ id: started.runId, status }],
+        total: 1,
+      });
+      await peerJobs.close();
+      expect(
+        (await ownJobs.get(started.runId)).status,
+        "owner after peer close"
+      ).toBe(status);
+      expect(
+        (await owner.runs()).find((run) => run.id === started.runId)?.status
+      ).toBe(status);
+    } finally {
+      release.resolve();
+      await owner.dispose();
+      await peer.dispose();
+      await rm(state, { force: true, recursive: true });
+    }
+  },
+  10_000
+);
+it("lists agent and workflow runs newest first, filtered and paged, with completed and failed statuses", async () => {
+  const engine = testEngine({ pools: { default: 1 } });
+  engines.push(engine);
+  const { promise, resolve: release } = Promise.withResolvers<void>();
+  engine.define({ fn: () => "done", kind: "step", name: "fast" });
+  engine.define({
+    fn: () => {
+      throw new Error("broke");
+    },
+    kind: "step",
+    name: "broken",
+  });
+  engine.define({ fn: () => promise, kind: "step", name: "blocking" });
+  const catalog = new Catalog();
+  catalog.agents.set("helper", {
+    id: "helper",
+    kind: "agent",
+    prompt: "Help with tasks.",
+  });
+  const jobs = new BackgroundRuns(engine, catalog);
+  await engine.start();
+  try {
+    const fast = await jobs.startWorkflow("fast", {});
+    await vi.waitFor(async () =>
+      expect((await jobs.get(fast.runId)).status).toBe("completed")
+    );
+    const broken = await jobs.startWorkflow("broken", {});
+    await vi.waitFor(async () =>
+      expect((await jobs.get(broken.runId)).status).toBe("failed")
+    );
+    const agent = await jobs.start({ agent: "helper", prompt: "Hi" });
+    await vi.waitFor(async () =>
+      expect((await jobs.get(agent.runId)).status).toBe("completed")
+    );
+    const blocking = await jobs.startWorkflow("blocking", {});
+    const queued = await jobs.startWorkflow("fast", {});
+    expect(queued.status).toBe("queued");
+
+    const all = await jobs.list();
+    expect(all.total).toBe(5);
+    expect(all.nextCursor).toBeUndefined();
+    expect(all.items.map(({ id }) => id)).toEqual([
+      queued.runId,
+      blocking.runId,
+      agent.runId,
+      broken.runId,
+      fast.runId,
+    ]);
+    expect(all.items[2]).toMatchObject({
+      kind: "agent",
+      name: "helper",
+      session: { id: agent.session?.id },
+      status: "completed",
+    });
+    expect(all.items[3]).toMatchObject({
+      error: expect.stringContaining("broke"),
+      kind: "workflow",
+      name: "broken",
+      status: "failed",
+    });
+    expect(all.items[4]).toMatchObject({ name: "fast", status: "completed" });
+    for (const item of all.items) {
+      expect(item).not.toHaveProperty("input");
+      expect(item).not.toHaveProperty("output");
+      expect(typeof item.queuedAt).toBe("string");
+    }
+
+    expect(
+      (await jobs.list({ kind: "agent" })).items.map(({ id }) => id)
+    ).toEqual([agent.runId]);
+    expect(
+      (await jobs.list({ name: "fast" })).items.map(({ id }) => id)
+    ).toEqual([queued.runId, fast.runId]);
+    expect(
+      (await jobs.list({ status: ["completed"] })).items.map(({ id }) => id)
+    ).toEqual([agent.runId, fast.runId]);
+    expect(
+      (await jobs.list({ status: ["queued", "failed"] })).items.map(
+        ({ id }) => id
+      )
+    ).toEqual([queued.runId, broken.runId]);
+    const first = await jobs.list({ limit: 2 });
+    expect(first.items.map(({ id }) => id)).toEqual([
+      queued.runId,
+      blocking.runId,
+    ]);
+    expect(first.nextCursor).toBe(2);
+    const second = await jobs.list({ cursor: first.nextCursor, limit: 2 });
+    expect(second.items.map(({ id }) => id)).toEqual([
+      agent.runId,
+      broken.runId,
+    ]);
+    expect(second.nextCursor).toBe(4);
+
+    const read = await jobs.get(fast.runId);
+    expect(read.queuedAt).toEqual(expect.any(String));
+    expect(read.startedAt).toEqual(expect.any(String));
+    expect(read.endedAt).toEqual(expect.any(String));
+  } finally {
+    release();
+    await jobs.close();
+  }
+});
+
+it("preserves queued agent name and session after cancellation and rehosting", async () => {
+  const state = await mkdtemp(join(tmpdir(), "marbles-bg-rehost-"));
+  const { promise, resolve: release } = Promise.withResolvers<void>();
+  const catalog = new Catalog();
+  catalog.agents.set("helper", {
+    id: "helper",
+    kind: "agent",
+    prompt: "Help with tasks.",
+  });
+  try {
+    const first = testEngine({
+      pools: { default: 1 },
+      state,
+    });
+    engines.push(first);
+    first.define({ fn: () => promise, kind: "step", name: "blocking" });
+    const firstRuns = new BackgroundRuns(first, catalog);
+    await first.start();
+    const blocker = await firstRuns.startWorkflow("blocking", {});
+    const queued = await firstRuns.start({
+      agent: "helper",
+      prompt: "Wait behind blocker",
+    });
+    expect(queued.status).toBe("queued");
+    const cancelled = await firstRuns.cancel(queued.runId);
+    expect(cancelled.status).toBe("cancelled");
+    release();
+    await vi.waitFor(async () =>
+      expect((await firstRuns.get(blocker.runId)).status).toBe("completed")
+    );
+    await firstRuns.close();
+    await first.dispose();
+
+    const second = testEngine({ state });
+    engines.push(second);
+    second.define({ fn: () => "ok", kind: "step", name: "blocking" });
+    const secondRuns = new BackgroundRuns(second, catalog);
+    await second.start();
+    try {
+      const listed = await secondRuns.list({ name: "helper" });
+      expect(listed.total).toBe(1);
+      expect(listed.items[0]).toMatchObject({
+        id: queued.runId,
+        kind: "agent",
+        name: "helper",
+        session: { id: queued.session?.id },
+        status: "cancelled",
+      });
+      const read = await secondRuns.get(queued.runId);
+      expect(read).toMatchObject({
+        kind: "agent",
+        name: "helper",
+        runId: queued.runId,
+        session: { id: queued.session?.id },
+        status: "cancelled",
+      });
+    } finally {
+      await secondRuns.close();
+    }
+  } finally {
+    release();
+    await rm(state, { force: true, recursive: true });
+  }
+});
+
+it("does not pair a running status with a final timestamp when a workflow settles mid-get", async () => {
+  const engine = testEngine();
+  engines.push(engine);
+  const { promise, resolve: release } = Promise.withResolvers<string>();
+  engine.define({ fn: () => promise, kind: "step", name: "slow" });
+  const jobs = new BackgroundRuns(engine, new Catalog());
+  await engine.start();
+  const started = await jobs.startWorkflow("slow", {});
+  try {
+    await vi.waitFor(async () =>
+      expect((await jobs.get(started.runId)).status).toBe("running")
+    );
+    const originalRuns = engine.runs.bind(engine);
+    const runsSpy = vi
+      .spyOn(engine, "runs")
+      .mockImplementationOnce(async () => {
+        const snapshot = await originalRuns();
+        release("done");
+        await vi.waitFor(async () =>
+          expect(
+            (await originalRuns()).find((r) => r.id === started.runId)?.status
+          ).toBe("complete")
+        );
+        return snapshot;
+      });
+    const during = await jobs.get(started.runId);
+    runsSpy.mockRestore();
+    expect(during.status).toBe("running");
+    expect(during.endedAt).toBeUndefined();
+    const settled = await jobs.get(started.runId);
+    expect(settled.status).toBe("completed");
+    expect(settled.output).toBe("done");
+    expect(settled.endedAt).toEqual(expect.any(String));
+  } finally {
+    release("done");
+    await jobs.close();
+  }
+});
+
+it("does not pair a running status with endedAt when a workflow settles mid-list", async () => {
+  const engine = testEngine();
+  engines.push(engine);
+  const { promise, resolve: release } = Promise.withResolvers<string>();
+  engine.define({ fn: () => promise, kind: "step", name: "slow" });
+  const jobs = new BackgroundRuns(engine, new Catalog());
+  await engine.start();
+  const started = await jobs.startWorkflow("slow", {});
+  try {
+    await vi.waitFor(async () =>
+      expect((await jobs.get(started.runId)).status).toBe("running")
+    );
+    const originalRuns = engine.runs.bind(engine);
+    const runsSpy = vi
+      .spyOn(engine, "runs")
+      .mockImplementationOnce(async () => {
+        const snapshot = await originalRuns();
+        release("done");
+        await vi.waitFor(async () =>
+          expect(
+            (await originalRuns()).find((r) => r.id === started.runId)?.status
+          ).toBe("complete")
+        );
+        return snapshot;
+      });
+    const page = await jobs.list();
+    runsSpy.mockRestore();
+    const item = page.items.find((entry) => entry.id === started.runId);
+    expect(item?.status).toBe("running");
+    expect(item?.endedAt).toBeUndefined();
+  } finally {
+    release("done");
+    await jobs.close();
+  }
+});

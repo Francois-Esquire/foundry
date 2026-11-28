@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { isMissingPath } from "@foundry/lib/atomic-file";
+import { isMissingPath } from "@foundry/lib/node/atomic-file";
 import { isFilesystemPathWithin } from "@foundry/lib/paths";
 import { refuseUnfinishedApply } from "./apply-journal";
 import type { CollectionManifestWorkspace } from "./collection-manifest";

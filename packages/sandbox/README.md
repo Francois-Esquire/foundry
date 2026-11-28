@@ -4,15 +4,15 @@ One `Sandbox` interface over different backends — a microVM container or an in
 binds to all of them identically.
 
 Storage contracts come from the dependency-free `@foundry/core/storage`.
-The virtual system and container expose `files` implementing `Storage`, including strict
+The virtual sandbox and container expose `files` implementing `Storage`, including strict
 `readDirectory` and atomic `replaceFile`, over the same files used by commands.
 Zod is the only required external runtime dependency. Install `just-bash` for
-`/virtual/system` and `microsandbox` for `/container/microsandbox-runtime`. The package lists
+`@foundry/sandbox/virtual` and `microsandbox` for `@foundry/sandbox/node/microsandbox`. The package lists
 these peers as development dependencies to build and test its adapters.
 
 MicroSandbox is pinned to `0.6.18` in development and peer dependencies. Its
 native inventory includes `created`, `starting`, and `paused` states. The
-registry stops active orphaned VMs before removing them.
+`Containers` instance stops active VMs before removing them.
 
 ```typescript
 interface Sandbox {
@@ -30,7 +30,7 @@ A container is a `Sandbox` with more on it: `processes`, `ports`, `services`, `s
 ### Give an agent tools over a sandbox
 
 ```typescript
-import { createSandboxToolkit } from "@foundry/sandbox/tools/toolkit";
+import { createSandboxToolkit } from "@foundry/sandbox/tools";
 
 const toolkit = createSandboxToolkit(sandbox, {
   limits: { maxOutputChars: 50_000, maxCallsPerMinute: 120 },
@@ -49,10 +49,10 @@ package depending on the SDK.
 ### Get a sandbox
 
 ```typescript
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
+import { createContainers } from "@foundry/sandbox/node";
+import { createMicrosandboxRuntime } from "@foundry/sandbox/node/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createVirtualSystem } from "@foundry/sandbox/virtual/system";
+import { createVirtualSandbox } from "@foundry/sandbox/virtual";
 
 const containers = createContainers({
   instanceLabel: "example",
@@ -66,7 +66,7 @@ const c = await containers.start({
 await c.commands.exec(["npm", "test"]);
 await c.close();
 
-const memory = createVirtualSystem({ files: { "notes.md": "hello" } });
+const memory = createVirtualSandbox({ files: { "notes.md": "hello" } });
 ```
 
 A virtual sandbox is a value; a container is a handle you `close()`.
@@ -92,8 +92,8 @@ tool lands:
 | `grep` `bash`                | `commands`   | `grep` is a _specialized exec_ whose argv the toolkit builds                             |
 | `cd`                         | neither      | moves the toolkit's working directory; uses `list` to refuse an out-of-bounds move first |
 
-`SandboxFilesystemFacet.search` is optional. Without it, the toolkit runs
-`grep` through the sandbox command facet.
+`bash`'s `timeout` aborts the `exec` signal and discards the output; processes
+the command started may keep running.
 
 **Limits are split by what each layer can see.** The toolkit counts tool calls
 and clips result text; it cannot count bytes, because one `grep` reads a whole
@@ -105,9 +105,8 @@ output ceilings live on the tools (`SandboxToolLimits`).
 
 ## Portable contracts
 
-Import portable contracts from `@foundry/sandbox/types`, adapters from
-`@foundry/sandbox/sandbox`, errors from `@foundry/sandbox/errors`, and path
-helpers from `@foundry/sandbox/path`. These modules need no concrete backend.
+Import portable contracts, adapters, errors, constants, schemas, and path helpers from
+`@foundry/sandbox`. The root entry point is 100% Web-standard and needs no concrete backend.
 
 ```typescript
 interface SandboxFilesystemFacet {
@@ -117,7 +116,6 @@ interface SandboxFilesystemFacet {
   copyOut(path): Promise<Record<string, Uint8Array>>;
   list(path, options?): Promise<readonly SandboxDirectoryEntry[]>;
   isDirectory(path): Promise<boolean>;
-  search?(pattern, options?): Promise<readonly SandboxSearchMatch[]>; // optional
 }
 
 interface SandboxCommandFacet {
@@ -143,21 +141,21 @@ sandboxFromAdapter(adapter); // a Sandbox over a backend's SandboxAdapter
 
 POSIX glob matching lives in `@foundry/lib/glob` (`globToRegExp`).
 
-Constants have scoped entry points: `@foundry/sandbox/constants`,
-`@foundry/sandbox/container/constants`, and `@foundry/sandbox/tools/constants`.
+Sandbox and container constants are exported from `@foundry/sandbox`; toolkit
+constants are exported from `@foundry/sandbox/tools`.
 
 ## Storage
 
-`ContainerStore` on `@foundry/sandbox/store` is the seam the containers
-registry persists its rows through: `list()`, `get(id)`, and `commit(write)`,
+`ContainerStore` on `@foundry/sandbox/store` is the seam the
+`Containers` instance persists its rows through: `list()`, `get(id)`, and `commit(write)`,
 where a write deletes and puts rows all or nothing, deletes first. A store
-enforces nothing; the registry holds every rule. Values crossing the seam are
+enforces nothing; `Containers` holds every rule. Values crossing the seam are
 detached, reads hand out frozen rows, and `list()` returns rows in the order
 first put (a row put again keeps its place). A store may offer
-`transaction(work)`, which keeps every write from any registry over the store
-out from between `work`'s reads and its commit; the registry runs each
+`transaction(work)`, which keeps every write from any `Containers` over the store
+out from between `work`'s reads and its commit; `Containers` runs each
 read-modify-write through it when offered, and serializes its own writes
-either way. `@foundry/sandbox/schema` defines `ContainerRow` as a Zod schema.
+either way. `@foundry/sandbox` defines `ContainerRow` as a Zod schema.
 
 A store reads a write once, when `commit` is called. Both stores here take
 its events by the event rule (see Change events) and the rest by one
@@ -184,13 +182,13 @@ a hooked one is also proven to hand its hook every kept commit's events
 once, in order, as they were when `commit` was called, and none for a
 commit that fails.
 
-`CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox/container/constants`.
+`CONTAINER_ROW_STATUSES` lives in `@foundry/sandbox`.
 
 ### Change events
 
-Each registry write that changes a container's life carries the events that
+Each `Containers` write that changes a container's life carries the events that
 say so, in `events` on the write, so a host can record them in the same
-transaction as the change (the SQLite store's `onCommit`). The registry
+transaction as the change (the SQLite store's `onCommit`). `Containers`
 builds them, from the row as stored against the row it puts. A store keeps
 none, and one with a host hook hands them to it unchanged and in order.
 Every store takes the events when `commit` is
@@ -200,9 +198,9 @@ enumerable, arrays without holes, text, finite numbers other than `-0`,
 booleans and `null`) is refused whole with a `TypeError` naming it, through
 a transaction's view too. It is the rule the workflows and artifacts stores
 take their events by. The schema is
-`sandboxEventSchema` on `@foundry/sandbox/schema`, which also exports the
+`sandboxEventSchema` on `@foundry/sandbox`, which also exports the
 type, `SandboxEvent` (re-exported from `@foundry/sandbox/store`). Every event
-has `type`, `id` (unique to it, made once per registry call, before its
+has `type`, `id` (unique to it, made once per `Containers` call, before its
 transaction), `at` (an ISO time, the stamp of the row it changed)
 and `containerId`:
 
@@ -210,8 +208,8 @@ and `containerId`:
 | ------------------- | ---------------------------------------------------------------------------------- |
 | `sandbox.created`   | `start`, in the write that inserts the row                                         |
 | `sandbox.started`   | the write that moves the row into `running`: a first boot, a reopen (after a failure too) or a restart |
-| `sandbox.stopped`   | the write that moves the row into `stopped`: its last handle closing, or `shutdown` |
-| `sandbox.failed`    | the write that moves the row into `failed`: a boot that does not come up           |
+| `sandbox.stopped`   | the write that moves the row into `stopped`: its last handle closing, `shutdown`, or `stop` of a row left booted |
+| `sandbox.failed`    | the write that moves the row into `failed`: a boot that does not come up, or a live restart that fails |
 | `sandbox.destroyed` | `remove`, in the write that deletes the row; none if it was already gone           |
 
 A row that enters `starting` or `restarting`, a new native name, a spec
@@ -228,7 +226,7 @@ Both stores take their calls in turns: a call made while a transaction runs
 waits for it, and a call to the store from inside its own transaction's work
 (or the SQLite store's `onCommit` hook) is refused at once with a
 `ReentrantCallError` that says to use the view, instead of waiting on itself
-forever. The registry calls only the view inside a transaction.
+forever. `Containers` calls only the view inside a transaction.
 
 `SqliteContainerStore` takes the host's database and never opens one.
 The host composes the table from `./store/tables` into its own schema and
@@ -240,7 +238,7 @@ assigns it when a row is first put, keeps it when the row is put again, and
 lists rows by it.
 
 ```ts
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
 
 const store = new SqliteContainerStore({
@@ -300,7 +298,7 @@ field, such as `putContainers[0].spec`:
   integers. libSQL refuses to bind NaN and the infinities, `-0` reads back as
   `0`, and an integer past the safe range is kept as a 64-bit integer that
   libSQL then refuses to read. Every other number, whole or fractional,
-  reads back exactly. The registry writes `Date.now()`, which always fits.
+  reads back exactly. `Containers` writes `Date.now()`, which always fits.
 
 `nativeId` is the one field that may be `undefined`; its column is NULL
 then, and a NULL reads back as `nativeId: undefined`, the key present.
@@ -351,7 +349,8 @@ interface SandboxToolEvent {
 
 Two details worth keeping when you touch this: **`path` is absent on a
 refusal**, so a denial never records where it would have landed; and audit is
-fire-and-forget, because recording must never block or fail a tool call.
+fire-and-forget, because recording must never block or fail a tool call. A
+`record` that throws is ignored.
 
 Exceeding the call rate throws `SandboxRateLimitError` — a refusal, not a
 failure.
@@ -362,9 +361,9 @@ The application composes Workspaces with a sandbox's storage. Neither package
 imports the other; both implement the Core contracts.
 
 ```typescript
-import { directory, WorkspaceSystem } from "@foundry/workspaces";
+import { directory, Workspaces } from "@foundry/workspaces";
 
-const system = new WorkspaceSystem().extend(
+const system = new Workspaces().extend(
   directory({ filesystem: container.files }),
 );
 try {
@@ -376,24 +375,29 @@ try {
 }
 ```
 
+A container's `files.watch` is a polling stub: the guest reports no events, so
+it calls `changed` every second until the watcher is closed or the VM's removal
+begins (a last handle closing, a restart or `shutdown`), and the observer reads
+again.
+
 For host-backed work, mount the selected directory into the container and bind
 its guest path. File and command operations then reach the same mounted bytes;
 the container's mounts and runtime policy define access. Workspace inclusion
 rules govern the catalog, not what guest commands may read inside the mount.
 
-## `@foundry/sandbox/virtual/system`
+## `@foundry/sandbox/virtual`
 
 An in-memory filesystem and shell interpreter. No process, no container, no disk.
 
 ```typescript
-createVirtualSystem(options?): VirtualSystem; // a Sandbox, plus `bash`
+createVirtualSandbox(options?): VirtualSandbox; // a Sandbox, plus `bash`
 ```
 
 The fastest way to exercise anything that takes a `Sandbox`.
 
 ## Container modules
 
-MicroSandbox microVMs, through the containers registry.
+MicroSandbox microVMs, through `Containers`.
 
 ### Piped processes
 
@@ -406,7 +410,7 @@ environment variables are merged with the sandbox environment; the host's
 environment is not copied. Aborting launch or a running process reaps it.
 Closing the last container handle cancels its piped processes.
 
-`prepareSandboxProcess` from `@foundry/sandbox/process` returns a Node stream
+`prepareSandboxProcess` from `@foundry/sandbox/node` returns a Node stream
 handle immediately while an asynchronous spawn is pending. It buffers stdin
 with backpressure, retains an early kill, and forwards launch errors. Use this
 for synchronous child-process hooks. Portable contracts use structural streams
@@ -418,7 +422,7 @@ POSIX status or claim an observed signal.
 
 ### Egress and workspace execution
 
-Guest egress defaults to denied, including the direct provisioner. Constraints
+Guest egress defaults to denied. Constraints
 accept `network: "disabled"`, explicit `"unrestricted"`, or an exact destination
 allowlist:
 
@@ -447,16 +451,18 @@ mounts should stay read-only with execution disabled.
 
 ```typescript
 const containers = createContainers({ runtime, store, instanceLabel });
-await containers.sweep(); // boot: stop VMs with our labels and no row
+await containers.sweep(); // boot: stop VMs with our labels and no row -> names, with .passedOver
 const c = await containers.start(spec); // new row, new VM, a handle
 const c = await containers.open(id); // join a row; restarts its VM if not live here
 await c.commands.exec(["bun", "test"]);
 await c.ports.hostPort(3000); // { host, port } | undefined
 await c.services.start({ id, argv, readiness });
 await c.shell.open();
-await c.volumes?.list(); // only when the registry has allowedMountRoots
+await c.volumes?.list(); // only when `Containers` has allowedMountRoots
 await containers.restart(id, newSpec); // the one change mechanism; handles follow
 await c.close(); // last handle out stops the VM, row -> stopped
+await containers.stop(id); // remove a not-live row's retained VMs; the row stays
+await containers.get(id); // one row | undefined
 await containers.list(); // rows for the UI
 await containers.shutdown();
 ```
@@ -483,15 +489,46 @@ a `restart`.
 Change is restart. The microVM runtime cannot change ports or network policy on
 a live VM, so `restart(id, spec?)` replaces the VM under the same row: status
 `restarting`, old VM removed, new VM under `<rowId>-<n+1>`, status `running`.
-On a row not live in this process, `restart` only records the spec for the next
-`open`.
+On a row not live in this process, which includes one whose `start` or `open` is
+still booting, `restart` only records the spec for the next `open`, and is
+refused while another holder is removing the row. A live restart that fails drops the row from this process and marks it `failed`; if the old VM
+would not go, it is kept to retry.
 
 Row status, persisted, is the one state: `starting`, `running`, `restarting`,
-`missing`, `stopped`, `failed`.
+`stopped`, `failed`, `removing`. The schema also accepts `missing`, which
+`Containers` never writes.
+
+Once a container's removal begins (its last handle closing, a restart or
+`shutdown`), every facet operation on the old VM is refused with
+`invalid-transition`, whether or not the removal succeeds, its running piped
+processes are cancelled and its watchers stop. A removal the runtime rejects reaches the caller of
+`close`, `restart` or `shutdown`. The MicroSandbox runtime treats only a VM that
+is already gone as removed.
+
+A service id is free again once `services.stop(id)` completes or the service
+fails to become ready. Stopping an id that is not held is refused.
+
+A `close` that rejects can be called again: it retries the removal unless the
+row has since been reopened or removed.
+
+`stop(id)` is for a row that is not live here but may still have a VM, left by a
+failed close or an earlier process. It removes every VM that is provably the
+row's, keeps the row, and moves a `starting`, `running` or `restarting` row to
+`stopped`; a `failed` or `removing` row keeps its status. It refuses a live row,
+an unknown id, and a row another holder is removing. It rejects, leaving the
+row's status as it was, when the inventory cannot be read, when a VM will not go
+(kept to retry), or when a VM bearing the row's id or name is not provably its
+own (left, and named in the error).
+
+A row is in flight from the moment `start` or `open` is called until its boot
+settles. Meanwhile `stop` and `remove` refuse it as they refuse a live row,
+`recover` passes it over, `open` joins the boot, and `shutdown` waits for it and
+then closes what it booted.
 
 `close` never deletes a row; the owner calls `remove(id)` when it goes, which
-refuses while a handle is open. `open`, `remove` and `shutdown` wait for an
-in-flight release of the same row, so a stop never overlaps the next boot.
+refuses while a handle is open. `open`, `stop`, `remove` and `shutdown` wait
+for an in-flight release or `stop` of the same row, so a stop never overlaps the
+next boot.
 
 A VM is not adopted across processes. `open` on a row that is not live in this
 process removes whatever the runtime still holds under the old native name and
@@ -506,11 +543,11 @@ database, which carries the id, still has another identity. Without a
 `location` the identity is the kept id alone, and a copy shares it. A home
 that is moved or renamed gets a new identity: the VMs it booted before the
 move are then not provably its own, so they are passed over and named, never
-removed, and taken out by hand as below. The registry puts
+removed, and taken out by hand as below. `Containers` puts
 it on every VM it boots, as the `com.foundry.container.store` label. A VM is a
 row's only when all three say so: it carries this store's identity, its name
 is one of that row's own (`<rowId>-<generation>`), and its id label names that
-row. Every stop or removal asks this right before it acts (`recover`,
+row. Every stop or removal asks this right before it acts (`stop`, `recover`,
 `remove`, `sweep`, the retries of `sweep` and `shutdown`, `open`'s removal of
 the old VM, a close, a restart, a failed boot), and a VM is kept to retry only
 if it passes. The instance label names a workspace, not a store, so two
@@ -525,7 +562,7 @@ names every VM under this instance's labels it could not prove its own in
 `passedOver`: another store's, one with no store or no id label, one whose
 name and label disagree. When `open` cannot read the runtime's inventory, the
 old VM's name, the row's own, is kept to retry, and judged once the inventory
-can be read; the registry says so through `report` (stderr by default).
+can be read; `Containers` says so through `report` (stderr by default).
 
 VMs booted before stores had an identity carry no store label, so no sweep or
 recovery removes them now. `msb` is the CLI of the `microsandbox` package
@@ -536,11 +573,11 @@ one's labels with `msb inspect <name>`, and remove one, running or not, with
 `msb rm -f <name>` (`-f` stops a running VM first). Every message that names a
 VM left this way gives the same command (`removeByHand`).
 
-A registry owns every VM it boots. If the commit that records a boot fails
+`Containers` owns every VM it boots. If the commit that records a boot fails
 (a SQLite store busy under another connection's lock, say), `start`, `open`
 or `restart` removes the VM it just booted, tries to mark the row `failed`,
-and rejects with the commit's error. A VM the registry cannot remove stays
-the registry's: after a failed post-boot commit, after a guest setup that
+and rejects with the commit's error. A VM `Containers` cannot remove stays
+its own: after a failed post-boot commit, after a guest setup that
 failed, when its last handle closes, or when `open` or `remove` fails to
 stop or remove an old native name (the runtime cannot say whether such a VM
 is gone or stuck). `sweep` and `shutdown` retry it against the runtime's
@@ -549,7 +586,7 @@ remains, and calling `shutdown` again retries it.
 
 Limits:
 
-- The list of VMs the registry could not remove is in memory. If the process
+- The list of VMs `Containers` could not remove is in memory. If the process
   is lost first, their cleanup is not guaranteed: the next process's `open`
   removes a VM whose name the row still records, but not one whose row has
   moved on to a later name. `remove` and `recover` delete a row only once
@@ -580,7 +617,7 @@ reattaches yet, so the next `open` replaces it).
 createFakeContainerRuntime(options?): FakeContainerRuntime;
 ```
 
-One file, `src/testing.ts`: an in-memory `ContainerRuntime` to put under
+One file, `src/testing/index.ts`: an in-memory `ContainerRuntime` to put under
 `createContainers` in a consumer's tests. It scripts `exec`, records every
 booted instance, and can fail installs, stops and removes.
 
@@ -590,12 +627,12 @@ booted instance, and can fail installs, stops and removes.
 
 ### Entry points
 
-The `./*` export maps leaf modules to source and built declarations, matching
-Foundry's other packages. There is no root barrel. Imports from the sister
-repository's root, `/tools`, `/container`, and `/virtual` barrels must use the
-corresponding leaf module. For example, `createSandboxToolkit` comes from
-`@foundry/sandbox/tools/toolkit` and `createContainers` comes from
-`@foundry/sandbox/container/containers`.
+`@foundry/sandbox` publishes explicit canonical subpaths with no wildcard exports:
+`.` (Web-standard contracts, schemas, constants, and path helpers), `./tools`,
+`./virtual`, `./store`, `./store/memory`, `./store/sqlite`, `./store/tables`,
+`./testing`, `./testing/store`, `./node`, and `./node/microsandbox`.
+For example, `createSandboxToolkit` comes from `@foundry/sandbox/tools` and
+`createContainers` comes from `@foundry/sandbox/node`.
 
 Types resolve from `dist/*.d.ts`. Rebuild before a consumer typechecks
 against a changed public API.
@@ -643,7 +680,7 @@ It exercises the adapter's combined terminal stream, the SDK's separate
 stdout/stderr pipes, and public process pipes, including binary input, EOF,
 nonzero exit, named signals, missing executables, launch/running cancellation,
 backpressure, and guest process reaping. `piped-lifecycle.integration.test.ts`
-checks the public registry facet and immediate hook bridge, including closing
+checks the public container facet and immediate hook bridge, including closing
 a container with a live process. Network and executable workspace integrations
 verify native destination rules and mount flags separately.
 `commands.exec()` collects output until exit. The MicroSandbox backend keeps

@@ -41,13 +41,13 @@ vi.mock("@ai-sdk/openai-compatible", () => ({
   OpenAICompatibleImageModel: FakeImageModel,
 }));
 
-const { gatewayProvider } = await import("../gateway");
+const { gatewayProvider } = await import("../providers/gateway");
 
 const models = [
   { id: "served/chat", kind: "text" as const, modelId: "served/chat" },
   { id: "served/embed", kind: "embedding" as const, modelId: "served/embed" },
 ];
-const { ModelManager } = await import("../manager");
+const { Models } = await import("../models");
 
 beforeEach(() => {
   chatCalls.length = 0;
@@ -56,9 +56,23 @@ beforeEach(() => {
 });
 
 describe("gatewayProvider", () => {
-  it("available requires both a baseURL and an API key", () => {
+  it("available requires both a non-empty baseURL and a non-empty API key", () => {
     expect(
       gatewayProvider({ config: { baseURL: "http://gw" }, models }).available
+    ).toBe(false);
+    expect(
+      gatewayProvider({ config: { apiKey: "", baseURL: "http://gw" }, models })
+        .available
+    ).toBe(false);
+    expect(
+      gatewayProvider({
+        config: { apiKey: "   ", baseURL: "http://gw" },
+        models,
+      }).available
+    ).toBe(false);
+    expect(
+      gatewayProvider({ config: { apiKey: "k", baseURL: "   " }, models })
+        .available
     ).toBe(false);
     expect(
       gatewayProvider({ config: { apiKey: "k", baseURL: "http://gw" }, models })
@@ -82,7 +96,7 @@ describe("gatewayProvider", () => {
   });
 
   it("through the manager, the first row of each kind resolves to its wire id", () => {
-    const manager = new ModelManager({
+    const manager = new Models({
       providers: [
         gatewayProvider({
           config: { apiKey: "k", baseURL: "http://gw" },

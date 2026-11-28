@@ -1,4 +1,5 @@
-import type { SessionMessage, SessionPart, TokenCounter } from "./types";
+import type { SessionMessage, SessionPart } from "../schema";
+import type { TokenCounter } from "./types";
 
 const CHARS_PER_TOKEN = 4;
 const IMAGE_TOKENS = 768;

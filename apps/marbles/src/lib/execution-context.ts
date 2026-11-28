@@ -1,20 +1,31 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ModelManager } from "@foundry/models";
-
+import type { Models } from "@foundry/models";
+import type { Output } from "ai";
 import { current } from "./run-scope";
+import {
+  ACTIVE_CONTEXT_KEY,
+  registerAsyncStorageFactory,
+  scopeStorageFor,
+} from "./scope-bridge";
+import type { AgentLike } from "./types";
 
 export interface ExecutionContext {
+  readonly agentIdOf?: (agent: AgentLike<Output.Output>) => string | undefined;
   readonly cwd: string;
   readonly environment: Readonly<Record<string, string>>;
-  readonly models?: ModelManager | undefined;
+  readonly models?: Models | undefined;
   readonly spawned?: string;
   readonly workspaceId: string;
 }
 
-const outsideRuns = new AsyncLocalStorage<ExecutionContext>();
+registerAsyncStorageFactory(() => new AsyncLocalStorage());
+
+function outsideRuns() {
+  return scopeStorageFor<ExecutionContext | undefined>(ACTIVE_CONTEXT_KEY);
+}
 
 export function inContext<T>(context: ExecutionContext, work: () => T): T {
-  return outsideRuns.run(context, work);
+  return outsideRuns().run(context, work);
 }
 
 export function withinContext<T>(
@@ -32,5 +43,5 @@ export function withinContext<T>(
 }
 
 export function activeContext(): ExecutionContext | undefined {
-  return current.getStore()?.bindings.context ?? outsideRuns.getStore();
+  return current.getStore()?.bindings.context ?? outsideRuns().getStore();
 }

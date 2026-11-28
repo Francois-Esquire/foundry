@@ -2,7 +2,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { SessionHarness } from "../../harness/session-harness";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { routed, textStreamResult } from "../helpers/mock-language-model";
 
 function capturingModel() {
@@ -40,7 +40,7 @@ describe("SessionHarness — provider caching", () => {
       {
         instructions: "x",
         model: routed(model, { id: "m", provider: "anthropic" }),
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: {},
       },
       { sessionId: "s" }
@@ -61,7 +61,7 @@ describe("SessionHarness — provider caching", () => {
         instructions: "x",
         model: routed(model, { id: "m", provider: "openai" }),
         sessionId: "sess-1",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: {},
       },
       { sessionId: "sess-1" }
@@ -85,7 +85,7 @@ describe("SessionHarness — provider caching", () => {
         model: routed(model, { id: "m", provider: "openai" }),
         providerOptions: { openai: { reasoningSummary: "auto" } },
         sessionId: "k",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: {},
       },
       { sessionId: "k" }
@@ -104,7 +104,7 @@ describe("SessionHarness — provider caching", () => {
       {
         instructions: "x",
         model: routed(model, { id: "m", provider: "gateway" }),
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: {},
       },
       { sessionId: "s" }
@@ -127,7 +127,7 @@ describe("SessionHarness — provider caching", () => {
           id: "anthropic/claude-opus-4-8",
           provider: "gateway",
         }),
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: {},
       },
       { sessionId: "s" }
@@ -146,7 +146,7 @@ describe("SessionHarness — provider caching", () => {
       instructions: "x",
       model: routed(model, { id: "m", provider: "gateway" }),
       providerOptions: { gateway: { order: ["a"] } },
-      store: new InMemorySessionStore(),
+      store: new MemorySessionStore(),
       tools: {},
     });
 

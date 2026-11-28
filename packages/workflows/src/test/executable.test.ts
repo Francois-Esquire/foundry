@@ -1,9 +1,13 @@
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
-import type { BaseContext } from "../executable";
+import type { BaseContext } from "../slices/executable";
 
-import { Executable } from "../executable";
+import {
+  Executable,
+  parseSuspensionOccurrenceKey,
+  suspensionOccurrenceKey,
+} from "../slices/executable";
 
 const SUSPENDSIGNAL_APPROVAL_NEEDS_HUMAN_PATTERN =
   /SuspendSignal|approval|needs human/;
@@ -298,5 +302,74 @@ describe("Executable suspend / resolve", () => {
         })
       )
     );
+  });
+
+  test("approval suspensions ignore bare-name resolutions across sibling steps", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* Executable.make<void>({
+            input: undefined,
+            name: "root",
+          });
+          const stepA = root.fork({ name: "stepA" });
+          const stepB = root.fork({ name: "stepB" });
+
+          yield* stepA.resolve("approval", "bare-value");
+          const bareExit = yield* stepA
+            .suspend<string>({
+              kind: "approval",
+              name: "approval",
+              reason: "needs sign-off",
+            })
+            .pipe(Effect.exit);
+          expect(bareExit._tag).toBe("Failure");
+
+          yield* stepA.resolveOccurrence(
+            ["root", "stepA"],
+            "approval",
+            0,
+            "approved-a"
+          );
+          const resolvedA = yield* stepA.suspend<string>({
+            kind: "approval",
+            name: "approval",
+            reason: "needs sign-off",
+          });
+          expect(resolvedA).toBe("approved-a");
+
+          const stepBExit = yield* stepB
+            .suspend<string>({
+              kind: "approval",
+              name: "approval",
+              reason: "needs sign-off",
+            })
+            .pipe(Effect.exit);
+          expect(stepBExit._tag).toBe("Failure");
+        })
+      )
+    );
+  });
+
+  test("suspensionOccurrenceKey and parseSuspensionOccurrenceKey round-trip correlationId", () => {
+    const plain = suspensionOccurrenceKey(["wf", "step"], "approval", 0);
+    expect(parseSuspensionOccurrenceKey(plain)).toEqual({
+      name: "approval",
+      occurrence: 0,
+      stepPath: ["wf", "step"],
+    });
+
+    const correlated = suspensionOccurrenceKey(
+      ["wf", "step"],
+      "approval",
+      1,
+      "grant-42"
+    );
+    expect(parseSuspensionOccurrenceKey(correlated)).toEqual({
+      correlationId: "grant-42",
+      name: "approval",
+      occurrence: 1,
+      stepPath: ["wf", "step"],
+    });
   });
 });

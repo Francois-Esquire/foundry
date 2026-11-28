@@ -1,5 +1,5 @@
-import { ModelManager } from "@foundry/models";
-import { DatabaseProviderStore } from "~/database/providers";
+import { Models } from "@foundry/models";
+import { providerStoreForState } from "~/database/open";
 import { environmentSnapshot } from "~/lib/environment";
 import type { Proposal } from "~/lib/providers/configuration";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -24,20 +24,24 @@ interface ProviderSetupOptions extends DiscoveryOptions {
 
 export async function discoverProviderSetup(options: DiscoveryOptions) {
   const plugins = options.plugins ?? DEFAULT_PROVIDERS;
+  const store = providerStoreForState(options.state);
   const configure = () =>
     new ProviderConfiguration({
       environment: environmentSnapshot(),
-      models: new ModelManager(),
+      models: new Models(),
       plugins,
-      store: DatabaseProviderStore.forState(options.state),
+      store,
       ...(options.workspace ? { workspace: options.workspace } : {}),
     });
   const discovery = configure();
   try {
     await discovery.read();
     const { configured } = discovery;
+    const workspaceConfigured =
+      options.workspace !== undefined &&
+      (await store.read()).workspace(options.workspace.id) !== undefined;
     const detected =
-      configured && !options.recheck
+      workspaceConfigured || (configured && !options.recheck)
         ? []
         : discovery.propose().filter((entry) => entry.scope === "machine");
     const proposed = detected.filter((entry) => entry.taken === undefined);
@@ -52,7 +56,7 @@ export async function discoverProviderSetup(options: DiscoveryOptions) {
         const configuration = configure();
         try {
           await configuration.read();
-          return await save(configuration, proposed);
+          return await save(configuration, proposed, configured);
         } finally {
           await configuration.dispose();
         }
@@ -66,8 +70,8 @@ export async function discoverProviderSetup(options: DiscoveryOptions) {
 export async function setupProviders(
   options: ProviderSetupOptions
 ): Promise<void> {
-  const setup = await discoverProviderSetup(options);
-  if (setup.configured) {
+  const setup = await discoverProviderSetup({ ...options, recheck: true });
+  if (setup.configured && setup.offered.length === 0) {
     return;
   }
   for (const entry of setup.reserved) {
@@ -78,7 +82,7 @@ export async function setupProviders(
   if (setup.offered.length === 0) {
     options.print(
       setup.reserved.length === 0
-        ? "No model providers were found on this machine. Install Claude Code or Codex, then run marbles again."
+        ? "No model providers were found on this machine. Install a provider adapter alongside Marbles and its CLI, then run marbles again. See the installation guide."
         : "Nothing else to offer for the whole machine."
     );
     return;
@@ -98,9 +102,21 @@ export async function setupProviders(
 
 async function save(
   configuration: ProviderConfiguration,
-  proposed: readonly Proposal[]
+  proposed: readonly Proposal[],
+  configured: boolean
 ) {
+  const added: string[] = [];
   try {
+    if (configured) {
+      for (const { scope: _, taken: __, ...entry } of proposed) {
+        await configuration.add(entry, { scope: "machine" });
+        added.push(entry.id);
+      }
+      return {
+        conflict: false,
+        message: "Saved for every workspace on this machine.",
+      };
+    }
     const saved = await configuration.initialize(
       proposed.map(({ scope: _, taken: __, ...entry }) => entry)
     );
@@ -117,7 +133,7 @@ async function save(
     ) {
       return {
         conflict: true,
-        message: `Nothing saved: ${error.message}. Run marbles again to choose from what is left.`,
+        message: `${added.length > 0 ? `Saved ${added.join(", ")} for every workspace on this machine. Could not save the remaining providers` : "Nothing saved"}: ${error.message}. Run marbles again to choose from what is left.`,
       };
     }
     throw error;

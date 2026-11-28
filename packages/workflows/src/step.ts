@@ -1,14 +1,6 @@
+import { generateId } from "@foundry/lib/id";
 import { Effect, Exit, Scope, Stream } from "effect";
-
-import type {
-  ChannelMessage,
-  Channels,
-  ChunkPayload,
-  SuspensionRequest,
-} from "./channels";
-import { Channels as ChannelsClass } from "./channels";
-import { Composer } from "./composer";
-import type { LeafDefinitionPlan } from "./definition-plan";
+import type { LeafDefinitionPlan } from "./definition/plan";
 import {
   createLeafDefinitionPlan,
   definitionBindingFor,
@@ -16,28 +8,40 @@ import {
   definitionRuntimeOptions,
   definitionRuntimeSeed,
   describeLeafDefinition,
-} from "./definition-plan";
+} from "./definition/plan";
 import type {
   DefinitionBinding,
   DefinitionContext,
   DefinitionDescriptor,
+  Factory,
 } from "./definitions";
-import type { BaseContext, Executable, ExecutableConfig } from "./executable";
-import { Executable as ExecutableClass } from "./executable";
-import { runEffectPromise } from "./helpers";
-import type { Factory } from "./orchestrator";
+import { runEffectPromise } from "./effect-interop";
+import type {
+  ChannelMessage,
+  Channels,
+  ChunkPayload,
+  SuspensionRequest,
+} from "./slices/channels";
+import { Channels as ChannelsClass } from "./slices/channels";
+import { Composer } from "./slices/composer";
+import type {
+  BaseContext,
+  Executable,
+  ExecutableConfig,
+} from "./slices/executable";
+import { Executable as ExecutableClass } from "./slices/executable";
 import type {
   SnapshotState,
   StepSnapshot,
   StepStatus,
   WorkflowSnapshot,
-} from "./snapshot";
-import { Snapshot } from "./snapshot";
-import type { StepContext, StepSpec } from "./step-types";
+} from "./slices/snapshot";
+import { Snapshot } from "./slices/snapshot";
+import type { StepContext, StepSpec } from "./step-context";
 import type { Bail, Unsubscribe } from "./types";
 import { isBail, StepBailError } from "./types";
 
-export type { StepContext, StepSpec } from "./step-types";
+export type { StepContext, StepSpec } from "./step-context";
 // biome-ignore lint/performance/noBarrelFile: Preserve the declared @foundry/workflows/step compatibility API.
 export { isStepBailError, StepBailError } from "./types";
 
@@ -155,7 +159,7 @@ export abstract class Step<
     }
     this.#runtime = {
       config: spec.config,
-      id: spec.id ?? `${spec.name}_${Math.random().toString(36).slice(2, 6)}`,
+      id: spec.id ?? generateId({ prefix: spec.name }),
       input: spec.input,
       name: spec.name,
       pendingChildren: [...(spec.children ?? [])],
@@ -188,10 +192,17 @@ export abstract class Step<
   create(context?: DefinitionContext<X>) {
     const source = this;
     return Object.freeze({
-      run(input: I, invocationContext?: DefinitionContext<X>): Promise<O> {
+      async run(
+        input: I,
+        invocationContext?: DefinitionContext<X>
+      ): Promise<O> {
         const binding = definitionBindingFor(context, invocationContext);
         const runtime = source.#materialize(input, binding);
-        return runtime.run(input, definitionRuntimeSeed(binding));
+        try {
+          return await runtime.run(input, definitionRuntimeSeed(binding));
+        } finally {
+          await runtime.dispose();
+        }
       },
     });
   }
@@ -354,9 +365,12 @@ export abstract class Step<
     });
   }
 
-  dispose(): Promise<void> {
+  dispose(options: { readonly abort?: boolean } = {}): Promise<void> {
     if (!this.#substrate) {
       return Promise.resolve();
+    }
+    if (options.abort === false) {
+      this.#substrate.executable.disarmScopeAbort();
     }
     return Effect.runPromise(Scope.close(this.#substrate.scope, Exit.void));
   }
@@ -585,10 +599,17 @@ export abstract class Step<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Promise<void> {
     return runEffectPromise(
-      this.executable.resolveOccurrence(stepPath, name, occurrence, value)
+      this.executable.resolveOccurrence(
+        stepPath,
+        name,
+        occurrence,
+        value,
+        correlationId
+      )
     );
   }
 
@@ -732,7 +753,10 @@ export abstract class Step<
 
   /** @internal */
   static #assertSerializable(value: unknown, where: string): void {
-    if (process.env.NODE_ENV === "production") {
+    if (
+      typeof process !== "undefined" &&
+      process.env?.NODE_ENV === "production"
+    ) {
       return;
     }
     if (value === undefined) {

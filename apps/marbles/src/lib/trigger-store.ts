@@ -1,33 +1,25 @@
+import {
+  CursorConflictError,
+  ScheduleConflictError,
+  StoreError,
+} from "@foundry/scheduling";
+import type { ScheduleStoreService } from "@foundry/scheduling/store";
+import { makeMemoryScheduleStore } from "@foundry/scheduling/store/memory";
+import { Cause, Effect, Exit } from "effect";
 import { z } from "zod";
 
-import { RecordsGate } from "~/lib/events/records";
+import { RecordsGate } from "~/lib/events/records-gate";
+import { storableJson } from "~/lib/json-data";
 import type { Launch } from "~/lib/launch";
-import { storableJson } from "~/lib/state/json";
 
 export interface TriggerStore {
-  claimTick(key: string): Promise<TickClaim>;
   clearPendingLaunch(key: string): Promise<void>;
   close(): Promise<void>;
-  finishTick(key: string, tick?: ScheduleHistory): Promise<void>;
-  lastTick(key: string): Promise<ScheduleHistory | undefined>;
+  forgetMonitor(key: string): Promise<void>;
   monitorState(key: string): Promise<MonitorState | undefined>;
   saveMonitorState(key: string, state: MonitorState): Promise<void>;
+  schedules(): Promise<ScheduleStoreService>;
 }
-
-export type TickClaim =
-  | { readonly claimed: true }
-  | { readonly claimed: false; readonly holder: string };
-
-export const scheduleHistorySchema = z.object({
-  kind: z.enum(["schedule", "monitor"]).optional(),
-  label: z.string().optional(),
-  lastFinish: z.iso.datetime(),
-  lastStart: z.iso.datetime(),
-  lastStatus: z.enum(["complete", "failed"]),
-  nextDue: z.iso.datetime(),
-});
-
-export type ScheduleHistory = z.infer<typeof scheduleHistorySchema>;
 
 const launchSchema = z.object({
   input: z.unknown(),
@@ -62,27 +54,60 @@ export function storedMonitorState(
   }) as MonitorState;
 }
 
-export function finishedAt(
-  tick: ScheduleHistory | undefined
-): number | undefined {
-  return tick === undefined ? undefined : Date.parse(tick.lastFinish);
+const settled = async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
+  const exit = await Effect.runPromiseExit(effect);
+  if (Exit.isSuccess(exit)) {
+    return exit.value;
+  }
+  throw Cause.squash(exit.cause);
+};
+
+export function gatedScheduleStore(
+  store: ScheduleStoreService,
+  around: <T>(call: () => Promise<T>) => Promise<T>
+): ScheduleStoreService {
+  const through = <A>(effect: Effect.Effect<A, StoreError>) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        cause instanceof StoreError ? cause : new StoreError({ cause }),
+      try: () => around(() => settled(effect)),
+    });
+  const guarded = (
+    effect: Effect.Effect<
+      void,
+      StoreError | CursorConflictError | ScheduleConflictError
+    >
+  ) =>
+    Effect.tryPromise({
+      catch: (cause) =>
+        cause instanceof StoreError ||
+        cause instanceof CursorConflictError ||
+        cause instanceof ScheduleConflictError
+          ? cause
+          : new StoreError({ cause }),
+      try: () => around(() => settled(effect)),
+    });
+  return {
+    claim: (occurrence, replacing, exclusive) =>
+      through(store.claim(occurrence, replacing, exclusive)),
+    commit: (write) => guarded(store.commit(write)),
+    getCursor: (id) => through(store.getCursor(id)),
+    getOccurrence: (id) => through(store.getOccurrence(id)),
+    getSchedule: (id) => through(store.getSchedule(id)),
+    latestOccurrence: (id) => through(store.latestOccurrence(id)),
+    listOccurrences: (filter) => through(store.listOccurrences(filter)),
+    listSchedules: Effect.suspend(() => through(store.listSchedules)),
+    releaseClaim: (id, owner) => through(store.releaseClaim(id, owner)),
+  };
 }
 
 export class MemoryTriggerStore implements TriggerStore {
   readonly #gate = new RecordsGate("the trigger store is closed");
-  readonly #claimed = new Set<string>();
-  readonly #ticks = new Map<string, ScheduleHistory>();
   readonly #monitors = new Map<string, MonitorState>();
-
-  claimTick(key: string): Promise<TickClaim> {
-    return this.#gate.run<TickClaim>(() => {
-      if (this.#claimed.has(key)) {
-        return Promise.resolve({ claimed: false, holder: "this process" });
-      }
-      this.#claimed.add(key);
-      return Promise.resolve({ claimed: true });
-    });
-  }
+  readonly #schedules = gatedScheduleStore(
+    Effect.runSync(makeMemoryScheduleStore),
+    (call) => this.#gate.run(call)
+  );
 
   clearPendingLaunch(key: string): Promise<void> {
     return this.#gate.run(async () => {
@@ -93,47 +118,29 @@ export class MemoryTriggerStore implements TriggerStore {
     });
   }
 
-  async close(): Promise<void> {
-    await this.#gate.close();
-    this.#claimed.clear();
+  close(): Promise<void> {
+    return this.#gate.close();
   }
 
-  finishTick(key: string, tick?: ScheduleHistory): Promise<void> {
+  forgetMonitor(key: string): Promise<void> {
     return this.#gate.run(async () => {
-      if (tick !== undefined) {
-        this.#ticks.set(key, scheduleHistorySchema.parse(tick));
-        if (tick.kind === "schedule") {
-          this.#monitors.delete(key);
-        }
-      }
-      this.#claimed.delete(key);
+      this.#monitors.delete(key);
     });
-  }
-
-  lastTick(key: string): Promise<ScheduleHistory | undefined> {
-    return this.#gate.run(() =>
-      Promise.resolve(structuredClone(this.#ticks.get(key)))
-    );
   }
 
   monitorState(key: string): Promise<MonitorState | undefined> {
-    return this.#gate.run(() => {
-      if (this.#ticks.get(key)?.kind === "schedule") {
-        this.#monitors.delete(key);
-      }
-      return Promise.resolve(structuredClone(this.#monitors.get(key)));
-    });
+    return this.#gate.run(() =>
+      Promise.resolve(structuredClone(this.#monitors.get(key)))
+    );
   }
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
     return this.#gate.run(async () => {
       this.#monitors.set(key, storedMonitorState(key, state));
-      const tick = this.#ticks.get(key);
-      if (tick?.kind === "schedule") {
-        this.#ticks.delete(key);
-      } else if (tick !== undefined) {
-        this.#ticks.set(key, { ...tick, kind: "monitor" });
-      }
     });
+  }
+
+  schedules(): Promise<ScheduleStoreService> {
+    return this.#gate.run(() => Promise.resolve(this.#schedules));
   }
 }

@@ -1,10 +1,20 @@
-import { randomUUID } from "node:crypto";
 import {
+  agentPrincipal,
+  agentPrincipalMatcher,
+} from "@foundry/agents/authorization";
+import {
+  applyHarnessProfile,
   createHarnessActivityRecorder,
   type HarnessSession,
 } from "@foundry/agents/harness";
 import { Sessions } from "@foundry/agents/session";
-import { tool } from "ai";
+import {
+  AuthorizationDeniedError,
+  AuthorizationStateError,
+  type GrantId,
+  matchesPrincipal,
+} from "@foundry/authorization";
+import { type Tool, tool } from "ai";
 import { z } from "zod";
 import type { SandboxSessionSettings } from "./session";
 import { observedSession, wrapSession } from "./wrapped-session";
@@ -23,10 +33,103 @@ function observedChild(
     : session;
 }
 
+function isDelegableParentGrant(
+  grant: {
+    readonly canDelegate: boolean;
+    readonly holder: Parameters<typeof matchesPrincipal>[0];
+    readonly sessionId?: string;
+  },
+  parentPrincipal: ReturnType<typeof agentPrincipal>,
+  authoritySessionId: string
+): boolean {
+  if (!grant.canDelegate) {
+    return false;
+  }
+  if (!matchesPrincipal(grant.holder, parentPrincipal, "allow")) {
+    return false;
+  }
+  return (
+    grant.sessionId === undefined || grant.sessionId === authoritySessionId
+  );
+}
+
+async function delegateParentGrants(
+  settings: SandboxSessionSettings,
+  childAgentId: string,
+  childDepth: number
+): Promise<readonly GrantId[]> {
+  const { authorization } = settings.options.authority;
+  const authoritySessionId = settings.authoritySessionId ?? settings.sessionId;
+  if (settings.options.profile && (settings.delegation?.depth ?? 0) === 0) {
+    await applyHarnessProfile(authorization, settings.options.profile, {
+      agentId: settings.agentId,
+      sessionId: authoritySessionId,
+    });
+  }
+  const parentPrincipal = agentPrincipal(settings.agentId);
+  const childHolder = agentPrincipalMatcher(childAgentId);
+  const activeGrants = await authorization.listGrants({ state: "active" });
+  const delegatedIds: GrantId[] = [];
+  for (const grant of activeGrants) {
+    if (!isDelegableParentGrant(grant, parentPrincipal, authoritySessionId)) {
+      continue;
+    }
+    try {
+      const issued = await authorization.grant({
+        canDelegate: childDepth < 3,
+        ...(grant.expiresAt === undefined
+          ? {}
+          : { expiresAt: grant.expiresAt }),
+        holder: childHolder,
+        issuer: parentPrincipal,
+        parentIds: [grant.id],
+        reason: `Delegated from ${settings.agentId}`,
+        requestedBy: parentPrincipal,
+        scope: grant.scope,
+        sessionId: grant.sessionId ?? authoritySessionId,
+        ...(grant.usesRemaining === undefined
+          ? {}
+          : { usesRemaining: grant.usesRemaining }),
+      });
+      delegatedIds.push(issued.id);
+    } catch (error) {
+      if (
+        !(
+          error instanceof AuthorizationDeniedError ||
+          error instanceof AuthorizationStateError
+        )
+      ) {
+        throw error;
+      }
+    }
+  }
+  return delegatedIds;
+}
+
+async function closeAndRevokeChild(
+  child: HarnessSession | undefined,
+  settings: SandboxSessionSettings,
+  childAgentId: string
+): Promise<void> {
+  try {
+    await child?.close?.();
+  } finally {
+    await settings.options.authority.authorization
+      .revoke(
+        {
+          kind: "principal",
+          principal: agentPrincipal(childAgentId),
+        },
+        "Delegated child session ended."
+      )
+      .catch(() => undefined);
+  }
+}
+
 export function delegationTool(
   settings: SandboxSessionSettings,
   open: (settings: SandboxSessionSettings) => Promise<HarnessSession>
-) {
+): Tool<{ task: string; title: string }, { sessionId: string; text: string }> {
   const { question } = settings.options;
   const scope = settings.delegation ?? {
     budget: { active: 0, started: 0 },
@@ -35,7 +138,10 @@ export function delegationTool(
   return tool({
     description:
       "Delegate a bounded task to a child agent using this harness, model, workspace, and permissions. Waits for its result. At most 2 concurrent children, 8 total launches, and 3 nested levels per open parent session.",
-    async execute({ title, task }, context) {
+    async execute(
+      { title, task },
+      context
+    ): Promise<{ sessionId: string; text: string }> {
       if (
         scope.depth >= 3 ||
         scope.budget.started >= 8 ||
@@ -52,7 +158,10 @@ export function delegationTool(
       signal.throwIfAborted();
       scope.budget.started += 1;
       scope.budget.active += 1;
-      const id = randomUUID();
+      const id = crypto.randomUUID();
+      const childAgentId = `${settings.agentId}:delegate:${id}`;
+      const authoritySessionId =
+        settings.authoritySessionId ?? settings.sessionId;
       let child: HarnessSession | undefined;
       try {
         await new Sessions({ store: settings.store }).createSession({
@@ -61,7 +170,7 @@ export function delegationTool(
           recursionDepth: scope.depth + 1,
           title,
         });
-        await settings.registerChildSession?.(id);
+        await delegateParentGrants(settings, childAgentId, scope.depth + 1);
         const record = createHarnessActivityRecorder({
           agentId: settings.agentId,
           harness: settings.harness,
@@ -79,6 +188,8 @@ export function delegationTool(
         try {
           const session = await open({
             ...settings,
+            agentId: childAgentId,
+            authoritySessionId,
             delegation: { budget: scope.budget, depth: scope.depth + 1 },
             options: {
               ...settings.options,
@@ -133,7 +244,7 @@ export function delegationTool(
         }
       } finally {
         scope.budget.active -= 1;
-        await child?.close?.();
+        await closeAndRevokeChild(child, settings, childAgentId);
       }
     },
     inputSchema: z.object({

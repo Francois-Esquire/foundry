@@ -1,11 +1,11 @@
 import { tool } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
-import { tagTool } from "../../harness/types";
+import { tagTool } from "../../harness/tool-registration";
 import type { SessionEvent } from "../../session/events";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import {
   createScriptedMockModel,
   toolCallStreamResult,
@@ -38,9 +38,7 @@ describe("stream-transform capability propagation", () => {
         source: "mcp",
       }),
     };
-    const policy = createInMemoryAgentAuthorizer({
-      policy: { global: "ask" },
-    }).authorizer;
+    const authorization = createMemoryAuthorization();
 
     const model = createScriptedMockModel({
       stream: [toolCallStreamResult("call-1", "dangerous", { target: "prod" })],
@@ -48,11 +46,11 @@ describe("stream-transform capability propagation", () => {
 
     const harness = new SessionHarness(
       {
+        authorization,
         instructions: "x",
         model,
-        policy,
         sessionId: "s1",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools,
       },
       { sessionId: "s1" }

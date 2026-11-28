@@ -1,11 +1,16 @@
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
-import { hasErrorCode, writeFileAtomic } from "@foundry/lib/atomic-file";
+import type { Page } from "@foundry/core/pagination";
 import { base64ToBytes, bytesToBase64 } from "@foundry/lib/encoding";
-import { acquireFileLock } from "@foundry/lib/file-lock";
+import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
+import { acquireFileLock } from "@foundry/lib/node/file-lock";
 import { Turns } from "@foundry/lib/turns";
-import { ownedListQuery } from "../listing";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
+import {
+  ownedBlobPageQuery,
+  ownedContentPageQuery,
+  ownedListQuery,
+} from "../listing";
 import type { Artifact, ArtifactRecords, Blob, Content } from "../schema";
 import type {
   ArtifactListing,
@@ -13,9 +18,12 @@ import type {
   ArtifactStore,
   ArtifactStoreWrite,
   BlobListing,
+  BlobPageQuery,
   BlobReferences,
+  ContentLookup,
+  ContentPageQuery,
 } from "../store";
-import { InMemoryArtifactStore } from "../store/memory";
+import { MemoryArtifactStore } from "../store/memory";
 import { ownedWrite } from "../store/owned";
 
 const FORMAT_VERSION = 1;
@@ -31,7 +39,7 @@ export interface JsonArtifactStoreOptions {
 export class JsonArtifactStore implements ArtifactStore {
   readonly #path: string;
   readonly #lockTimeoutMs: number;
-  #memory: InMemoryArtifactStore | undefined;
+  #memory: MemoryArtifactStore | undefined;
   #version: string | undefined;
   readonly #turns = new Turns(REENTRY);
 
@@ -53,10 +61,10 @@ export class JsonArtifactStore implements ArtifactStore {
   transaction<T>(work: (view: ArtifactStore) => Promise<T>): Promise<T> {
     return this.#locked(async () => {
       const base = await this.#current();
-      let staged: Promise<InMemoryArtifactStore> | undefined;
+      let staged: Promise<MemoryArtifactStore> | undefined;
       let open = true;
       const read = <R>(
-        take: (records: InMemoryArtifactStore) => Promise<R>
+        take: (records: MemoryArtifactStore) => Promise<R>
       ): Promise<R> =>
         open
           ? (staged ?? Promise.resolve(base)).then(take)
@@ -72,12 +80,25 @@ export class JsonArtifactStore implements ArtifactStore {
           if (open) {
             staged ??= base
               .records()
-              .then((records) => new InMemoryArtifactStore({ records }));
+              .then((records) => new MemoryArtifactStore({ records }));
           }
           return read((records) => records.commit(copy));
         },
         durability: "host",
+        findBlobByPath: (path) =>
+          read((records) => records.findBlobByPath(path)),
         findBlobs: (digest) => read((records) => records.findBlobs(digest)),
+        findContent: (artifactId, by) => {
+          let owned: ContentLookup;
+          try {
+            owned = ownedContentLookup(by);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.findContent(artifactId, owned));
+        },
+        findContentByTag: (artifactId, tag) =>
+          read((records) => records.findContentByTag(artifactId, tag)),
         findReferences: (id) => read((records) => records.findReferences(id)),
         getArtifact: (id) => read((records) => records.getArtifact(id)),
         getBlob: (id) => read((records) => records.getBlob(id)),
@@ -92,8 +113,26 @@ export class JsonArtifactStore implements ArtifactStore {
           return read((records) => records.listArtifacts(owned));
         },
         listBlobs: () => read((records) => records.listBlobs()),
+        listBlobsPage: (query) => {
+          let owned: BlobPageQuery;
+          try {
+            owned = ownedBlobPageQuery(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.listBlobsPage(owned));
+        },
         listContents: (artifactId) =>
           read((records) => records.listContents(artifactId)),
+        listContentsPage: (query) => {
+          let owned: ContentPageQuery;
+          try {
+            owned = ownedContentPageInput(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return read((records) => records.listContentsPage(owned));
+        },
       };
       try {
         const result = await work(view);
@@ -108,8 +147,27 @@ export class JsonArtifactStore implements ArtifactStore {
     });
   }
 
+  async findBlobByPath(path: string): Promise<Blob | null> {
+    return (await this.#current()).findBlobByPath(path);
+  }
+
   async findBlobs(digest: string): Promise<readonly Blob[]> {
     return (await this.#current()).findBlobs(digest);
+  }
+
+  async findContent(
+    artifactId: ArtifactId,
+    by: ContentLookup
+  ): Promise<Content | null> {
+    const owned = ownedContentLookup(by);
+    return (await this.#current()).findContent(artifactId, owned);
+  }
+
+  async findContentByTag(
+    artifactId: ArtifactId,
+    tag: string
+  ): Promise<Content | null> {
+    return (await this.#current()).findContentByTag(artifactId, tag);
   }
 
   async findReferences(id: BlobId): Promise<BlobReferences> {
@@ -137,8 +195,22 @@ export class JsonArtifactStore implements ArtifactStore {
     return (await this.#current()).listBlobs();
   }
 
+  async listBlobsPage(
+    query?: BlobPageQuery
+  ): Promise<Page<BlobListing, BlobId>> {
+    const owned = ownedBlobPageQuery(query);
+    return (await this.#current()).listBlobsPage(owned);
+  }
+
   async listContents(artifactId?: ArtifactId): Promise<readonly Content[]> {
     return (await this.#current()).listContents(artifactId);
+  }
+
+  async listContentsPage(
+    query?: ContentPageQuery
+  ): Promise<Page<Content, ContentId>> {
+    const owned = ownedContentPageInput(query);
+    return (await this.#current()).listContentsPage(owned);
   }
 
   #locked<T>(work: () => Promise<T>): Promise<T> {
@@ -156,7 +228,7 @@ export class JsonArtifactStore implements ArtifactStore {
     });
   }
 
-  async #save(next: InMemoryArtifactStore): Promise<void> {
+  async #save(next: MemoryArtifactStore): Promise<void> {
     await writeFileAtomic(this.#path, encodeRecords(await next.records()), {
       fsync: true,
       mode: 0o600,
@@ -166,19 +238,36 @@ export class JsonArtifactStore implements ArtifactStore {
     this.#version = version;
   }
 
-  async #current(): Promise<InMemoryArtifactStore> {
+  async #current(): Promise<MemoryArtifactStore> {
     const version = await fileVersion(this.#path);
     if (this.#memory && version === this.#version) {
       return this.#memory;
     }
     const text =
       version === undefined ? undefined : await readFile(this.#path, "utf8");
-    this.#memory = new InMemoryArtifactStore(
+    this.#memory = new MemoryArtifactStore(
       text === undefined ? {} : { records: decodeRecords(text) }
     );
     this.#version = version;
     return this.#memory;
   }
+}
+
+function ownedContentLookup(by: ContentLookup): ContentLookup {
+  return { messageId: by.messageId, sessionId: by.sessionId };
+}
+
+function ownedContentPageInput(
+  query: ContentPageQuery | undefined
+): ContentPageQuery {
+  const owned = ownedContentPageQuery(query);
+  return {
+    ...(owned.artifactId === undefined ? {} : { artifactId: owned.artifactId }),
+    ...(owned.cursor === undefined ? {} : { cursor: owned.cursor }),
+    limit: owned.limit,
+    ...(owned.states === undefined ? {} : { state: [...owned.states] }),
+    ...(owned.tagged === undefined ? {} : { tagged: owned.tagged }),
+  };
 }
 
 async function fileVersion(path: string): Promise<string | undefined> {
@@ -261,7 +350,7 @@ function decodeValue(value: unknown): unknown {
   const [first] = entries;
   if (entries.length === 1 && first) {
     const [tag, inner] = first;
-    if (tag === OBJECT_TAG && isPlainObject(inner)) {
+    if (tag === OBJECT_TAG && isRecord(inner)) {
       return decodeEntries(Object.entries(inner));
     }
     if (tag === DATE_TAG && typeof inner === "string") {
@@ -280,6 +369,6 @@ function decodeEntries(entries: [string, unknown][]): Record<string, unknown> {
   );
 }
 
-function isPlainObject(value: unknown): value is object {
+function isRecord(value: unknown): value is object {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -10,9 +10,8 @@ import { testInstances } from "./helpers/engine";
 
 const opened = vi.hoisted(() => ({ count: 0 }));
 
-vi.mock("~/database/workspaces", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("~/database/workspaces")>();
+vi.mock("~/database/open", async (importOriginal) => {
+  const original = await importOriginal<typeof import("~/database/open")>();
   return {
     ...original,
     openHostDatabase: (
@@ -52,7 +51,7 @@ it("opens one database handle for every store it keeps there, and closes it on d
   await flow.result;
   await engine.schedules();
   await engine.readUsage();
-  await engine.triggers.lastTick("none");
+  await engine.triggers.monitorState("none");
   expect(opened.count).toBe(1);
 
   const identity = fileIdentity(stateDatabase(state));

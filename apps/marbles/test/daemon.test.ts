@@ -14,9 +14,9 @@ import { connect as connectSocket, createServer } from "node:net";
 import { join } from "node:path";
 import {
   type lookProcesses,
+  nodeStartedAt,
   processAlive,
-  startedAt,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity, queuedFiles } from "~/database/client";
 import { readDatabase } from "~/database/open";
@@ -24,6 +24,7 @@ import { marblesGenerations } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { type Layout, layout, stateDatabase } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type {
   DispatchOptions,
   WorkspaceState,
@@ -52,9 +53,9 @@ const TOKEN_ARGUMENT = /--token (\S+)/;
 const looking = vi.hoisted(() => ({
   fake: undefined as typeof lookProcesses | undefined,
 }));
-vi.mock("@foundry/lib/process-identity", async (importOriginal) => {
+vi.mock("@foundry/lib/node/process-identity", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@foundry/lib/process-identity")>();
+    await importOriginal<typeof import("@foundry/lib/node/process-identity")>();
   return {
     ...actual,
     lookProcesses: (pids: readonly number[]) =>
@@ -111,7 +112,11 @@ async function daemonFor(machine: Layout, lines: string[] = []) {
 
 async function storedTasks(machine: Layout, id: string) {
   return await readDatabase(stateDatabase(machine.state), async (database) => {
-    const records = new DatabaseWorkspaceRecords({ database, scope: id });
+    const records = new DatabaseWorkspaceRecords({
+      database,
+      liveness: NODE_OWNER_LIVENESS,
+      scope: id,
+    });
     return {
       changes: (await records.log.read({ after: 0, source: "tasks" })).length,
       snapshot: await records.taskStore.snapshot(),
@@ -845,7 +850,7 @@ export const hold = step("hold").do(async () => {
     if (pid === undefined) {
       throw new Error("the generation has no pid");
     }
-    const real = startedAt(pid);
+    const real = nodeStartedAt(pid);
     if (typeof real !== "string") {
       throw new Error("the generation's start cannot be read");
     }
@@ -955,7 +960,7 @@ ${greeter("greet")}`
     const [row] = rows ?? [];
     expect(row?.state).toBe("loading");
     expect(row?.started).not.toBeNull();
-    expect(row?.started).toBe(startedAt(row?.pid ?? 0));
+    expect(row?.started).toBe(nodeStartedAt(row?.pid ?? 0));
     writeFileSync(loaded, "");
     expect((await attaching).state).toBe("ready");
     client.close();

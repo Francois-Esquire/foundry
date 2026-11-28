@@ -1,10 +1,9 @@
-#!/usr/bin/env bun
 import { connect as connectSocket, type Socket } from "node:net";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import type { QueuedTake } from "~/lib/launcher";
+import type { QueuedAdoption } from "~/lib/launcher";
 import { Channel, socketTransport } from "~/process/channel";
 import type {
   LoadResult,
@@ -16,17 +15,17 @@ import {
   DAEMON_METHODS,
   GENERATION_METHODS,
   GENERATION_NOTIFICATIONS,
+  handedParamsSchema,
   hostParamsSchema,
   isWorkspaceMethod,
   liveRunsSchema,
   queuedParamsSchema,
-  releasedParamsSchema,
   retireParamsSchema,
+  runListQuerySchema,
   startParamsSchema,
   workspaceIdSchema,
 } from "~/process/protocol";
 import { envFilesLoaded } from "~/process/runtime";
-import { SPAWN_RECOVERY_ENV } from "~/process/spawned";
 import { dispatchSchema } from "~/workspace/dispatch";
 import type { GenerationHost, WorkspaceHost } from "~/workspace/host";
 import type { StagedWorkspaces, WorkspaceLoad } from "~/workspace/hosted";
@@ -38,24 +37,20 @@ import {
   type SetupInput,
 } from "~/workspace/setup-step";
 import { taskCommandSchema, taskOutcome } from "~/workspace/tasks";
-import type { SetupDraft } from "~/workspace/templates";
 
 interface GenerationArgs {
   readonly artifacts: string;
-  readonly dry: boolean;
   readonly socket: string;
+  readonly spawned: string;
   readonly state: string;
   readonly token: string;
 }
 
 function parseArgs(argv: readonly string[]): GenerationArgs {
   const values = new Map<string, string>();
-  let dry = false;
   const words = argv.values();
   for (const word of words) {
-    if (word === "--dry-run") {
-      dry = true;
-    } else if (word.startsWith("--")) {
+    if (word.startsWith("--")) {
       const { value } = words.next();
       if (value !== undefined) {
         values.set(word.slice(2), value);
@@ -69,11 +64,11 @@ function parseArgs(argv: readonly string[]): GenerationArgs {
     }
     return value;
   };
-  const { artifacts, state } = layout();
+  const { artifacts, spawned, state } = layout();
   return {
     artifacts,
-    dry,
     socket: required("socket"),
+    spawned,
     state,
     token: required("token"),
   };
@@ -120,7 +115,9 @@ function call(
     case "dispatchAgent":
       return host.dispatchAgent(dispatchSchema.parse(p));
     case "dispatchWorkflow":
-      return host.dispatchWorkflow(text(p.name, "name"), p.input);
+      return host.dispatchWorkflow(text(p.name, "name"), p.input, {
+        ...(p.key === undefined ? {} : { key: text(p.key, "key") }),
+      });
     case "getRun":
       return host.getRun(text(p.runId, "runId"));
     case "launch":
@@ -128,6 +125,8 @@ function call(
         text(p.name, "name"),
         p.input as Parameters<typeof host.actions.launch>[1]
       );
+    case "listRuns":
+      return host.listRuns(runListQuerySchema.parse(p.query ?? {}));
     case "pause":
       return runs.pause(text(p.runId, "runId"), text(p.stepId, "stepId"));
     case "resume":
@@ -190,7 +189,6 @@ function loadResult(load: WorkspaceLoad): WorkspaceLoadResult {
 interface Ticking {
   readonly cancel: AbortController;
   readonly done: Promise<void>;
-  readonly letGo: AbortController;
   readonly stop: AbortController;
 }
 
@@ -221,21 +219,20 @@ async function main(): Promise<void> {
   const tick = (host: WorkspaceHost): void => {
     const stop = new AbortController();
     const cancel = new AbortController();
-    const letGo = new AbortController();
     const done = (async () => {
       host.setStatus(
         (await host.engine.schedules()).length === 0
           ? "Ready · no triggers configured"
           : "Watching triggers"
       );
-      await host.run(stop.signal, cancel.signal, letGo.signal);
+      await host.run(stop.signal, cancel.signal);
     })().catch((error: unknown) =>
       notify(GENERATION_NOTIFICATIONS.line, {
         line: `[schedule] ${String(error)}`,
         root: host.root,
       })
     );
-    const loop = { cancel, done, letGo, stop };
+    const loop = { cancel, done, stop };
     ticking.set(host.id, loop);
     loops.add(loop);
     done.finally(() => loops.delete(loop)).catch(() => undefined);
@@ -257,7 +254,7 @@ async function main(): Promise<void> {
   const postSetup = (host: WorkspaceHost, draft: SetupDraftParams): void => {
     const input: SetupInput = {
       configPath: host.configPath,
-      draft: draft as SetupDraft,
+      draft,
       root: host.root,
     };
     host.engine
@@ -269,7 +266,6 @@ async function main(): Promise<void> {
     hosted ??= await HostedWorkspaces.open({
       artifacts: args.artifacts,
       askable: true,
-      dry: args.dry,
       prepare(engine: Engine) {
         registerSetupStep(engine);
       },
@@ -283,9 +279,7 @@ async function main(): Promise<void> {
           root,
         });
       },
-      ...(process.env[SPAWN_RECOVERY_ENV]
-        ? { spawned: process.env[SPAWN_RECOVERY_ENV] }
-        : {}),
+      spawned: args.spawned,
       state: args.state,
     });
     return hosted;
@@ -389,9 +383,6 @@ async function main(): Promise<void> {
         onHanded(runId) {
           notify(GENERATION_NOTIFICATIONS.handed, { id: each.id, runId });
         },
-        onLetGo(runId) {
-          notify(GENERATION_NOTIFICATIONS.released, { id: each.id, runId });
-        },
       })
     );
     retiring = (async () => {
@@ -407,20 +398,20 @@ async function main(): Promise<void> {
     await Promise.all(handing);
   };
 
-  const adopt = async (raw: unknown): Promise<boolean> => {
-    const { id, runId } = releasedParamsSchema.parse(raw);
+  const takeHanded = async (raw: unknown): Promise<boolean> => {
+    const { id, runId } = handedParamsSchema.parse(raw);
     if (retiring !== undefined || stopping !== undefined) {
       return false;
     }
-    return await workspaces().get(id).engine.adopt(runId);
+    return await workspaces().get(id).engine.takeHanded(runId);
   };
 
-  const takeQueued = async (raw: unknown): Promise<QueuedTake> => {
+  const adoptQueued = async (raw: unknown): Promise<QueuedAdoption> => {
     const { id, owner, runId } = queuedParamsSchema.parse(raw);
     if (retiring !== undefined || stopping !== undefined) {
       return { taken: false, why: "its generation is retiring or stopping" };
     }
-    return await workspaces().get(id).engine.takeQueued(runId, owner);
+    return await workspaces().get(id).engine.adoptQueued(runId, owner);
   };
 
   const liveWork = async (raw: unknown): Promise<unknown> => {
@@ -447,9 +438,6 @@ async function main(): Promise<void> {
     await Promise.allSettled(
       (hosted?.list() ?? []).map((each) => each.engine.stop())
     );
-    for (const loop of loops) {
-      loop.letGo.abort();
-    }
     await leave(false);
   };
 
@@ -476,10 +464,10 @@ async function main(): Promise<void> {
           return unhost(raw);
         case GENERATION_METHODS.retire:
           return retire(raw);
-        case GENERATION_METHODS.adopt:
-          return adopt(raw);
+        case GENERATION_METHODS.takeHanded:
+          return takeHanded(raw);
         case GENERATION_METHODS.takeQueued:
-          return takeQueued(raw);
+          return adoptQueued(raw);
         case GENERATION_METHODS.liveWork:
           return liveWork(raw);
         default:

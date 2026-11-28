@@ -1,89 +1,124 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  assertNotAborted,
   CONTAINER_ENVIRONMENT_ID_LABEL,
   CONTAINER_MANAGED_BY_LABEL,
   CONTAINER_MANAGED_BY_VALUE,
-  CONTAINER_OWNER_ID_LABEL,
-  CONTAINER_OWNER_KIND_LABEL,
-  CONTAINER_RUNTIME_SCOPE_LABEL,
+  CONTAINER_PORTABLE_ID_PATTERN,
   CONTAINER_SANDBOX_BASE_LABEL,
-  CONTAINER_SANDBOX_CONSTRAINTS_FORMAT,
-} from "@foundry/sandbox/container/constants";
-import { createContainers } from "@foundry/sandbox/container/containers";
-import { createMicrosandboxRuntime } from "@foundry/sandbox/container/microsandbox-runtime";
-import { SandboxError } from "@foundry/sandbox/errors";
-import { normalizeSandboxPath } from "@foundry/sandbox/path";
-import { sandboxFromAdapter } from "@foundry/sandbox/sandbox";
+  createContainers,
+  DEFAULT_CONTAINER_CPUS,
+  DEFAULT_CONTAINER_IMAGE,
+  DEFAULT_CONTAINER_MEMORY_MIB,
+  DEFAULT_CONTAINER_WORKDIR,
+  INVENTORY_PAGE_LIMIT,
+  MAX_INVENTORY_PAGES,
+  normalizeSandboxPath,
+  resolveContainerSpec,
+  SandboxError,
+  sandboxFromAdapter,
+} from "@foundry/sandbox";
+import {
+  ProcessController,
+  prepareSandboxProcess,
+} from "@foundry/sandbox/node";
+import { createMicrosandboxDriver } from "@foundry/sandbox/providers/microsandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
+import {
+  bashDefinition,
+  COUNT_WORDS,
+  cdDefinition,
+  createSandboxToolkit,
+  createSandboxToolSchemas,
+  DEFAULT_LIMITS,
+  DEFAULT_READ_LIMIT,
+  editDefinition,
+  globDefinition,
+  grepDefinition,
+  guardExecute,
+  guardState,
+  MAX_EDIT_RESULT_CHARS,
+  readDefinition,
+  SandboxRateLimitError,
+  sandboxInstructions,
+  sandboxToolDefinitions,
+  TOOL_LINES,
+  writeDefinition,
+} from "@foundry/sandbox/tools";
+import { createVirtualSandbox } from "@foundry/sandbox/virtual";
 import { expect, it } from "vitest";
 import packageJson from "../../package.json";
 
-it("loads portable and container functions through leaf exports", () => {
+it("loads portable, tool, virtual, and node functions through canonical exports", () => {
   for (const entry of [
     normalizeSandboxPath,
     MemoryContainerStore,
     SandboxError,
     sandboxFromAdapter,
+    createSandboxToolkit,
+    createVirtualSandbox,
     createContainers,
-    createMicrosandboxRuntime,
+    prepareSandboxProcess,
+    ProcessController,
+    createMicrosandboxDriver,
+    assertNotAborted,
+    resolveContainerSpec,
+    createSandboxToolSchemas,
+    sandboxInstructions,
+    guardExecute,
+    guardState,
+    SandboxRateLimitError,
   ]) {
     expect(entry).toBeTypeOf("function");
   }
 });
 
-it("exposes sandbox ownership labels and the persisted spec format", () => {
-  expect(CONTAINER_SANDBOX_BASE_LABEL).toBe("com.foundry.sandbox");
-  expect(CONTAINER_MANAGED_BY_LABEL).toBe("com.foundry.environment.managed-by");
-  expect(CONTAINER_MANAGED_BY_VALUE).toBe("foundry-sandbox");
-  expect(CONTAINER_RUNTIME_SCOPE_LABEL).toBe(
-    "com.foundry.environment.scope-id"
-  );
-  expect(CONTAINER_ENVIRONMENT_ID_LABEL).toBe("com.foundry.environment.id");
-  expect(CONTAINER_OWNER_KIND_LABEL).toBe("com.foundry.environment.owner-kind");
-  expect(CONTAINER_OWNER_ID_LABEL).toBe("com.foundry.environment.owner-id");
-  expect(CONTAINER_SANDBOX_CONSTRAINTS_FORMAT).toBe(
-    "foundry.sandbox.container/1"
-  );
-});
-
-it("resolves the store interface through its own entry", () => {
-  for (const target of Object.values(packageJson.exports["./store"])) {
-    expect(existsSync(resolve(import.meta.dirname, "../..", target))).toBe(
-      true
-    );
+it("exposes container defaults and toolkit building blocks", () => {
+  for (const value of [
+    CONTAINER_PORTABLE_ID_PATTERN,
+    DEFAULT_CONTAINER_CPUS,
+    DEFAULT_CONTAINER_IMAGE,
+    DEFAULT_CONTAINER_MEMORY_MIB,
+    DEFAULT_CONTAINER_WORKDIR,
+    INVENTORY_PAGE_LIMIT,
+    MAX_INVENTORY_PAGES,
+    DEFAULT_LIMITS,
+    DEFAULT_READ_LIMIT,
+    MAX_EDIT_RESULT_CHARS,
+    COUNT_WORDS,
+    TOOL_LINES,
+    bashDefinition,
+    cdDefinition,
+    editDefinition,
+    globDefinition,
+    grepDefinition,
+    readDefinition,
+    writeDefinition,
+    sandboxToolDefinitions,
+  ]) {
+    expect(value).toBeDefined();
   }
 });
 
-it("resolves source and built declarations for the public leaf modules", () => {
-  expect(Object.hasOwn(packageJson.exports, ".")).toBe(false);
-  for (const entry of [
-    "types",
-    "sandbox",
-    "errors",
-    "path",
-    "constants",
-    "schema",
-    "store/memory",
-    "store/sqlite",
-    "store/tables",
-    "testing/store",
-    "container/constants",
-    "container/constraints",
-    "container/containers",
-    "container/types",
-    "container/microsandbox-runtime",
-    "tools/toolkit",
-    "tools/definitions",
-    "tools/guards",
-    "virtual/system",
-    "testing",
-  ]) {
-    for (const target of Object.values(packageJson.exports["./*"])) {
+it("exposes sandbox ownership labels", () => {
+  expect(CONTAINER_SANDBOX_BASE_LABEL).toBe("com.foundry.sandbox");
+  expect(CONTAINER_MANAGED_BY_LABEL).toBe("com.foundry.environment.managed-by");
+  expect(CONTAINER_MANAGED_BY_VALUE).toBe("foundry-sandbox");
+  expect(CONTAINER_ENVIRONMENT_ID_LABEL).toBe("com.foundry.environment.id");
+});
+
+it("resolves source and built declarations for every explicit public export without wildcards", () => {
+  const entries = Object.entries(packageJson.exports);
+  expect(
+    entries.map(([key]) => key).filter((key) => key.includes("*"))
+  ).toEqual([]);
+  expect(Object.hasOwn(packageJson.exports, ".")).toBe(true);
+  for (const [, target] of entries) {
+    for (const filePath of Object.values(target)) {
       expect(
-        existsSync(
-          resolve(import.meta.dirname, "../..", target.replace("*", entry))
-        )
+        existsSync(resolve(import.meta.dirname, "../..", filePath)),
+        `${filePath} should exist`
       ).toBe(true);
     }
   }

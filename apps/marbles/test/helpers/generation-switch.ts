@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { processAlive } from "@foundry/lib/process-identity";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { expect, onTestFinished, vi } from "vitest";
 import type { Layout } from "~/layout";
 import type { WorkspaceSummary } from "~/model/connection";
@@ -40,6 +40,7 @@ function moduleText(
     .join("\n");
   return [
     'import { appendFileSync, existsSync } from "node:fs";',
+    "export default { pools: { default: 1 } };",
     'import { step } from "@foundry.sh/marbles";',
     `const note = (what) => appendFileSync(${JSON.stringify(fixture.log)}, what + " " + process.pid + "\\n");`,
     holds,

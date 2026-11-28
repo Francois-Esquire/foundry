@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { Git, git } from "@foundry/workspaces/git";
-import { directory } from "@foundry/workspaces/node";
-import { nodeObserver } from "@foundry/workspaces/node/watch";
+import type { Workspaces as WorkspaceRuntime } from "@foundry/workspaces";
+import type { directory } from "@foundry/workspaces/node";
+import { workspaces } from "@foundry/workspaces/node";
+import { Git, git } from "@foundry/workspaces/node/git";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
 import type { ExecutionContext } from "~/lib/execution-context";
 import { withinContext } from "~/lib/execution-context";
@@ -12,30 +12,30 @@ import type { ManagerArgs } from "../bindings";
 import { current } from "../run-scope";
 import type {
   LoadedWorkspace,
+  ScopedWorkspaces,
   WorkspaceDefinition,
   WorkspaceHandle,
-  Workspaces,
 } from "../types";
+import { WORKSPACE_METHODS } from "../workspace-methods";
 
-export type Catalogue = WorkspaceSystem<
+export type LocalWorkspaces = WorkspaceRuntime<
   [ReturnType<typeof directory>, ReturnType<typeof git>]
 >;
 
-type Loaded = Awaited<ReturnType<Catalogue["load"]>>;
+type Loaded = Awaited<ReturnType<LocalWorkspaces["load"]>>;
 export type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
 
-export function localCatalogue(
+export function localWorkspaces(
   gitOptions: GitOptions,
   store?: WorkspaceStore
-): Catalogue {
-  return new WorkspaceSystem(store === undefined ? {} : { store }).extend(
-    directory({ observer: nodeObserver }),
+): LocalWorkspaces {
+  return workspaces(store === undefined ? {} : { store }).extend(
     git(gitOptions)
   );
 }
 
 export interface WorkspacesDeps {
-  readonly catalogue: Catalogue;
+  readonly catalogue: LocalWorkspaces;
   readonly context?: ExecutionContext;
   readonly gitOptions?: GitOptions;
   readonly root: string;
@@ -97,18 +97,6 @@ function wrapGit<G extends Git>(
   });
 }
 
-export const WORKSPACE_METHODS = [
-  "createFile",
-  "entries",
-  "files",
-  "read",
-  "refresh",
-  "registration",
-  "save",
-  "scan",
-  "summary",
-] as const satisfies readonly (keyof Loaded)[];
-
 type Method = (...args: unknown[]) => Promise<unknown>;
 
 function handle(
@@ -140,7 +128,7 @@ function handle(
   return target as unknown as WorkspaceHandle;
 }
 
-export class WorkspacesManager implements Workspaces {
+export class WorkspacesManager implements ScopedWorkspaces {
   readonly #deps: WorkspacesDeps;
   readonly current: WorkspaceHandle;
 
@@ -162,7 +150,7 @@ export class WorkspacesManager implements Workspaces {
     );
   }
 
-  get system(): Catalogue {
+  get system(): LocalWorkspaces {
     return this.#deps.catalogue;
   }
 
@@ -190,7 +178,7 @@ export class WorkspacesManager implements Workspaces {
     );
   }
 
-  scoped(_args?: ManagerArgs): Workspaces {
+  scoped(_args?: ManagerArgs): ScopedWorkspaces {
     return { current: this.current, load: (ref) => this.load(ref) };
   }
 

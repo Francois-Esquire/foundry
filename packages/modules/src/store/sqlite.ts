@@ -1,25 +1,49 @@
 import type { ContentId } from "@foundry/artifacts";
+import type { AuthorizationStore } from "@foundry/authorization/store";
+import { SqliteAuthorizationStore } from "@foundry/authorization/store/sqlite";
+import type { Page } from "@foundry/core/pagination";
+import { pageFromRows } from "@foundry/lib/pagination";
+import {
+  assertScope,
+  batches,
+  describeNumber,
+  replacing,
+  SQLITE_MAX_PARAMETERS,
+  type SqliteDatabase,
+  type SqliteTransaction,
+  storableNumber,
+  storableText,
+  UNSTORABLE_TEXT,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
   and,
   asc,
+  count,
   eq,
   getTableColumns,
   gt,
   inArray,
   is,
   max,
-  sql,
 } from "drizzle-orm";
-import type { BaseSQLiteDatabase, SQLiteColumn } from "drizzle-orm/sqlite-core";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
 
 import type { InstallationId, ModuleId } from "../domain";
+import {
+  capturedQuery,
+  capturedWrite,
+  ownedIdPageQuery,
+  ownedQuery,
+} from "./captured";
 import type {
+  InstallationIdPageQuery,
   InstallationListQuery,
   ManifestListQuery,
   Module,
+  ModuleIdPageQuery,
   ModuleListQuery,
   ModuleStore,
   ModuleStoreDurability,
@@ -27,9 +51,7 @@ import type {
   ModuleStoreWrite,
   StoredInstallation,
   StoredManifest,
-} from "../store";
-import { capturedQuery, capturedWrite } from "./captured";
-import { ownedQuery } from "./query";
+} from "./index";
 import {
   moduleInstallations,
   moduleManifests,
@@ -37,18 +59,9 @@ import {
   modules,
 } from "./tables";
 
-export type ModuleDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type ModuleDatabase = SqliteDatabase;
 
-export type ModuleTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type ModuleTransaction = SqliteTransaction;
 
 export interface SqliteModuleStoreOptions {
   readonly database: ModuleDatabase;
@@ -90,11 +103,7 @@ export class SqliteModuleStore implements ModuleStore {
   readonly #turns = new Turns(REENTRY);
 
   constructor(options: SqliteModuleStoreOptions) {
-    if (options.scope.length === 0 || !storable(options.scope)) {
-      throw new RangeError(
-        "scope must be a nonempty string with no U+0000 and no lone surrogate"
-      );
-    }
+    assertScope(options.scope);
     const joined = is(options.database, SQLiteTransaction);
     if (joined && options.durability === "commit") {
       throw new RangeError(
@@ -164,6 +173,13 @@ export class SqliteModuleStore implements ModuleStore {
     );
   }
 
+  openAuthorizationStore(): AuthorizationStore {
+    return new SqliteAuthorizationStore({
+      database: this.#database,
+      scope: this.#scope,
+    });
+  }
+
   transaction<T>(work: (view: ModuleStore) => Promise<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#database.transaction((transaction) =>
@@ -182,7 +198,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   getModule(id: ModuleId): Promise<Module | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -195,7 +211,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   getManifest(contentId: ContentId): Promise<StoredManifest | null> {
     return this.#turns.run(async () => {
-      if (!storable(contentId)) {
+      if (!storableText(contentId)) {
         return null;
       }
       const [row] = await this.#database
@@ -213,7 +229,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   getInstallation(id: InstallationId): Promise<StoredInstallation | null> {
     return this.#turns.run(async () => {
-      if (!storable(id)) {
+      if (!storableText(id)) {
         return null;
       }
       const [row] = await this.#database
@@ -231,7 +247,7 @@ export class SqliteModuleStore implements ModuleStore {
 
   listModules(query: ModuleListQuery): Promise<ModuleStorePage<Module>> {
     return this.#page(query, (owned) => {
-      if (owned.artifactId !== undefined && !storable(owned.artifactId)) {
+      if (owned.artifactId !== undefined && !storableText(owned.artifactId)) {
         return null;
       }
       return {
@@ -251,11 +267,74 @@ export class SqliteModuleStore implements ModuleStore {
     });
   }
 
+  listModulesPage(
+    query: ModuleIdPageQuery = {}
+  ): Promise<Page<Module, string>> {
+    let owned: ModuleIdPageQuery & { readonly limit: number };
+    try {
+      owned = ownedIdPageQuery(capturedQuery(query));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#turns.run(() => {
+      if (owned.artifactId !== undefined && !storableText(owned.artifactId)) {
+        if (owned.cursor !== undefined) {
+          return Promise.reject(new RangeError("Page cursor is invalid"));
+        }
+        return Promise.resolve({ items: [], total: 0 });
+      }
+      if (owned.cursor !== undefined && !storableText(owned.cursor)) {
+        return Promise.reject(new RangeError("Page cursor is invalid"));
+      }
+      const filter = and(
+        eq(modules.scope, this.#scope),
+        owned.artifactId === undefined
+          ? undefined
+          : eq(modules.artifactId, owned.artifactId)
+      );
+      return this.#database.transaction(async (transaction) => {
+        if (owned.cursor !== undefined) {
+          const [anchor] = await transaction
+            .select({ id: modules.id })
+            .from(modules)
+            .where(and(filter, eq(modules.id, owned.cursor as ModuleId)))
+            .limit(1);
+          if (anchor === undefined) {
+            throw new RangeError("Page cursor is invalid");
+          }
+        }
+        const [counted] = await transaction
+          .select({ total: count() })
+          .from(modules)
+          .where(filter);
+        const rows = await transaction
+          .select(moduleColumns)
+          .from(modules)
+          .where(
+            and(
+              filter,
+              owned.cursor === undefined
+                ? undefined
+                : gt(modules.id, owned.cursor as ModuleId)
+            )
+          )
+          .orderBy(asc(modules.id))
+          .limit(owned.limit + 1);
+        return pageFromRows(
+          rows,
+          owned.limit,
+          counted?.total ?? 0,
+          (row) => row.id
+        );
+      });
+    });
+  }
+
   listInstallations(
     query: InstallationListQuery
   ): Promise<ModuleStorePage<StoredInstallation>> {
     return this.#page(query, (owned) => {
-      if (owned.moduleId !== undefined && !storable(owned.moduleId)) {
+      if (owned.moduleId !== undefined && !storableText(owned.moduleId)) {
         return null;
       }
       return {
@@ -280,6 +359,74 @@ export class SqliteModuleStore implements ModuleStore {
     });
   }
 
+  listInstallationsPage(
+    query: InstallationIdPageQuery = {}
+  ): Promise<Page<StoredInstallation, string>> {
+    let owned: InstallationIdPageQuery & { readonly limit: number };
+    try {
+      owned = ownedIdPageQuery(capturedQuery(query));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.#turns.run(() => {
+      if (owned.moduleId !== undefined && !storableText(owned.moduleId)) {
+        if (owned.cursor !== undefined) {
+          return Promise.reject(new RangeError("Page cursor is invalid"));
+        }
+        return Promise.resolve({ items: [], total: 0 });
+      }
+      if (owned.cursor !== undefined && !storableText(owned.cursor)) {
+        return Promise.reject(new RangeError("Page cursor is invalid"));
+      }
+      const filter = and(
+        eq(moduleInstallations.scope, this.#scope),
+        owned.moduleId === undefined
+          ? undefined
+          : eq(moduleInstallations.moduleId, owned.moduleId)
+      );
+      return this.#database.transaction(async (transaction) => {
+        if (owned.cursor !== undefined) {
+          const [anchor] = await transaction
+            .select({ id: moduleInstallations.id })
+            .from(moduleInstallations)
+            .where(
+              and(
+                filter,
+                eq(moduleInstallations.id, owned.cursor as InstallationId)
+              )
+            )
+            .limit(1);
+          if (anchor === undefined) {
+            throw new RangeError("Page cursor is invalid");
+          }
+        }
+        const [counted] = await transaction
+          .select({ total: count() })
+          .from(moduleInstallations)
+          .where(filter);
+        const rows = await transaction
+          .select(installationColumns)
+          .from(moduleInstallations)
+          .where(
+            and(
+              filter,
+              owned.cursor === undefined
+                ? undefined
+                : gt(moduleInstallations.id, owned.cursor as InstallationId)
+            )
+          )
+          .orderBy(asc(moduleInstallations.id))
+          .limit(owned.limit + 1);
+        return pageFromRows(
+          rows.map(installationOf),
+          owned.limit,
+          counted?.total ?? 0,
+          (stored) => stored.installation.id
+        );
+      });
+    });
+  }
+
   listManifests(
     query: ManifestListQuery = {}
   ): Promise<readonly StoredManifest[]> {
@@ -290,7 +437,7 @@ export class SqliteModuleStore implements ModuleStore {
       return Promise.reject(error);
     }
     return this.#turns.run(async () => {
-      if (owned.moduleId !== undefined && !storable(owned.moduleId)) {
+      if (owned.moduleId !== undefined && !storableText(owned.moduleId)) {
         return [];
       }
       return await this.#database
@@ -358,11 +505,14 @@ export class SqliteModuleStore implements ModuleStore {
     key: SQLiteColumn,
     keys: readonly string[]
   ): Promise<void> {
-    await inOrder(batches(keys.filter(storable), MAX_PARAMETERS - 1), (batch) =>
-      transaction
+    for (const batch of batches(
+      keys.filter(storableText),
+      SQLITE_MAX_PARAMETERS - 1
+    )) {
+      await transaction
         .delete(table)
-        .where(and(eq(table.scope, this.#scope), inArray(key, batch)))
-    );
+        .where(and(eq(table.scope, this.#scope), inArray(key, batch)));
+    }
   }
 
   async #put(
@@ -378,23 +528,19 @@ export class SqliteModuleStore implements ModuleStore {
       positions.next += 1;
       return { ...record, position, scope: this.#scope };
     });
-    const replace = Object.fromEntries(
-      Object.entries(recordColumns(columns)).map(([field, column]) => [
-        field,
-        excluded(column),
-      ])
-    );
-    await inOrder(
-      batches(rows, MAX_PARAMETERS / Object.keys(columns).length),
-      (batch) =>
-        transaction
-          .insert(table)
-          .values(batch as never[])
-          .onConflictDoUpdate({
-            set: replace,
-            target: [table.scope, ...keys],
-          })
-    );
+    const replace = replacing(recordColumns(columns));
+    for (const batch of batches(
+      rows,
+      SQLITE_MAX_PARAMETERS / Object.keys(columns).length
+    )) {
+      await transaction
+        .insert(table)
+        .values(batch as never[])
+        .onConflictDoUpdate({
+          set: replace,
+          target: [table.scope, ...keys],
+        });
+    }
   }
 
   async #positions(
@@ -489,9 +635,6 @@ function installationRow(
 ): Omit<InstallationRow, "position" | "scope"> {
   const { installation } = stored;
   const field = (name: string) => `${at}.installation.${name}`;
-  if (!Array.isArray(stored.grants)) {
-    throw unstorable(`${at}.grants`, "holds no array of Grants");
-  }
   return {
     containerId:
       installation.containerId === null
@@ -500,18 +643,6 @@ function installationRow(
     contentId: text(installation.contentId, field("contentId")),
     createdAt: instant(installation.createdAt, field("createdAt")),
     generation: integer(installation.generation, field("generation")),
-    grants: stored.grants.map((grant, index) => {
-      const grantAt = `${at}.grants[${index}]`;
-      return {
-        capability: jsonText(grant.capability, `${grantAt}.capability`),
-        constraintsDigest: jsonText(
-          grant.constraintsDigest,
-          `${grantAt}.constraintsDigest`
-        ),
-        createdAt: instant(grant.createdAt, `${grantAt}.createdAt`),
-        version: jsonNumber(grant.version, `${grantAt}.version`),
-      };
-    }),
     id: text(installation.id, field("id")),
     moduleId: text(installation.moduleId, field("moduleId")),
     startAttempts: integer(installation.startAttempts, field("startAttempts")),
@@ -524,12 +655,6 @@ function installationOf(
   row: Omit<typeof moduleInstallations.$inferSelect, "position" | "scope">
 ): StoredInstallation {
   return {
-    grants: row.grants.map((grant) => ({
-      capability: grant.capability,
-      constraintsDigest: grant.constraintsDigest,
-      createdAt: new Date(grant.createdAt),
-      version: grant.version,
-    })),
     installation: {
       containerId: row.containerId,
       contentId: row.contentId,
@@ -548,30 +673,12 @@ function unstorable(field: string, reason: string): RangeError {
   return new RangeError(`SqliteModuleStore cannot store ${field}: ${reason}`);
 }
 
-function storable(value: string): boolean {
-  return (
-    typeof value === "string" &&
-    value.isWellFormed() &&
-    !value.includes("\u0000")
-  );
-}
-
 function text<T extends string>(value: T, field: string): T {
   if (typeof value !== "string") {
     throw unstorable(field, `${describe(value)} is not text`);
   }
-  if (!storable(value)) {
-    throw unstorable(
-      field,
-      "text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite"
-    );
-  }
-  return value;
-}
-
-function jsonText(value: string, field: string): string {
-  if (typeof value !== "string") {
-    throw unstorable(field, `${describe(value)} is not text`);
+  if (!storableText(value)) {
+    throw unstorable(field, UNSTORABLE_TEXT);
   }
   return value;
 }
@@ -584,11 +691,7 @@ function instant(value: Date, field: string): string {
 }
 
 function integer(value: number, field: string): number {
-  if (
-    typeof value !== "number" ||
-    Object.is(value, -0) ||
-    !(Math.abs(value) <= Number.MAX_SAFE_INTEGER)
-  ) {
+  if (typeof value !== "number" || !storableNumber(value)) {
     throw unstorable(
       field,
       `${describe(value)} does not read back intact from SQLite; it must be a number within ±Number.MAX_SAFE_INTEGER, and not -0`
@@ -681,7 +784,7 @@ function checkComposite(value: object, at: string, ancestors: Set<object>) {
 
 function describe(value: unknown): string {
   if (typeof value === "number") {
-    return Object.is(value, -0) ? "-0" : String(value);
+    return describeNumber(value);
   }
   if (typeof value === "string") {
     return JSON.stringify(value);
@@ -696,28 +799,4 @@ function describe(value: unknown): string {
     return `a ${value.constructor?.name ?? "object"}`;
   }
   return value === undefined ? "undefined" : `a ${typeof value}`;
-}
-
-const MAX_PARAMETERS = 32_766;
-
-function batches<T>(items: readonly T[], size: number): T[][] {
-  const length = Math.max(1, Math.floor(size));
-  const result: T[][] = [];
-  for (let start = 0; start < items.length; start += length) {
-    result.push(items.slice(start, start + length));
-  }
-  return result;
-}
-
-async function inOrder<T>(
-  items: readonly T[],
-  run: (item: T) => PromiseLike<unknown>
-): Promise<void> {
-  for (const item of items) {
-    await run(item);
-  }
-}
-
-function excluded(column: SQLiteColumn): SQL {
-  return sql.raw(`excluded."${column.name}"`);
 }

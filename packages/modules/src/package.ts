@@ -1,7 +1,7 @@
 import type {
   Artifact,
   ArtifactOperations,
-  Artifacts,
+  ArtifactSubstrate,
   Content,
   EntryInputs,
 } from "@foundry/artifacts";
@@ -21,19 +21,19 @@ import {
 } from "@foundry/lib/encoding";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { z } from "zod";
-import { MODULE_MIME } from "./constants";
-import { assertOwnsArtifactCommit } from "./cross-store";
+import { assertOwnsArtifactCommit } from "./artifact-commit";
 import type { Module, ModuleId, ModuleVersion } from "./domain";
 import {
   defineModule,
   defineModuleVersion,
+  MODULE_MIME,
   moduleIdSchema,
   parseModuleVersionContent,
 } from "./domain";
 import { ModuleStoreConflictError } from "./errors";
 import type { ModuleManifest } from "./manifest";
 import { parseModuleManifestSourceText } from "./manifest";
-import type { ModuleRegistryUnit } from "./registry";
+import type { ModuleUnit } from "./modules";
 import { MODULE_CONTENT_MANIFEST_PATH } from "./version";
 
 const MAX_PACKAGE_BYTES = 32 * 1024 * 1024;
@@ -152,7 +152,10 @@ export async function encodeModulePackage(input: {
   return encoded;
 }
 
-export type ModulePackageArtifacts = Pick<Artifacts, "transaction">;
+export type ModulePackageArtifacts = Pick<
+  ArtifactSubstrate,
+  "durability" | "transaction"
+>;
 
 type ModulePackageOperations = Pick<
   ArtifactOperations,
@@ -167,7 +170,7 @@ type ModulePackageOperations = Pick<
 
 export async function importModulePackage(input: {
   readonly artifacts: ModulePackageArtifacts;
-  readonly modules: ModuleRegistryUnit<
+  readonly modules: ModuleUnit<
     "loadModule" | "registerModule" | "retainManifest"
   >;
   readonly encoded: string;

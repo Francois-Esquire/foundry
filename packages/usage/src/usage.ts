@@ -1,4 +1,4 @@
-import { type BillingAccountOptions, billingLimits } from "./billing";
+import { type BillingAccountOptions, billingLimits } from "./billing-account";
 import type { Consumption } from "./consumption";
 import {
   compact,
@@ -258,5 +258,3 @@ export const createUsage = (): Usage => {
     },
   };
 };
-
-export const usage: Usage = createUsage();

@@ -3,16 +3,16 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "bun";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { parseArgs } from "~/cli/args";
+import { parseArgs } from "~/cli/index";
 import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
   settingsPath,
 } from "~/cli/settings";
-import { applyTheme, settingsView, terminalTheme } from "~/cli/theme";
 import { theme } from "~/components/ui/theme";
 import { THEME_NAMES } from "~/model/settings";
+import { applyTheme, settingsView, terminalTheme } from "~/tui/theme";
 
 let state: string;
 
@@ -25,35 +25,35 @@ afterEach(async () => {
   await rm(state, { force: true, recursive: true });
 });
 
-function withFoundryHome(value: string | undefined, body: () => void): void {
-  const previous = process.env.FOUNDRY_HOME;
+function withFoundryRoot(value: string | undefined, body: () => void): void {
+  const previous = process.env.FOUNDRY_ROOT;
   if (value === undefined) {
-    delete process.env.FOUNDRY_HOME;
+    delete process.env.FOUNDRY_ROOT;
   } else {
-    process.env.FOUNDRY_HOME = value;
+    process.env.FOUNDRY_ROOT = value;
   }
   try {
     body();
   } finally {
     if (previous === undefined) {
-      delete process.env.FOUNDRY_HOME;
+      delete process.env.FOUNDRY_ROOT;
     } else {
-      process.env.FOUNDRY_HOME = previous;
+      process.env.FOUNDRY_ROOT = previous;
     }
   }
 }
 
 it("lives at the state root: ~/.foundry/marbles by default", () => {
-  withFoundryHome(undefined, () => {
+  withFoundryRoot(undefined, () => {
     expect(settingsPath(parseArgs([]).state)).toBe(
       join(homedir(), ".foundry", "marbles", "settings.json")
     );
   });
 });
 
-it("follows FOUNDRY_HOME", () => {
+it("follows FOUNDRY_ROOT", () => {
   const home = join(state, "home");
-  withFoundryHome(home, () => {
+  withFoundryRoot(home, () => {
     expect(settingsPath(parseArgs([]).state)).toBe(
       join(home, "marbles", "settings.json")
     );
@@ -86,18 +86,31 @@ it("falls back to the default theme for a value it does not know, and says why",
   expect(loaded.problem).toContain('theme "nonexistent"');
 });
 
-it("lists all bundled themes and gets and sets the active theme from the CLI", () => {
+it("lists all bundled themes and prints and saves settings from the CLI", () => {
   const cli = (...args: string[]) =>
     spawnSync([process.execPath, "src/cli.ts", "settings", ...args], {
-      env: { ...process.env, FOUNDRY_HOME: state },
+      env: { ...process.env, FOUNDRY_ROOT: state },
     });
   const listed = cli("themes");
   expect(listed.exitCode).toBe(0);
   expect(listed.stdout.toString().trim().split("\n")).toEqual(THEME_NAMES);
   expect(THEME_NAMES).toHaveLength(42);
+  expect(cli("get", "theme").stdout.toString().trim()).toBe("dark");
+  expect(cli().stdout.toString().trim()).toBe("theme: dark");
   expect(cli("set", "theme", "opencode").exitCode).toBe(0);
   expect(cli("get", "theme").stdout.toString().trim()).toBe("opencode");
-  expect(cli("set", "theme", "dark", "--dry-run").exitCode).toBe(1);
+  expect(JSON.parse(cli("--json").stdout.toString())).toEqual({
+    theme: "opencode",
+  });
+  expect(JSON.parse(cli("get", "theme", "--json").stdout.toString())).toEqual({
+    key: "theme",
+    value: "opencode",
+  });
+  const unknown = cli("set", "theme", "no-such-theme");
+  expect(unknown.exitCode).toBe(1);
+  expect(unknown.stderr.toString()).toContain(
+    'unknown theme "no-such-theme"; marbles settings themes lists them'
+  );
   expect(
     loadSettings(settingsPath(join(state, "marbles"))).settings.theme
   ).toBe("opencode");

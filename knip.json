@@ -28,18 +28,14 @@
         "@ai-sdk/openai-compatible",
         "@ai-sdk/provider-utils",
         "@noble/hashes",
-        "effect",
+        "croner",
         "evlog",
-        "ignore",
-        "simple-git"
+        "ignore"
       ],
       "entry": [
-        "examples/**/*.ts",
-        "src/workspace/hosted.ts",
         "stories/**/*.stories.tsx",
-        "templates/**/*.ts",
         "test/helpers/daemon-process.ts",
-        "test/helpers/dry-mcp-host.ts",
+        "test/helpers/mcp-host.ts",
         "test/helpers/generation-*.ts",
         "test/helpers/store-writer.ts",
         "vitest.package.config.ts"
@@ -60,8 +56,8 @@
       ],
       "ignore": ["marbles/**/_example/**"]
     },
-    "packages/models": {
-      "entry": ["src/local/remote/worker-entry.ts"]
+    "packages/modules": {
+      "entry": ["src/sdk/generator-core.ts"]
     },
     "examples/*": {
       "entry": ["stories/**/*.stories.tsx"],
@@ -72,6 +68,9 @@
       ]
     },
     "tooling/*": {},
+    "tooling/release": {
+      "entry": ["src/cli.ts", "src/extension-cli.ts", "src/prepare.ts"]
+    },
     "tooling/vscode-extension": {
       "ignore": ["fixtures/**"]
     },

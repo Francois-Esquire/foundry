@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { STREAM_TAIL_LINES, streamTail } from "~/cli/state/run-stream";
 import { RunStream, type RunStreamView } from "~/components/blocks/run-stream";
+import { STREAM_TAIL_LINES, streamTail } from "~/tui/state/run-stream";
 import { renderFrame } from "../frame";
 
 const size = { height: 18, width: 70 };
@@ -9,13 +9,13 @@ const size = { height: 18, width: 70 };
 const transcript = [
   "Reading docs/cli.md (412 lines)",
   "The CLI reference lists 14 commands; src/cli/args.ts defines 15.",
-  "Missing: marbles relink",
+  "Missing: marbles artifacts relink",
   "Drafting a section for relink after resources.",
-  "## marbles relink",
+  "## marbles artifacts relink",
   "",
   "Rebuilds each workspace's links under <root>/.marbles/ from the database.",
   "Checking the options table against parseArgs…",
-  "Adding --workspace and --dry-run rows.",
+  "Adding --workspace rows.",
   "Updating the table of contents.",
   "Writing docs/cli.md",
   "Done: 1 file changed, 18 insertions.",

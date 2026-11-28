@@ -8,20 +8,13 @@ import { byCodeUnit } from "@foundry/lib/ordering";
 import { FilePointerError } from "./errors";
 import type { ContentMetadata, ContentState } from "./schema";
 
-export type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./schema";
-
 export function isUsableContent<T extends { readonly state: ContentState }>(
   content: T | null | undefined
 ): content is T & { readonly state: "ready" | "frozen" } {
   return content?.state === "ready" || content?.state === "frozen";
 }
 
-export const PROVENANCE_METADATA_KEYS = [
+const PROVENANCE_METADATA_KEYS = [
   "failure",
   "generation",
   "messageId",
@@ -29,7 +22,7 @@ export const PROVENANCE_METADATA_KEYS = [
   "sessionId",
 ] as const;
 
-export const ANNOTATION_METADATA_KEYS = ["label", "pinned"] as const;
+const ANNOTATION_METADATA_KEYS = ["label", "pinned"] as const;
 
 export function mergeMetadata(
   base: ContentMetadata,
@@ -66,7 +59,7 @@ export function assertJsonMetadata(metadata: Readonly<object>): void {
   canonicalizeJson(metadata);
 }
 
-export function pointerEntries(
+function pointerEntries(
   metadata: ContentMetadata
 ): readonly (readonly [key: string, path: string])[] {
   return [

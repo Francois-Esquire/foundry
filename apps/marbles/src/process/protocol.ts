@@ -1,8 +1,7 @@
-import { RunRecordSchema } from "@foundry/workflows/schema";
 import { z } from "zod";
-
 import type { LiveWork } from "~/lib/step-work";
-import type { WorkspaceState } from "~/model/connection";
+import { RunRecordSchema } from "~/lib/workflow-runs";
+import type { RunListQuery, WorkspaceState } from "~/model/connection";
 import type { LiveRun } from "~/model/dashboard";
 
 export const PROTOCOL = 1;
@@ -146,7 +145,6 @@ export type HelloResult = z.infer<typeof helloResultSchema>;
 const setupDraftSchema = z.object({
   instructions: z.string(),
   name: z.string(),
-  template: z.string(),
 });
 export type SetupDraftParams = z.infer<typeof setupDraftSchema>;
 
@@ -177,6 +175,25 @@ export const workspaceSummarySchema = z.object({
   state: z.enum(WORKSPACE_STATES as [WorkspaceState, ...WorkspaceState[]]),
 });
 
+export const runListQuerySchema: z.ZodType<RunListQuery> = z.strictObject({
+  cursor: z.int().min(0).optional(),
+  kind: z.enum(["agent", "workflow"]).optional(),
+  limit: z.int().min(1).optional(),
+  name: z.string().optional(),
+  status: z
+    .array(
+      z.enum([
+        "queued",
+        "running",
+        "suspended",
+        "completed",
+        "failed",
+        "cancelled",
+      ])
+    )
+    .optional(),
+});
+
 export const WORKSPACE_PREFIX = "workspace.";
 
 export const WORKSPACE_METHODS = {
@@ -189,6 +206,7 @@ export const WORKSPACE_METHODS = {
   dispatchWorkflow: "dispatchWorkflow",
   getRun: "getRun",
   launch: "launch",
+  listRuns: "listRuns",
   pause: "pause",
   resume: "resume",
   roll: "roll",
@@ -210,17 +228,16 @@ export const GENERATION_NOTIFICATIONS = {
   handed: "handed",
   line: "line",
   read: "read",
-  released: "released",
 } as const;
 
 export const GENERATION_METHODS = {
-  adopt: "adopt",
   host: "host",
   liveWork: "liveWork",
   load: "load",
   retire: "retire",
   start: "start",
   stop: "stop",
+  takeHanded: "takeHanded",
   takeQueued: "takeQueued",
   unhost: "unhost",
 } as const;
@@ -296,7 +313,7 @@ export const readParamsSchema = z.object({
   root: z.string(),
 });
 
-export const releasedParamsSchema = z.object({
+export const handedParamsSchema = z.object({
   id: z.string(),
   runId: z.string(),
 });

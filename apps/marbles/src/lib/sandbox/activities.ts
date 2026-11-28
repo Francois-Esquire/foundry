@@ -1,10 +1,10 @@
-import { createHash } from "node:crypto";
 import type {
   HarnessActivityEvent,
   HarnessSession,
 } from "@foundry/agents/harness";
 import { z } from "zod";
 import type { FeedPublisher } from "~/lib/feed/publish";
+import { sha256HexSync } from "~/lib/hash";
 import { wrapSession } from "./wrapped-session";
 
 const sourceSchema = z.object({
@@ -214,10 +214,8 @@ export class HarnessActivities {
   }
 
   #key({ event, source }: ActivityRecord): string {
-    return createHash("sha256")
-      .update(
-        JSON.stringify([source.runId, source.path, event.sessionId, event.id])
-      )
-      .digest("hex");
+    return sha256HexSync(
+      JSON.stringify([source.runId, source.path, event.sessionId, event.id])
+    );
   }
 }

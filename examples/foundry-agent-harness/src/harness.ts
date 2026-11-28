@@ -6,12 +6,12 @@ import {
   tasks,
 } from "@foundry.sh/marbles";
 import {
-  ArtifactManager,
+  Artifacts,
   claudeCodeProvider,
   Engine,
-  InMemoryArtifactStore,
-  InMemorySessionStore,
-  ModelManager,
+  MemoryArtifactStore,
+  MemorySessionStore,
+  Models,
 } from "@foundry.sh/marbles/lib";
 import { file, Glob } from "bun";
 import { initLogger } from "evlog";
@@ -109,7 +109,7 @@ function equip({ effort, model }: Loadout) {
     artifacts,
     askable: false,
     containers: () => Promise.reject(new Error("no sandbox runtime here")),
-    models: new ModelManager({
+    models: new Models({
       providers: [
         claudeCodeProvider({
           config: {
@@ -132,7 +132,7 @@ function equip({ effort, model }: Loadout) {
       ],
     }),
     root,
-    sessions: new InMemorySessionStore(),
+    sessions: new MemorySessionStore(),
     workspaceId: "foundry-agent-harness",
   });
   return { engine, working: engine.agents.session(worker) };
@@ -140,7 +140,7 @@ function equip({ effort, model }: Loadout) {
 
 type Equipped = ReturnType<typeof equip>;
 
-const artifacts = new ArtifactManager({ store: new InMemoryArtifactStore() });
+const artifacts = new Artifacts({ store: new MemoryArtifactStore() });
 const equipped = new Map<string, Equipped>();
 
 function pairing({ effort, model }: Loadout): string {

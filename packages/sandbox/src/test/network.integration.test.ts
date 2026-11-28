@@ -1,9 +1,6 @@
 import { expect, it } from "vitest";
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
-import {
-  provisionContainerSandbox,
-  startContainerSandbox,
-} from "../container/sandbox";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
+import { bootGuest } from "./helpers/guest";
 
 const request = (url: string) => [
   "bun",
@@ -20,24 +17,21 @@ const request = (url: string) => [
 ];
 
 it("allows an exact HTTPS destination and denies another hostname and port", async () => {
-  const runtime = createMicrosandboxRuntime();
-  await using sandbox = await startContainerSandbox(
-    await provisionContainerSandbox(
-      {
-        image: "docker.io/oven/bun:1-slim",
-        network: { destinations: [{ host: "example.com" }], mode: "allowlist" },
-      },
-      { runtime }
-    )
-  );
-  const allowed = await sandbox.exec(request("https://example.com"));
+  const runtime = createMicrosandboxDriver();
+  await using sandbox = await bootGuest(runtime, {
+    image: "docker.io/oven/bun:1-slim",
+    network: { destinations: [{ host: "example.com" }], mode: "allowlist" },
+  });
+  const allowed = await sandbox.commands.exec(request("https://example.com"));
   expect(allowed.exitCode, allowed.stderr).toBe(0);
   expect(Number(allowed.stdout.trim())).toBe(200);
-  const deniedHost = await sandbox.exec(request("https://example.net"));
+  const deniedHost = await sandbox.commands.exec(
+    request("https://example.net")
+  );
   expect(deniedHost.exitCode).toBe(1);
-  const deniedPort = await sandbox.exec(request("http://example.com"));
+  const deniedPort = await sandbox.commands.exec(request("http://example.com"));
   expect(deniedPort.exitCode).toBe(1);
-  const mismatchedAuthority = await sandbox.exec([
+  const mismatchedAuthority = await sandbox.commands.exec([
     "bun",
     "-e",
     `
@@ -52,13 +46,10 @@ it("allows an exact HTTPS destination and denies another hostname and port", asy
 }, 120_000);
 
 it("denies guest egress when no network choice is supplied", async () => {
-  await using sandbox = await startContainerSandbox(
-    await provisionContainerSandbox(
-      {
-        image: "docker.io/oven/bun:1-slim",
-      },
-      { runtime: createMicrosandboxRuntime() }
-    )
-  );
-  expect((await sandbox.exec(request("https://example.com"))).exitCode).toBe(1);
+  await using sandbox = await bootGuest(createMicrosandboxDriver(), {
+    image: "docker.io/oven/bun:1-slim",
+  });
+  expect(
+    (await sandbox.commands.exec(request("https://example.com"))).exitCode
+  ).toBe(1);
 }, 120_000);

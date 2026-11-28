@@ -1,20 +1,42 @@
-import type { Blob, BlobFiles, BlobSource } from "./blob";
 import type {
+  BlobFiles,
   ByteInput,
+  ExternalBlobInput,
   ReferenceInput,
   StagedBytes,
   StagedChunk,
 } from "./blob-staging";
-import { BlobStaging, checkSize } from "./blob-staging";
+import { BlobStaging, CHUNK_BYTES, checkSize } from "./blob-staging";
 import type { ArtifactChange } from "./change";
-import { CHUNK_BYTES } from "./constants";
 import { InvalidArtifactInputError } from "./errors";
-import type { BlobId } from "./ref";
-import { blobIdSchema } from "./ref";
+import type { BlobId } from "./ids";
+import { blobIdSchema } from "./ids";
+import type { Blob, BlobSource } from "./schema";
 
 export type { ByteInput, ReferenceInput } from "./blob-staging";
 // biome-ignore lint/performance/noBarrelFile: A compatibility re-export at the path consumers imported it from.
 export { isReferenceInput } from "./blob-staging";
+
+const SHA256_DIGEST = /^[a-f0-9]{64}$/;
+const NUL_FREE_NONEMPTY = /^[^\0]+$/;
+const PATH_SEGMENTS = /[\\/]/;
+
+function isValidExternalPath(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const trimmed = value.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed !== value ||
+    !NUL_FREE_NONEMPTY.test(value) ||
+    value.startsWith("/") ||
+    value.startsWith("\\")
+  ) {
+    return false;
+  }
+  return !value.split(PATH_SEGMENTS).includes("..");
+}
 
 export interface BlobEffects {
   readonly published: Set<string>;
@@ -99,7 +121,9 @@ export async function* readBlob(
 export class BlobRepository implements BlobReader {
   readonly files: BlobFiles | undefined;
   readonly #change: ArtifactChange;
+  readonly #clock: () => Date;
   readonly #effects: BlobEffects;
+  readonly #id: () => string;
   readonly #maxFileBytes: number;
   readonly #staging: BlobStaging;
 
@@ -107,13 +131,17 @@ export class BlobRepository implements BlobReader {
     change: ArtifactChange,
     effects: BlobEffects,
     options: {
+      readonly clock?: () => Date;
       readonly files?: BlobFiles;
+      readonly id?: () => string;
       readonly maxFileBytes: number;
       readonly staging?: BlobStaging;
     }
   ) {
     this.#change = change;
+    this.#clock = options.clock ?? (() => new Date());
     this.#effects = effects;
+    this.#id = options.id ?? (() => crypto.randomUUID());
     this.files = options.files;
     this.#maxFileBytes = options.maxFileBytes;
     this.#staging = options.staging ?? new BlobStaging(options);
@@ -125,6 +153,54 @@ export class BlobRepository implements BlobReader {
 
   read(blob: Blob, start: number, end: number): AsyncIterable<Uint8Array> {
     return readBlob(blob, start, end, this);
+  }
+
+  checkExternal(path: string, input: ExternalBlobInput): void {
+    checkSize(path, input.bytes, this.#maxFileBytes);
+    if (!isValidExternalPath(input.path)) {
+      throw new InvalidArtifactInputError(
+        "path",
+        "External blob path must be a valid non-empty storage key without traversal"
+      );
+    }
+    if (!SHA256_DIGEST.test(input.digest)) {
+      throw new InvalidArtifactInputError(
+        "digest",
+        "External blob digest must be a 64-character lowercase SHA-256 hex string"
+      );
+    }
+  }
+
+  async attach(path: string, input: ExternalBlobInput): Promise<Blob> {
+    this.checkExternal(path, input);
+    const existingByPath = await this.#change.findBlobByPath(input.path);
+    if (existingByPath !== null) {
+      if (
+        existingByPath.digest === input.digest &&
+        existingByPath.byteLength === input.bytes
+      ) {
+        this.#effects.retired.delete(input.path);
+        return existingByPath;
+      }
+      throw new Error("Blob backing path already belongs to another blob");
+    }
+    const existingByDigest = await this.#change.findBlob(input.digest);
+    if (existingByDigest?.byteLength === input.bytes) {
+      if (existingByDigest.path !== undefined) {
+        this.#effects.retired.delete(existingByDigest.path);
+      }
+      return existingByDigest;
+    }
+    const blob: Blob = {
+      byteLength: input.bytes,
+      createdAt: this.#clock(),
+      digest: input.digest,
+      id: blobIdSchema.parse(this.#id()),
+      path: input.path,
+    };
+    await this.#change.putBlob(blob);
+    this.#effects.retired.delete(input.path);
+    return blob;
   }
 
   async resolve(path: string, input: ReferenceInput): Promise<Blob> {
@@ -186,9 +262,9 @@ export class BlobRepository implements BlobReader {
           };
     const blob: Blob = {
       byteLength: staged.byteLength,
-      createdAt: previous?.createdAt ?? new Date(),
+      createdAt: previous?.createdAt ?? this.#clock(),
       digest,
-      id: previous?.id ?? blobIdSchema.parse(crypto.randomUUID()),
+      id: previous?.id ?? blobIdSchema.parse(this.#id()),
       ...stored,
     };
     await this.#change.putBlob(blob);
@@ -217,9 +293,9 @@ export class BlobRepository implements BlobReader {
     }
     const blob: Blob = {
       byteLength: chunk.byteLength,
-      createdAt: new Date(),
+      createdAt: this.#clock(),
       digest: chunk.digest,
-      id: blobIdSchema.parse(crypto.randomUUID()),
+      id: blobIdSchema.parse(this.#id()),
       ...(await this.#place(chunk)),
     };
     await this.#change.putBlob(blob);

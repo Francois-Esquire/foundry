@@ -1,11 +1,10 @@
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import { agent, artifact } from "~/authoring/resources";
 import type { Engine } from "~/lib/engine";
 
@@ -23,7 +22,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await engine?.dispose();
   engine = undefined;
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -109,14 +107,13 @@ describe("the managers on the engine", () => {
   it("starts a sandbox the caller closes, over the containers it was handed", async () => {
     const commands: string[][] = [];
     const containers = createContainers({
-      allowedMountRoots: [root],
-      instanceLabel: "direct",
-      runtime: createFakeContainerRuntime({
+      driver: createFakeDriver({
         exec: (command) => {
           commands.push([...command]);
           return { exitCode: 0, stderr: "", stdout: "ok" };
         },
       }),
+      instanceLabel: "direct",
       store: new MemoryContainerStore(),
     });
     engine = testEngine({ containers, root });

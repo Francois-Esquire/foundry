@@ -8,7 +8,7 @@ description: Write, extend, or fix TypeScript automation modules for @foundry.sh
 Marbles loads TypeScript automation modules from `.foundry/marbles/` in
 an ordinary project. Modules register steps, workflows, and triggers through
 `@foundry.sh/marbles`; exports are optional and useful for sharing definitions.
-The standalone CLI runs one target with `marbles roll <name>` or keeps the
+The standalone CLI runs one target with `marbles run <name>` or keeps the
 dashboard and triggers active with `marbles`.
 
 Read `references/api.md` before writing a config for the first time in a
@@ -66,22 +66,22 @@ one before it, so writing them in order keeps types flowing forward.
    result takes it as a child: `review({ branch: implement({}, { task }) })`.
    Siblings never talk to each other. A tree with children cannot be
    scheduled directly; wrap it: `workflow("weekly", tree)`. A workflow is a
-   definition too: `weekly({})` locks it, which is what a monitor handler
-   returns to launch it. A workflow is only ever a root, never a child.
+   definition too: `weekly({})` locks it, which can be returned by a monitor
+   handler or locked as a child inside another workflow.
 6. **Add triggers last.** `schedule(weekly).at({ weekday: "fri", hour: 16 })`,
    `schedule(review({}, { target: "packages" })).every("6h")`,
    `monitor("docs/**/*.md").do(…)`, `monitor("https://…").every("5m").do(…)`.
    A monitor handler that returns a locked node starts it.
 7. **Verify by loading.** Run the two commands below and read the output.
    `list` loads the config and prints every named step, workflow, schedule
-   key, and monitor key; no step body runs. `roll` runs one of them, and
+   key, and monitor key; no step body runs. `run` runs one of them, and
    `--dry-run` changes only what Marbles owns: agent turns, git mutations through
    `workspaces`, and sandbox commands are echoed instead of executed, and
    nothing is written under `~/.foundry`. The step bodies themselves still
    execute, so a raw `fetch`, a file write, or a child process in a body
-   happens for real. Read the bodies before running `roll` on a config you
+   happens for real. Read the bodies before running `run` on a config you
    did not write.
-   Under `--dry-run`, `roll` has nobody to answer an `ask`: when a run
+   Under `--dry-run`, `run` has nobody to answer an `ask`: when a run
    reaches one it prints the cancellation reason and exits 1. That is the
    expected end of a dry run with an approval in it, not a bug in the
    config. Everything up to the ask ran; to go past it, open the dashboard
@@ -89,7 +89,7 @@ one before it, so writing them in order keeps types flowing forward.
 
 ```sh
 marbles --dry-run list
-marbles --dry-run roll <name-or-key>
+marbles --dry-run run <name-or-key>
 ```
 
 The Marbles process reloads a workspace when its modules change. Load
@@ -100,7 +100,7 @@ Use the keys `list` prints. A schedule's key is derived from its target and
 input (`review-1becafa2`), a monitor's from its source (`docs-md-64d1e2`).
 Never guess them.
 
-Reading `--dry-run` output: `roll` labels steps by their path in the tree
+Reading `--dry-run` output: `run` labels steps by their path in the tree
 (`weekly.findings`, `ship.decision.review.branch`), not by definition name,
 so choose child keys that read well in a log. Agent turns are echoed as
 `[provider/model] in <dir> <prompt>` and `generate().text` is that echo, so a
@@ -113,7 +113,7 @@ never runs under `--dry-run`; test it by forcing the value once. Reports and
 artifacts are recorded (a version id is returned) but not echoed. Nothing is
 written under `~/.foundry`.
 
-To exercise a monitor's handler, run `roll <monitor-key>`. With no stored
+To exercise a monitor's handler, run `marbles run <monitor-key>`. With no stored
 baseline every matching file arrives as `added` (or the first HTTP body
 counts as a change), so the handler runs and anything it launches is
 started, all echoed.
@@ -135,11 +135,11 @@ why they exist lets you design around them instead of hitting them.
   launches only what its handler *returns as a lock*: `ship({}, { task })`
   or `nightly({})`. A bare definition returned is ignored.
 - **An `ask` needs the dashboard.** Only a process that can show the question
-  parks the run: a worker of the Marbles process parks it for a dashboard to
+  suspends the run: a worker of the Marbles process suspends it for a dashboard to
   answer, while `--dry-run` cancels it at the ask instead.
   Design flows with approvals to be launched from the dashboard, or by a
   schedule or monitor while the dashboard is open.
-- **Bodies replay.** Resuming an `ask` or pause, including an adopted parked
+- **Bodies replay.** Resuming an `ask` or pause, including an adopted suspended
   run after restart, replays the unfinished body from the top. Calls to
   `agents.session`, `sandboxes.start`, and `ask.*`
   are numbered by order and return the recorded thing on replay, so keep them
@@ -154,7 +154,7 @@ why they exist lets you design around them instead of hitting them.
 - **Finished results are reused within a run.** A new launch starts fresh
   work. Sessions, artifacts, and trigger observations have their own
   persistent stores. The CLI saves run snapshots at suspension, resumption,
-  and settlement, and adopts only parked runs after restart; progress
+  and settlement, and adopts only suspended runs after restart; progress
   newer than the last saved snapshot may be lost.
 - **Retries are built in and opt in.** Configure the step with
   `.config({ retry: { maxAttempts: 3 } })` when its effects can safely repeat.
@@ -237,4 +237,4 @@ The error text is the diagnosis. The common ones:
 
 Building the `@foundry.sh/marbles` library itself, the dashboard, or operating
 system service setup. Schedules and monitors run while Marbles stays open;
-`marbles roll <key>` runs one tick and exits.
+`marbles run <key>` runs one tick and exits.

@@ -1,23 +1,19 @@
 import { describe, expect, test } from "vitest";
+import type { WorkspaceCatalogChange, WorkspaceChange } from "../catalog";
 import { WorkspaceCatalog } from "../catalog";
+import type { WorkspaceEntry, WorkspaceFile } from "../schema";
 import { workspaceEventSchema } from "../schema";
 import type { WorkspaceStore, WorkspaceStoreWrite } from "../store";
 import { MemoryWorkspaceStore } from "../store/memory";
 import {
-  artifactWorkspace,
   directoryRecord,
   fileRecord,
   hostWorkspace,
   newRoot,
   newWorkspaceEntryId,
   newWorkspaceId,
+  otherSourceWorkspace,
 } from "../testing/records";
-import type {
-  WorkspaceCatalogChange,
-  WorkspaceChange,
-  WorkspaceEntry,
-  WorkspaceFile,
-} from "../types";
 import { interceptCommits } from "./helpers/commits";
 
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -101,13 +97,13 @@ describe("WorkspaceCatalog", () => {
   test("resolves a second Workspace over one source reference to the first", async () => {
     const { catalog } = fixture();
     const artifactId = crypto.randomUUID();
-    const first = artifactWorkspace(artifactId, newRoot("first"));
+    const first = otherSourceWorkspace(artifactId, newRoot("first"));
     await catalog.create({ entries: [], workspace: first });
 
     expect(
       await catalog.create({
         entries: [],
-        workspace: artifactWorkspace(artifactId, newRoot("second")),
+        workspace: otherSourceWorkspace(artifactId, newRoot("second")),
       })
     ).toEqual({ existingId: first.id, kind: "workspace-exists" });
   });
@@ -116,15 +112,15 @@ describe("WorkspaceCatalog", () => {
     const { catalog } = fixture();
     const sharedSourceId = crypto.randomUUID();
     const contestedRoot = newRoot("contested");
-    const byReference = artifactWorkspace(sharedSourceId, newRoot("first"));
-    const byRoot = artifactWorkspace(crypto.randomUUID(), contestedRoot);
+    const byReference = otherSourceWorkspace(sharedSourceId, newRoot("first"));
+    const byRoot = otherSourceWorkspace(crypto.randomUUID(), contestedRoot);
     await catalog.create({ entries: [], workspace: byReference });
     await catalog.create({ entries: [], workspace: byRoot });
 
     expect(
       await catalog.create({
         entries: [],
-        workspace: artifactWorkspace(sharedSourceId, contestedRoot),
+        workspace: otherSourceWorkspace(sharedSourceId, contestedRoot),
       })
     ).toEqual({ existingId: byRoot.id, kind: "workspace-exists" });
   });
@@ -768,5 +764,107 @@ describe("WorkspaceCatalog create over a registered id", () => {
     expect(intercept).not.toHaveBeenCalled();
     expect(published).toEqual([]);
     expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
+  });
+});
+
+describe("WorkspaceCatalog countFiles and listEntriesPage", () => {
+  test("countFiles uses countEntries without scanning listEntries when available", async () => {
+    const base = new MemoryWorkspaceStore();
+    const workspace = hostWorkspace({ path: newRoot("count-direct") });
+    await base.commit({
+      putEntries: [
+        directoryRecord(workspace.id, "docs"),
+        fileRecord(workspace.id, { path: "a.md" }),
+        fileRecord(workspace.id, { path: "docs/b.md" }),
+      ],
+      workspace,
+    });
+    let listed = 0;
+    const store: WorkspaceStore = {
+      commit: (write) => base.commit(write),
+      countEntries: (id, query) => base.countEntries(id, query),
+      findWorkspaceByPath: (path) => base.findWorkspaceByPath(path),
+      findWorkspaceBySourceId: (sourceId) =>
+        base.findWorkspaceBySourceId(sourceId),
+      getEntry: (id, entryId) => base.getEntry(id, entryId),
+      getWorkspace: (id) => base.getWorkspace(id),
+      listEntries: (id) => {
+        listed += 1;
+        return base.listEntries(id);
+      },
+      listEntriesPage: (id, input) => base.listEntriesPage(id, input),
+      listWorkspaces: (input) => base.listWorkspaces(input),
+    };
+    const catalog = new WorkspaceCatalog(store, () => undefined);
+
+    expect(await catalog.countFiles(workspace.id)).toBe(2);
+    expect(listed).toBe(0);
+    const page = await catalog.listEntriesPage(workspace.id, {
+      limit: 1,
+      type: "file",
+    });
+    expect(page.items).toHaveLength(1);
+    expect(page.total).toBe(2);
+    expect(page.nextCursor).toBe(1);
+    expect(listed).toBe(0);
+  });
+
+  test("countFiles falls back to listEntriesPage and then listEntries for minimal stores", async () => {
+    const base = new MemoryWorkspaceStore();
+    const workspace = hostWorkspace({ path: newRoot("count-fallback") });
+    await base.commit({
+      putEntries: [
+        directoryRecord(workspace.id, "docs"),
+        fileRecord(workspace.id, { path: "a.md" }),
+        fileRecord(workspace.id, { path: "docs/b.md" }),
+      ],
+      workspace,
+    });
+
+    let listedOnPaged = 0;
+    const pagedOnly: WorkspaceStore = {
+      commit: (write) => base.commit(write),
+      findWorkspaceByPath: (path) => base.findWorkspaceByPath(path),
+      findWorkspaceBySourceId: (sourceId) =>
+        base.findWorkspaceBySourceId(sourceId),
+      getEntry: (id, entryId) => base.getEntry(id, entryId),
+      getWorkspace: (id) => base.getWorkspace(id),
+      listEntries: (id) => {
+        listedOnPaged += 1;
+        return base.listEntries(id);
+      },
+      listEntriesPage: async (id, input) => {
+        const page = await base.listEntriesPage(id, input);
+        return {
+          items: page.items,
+          ...(page.nextCursor === undefined
+            ? {}
+            : { nextCursor: page.nextCursor }),
+        };
+      },
+      listWorkspaces: (input) => base.listWorkspaces(input),
+    };
+    expect(
+      await new WorkspaceCatalog(pagedOnly, () => undefined).countFiles(
+        workspace.id
+      )
+    ).toBe(2);
+    expect(listedOnPaged).toBe(0);
+
+    const minimal: WorkspaceStore = {
+      commit: (write) => base.commit(write),
+      findWorkspaceByPath: (path) => base.findWorkspaceByPath(path),
+      findWorkspaceBySourceId: (sourceId) =>
+        base.findWorkspaceBySourceId(sourceId),
+      getEntry: (id, entryId) => base.getEntry(id, entryId),
+      getWorkspace: (id) => base.getWorkspace(id),
+      listEntries: (id) => base.listEntries(id),
+      listWorkspaces: (input) => base.listWorkspaces(input),
+    };
+    const minimalCatalog = new WorkspaceCatalog(minimal, () => undefined);
+    expect(await minimalCatalog.countFiles(workspace.id)).toBe(2);
+    expect(
+      (await minimalCatalog.listEntriesPage(workspace.id, { limit: 1 })).items
+    ).toHaveLength(1);
   });
 });

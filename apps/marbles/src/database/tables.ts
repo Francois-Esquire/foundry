@@ -5,7 +5,6 @@ import {
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
-import { RESOURCE_KINDS } from "../lib/resources";
 
 export const marblesWorkspaces = sqliteTable("marbles_workspaces", {
   config: text(),
@@ -80,35 +79,11 @@ export const marblesWorkflowRuns = sqliteTable(
     literals: text({ mode: "json" })
       .$type<Record<string, Record<string, unknown>>>()
       .notNull(),
-    ownerId: text("owner_id"),
-    ownerPid: integer("owner_pid"),
-    ownerStarted: text("owner_started"),
     runId: text("run_id").notNull(),
     scope: text().notNull(),
     sessionId: text("session_id"),
   },
-  (table) => [
-    primaryKey({ columns: [table.scope, table.runId] }),
-    index("marbles_workflow_runs_scope_owner").on(table.scope, table.ownerId),
-  ]
-);
-
-export const marblesScheduleTicks = sqliteTable(
-  "marbles_schedule_ticks",
-  {
-    key: text().notNull(),
-    kind: text({ enum: ["schedule", "monitor"] }),
-    label: text(),
-    lastFinish: text("last_finish"),
-    lastStart: text("last_start"),
-    lastStatus: text("last_status", { enum: ["complete", "failed"] }),
-    nextDue: text("next_due"),
-    ownerId: text("owner_id"),
-    ownerPid: integer("owner_pid"),
-    ownerStarted: text("owner_started"),
-    scope: text().notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.scope, table.key] })]
+  (table) => [primaryKey({ columns: [table.scope, table.runId] })]
 );
 
 export const marblesMonitorStates = sqliteTable(
@@ -167,37 +142,13 @@ export const marblesAutomations = sqliteTable(
 export const marblesExecutions = sqliteTable(
   "marbles_executions",
   {
-    correlation: text({ mode: "json" })
-      .$type<Record<string, string>>()
-      .notNull(),
-    errorCode: text("error_code"),
-    errorMessage: text("error_message"),
     id: text().notNull(),
-    input: text(),
-    kind: text({ enum: ["workflow", "task"] }).notNull(),
-    name: text().notNull(),
-    ownerPid: integer("owner_pid").notNull(),
-    ownerStarted: text("owner_started"),
     progress: text(),
-    queue: text().notNull(),
-    queuedAt: text("queued_at").notNull(),
-    revision: integer().notNull(),
+    revision: integer().notNull().default(0),
     scope: text().notNull(),
-    sequence: integer().notNull(),
-    settledAt: text("settled_at"),
-    source: text(),
-    startedAt: text("started_at"),
-    status: text().notNull(),
     updatedAt: text("updated_at").notNull(),
   },
-  (table) => [
-    primaryKey({ columns: [table.scope, table.id] }),
-    index("marbles_executions_scope_source").on(
-      table.scope,
-      table.name,
-      table.source
-    ),
-  ]
+  (table) => [primaryKey({ columns: [table.scope, table.id] })]
 );
 
 export const marblesExecutionObservations = sqliteTable(
@@ -250,19 +201,6 @@ export const marblesIdentityKeys = sqliteTable("marbles_identity_keys", {
   key: text().notNull(),
 });
 
-export const marblesAgentGrants = sqliteTable("marbles_agent_grants", {
-  grants: text().notNull(),
-  scope: text().primaryKey(),
-});
-
-export const marblesDeferredApprovals = sqliteTable(
-  "marbles_deferred_approvals",
-  {
-    approvals: text({ mode: "json" }).$type<unknown>().notNull(),
-    scope: text().primaryKey(),
-  }
-);
-
 export const marblesHarnessActivities = sqliteTable(
   "marbles_harness_activities",
   {
@@ -280,26 +218,6 @@ export const marblesDeliveryClaims = sqliteTable("marbles_delivery_claims", {
   ownerStarted: text("owner_started"),
   scope: text().primaryKey(),
 });
-
-export const marblesResourceWorkspaces = sqliteTable(
-  "marbles_resource_workspaces",
-  {
-    associatedAt: text("associated_at").notNull(),
-    kind: text({ enum: RESOURCE_KINDS }).notNull(),
-    owner: text().notNull(),
-    resourceId: text("resource_id").notNull(),
-    workspace: text().notNull(),
-  },
-  (table) => [
-    primaryKey({
-      columns: [table.owner, table.kind, table.resourceId, table.workspace],
-    }),
-    index("marbles_resource_workspaces_kind_workspace").on(
-      table.kind,
-      table.workspace
-    ),
-  ]
-);
 
 export const marblesRecoveries = sqliteTable("marbles_recoveries", {
   at: text().notNull(),

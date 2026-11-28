@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import type { ContainerRow, SandboxEvent } from "../schema";
 import type { ContainerStore } from "../store/index";
+import type { ContainerRow, SandboxEvent } from "../store/schema";
 
 export type ScopedContainerStores = (scope: string) => ContainerStore;
 
@@ -318,7 +317,7 @@ export function describeContainerStore(
       const after = row("c2", {
         createdAt: 1_700_000_000_000,
         nativeId: "c2-1",
-        spec: '{"format":"foundry.sandbox.container/1","env":{"A":"é ✓ 𝄞"}}',
+        spec: '{"env":{"A":"é ✓ 𝄞"}}',
         status: "running",
         updatedAt: 1_700_000_000_000.5,
       });

@@ -1,9 +1,9 @@
 import { useKeyboard } from "@opentui/react";
 import { useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { workspaceDetails, workspaceRows } from "~/cli/state/dashboard-rows";
 import { WorkspacesPanel } from "~/components/blocks/workspaces-panel";
 import type { WorkspaceSummary } from "~/model/connection";
+import { workspaceDetails, workspaceRows } from "~/tui/state/dashboard-rows";
 import { ignore, renderFrame } from "../frame";
 import { workspaceSummaries } from "./fixtures-b";
 

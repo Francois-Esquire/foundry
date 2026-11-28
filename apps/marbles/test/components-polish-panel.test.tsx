@@ -1,10 +1,10 @@
 import { useKeyboard } from "@opentui/react";
 import { act, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import { settingsView } from "../src/cli/theme";
 import { SettingsBlock } from "../src/components/blocks/settings-panel";
 import { cellWidth } from "../src/components/ui/cells";
 import { Panel } from "../src/components/ui/panel";
+import { settingsView } from "../src/tui/theme";
 import {
   flush,
   frameWith,

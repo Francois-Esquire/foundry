@@ -5,12 +5,15 @@ import type { InstallationId, ModuleId } from "../domain";
 import type { ModuleManifest } from "../manifest";
 import type {
   Installation,
-  InstallationGrant,
   Module,
   StoredInstallation,
   StoredManifest,
-} from "../schema";
-import type { ModuleStore, ModuleStorePage, ModuleStoreWrite } from "../store";
+} from "../records";
+import type {
+  ModuleStore,
+  ModuleStorePage,
+  ModuleStoreWrite,
+} from "../store/index";
 
 export type ScopedModuleStores = (scope: string) => ModuleStore;
 
@@ -57,7 +60,6 @@ export function describeModuleStore(
       const tasks = module("tasks");
       const retained = manifest("content-1", tasks);
       const running = installation("running", tasks, {
-        grants: [grant("host.files.read"), grant("host.network.fetch")],
         installation: {
           containerId: "container-1",
           createdAt: new Date("2026-11-01T00:00:00.001Z"),
@@ -84,7 +86,6 @@ export function describeModuleStore(
       const read = await target.getInstallation(running.installation.id);
       expect(read).toEqual(running);
       expect(read?.installation.createdAt).toBeInstanceOf(Date);
-      expect(read?.grants[0]?.createdAt).toBeInstanceOf(Date);
       expect(read?.installation.updatedAt.getTime()).toBe(8.64e15);
       expect(await target.getInstallation(idle.installation.id)).toEqual(idle);
       expect(await held(target)).toEqual({
@@ -244,7 +245,7 @@ export function describeModuleStore(
       const kept = module("kept");
       await target.commit({ putModules: [kept] });
       const before = await held(target);
-      const hidden = { grants: [] } as unknown as StoredInstallation;
+      const hidden = {} as unknown as StoredInstallation;
       Object.defineProperty(hidden, "installation", {
         enumerable: false,
         value: installation("hidden", kept).installation,
@@ -287,18 +288,6 @@ export function describeModuleStore(
             ],
           },
           "putInstallations[0].installation.updatedAt must be a Date",
-        ],
-        [
-          {
-            putInstallations: [
-              installation("i", kept, {
-                grants: [
-                  Object.create(grant("inherited")) as InstallationGrant,
-                ],
-              }),
-            ],
-          },
-          "putInstallations[0].grants[0] must be a plain object",
         ],
         [
           { putManifests: [manifest("m", kept, { when: new Date(0) })] },
@@ -358,7 +347,7 @@ export function describeModuleStore(
     test("reads are detached from the store", async () => {
       const target = await store();
       const a = module("a");
-      const stored = installation("a", a, { grants: [grant("host.read")] });
+      const stored = installation("a", a);
       const retained = manifest("a", a, { nested: { list: ["x"] } });
       await target.commit({
         putInstallations: [stored],
@@ -373,8 +362,6 @@ export function describeModuleStore(
       );
       mutable(readInstallation.installation).generation = 99;
       readInstallation.installation.createdAt.setTime(0);
-      (readInstallation.grants as InstallationGrant[]).push(grant("extra"));
-      readInstallation.grants[0]?.createdAt.setTime(0);
       const readManifest = mutable(
         await target.getManifest(retained.contentId)
       );
@@ -584,6 +571,92 @@ export function describeModuleStore(
       );
     });
 
+    test("paginates modules and installations by id when listModulesPage and listInstallationsPage are implemented", async () => {
+      const target = await store();
+      const [alpha, beta, gamma] = [
+        module("beta", "shared"),
+        module("alpha", "shared"),
+        module("gamma", "other"),
+      ];
+      await target.commit({
+        putInstallations: [
+          installation("i-3", alpha),
+          installation("i-1", beta),
+          installation("i-2", alpha),
+        ],
+        putModules: [alpha, beta, gamma],
+      });
+
+      const expectOptionalTotal = (
+        actual: number | undefined,
+        expected: number
+      ) => {
+        if (actual !== undefined) {
+          expect(actual).toBe(expected);
+        }
+      };
+
+      if (target.listModulesPage !== undefined) {
+        const page1 = await target.listModulesPage({ limit: 2 });
+        expect(page1.items).toEqual([beta, alpha]);
+        expect(page1.nextCursor).toBe(alpha.id);
+        expectOptionalTotal(page1.total, 3);
+        const page2 = await target.listModulesPage({
+          cursor: page1.nextCursor,
+          limit: 2,
+        });
+        expect(page2.items).toEqual([gamma]);
+        expect(page2.nextCursor).toBeUndefined();
+        expectOptionalTotal(page2.total, 3);
+        const shared = await target.listModulesPage({
+          artifactId: artifactId("shared"),
+        });
+        expect(shared.items).toEqual([beta, alpha]);
+        expect(shared.nextCursor).toBeUndefined();
+        expectOptionalTotal(shared.total, 2);
+        await expect(
+          target.listModulesPage({ cursor: "missing" })
+        ).rejects.toThrow(RangeError);
+        await expect(target.listModulesPage({ limit: 0 })).rejects.toThrow(
+          RangeError
+        );
+      }
+
+      if (target.listInstallationsPage !== undefined) {
+        const page1 = await target.listInstallationsPage({ limit: 2 });
+        expect(page1.items.map((item) => item.installation.id)).toEqual([
+          "i-1",
+          "i-2",
+        ]);
+        expect(page1.nextCursor).toBe("i-2");
+        expectOptionalTotal(page1.total, 3);
+        const page2 = await target.listInstallationsPage({
+          cursor: page1.nextCursor,
+          limit: 2,
+        });
+        expect(page2.items.map((item) => item.installation.id)).toEqual([
+          "i-3",
+        ]);
+        expect(page2.nextCursor).toBeUndefined();
+        expectOptionalTotal(page2.total, 3);
+        const byModule = await target.listInstallationsPage({
+          limit: 1,
+          moduleId: alpha.id,
+        });
+        expect(byModule.items.map((item) => item.installation.id)).toEqual([
+          "i-2",
+        ]);
+        expect(byModule.nextCursor).toBe("i-2");
+        expectOptionalTotal(byModule.total, 2);
+        await expect(
+          target.listInstallationsPage({ cursor: "i-1", moduleId: alpha.id })
+        ).rejects.toThrow(RangeError);
+        await expect(
+          target.listInstallationsPage({ limit: 0 })
+        ).rejects.toThrow(RangeError);
+      }
+    });
+
     test("a list read refuses a limit or a cursor it could not honour alike", async () => {
       const target = await store();
       for (const limit of [0, -1, 1.5, Number.NaN, 2 ** 53]) {
@@ -685,8 +758,22 @@ export function describeModuleStore(
         getManifest: () => target.getManifest(contentId("a")),
         getModule: () => target.getModule(a.id),
         listInstallations: () => target.listInstallations({ limit: 1 }),
+        ...(target.listInstallationsPage === undefined
+          ? {}
+          : {
+              listInstallationsPage: () =>
+                target.listInstallationsPage?.({ limit: 1 }) ??
+                Promise.resolve({ items: [] }),
+            }),
         listManifests: () => target.listManifests(),
         listModules: () => target.listModules({ limit: 1 }),
+        ...(target.listModulesPage === undefined
+          ? {}
+          : {
+              listModulesPage: () =>
+                target.listModulesPage?.({ limit: 1 }) ??
+                Promise.resolve({ items: [] }),
+            }),
         transaction: () => transactionOf(target)(() => Promise.resolve()),
       };
       const { promise: ended, resolve: end } = Promise.withResolvers<void>();
@@ -703,7 +790,7 @@ export function describeModuleStore(
       });
       end();
 
-      expect(Object.keys(refusals)).toHaveLength(8);
+      expect(Object.keys(refusals)).toEqual(Object.keys(calls));
       for (const outcome of Object.values(refusals)) {
         expect(outcome).toMatch(REFUSAL);
       }
@@ -819,25 +906,14 @@ function manifest(
   };
 }
 
-function grant(capability: string): InstallationGrant {
-  return {
-    capability,
-    constraintsDigest: `digest-${capability}`,
-    createdAt: new Date("2026-11-01T00:00:00.123Z"),
-    version: 1,
-  };
-}
-
 function installation(
   id: string,
   owner: Module,
   overrides: {
-    readonly grants?: readonly InstallationGrant[];
     readonly installation?: Partial<Installation>;
   } = {}
 ): StoredInstallation {
   return {
-    grants: overrides.grants ?? [],
     installation: {
       containerId: null,
       contentId: contentId(`content-${id}`),
@@ -858,9 +934,7 @@ function callerWrite(owner: Module) {
     deleteInstallations: [] as InstallationId[],
     deleteManifests: [] as ContentId[],
     deleteModules: [] as ModuleId[],
-    putInstallations: [
-      installation("added", owner, { grants: [grant("host.read")] }),
-    ],
+    putInstallations: [installation("added", owner)],
     putManifests: [manifest("added", owner, { nested: { list: ["x"] } })],
     putModules: [{ ...owner }],
   } satisfies ModuleStoreWrite;
@@ -881,8 +955,6 @@ function scramble(write: ReturnType<typeof callerWrite>): void {
   for (const put of write.putInstallations) {
     mutable(put.installation).status = "failed";
     put.installation.createdAt.setTime(0);
-    put.grants[0]?.createdAt.setTime(0);
-    (put.grants as InstallationGrant[]).push(grant("late"));
   }
   for (const put of write.putManifests) {
     nestedList(put.manifest).push("changed");

@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
 import {
   resolveSelection,
   runSelection,
   selectionKey,
   triggerSelection,
-} from "../src/cli/state/dashboard-model";
-import { scopedRuns } from "../src/cli/state/dashboard-tree";
-import { showsOthers, workspaceScoped } from "../src/cli/state/workspace-scope";
+} from "../src/tui/state/dashboard-model";
+import { scopedRuns } from "../src/tui/state/dashboard-tree";
+import { showsOthers, workspaceScoped } from "../src/tui/state/workspace-scope";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 
-const [first, second] = dashboardSnapshot.runs;
+const [first] = dashboardSnapshot.runs;
 const [trigger] = dashboardSnapshot.triggers;
-if (first === undefined || second === undefined || trigger === undefined) {
-  throw new Error("the preview snapshot has two runs and a trigger");
+if (first === undefined || trigger === undefined) {
+  throw new Error("the preview snapshot has a run and a trigger");
 }
 const docs = { id: "ws-docs", name: "docs" };
 const snapshot: DashboardSnapshot = {
@@ -21,12 +21,6 @@ const snapshot: DashboardSnapshot = {
   runs: [
     ...dashboardSnapshot.runs,
     { ...first, id: "elsewhere", workspace: docs },
-    {
-      ...second,
-      id: "shared",
-      workspace: docs,
-      workspaces: ["ws-docs", dashboardSnapshot.workspaceId ?? ""],
-    },
   ],
   triggers: [
     ...dashboardSnapshot.triggers,
@@ -35,12 +29,9 @@ const snapshot: DashboardSnapshot = {
 };
 
 describe("the dashboard's workspace scope", () => {
-  it("shows this workspace's own and shared runs and triggers, and every workspace's when asked", () => {
+  it("shows this workspace's own runs and triggers, and every workspace's when asked", () => {
     const here = workspaceScoped(snapshot, false);
-    expect(here.runs.map((run) => run.id)).toEqual([
-      ...dashboardSnapshot.runs.map((run) => run.id),
-      "shared",
-    ]);
+    expect(here.runs).toEqual(dashboardSnapshot.runs);
     expect(here.triggers).toEqual(dashboardSnapshot.triggers);
     expect(workspaceScoped(snapshot, true)).toBe(snapshot);
     expect(showsOthers(snapshot)).toBe(true);

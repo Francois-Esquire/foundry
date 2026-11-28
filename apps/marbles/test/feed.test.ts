@@ -1,12 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
-import { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { Artifacts } from "@foundry/artifacts";
+import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { step } from "@foundry.sh/marbles";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
 import { feedPayload, feedQuestionSchema } from "~/lib/feed/entry";
 import { feedPublisher } from "~/lib/feed/publish";
@@ -38,7 +37,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await rm(root, { force: true, recursive: true });
 });
 
@@ -178,13 +176,14 @@ describe("feed store", () => {
 describe("engine", () => {
   it("attributes a step's reports to its run and step before the run settles", async () => {
     const store = openFeed(undefined, workspace());
-    step("summarize")
+    const summarize = step("summarize")
       .input(z.object({ text: z.string() }))
       .do(({ input, report }) => {
         report.result({ body: input.text, key: "summary", title: "Summary" });
         return input.text;
       });
     const engine = await engineOver(store, {
+      collect: [summarize],
       print: () => undefined,
     });
 
@@ -209,7 +208,7 @@ describe("engine", () => {
 describe("questions", () => {
   function askingStep() {
     const store = openFeed(undefined, workspace());
-    step("deploy")
+    const deploy = step("deploy")
       .input(z.object({ version: z.string() }))
       .do(async ({ ask, input }) => {
         const answer = await ask.question({
@@ -220,7 +219,7 @@ describe("questions", () => {
         });
         return `${input.version}:${answer}`;
       });
-    return { store };
+    return { deploy, store };
   }
 
   async function openQuestion(read: () => Promise<FeedEntrySnapshot[]>) {
@@ -237,9 +236,10 @@ describe("questions", () => {
   }
 
   it("pause the run on an open entry and resume it with the answer", async () => {
-    const { store } = askingStep();
+    const { deploy, store } = askingStep();
     const engine = await engineOver(store, {
       askable: true,
+      collect: [deploy],
       print: () => undefined,
     });
     const launched = await engine.launch<string>("deploy", { version: "v2" });
@@ -283,9 +283,10 @@ describe("questions", () => {
   });
 
   it("cancel the run when nothing in the process can answer", async () => {
-    const { store } = askingStep();
+    const { deploy, store } = askingStep();
     const lines: string[] = [];
     const engine = await engineOver(store, {
+      collect: [deploy],
       print: (line) => lines.push(line),
     });
     await expect(engine.run("deploy", { version: "v2" })).rejects.toThrow(
@@ -299,9 +300,10 @@ describe("questions", () => {
   });
 
   it("mark open questions cancelled when the engine stops", async () => {
-    const { store } = askingStep();
+    const { deploy, store } = askingStep();
     const engine = await engineOver(store, {
       askable: true,
+      collect: [deploy],
       print: () => undefined,
     });
     const launched = await engine.launch<string>("deploy", { version: "v2" });
@@ -370,8 +372,8 @@ describe("abandoned questions", () => {
   });
 
   it("cancel open questions whose process exited and keep live ones", async () => {
-    const artifacts = new ArtifactManager({
-      store: new InMemoryArtifactStore(),
+    const artifacts = new Artifacts({
+      store: new MemoryArtifactStore(),
     });
     const site = { id: "ws-a", name: "a", root };
     const question = (key: string) => ({
@@ -415,10 +417,8 @@ describe("onboarding", () => {
     await engine.run(SETUP_STEP, {
       configPath: join(root, "marbles.config.ts"),
       draft: {
-        harness: "auto",
         instructions: "",
         name: "summarize-codebase",
-        template: "product",
       },
       root,
     });

@@ -15,10 +15,14 @@ import {
   isGone,
   type ProcessIdentity,
   thisProcess,
-} from "@foundry/lib/process-identity";
+} from "@foundry/lib/node/process-identity";
 import type { ChannelChunk, ChannelMessage } from "@foundry/workflows/channels";
 import { z } from "zod";
 import { formatLogValues } from "~/lib/log";
+import {
+  type OwnerLiveness,
+  PORTABLE_OWNER_LIVENESS,
+} from "~/lib/owner-liveness";
 
 const terminalStatusSchema = z.enum(["completed", "failed", "cancelled"]);
 export type TerminalStatus = z.infer<typeof terminalStatusSchema>;
@@ -26,7 +30,7 @@ export type TerminalStatus = z.infer<typeof terminalStatusSchema>;
 const outputRecordSchema = z.discriminatedUnion("type", [
   z.object({
     name: z.string(),
-    pid: z.number().int().positive(),
+    pid: z.number().int().nonnegative(),
     runId: z.string(),
     started: z.string().nullable().optional(),
     type: z.literal("start"),
@@ -70,8 +74,64 @@ export function removeRunOutput(state: string, runId: string): void {
   rmSync(outputPath(state, runId), { force: true });
 }
 
+export interface RunOutputSink {
+  append(runId: string, record: OutputRecord): void;
+  read?(runId: string): readonly OutputRecord[];
+  remove(runId: string): void;
+}
+
+export class MemoryRunOutputSink implements RunOutputSink {
+  readonly #records = new Map<string, OutputRecord[]>();
+
+  append(runId: string, record: OutputRecord): void {
+    const records = this.#records.get(runId);
+    if (records === undefined) {
+      this.#records.set(runId, [record]);
+    } else {
+      records.push(record);
+    }
+  }
+
+  read(runId: string): readonly OutputRecord[] {
+    return [...(this.#records.get(runId) ?? [])];
+  }
+
+  remove(runId: string): void {
+    this.#records.delete(runId);
+  }
+}
+
+export class FileRunOutputSink implements RunOutputSink {
+  readonly #state: string;
+  #ensured: boolean;
+
+  constructor(state: string) {
+    this.#state = state;
+    this.#ensured = false;
+  }
+
+  append(runId: string, record: OutputRecord): void {
+    const path = outputPath(this.#state, runId);
+    if (!this.#ensured) {
+      mkdirSync(join(this.#state, "output"), { recursive: true });
+      this.#ensured = true;
+    }
+    appendFileSync(path, `${JSON.stringify(record)}\n`);
+  }
+
+  remove(runId: string): void {
+    removeRunOutput(this.#state, runId);
+  }
+}
+
+export interface RunOutputOptions {
+  readonly liveness?: OwnerLiveness;
+  readonly sink?: RunOutputSink;
+}
+
 export class RunOutput {
-  readonly #path: string | undefined;
+  readonly #runId: string;
+  readonly #sink: RunOutputSink | undefined;
   readonly #warn: (line: string) => void;
   #failed = false;
 
@@ -79,20 +139,25 @@ export class RunOutput {
     state: string | undefined,
     runId: string,
     name: string,
-    warn: (line: string) => void
+    warn: (line: string) => void,
+    options?: RunOutputOptions
   ) {
+    this.#runId = runId;
     this.#warn = warn;
+    if (options?.sink !== undefined) {
+      this.#sink = options.sink;
+      this.#start(
+        name,
+        options.liveness?.identity ?? PORTABLE_OWNER_LIVENESS.identity
+      );
+      return;
+    }
     if (state === undefined) {
       return;
     }
-    this.#path = outputPath(state, runId);
-    try {
-      mkdirSync(join(state, "output"), { recursive: true });
-      const { pid, started } = thisProcess();
-      this.#append({ name, pid, runId, started, type: "start" });
-    } catch (error) {
-      this.#failure(error);
-    }
+    outputPath(state, runId);
+    this.#sink = new FileRunOutputSink(state);
+    this.#start(name, options?.liveness?.identity ?? thisProcess);
   }
 
   text(text: string, chunk?: ChunkOrigin): void {
@@ -138,12 +203,21 @@ export class RunOutput {
     }
   }
 
+  #start(name: string, identity: () => ProcessIdentity): void {
+    try {
+      const { pid, started } = identity();
+      this.#append({ name, pid, runId: this.#runId, started, type: "start" });
+    } catch (error) {
+      this.#failure(error);
+    }
+  }
+
   #append(record: OutputRecord): void {
-    if (this.#path === undefined || this.#failed) {
+    if (this.#sink === undefined || this.#failed) {
       return;
     }
     try {
-      appendFileSync(this.#path, `${JSON.stringify(record)}\n`);
+      this.#sink.append(this.#runId, record);
     } catch (error) {
       this.#failure(error);
     }
@@ -166,6 +240,18 @@ function outputPath(workspaceState: string, runId: string): string {
     throw new RunOutputError("invalid run ID");
   }
   return join(workspaceState, "output", `${runId}.jsonl`);
+}
+
+export function hasRunOutput(state: string, runId: string): boolean {
+  outputPath(state, runId);
+  return (
+    existsSync(state) &&
+    readdirSync(state, { withFileTypes: true }).some(
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(outputPath(join(state, entry.name), runId))
+    )
+  );
 }
 
 function findOutput(
@@ -229,6 +315,7 @@ class OutputReader {
 interface Following {
   exited: ProcessIdentity | undefined;
   readonly holder: RunHolder | undefined;
+  readonly isOwnerGone: (owner: ProcessIdentity) => boolean;
   readonly opened: number;
   readonly reader: OutputReader;
   readonly runId: string;
@@ -268,7 +355,7 @@ async function idle(following: Following): Promise<Idle> {
     following.exited = undefined;
     return { wait: HANDOVER_POLL_MS };
   }
-  if (isGone(owner)) {
+  if (following.isOwnerGone(owner)) {
     following.exited = owner;
     return { wait: 0 };
   }
@@ -279,7 +366,8 @@ export async function* readRunOutput(
   state: string,
   runId: string,
   signal?: AbortSignal,
-  holder?: RunHolder
+  holder?: RunHolder,
+  isOwnerGone: (owner: ProcessIdentity) => boolean = isGone
 ): AsyncGenerator<OutputRecord> {
   let fd: number | undefined;
   try {
@@ -292,6 +380,7 @@ export async function* readRunOutput(
     const following: Following = {
       exited: undefined,
       holder,
+      isOwnerGone,
       opened: performance.now(),
       reader,
       runId,

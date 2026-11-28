@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { asc } from "drizzle-orm";
@@ -18,40 +18,35 @@ afterEach(async () => {
   );
 });
 
-it("delivers a loaded module's observers of every word the facts of a step's work, each with the run that made it, and names one by its const", async () => {
+it("delivers a loaded module's observers of every word the facts of a step's work, each with the run that made it, and names one by its export", async () => {
   const root = await mkdtemp(join(tmpdir(), "marbles-observe-loaded-"));
   roots.push(root);
   const dir = join(root, "ws");
-  await mkdir(join(dir, "node_modules"), { recursive: true });
-  await symlink(
-    resolve("../../node_modules/typescript"),
-    join(dir, "node_modules", "typescript")
-  );
+  await mkdir(dir, { recursive: true });
   const seen = join(dir, "seen.log");
   const source = join(dir, "marbles.ts");
   await writeFile(
     source,
     `import { appendFileSync } from "node:fs";
-import { agent, artifact, observe, sandbox, step, tasks, workflow, workspace } from "@foundry.sh/marbles";
+import { agent, artifact, observe, runs, sandbox, step, tasks, workflow, workspace } from "@foundry.sh/marbles";
 const log = (line) => {
   appendFileSync(${JSON.stringify(seen)}, line + "\\n");
-  // The host's barrier: told of each fact handed, once it is written down.
   globalThis.observed?.();
 };
-observe(workflow, function runFacts(fact) {
-  log("runs " + fact.type);
+export const runFacts = observe(workflow, async function runFacts(fact) {
+  const run = await runs.get(fact.runId);
+  log("runs " + fact.type + " " + run?.name + " " + run?.status);
 }, { types: ["run.completed"] });
-observe(artifact, function artifactFacts(fact) {
+export const artifactFacts = observe(artifact, function artifactFacts(fact) {
   log("artifacts " + fact.type);
 }, { types: ["artifact.created"] });
-// Named by the const it is assigned to.
 export const taskFacts = observe(tasks, (fact) => {
   log("tasks " + fact.type);
 });
-observe(sandbox, () => undefined, { name: "sandboxFacts" });
-observe(workspace, () => undefined, { name: "workspaceFacts" });
-observe(agent, () => undefined, { name: "sessionFacts" });
-const notes = artifact({ name: "notes", type: "text/markdown" });
+export const sandboxFacts = observe(sandbox, () => undefined, { name: "sandboxFacts" });
+export const workspaceFacts = observe(workspace, () => undefined, { name: "workspaceFacts" });
+export const sessionFacts = observe(agent, () => undefined, { name: "sessionFacts" });
+export const notes = artifact({ name: "notes", type: "text/markdown" });
 export const write = step("write").do(async ({ run }) => {
   await tasks.create({ title: "from a step" });
   await notes.write({ "a.md": "# A" });
@@ -64,15 +59,14 @@ export const write = step("write").do(async ({ run }) => {
   await writeFile(
     script,
     `import { hostEngine, openWorkspace } from ${JSON.stringify(join(SRC, "workspace/open.ts"))};
-import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/workspaces.ts"))};
-// Settled once the three observers have each been handed their fact.
+import { openHostDatabase } from ${JSON.stringify(join(SRC, "database/open.ts"))};
 const { promise: allObserved, resolve: observedAll } = Promise.withResolvers();
 let observed = 0;
 globalThis.observed = () => {
   observed += 1;
   if (observed === 3) observedAll();
 };
-const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, dry: false, state: ${JSON.stringify(state)} };
+const args = { artifacts: ${JSON.stringify(join(root, "artifacts"))}, config: ${JSON.stringify(source)}, state: ${JSON.stringify(state)} };
 const opened = await openWorkspace(args, { print: () => undefined });
 const database = await openHostDatabase(${JSON.stringify(state)});
 const engine = await hostEngine(args, opened, { database, print: () => undefined });
@@ -84,7 +78,7 @@ process.stdout.write(JSON.stringify({ runId }) + "\\n");
 process.exit(0);
 `
   );
-  const output = execFileSync("bun", [script], {
+  const output = execFileSync(process.execPath, [script], {
     cwd: resolve("."),
     encoding: "utf8",
     timeout: 60_000,
@@ -93,7 +87,7 @@ process.exit(0);
 
   expect(readFileSync(seen, "utf8").trim().split("\n").sort()).toEqual([
     "artifacts artifact.created",
-    "runs run.completed",
+    "runs run.completed write complete",
     "tasks tasks.changed",
   ]);
   const stored = await readDatabase(stateDatabase(state), async (database) => ({

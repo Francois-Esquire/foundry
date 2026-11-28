@@ -1,31 +1,24 @@
-import { randomUUID } from "node:crypto";
-import { sameProcess, thisProcess } from "@foundry/lib/process-identity";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import type { JobOutcome, Occurrence } from "@foundry/scheduling";
+import type { ScheduleStoreService } from "@foundry/scheduling/store";
+import { makeSqliteScheduleStore } from "@foundry/scheduling/store/sqlite";
+import { and, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
+import { readExecution } from "~/database/executions";
+import { marblesMonitorStates } from "~/database/tables";
+import type { StoreDatabase } from "~/database/types";
+import { RecordsGate } from "~/lib/events/records-gate";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
+import { outcomeOf, scheduledTarget } from "~/lib/schedule";
+import { refusedAt } from "~/lib/schedule-dispatch";
+import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
 import {
-  CHANGED,
-  claimJudged,
-  heldBy,
-  NO_OWNER,
-  ownedHere,
-  sameOwnerColumns,
-} from "~/database/owner";
-import { marblesMonitorStates, marblesScheduleTicks } from "~/database/tables";
-import { stateDatabase } from "~/layout";
-import { RecordsGate } from "~/lib/events/records";
-import type {
-  MonitorState,
-  ScheduleHistory,
-  TickClaim,
-  TriggerStore,
-} from "~/lib/trigger-store";
-import {
+  gatedScheduleStore,
   monitorStateSchema,
-  scheduleHistorySchema,
   storedMonitorState,
 } from "~/lib/trigger-store";
+import { runStoreEffect } from "~/lib/workflow-runs";
 
 export interface DatabaseTriggerStoreOptions {
   readonly database: StoreDatabase;
@@ -35,63 +28,18 @@ export interface DatabaseTriggerStoreOptions {
 export class DatabaseTriggerStore implements TriggerStore {
   readonly #database: StoreDatabase;
   readonly #scope: string;
-  readonly #owner = randomUUID();
   readonly #gate = new RecordsGate("the trigger store is closed");
+  readonly #schedules: ScheduleStoreService;
 
   constructor(options: DatabaseTriggerStoreOptions) {
     this.#database = options.database;
     this.#scope = options.scope;
-  }
-
-  claimTick(key: string): Promise<TickClaim> {
-    const look = (database: StoreDatabase) =>
-      database
-        .select({
-          ownerId: marblesScheduleTicks.ownerId,
-          ownerPid: marblesScheduleTicks.ownerPid,
-          ownerStarted: marblesScheduleTicks.ownerStarted,
-        })
-        .from(marblesScheduleTicks)
-        .where(this.#key(key))
-        .then(([row]) => row);
-    const refused = {
-      claimed: false,
-      holder: "an owner that kept changing",
-    } as const;
-    return this.#call(() =>
-      claimJudged(
-        () => look(this.#database),
-        (seen) => (seen === undefined ? null : heldBy(seen)),
-        (seen, holder) =>
-          this.#database.transaction(
-            async (transaction): Promise<TickClaim | typeof CHANGED> => {
-              if (!sameOwnerColumns(await look(transaction), seen)) {
-                return CHANGED;
-              }
-              if (holder !== null) {
-                return {
-                  claimed: false,
-                  holder: sameProcess(holder, thisProcess())
-                    ? "this process"
-                    : `pid ${String(holder.pid)}`,
-                } as const;
-              }
-              const owner = ownedHere(this.#owner);
-              await transaction
-                .insert(marblesScheduleTicks)
-                .values({ ...owner, key, scope: this.#scope })
-                .onConflictDoUpdate({
-                  set: owner,
-                  target: [
-                    marblesScheduleTicks.scope,
-                    marblesScheduleTicks.key,
-                  ],
-                });
-              return { claimed: true } as const;
-            }
-          ),
-        refused
-      )
+    this.#schedules = gatedScheduleStore(
+      makeSqliteScheduleStore({
+        database: options.database,
+        scope: options.scope,
+      }),
+      (call) => this.#call(call)
     );
   }
 
@@ -100,106 +48,33 @@ export class DatabaseTriggerStore implements TriggerStore {
       await this.#database
         .update(marblesMonitorStates)
         .set({ pending: null })
-        .where(
-          and(
-            eq(marblesMonitorStates.scope, this.#scope),
-            eq(marblesMonitorStates.key, key)
-          )
-        );
+        .where(this.#monitorKey(key));
     });
   }
 
-  async close(): Promise<void> {
-    await this.#gate.close();
-    await asBusy(() =>
-      this.#database
-        .update(marblesScheduleTicks)
-        .set(NO_OWNER)
-        .where(
-          and(
-            eq(marblesScheduleTicks.scope, this.#scope),
-            eq(marblesScheduleTicks.ownerId, this.#owner)
-          )
-        )
-    );
+  close(): Promise<void> {
+    return this.#gate.close();
   }
 
-  finishTick(key: string, tick?: ScheduleHistory): Promise<void> {
+  forgetMonitor(key: string): Promise<void> {
     return this.#call(async () => {
-      const recorded =
-        tick === undefined ? {} : scheduleHistorySchema.parse(tick);
-      await this.#database.transaction(async (transaction) => {
-        const finished = await transaction
-          .update(marblesScheduleTicks)
-          .set({
-            ...recorded,
-            ...(tick === undefined
-              ? {}
-              : { kind: tick.kind ?? null, label: tick.label ?? null }),
-            ...NO_OWNER,
-          })
-          .where(
-            and(this.#key(key), eq(marblesScheduleTicks.ownerId, this.#owner))
-          )
-          .returning({ key: marblesScheduleTicks.key });
-        if (finished.length > 0 && tick?.kind === "schedule") {
-          await transaction
-            .delete(marblesMonitorStates)
-            .where(
-              and(
-                eq(marblesMonitorStates.scope, this.#scope),
-                eq(marblesMonitorStates.key, key)
-              )
-            );
-        }
-      });
-    });
-  }
-
-  lastTick(key: string): Promise<ScheduleHistory | undefined> {
-    return this.#call(async () => {
-      const [row] = await this.#database
-        .select()
-        .from(marblesScheduleTicks)
-        .where(this.#key(key));
-      return row === undefined ? undefined : tickOf(row);
+      await this.#database
+        .delete(marblesMonitorStates)
+        .where(this.#monitorKey(key));
     });
   }
 
   monitorState(key: string): Promise<MonitorState | undefined> {
     return this.#call(async () => {
-      const row = await this.#monitorRow(this.#database, key);
-      if (row === undefined) {
-        return;
-      }
-      if ((await this.#lastKind(this.#database, key)) !== "schedule") {
-        return monitorStateOf(row);
-      }
-      const kept = await this.#database.transaction(async (transaction) => {
-        if ((await this.#lastKind(transaction, key)) === "schedule") {
-          await transaction
-            .delete(marblesMonitorStates)
-            .where(this.#monitorKey(key));
-          return;
-        }
-        return this.#monitorRow(transaction, key);
-      });
-      return kept === undefined ? undefined : monitorStateOf(kept);
+      const [row] = await this.#database
+        .select({
+          observed: marblesMonitorStates.observed,
+          pending: marblesMonitorStates.pending,
+        })
+        .from(marblesMonitorStates)
+        .where(this.#monitorKey(key));
+      return row === undefined ? undefined : monitorStateOf(row);
     });
-  }
-
-  async #monitorRow(
-    database: StoreDatabase,
-    key: string
-  ): Promise<MonitorRow | undefined> {
-    const [row] = await database
-      .select({
-        observed: marblesMonitorStates.observed,
-        pending: marblesMonitorStates.pending,
-      })
-      .from(marblesMonitorStates)
-      .where(this.#monitorKey(key));
-    return row;
   }
 
   saveMonitorState(key: string, state: MonitorState): Promise<void> {
@@ -212,44 +87,18 @@ export class DatabaseTriggerStore implements TriggerStore {
             ? null
             : { input: pending.input, workflow: pending.workflow },
       };
-      await this.#database.transaction(async (transaction) => {
-        await transaction
-          .insert(marblesMonitorStates)
-          .values({ ...values, key, scope: this.#scope })
-          .onConflictDoUpdate({
-            set: values,
-            target: [marblesMonitorStates.scope, marblesMonitorStates.key],
-          });
-        await transaction
-          .update(marblesScheduleTicks)
-          .set({
-            kind: "monitor",
-            label: null,
-            lastFinish: null,
-            lastStart: null,
-            lastStatus: null,
-            nextDue: null,
-          })
-          .where(
-            and(this.#key(key), eq(marblesScheduleTicks.kind, "schedule"))
-          );
-        await transaction
-          .update(marblesScheduleTicks)
-          .set({ kind: "monitor" })
-          .where(and(this.#key(key), isNull(marblesScheduleTicks.kind)));
-      });
+      await this.#database
+        .insert(marblesMonitorStates)
+        .values({ ...values, key, scope: this.#scope })
+        .onConflictDoUpdate({
+          set: values,
+          target: [marblesMonitorStates.scope, marblesMonitorStates.key],
+        });
     });
   }
 
-  async #lastKind(
-    database: StoreDatabase,
-    key: string
-  ): Promise<string | null | undefined> {
-    const [tick] = await database
-      .select({ kind: marblesScheduleTicks.kind })
-      .from(marblesScheduleTicks)
-      .where(this.#key(key));
-    return tick?.kind;
+  schedules(): Promise<ScheduleStoreService> {
+    return this.#call(() => Promise.resolve(this.#schedules));
   }
 
   #monitorKey(key: string) {
@@ -259,19 +108,10 @@ export class DatabaseTriggerStore implements TriggerStore {
     );
   }
 
-  #key(key: string) {
-    return and(
-      eq(marblesScheduleTicks.scope, this.#scope),
-      eq(marblesScheduleTicks.key, key)
-    );
-  }
-
   #call<T>(call: () => Promise<T>): Promise<T> {
     return this.#gate.run(() => asBusy(call));
   }
 }
-
-type TickRow = typeof marblesScheduleTicks.$inferSelect;
 
 type MonitorRow = Pick<
   typeof marblesMonitorStates.$inferSelect,
@@ -291,94 +131,125 @@ function monitorStateOf(row: MonitorRow): MonitorState {
       };
 }
 
-function tickOf(row: TickRow): ScheduleHistory | undefined {
-  if (
-    row.lastFinish === null ||
-    row.lastStart === null ||
-    row.lastStatus === null ||
-    row.nextDue === null
-  ) {
-    return undefined;
-  }
-  return scheduleHistorySchema.parse({
-    ...(row.kind === null ? {} : { kind: row.kind }),
-    ...(row.label === null ? {} : { label: row.label }),
-    lastFinish: row.lastFinish,
-    lastStart: row.lastStart,
-    lastStatus: row.lastStatus,
-    nextDue: row.nextDue,
-  });
-}
-
-export interface StoredTick {
+export interface ScheduleSnapshot {
   readonly key: string;
-  readonly last?: ScheduleHistory;
+  readonly kind: "schedule" | "monitor";
+  readonly label: string;
+  readonly lastSettledAt?: string;
+  readonly lastStatus?: JobOutcome;
+  readonly nextDue?: string;
   readonly pending?: string;
   readonly running: number | null;
 }
 
-export function isMonitorTick(
-  tick: Pick<StoredTick, "last" | "pending">
-): boolean {
-  const named = tick.last?.kind;
-  return named === undefined ? tick.pending !== undefined : named === "monitor";
+interface LatestOutcome {
+  readonly lastSettledAt?: string;
+  readonly lastStatus?: JobOutcome;
+  readonly running: number | null;
 }
 
-export async function readStoredTicks(
-  state: string,
-  scope: string
-): Promise<readonly StoredTick[]> {
-  return (
-    (await asBusy(() =>
-      readDatabase(stateDatabase(state), (database) =>
-        storedTicks(database, scope)
-      )
-    )) ?? []
-  );
-}
+const isoOf = (at: number) => new Date(at).toISOString();
 
-export async function storedTicks(
+const liveOwner = (
+  owner: ProcessIdentity | undefined,
+  liveness: OwnerLiveness
+): number | null =>
+  owner === undefined || liveness.isGone(owner) ? null : owner.pid;
+
+async function latestOutcomeOf(
   database: StoreDatabase,
-  scope: string
-): Promise<readonly StoredTick[]> {
-  const [rows, monitors] = await asBusy(async () => [
-    await database
-      .select()
-      .from(marblesScheduleTicks)
-      .where(eq(marblesScheduleTicks.scope, scope))
-      .orderBy(asc(marblesScheduleTicks.key)),
-    await database
+  scope: string,
+  occurrence: Occurrence | undefined,
+  liveness: OwnerLiveness
+): Promise<LatestOutcome> {
+  if (occurrence === undefined) {
+    return { running: null };
+  }
+  const { state } = occurrence;
+  if (state.kind === "settled") {
+    return {
+      lastSettledAt: isoOf(state.settledAt),
+      lastStatus: state.outcome,
+      running: null,
+    };
+  }
+  if (state.kind === "claimed") {
+    return { running: liveOwner(state.lease.owner, liveness) };
+  }
+  if (state.kind !== "dispatched") {
+    return { running: null };
+  }
+  const refused = refusedAt(state.jobId);
+  if (refused !== undefined) {
+    return {
+      lastSettledAt: isoOf(refused),
+      lastStatus: "failed",
+      running: null,
+    };
+  }
+  const run = await readExecution(database, scope, state.jobId);
+  if (run === null) {
+    return { lastStatus: "cancelled", running: null };
+  }
+  const outcome = outcomeOf(run.status);
+  return outcome === undefined
+    ? { running: liveOwner(run.owner, liveness) }
+    : {
+        lastSettledAt: run.timestamps.settledAt ?? run.timestamps.updatedAt,
+        lastStatus: outcome,
+        running: null,
+      };
+}
+
+export function storedSchedules(
+  database: StoreDatabase,
+  scope: string,
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
+): Promise<readonly ScheduleSnapshot[]> {
+  return asBusy(async () => {
+    const store = makeSqliteScheduleStore({ database, scope });
+    const schedules = [...(await runStoreEffect(store.listSchedules))].sort(
+      (a, b) => a.id.localeCompare(b.id)
+    );
+    const monitors = await database
       .select({
         key: marblesMonitorStates.key,
         pending: marblesMonitorStates.pending,
       })
       .from(marblesMonitorStates)
-      .where(eq(marblesMonitorStates.scope, scope)),
-  ]);
-  const pending = new Map(
-    monitors.flatMap((row) =>
-      row.pending === null ? [] : [[row.key, row.pending.workflow] as const]
-    )
-  );
-  return rows.flatMap((row): StoredTick[] => {
-    let last: ScheduleHistory | undefined;
-    try {
-      last = tickOf(row);
-    } catch {
-      last = undefined;
-    }
-    const running = heldBy(row)?.pid ?? null;
-    const launch = last?.kind === "schedule" ? undefined : pending.get(row.key);
-    if (last === undefined && running === null && launch === undefined) {
-      return [];
-    }
-    return [
-      {
-        key: row.key,
-        ...(last === undefined ? {} : { last }),
+      .where(eq(marblesMonitorStates.scope, scope));
+    const pending = new Map(
+      monitors.flatMap((row) =>
+        row.pending === null ? [] : [[row.key, row.pending.workflow] as const]
+      )
+    );
+    const stored: ScheduleSnapshot[] = [];
+    for (const schedule of schedules) {
+      const target = scheduledTarget(schedule.target);
+      const kind = target?.kind ?? "schedule";
+      const cursor = await runStoreEffect(store.getCursor(schedule.id));
+      const occurrences = await runStoreEffect(
+        store.listOccurrences({ scheduleId: schedule.id })
+      );
+      const latest = await latestOutcomeOf(
+        database,
+        scope,
+        occurrences.filter((each) => each.state.kind !== "skipped").at(-1),
+        liveness
+      );
+      const settled = cursor?.lastSettledAt;
+      const nextDueAt = cursor?.nextDueAt ?? null;
+      const launch = kind === "monitor" ? pending.get(schedule.id) : undefined;
+      stored.push({
+        key: schedule.id,
+        kind,
+        label: target?.label ?? schedule.id,
+        ...(settled === undefined ? {} : { lastSettledAt: isoOf(settled) }),
+        ...latest,
+        ...(nextDueAt === null ? {} : { nextDue: isoOf(nextDueAt) }),
         ...(launch === undefined ? {} : { pending: launch }),
-        running,
-      },
-    ];
+      });
+    }
+    return stored;
   });
 }

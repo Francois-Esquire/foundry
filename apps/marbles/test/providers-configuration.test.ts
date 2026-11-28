@@ -1,5 +1,5 @@
 import type { Provider } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { environmentSnapshot } from "~/lib/environment";
@@ -54,7 +54,7 @@ class TestStore implements ProviderStore {
     return { release: () => resolve(undefined) };
   }
 
-  identityKey(make: boolean): Promise<Buffer | undefined> {
+  identityKey(make: boolean): Promise<Uint8Array | undefined> {
     this.keyAsks += 1;
     const refusal = this.refusing.key.shift();
     if (refusal !== undefined) {
@@ -139,7 +139,6 @@ function plugin(
         id: setup.id,
         languageModel: () => ({}) as never,
         models: setup.models,
-        offline: false,
       };
       return { provider };
     },
@@ -184,7 +183,7 @@ function configuration(
   environment: Record<string, string> = { PATH: "/bin" },
   options: Partial<ProviderConfigurationOptions> = {}
 ) {
-  const models = new ModelManager();
+  const models = new Models();
   const config = new ProviderConfiguration({
     environment,
     models,
@@ -196,7 +195,7 @@ function configuration(
   return { config, models };
 }
 
-const ids = (models: ModelManager) => models.providers.map((p) => p.id);
+const ids = (models: Models) => models.providers.map((p) => p.id);
 
 beforeEach(() => {
   store = new TestStore();
@@ -306,7 +305,7 @@ describe("the effective set", () => {
       codex: "disabled",
       literal: '"key" must name an environment variable, not hold a value',
       mystery:
-        'provider "@acme/unknown" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source',
+        'provider "@acme/unknown" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", and export it from the workspace\'s source',
     });
   });
 });
@@ -328,7 +327,7 @@ describe("providers no workspace defined", () => {
     });
     const { config } = configuration();
     const message =
-      'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; defineProvider(gateway);';
+      'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; export const gatewayProvider = defineProvider(gateway);';
     expect(await config.refresh()).toEqual([message]);
     expect(await config.refresh()).toEqual([message]);
     store.put("ws1", { order: ["codex"], providers: [] });
@@ -948,7 +947,7 @@ it("never repeats a value a plugin's settings schema quotes", async () => {
   });
   const config = new ProviderConfiguration({
     environment: {},
-    models: new ModelManager(),
+    models: new Models(),
     plugins: [strict],
     store,
   });
@@ -982,30 +981,6 @@ it("disables an entry that cannot load, and refuses to enable it again", async (
   await expect(config.enable("literal")).rejects.toMatchObject({
     code: "PROVIDER_ENTRY_INVALID",
   });
-});
-
-it("keeps a read-only engine's edits in memory and writes nothing", async () => {
-  const models = new ModelManager();
-  const config = new ProviderConfiguration({
-    environment: { PATH: "/bin" },
-    models,
-    plugins: PLUGINS,
-    readOnly: true,
-    store,
-    workspace: { dir: "/state/ws1", id: "ws1", root: "/repo" },
-  });
-  await config.add({ id: "codex", plugin: "codex" }, { scope: "machine" });
-  await config.replace([
-    { enabled: true, id: "codex", plugin: "codex", scope: "machine" },
-    { enabled: true, id: "vercel", plugin: "vercel", scope: "workspace" },
-  ]);
-  expect(await config.initialize([])).toBe(false);
-  expect(ids(models)).toEqual(["vercel", "codex"]);
-  expect(store.texts.has(MACHINE_SCOPE)).toBe(false);
-  expect(store.texts.has("ws1")).toBe(false);
-  await config.read();
-  expect(config.identityOf("codex")).toEqual(expect.any(String));
-  expect(store.key).toBeUndefined();
 });
 
 it("lets a disabled entry stand beside an enabled one with its id, and refuses to enable it", async () => {
@@ -1183,7 +1158,7 @@ describe("instance identity", () => {
     }
     const config = new ProviderConfiguration({
       environment: env,
-      models: new ModelManager(),
+      models: new Models(),
       plugins: FIRST_PARTY,
       store: kept,
     });
@@ -1294,7 +1269,7 @@ describe("instance identity", () => {
       });
       const config = new ProviderConfiguration({
         environment: {},
-        models: new ModelManager(),
+        models: new Models(),
         plugins: [defaulted],
         store,
       });
@@ -1312,9 +1287,8 @@ it("refuses an entry with a host-supplied provider's id, and keeps its state whe
     id: "work",
     languageModel: () => ({}) as never,
     models: [{ id: "m", kind: "text", modelId: "m" }],
-    offline: false,
   } as unknown as Provider;
-  const models = new ModelManager();
+  const models = new Models();
   const config = new ProviderConfiguration({
     environment: {},
     fixed: [host],
@@ -1349,23 +1323,10 @@ it("tells a configured instance with no execution from a host-supplied one", asy
   const fixed = new ProviderConfiguration({
     environment: {},
     fixed: [],
-    models: new ModelManager(),
+    models: new Models(),
     plugins: PLUGINS,
   });
   expect(fixed.executionOf("codex")).toBeUndefined();
-});
-
-it("builds stand-ins with the same id and catalog for a dry run", async () => {
-  store.put(MACHINE_SCOPE, {
-    providers: [{ enabled: true, id: "codex", plugin: "codex" }],
-  });
-  const echo = vi.fn((provider: Provider) => ({ ...provider, offline: false }));
-  const { config, models } = configuration(undefined, { echo });
-  await loaded(config);
-  expect(echo).toHaveBeenCalledTimes(1);
-  expect(models.providers[0]?.models.map((row) => row.id)).toEqual([
-    "codex-model",
-  ]);
 });
 
 it("proposes what each plugin detects, at the scope it would use", () => {
@@ -1404,7 +1365,6 @@ describe("instance ownership", () => {
             id: setup.settings.key === "MISNAMED" ? "other" : setup.id,
             languageModel: () => ({}) as never,
             models: setup.models,
-            offline: false,
           };
           built.push(provider);
           return { provider };
@@ -1506,26 +1466,6 @@ describe("instance ownership", () => {
       built.map((each) => vi.mocked(each.dispose)?.mock.calls.length)
     ).toEqual([1, 1]);
   });
-
-  it("hands the real instance to the dry-run stand-in, which disposes it", async () => {
-    store.put(MACHINE_SCOPE, {
-      providers: [{ enabled: true, id: "codex", plugin: "codex" }],
-    });
-    const { config, models } = configuration(undefined, {
-      echo: (real) => ({
-        available: true,
-        dispose: () => Promise.resolve(real.dispose?.()),
-        id: real.id,
-        languageModel: () => ({}) as never,
-        models: real.models,
-        offline: false,
-      }),
-      plugins: OWNED,
-    });
-    await loaded(config);
-    await models.dispose();
-    expect(built[0]?.dispose).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("an instance that reads the process environment", () => {
@@ -1587,7 +1527,6 @@ describe("an instance that reads the process environment", () => {
                 supportedUrls: {},
               }) as never,
             models: setup.models,
-            offline: false,
           },
         }),
       })
@@ -1648,7 +1587,7 @@ it("keeps Pi's configured default with a supplied catalog", async () => {
   });
   try {
     expect(provider.defaults).toEqual({ text });
-    const models = new ModelManager({ providers: [provider] });
+    const models = new Models({ providers: [provider] });
     expect(models.resolve("text", { provider: piPlugin.id }).model).toBe(text);
   } finally {
     await provider.dispose?.();

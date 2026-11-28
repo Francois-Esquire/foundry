@@ -1,16 +1,13 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
 import { and, asc, eq, gt, gte, lte, min, sql } from "drizzle-orm";
-import { asBusy } from "~/database/busy";
 import { batches, inList } from "~/database/lists";
-import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
 import {
   marblesChangeLogs,
   marblesChanges,
   marblesDeliveryClaims,
   marblesObservers,
 } from "~/database/tables";
-import { stateDatabase } from "~/layout";
+import type { StoreDatabase } from "~/database/types";
 import type {
   ChangeLog,
   ChangeQuery,
@@ -24,29 +21,39 @@ import type {
   ObserverState,
 } from "~/lib/events/log";
 import { CHANGE_BATCH, COMPACTION_STEP } from "~/lib/events/log";
-import { causingRun, EmitListeners } from "~/lib/events/records";
+import { EmitListeners } from "~/lib/events/records-gate";
 import type { Fact } from "~/lib/events/source";
 
 type CommitTransaction = Pick<StoreDatabase, "insert">;
 
 export class ChangeRecorder {
   readonly scope: string;
+  readonly #causingRun: (() => string | undefined) | undefined;
   readonly #causes = new Map<string, string>();
   readonly #listeners = new EmitListeners();
   #waking = false;
 
-  constructor(scope: string) {
+  constructor(
+    scope: string,
+    options: { causingRun?: () => string | undefined } = {}
+  ) {
+    this.#causingRun = options.causingRun;
     this.scope = scope;
   }
 
+  cause(): string | null {
+    return this.#causingRun?.() ?? null;
+  }
+
   causing<S extends object>(store: S): S {
-    return this.#noting(store, causingRun);
+    return this.#noting(store, () => this.#causingRun?.() ?? null);
   }
 
   async record(
     transaction: CommitTransaction,
     source: string,
-    events: readonly Fact[] | undefined
+    events: readonly Fact[] | undefined,
+    cause: string | null = null
   ): Promise<void> {
     if (events === undefined || events.length === 0) {
       return;
@@ -68,7 +75,7 @@ export class ChangeRecorder {
       payload: fact,
       position: last - events.length + index + 1,
       recordedAt,
-      runId: this.#causes.get(fact.id) ?? null,
+      runId: this.#causes.get(fact.id) ?? cause,
       scope: this.scope,
       source,
       type: fact.type,
@@ -139,10 +146,10 @@ export class ChangeRecorder {
       return;
     }
     this.#waking = true;
-    setImmediate(() => {
+    setTimeout(() => {
       this.#waking = false;
       this.#listeners.emit();
-    });
+    }, 0);
   }
 }
 
@@ -398,7 +405,7 @@ export function changesAfter(
     .limit(query.limit ?? CHANGE_BATCH);
 }
 
-async function counterOf(
+export async function counterOf(
   database: Pick<StoreDatabase, "select">,
   scope: string
 ): Promise<{ readonly compacted: number; readonly position: number }> {
@@ -412,7 +419,7 @@ async function counterOf(
   return row ?? { compacted: 0, position: 0 };
 }
 
-async function readObservers(
+export async function readObservers(
   database: Pick<StoreDatabase, "select">,
   scope: string
 ): Promise<readonly ObserverState[]> {
@@ -422,22 +429,6 @@ async function readObservers(
     .where(eq(marblesObservers.scope, scope))
     .orderBy(asc(marblesObservers.source), asc(marblesObservers.name));
   return rows.map(stateOf);
-}
-
-export async function readStoredObservers(
-  state: string,
-  scope: string
-): Promise<{
-  readonly head: number;
-  readonly observers: readonly ObserverState[];
-}> {
-  const read = await asBusy(() =>
-    readDatabase(stateDatabase(state), async (database) => ({
-      head: (await counterOf(database, scope)).position,
-      observers: await readObservers(database, scope),
-    }))
-  );
-  return read ?? { head: 0, observers: [] };
 }
 
 function stateOf(row: typeof marblesObservers.$inferSelect): ObserverState {

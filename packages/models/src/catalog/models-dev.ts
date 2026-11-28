@@ -4,7 +4,7 @@ import type {
   ModelCostTier,
   ModelLimits,
   ProviderModelDefinition,
-} from "../types";
+} from "../model-definition";
 
 interface ModelsDevCost {
   cache_read?: number;

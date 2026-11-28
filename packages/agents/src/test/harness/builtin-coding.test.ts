@@ -2,15 +2,19 @@ import { tool } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { createBuiltinCodingHarness } from "../../harness/builtin-coding";
+import {
+  createPermissiveAuthorization,
+  denyAction,
+} from "../helpers/authorizer";
 import {
   createScriptedMockModel,
   textStreamResult,
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-function coding(
+async function coding(
   model: ReturnType<typeof createScriptedMockModel>,
   execute = vi.fn(async () => "checked"),
   maxSteps = 8
@@ -18,12 +22,10 @@ function coding(
   return createBuiltinCodingHarness(
     {
       agentId: "coder",
+      authorization: await createPermissiveAuthorization(),
       compaction: { summarizer: { summarize: async () => "summary" } },
       maxSteps,
       model,
-      policy: createInMemoryAgentAuthorizer({
-        policy: { byKind: { "tool.call": "allow" }, global: "allow" },
-      }).authorizer,
       tools: {
         bash: tool({ execute, inputSchema: z.object({ command: z.string() }) }),
       },
@@ -41,7 +43,7 @@ describe("built-in coding composition", () => {
       ],
     });
     const execute = vi.fn(async () => "checked");
-    const harness = coding(model, execute);
+    const harness = await coding(model, execute);
     const result = await harness.generate("run tests");
     expect(execute).toHaveBeenCalledOnce();
     expect(result.parts).toContainEqual({
@@ -68,16 +70,20 @@ describe("built-in coding composition", () => {
         textStreamResult("denied"),
       ],
     });
+    const authorization = createMemoryAuthorization();
+    await denyAction(
+      authorization,
+      "tool.call",
+      "Denied by capability kind policy."
+    );
     const harness = createBuiltinCodingHarness(
       {
         agentId: "coder",
+        authorization,
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
         permission,
-        policy: createInMemoryAgentAuthorizer({
-          policy: { byKind: { "tool.call": "deny" }, global: "deny" },
-        }).authorizer,
         tools: {
           bash: tool({
             execute,
@@ -104,7 +110,7 @@ describe("built-in coding composition", () => {
         textStreamResult("should not run"),
       ],
     });
-    const harness = coding(model, undefined, 1);
+    const harness = await coding(model, undefined, 1);
     await harness.generate("run tests");
     expect(model.doStreamCalls).toHaveLength(1);
   });
@@ -117,15 +123,19 @@ describe("built-in coding composition", () => {
         textStreamResult("denied"),
       ],
     });
+    const authorization = createMemoryAuthorization();
+    await denyAction(
+      authorization,
+      "tool.call",
+      "Denied by capability kind policy."
+    );
     const harness = createBuiltinCodingHarness(
       {
         agentId: "coder",
+        authorization,
         compaction: { summarizer: { summarize: async () => "summary" } },
         maxSteps: 8,
         model,
-        policy: createInMemoryAgentAuthorizer({
-          policy: { byKind: { "tool.call": "deny" }, global: "deny" },
-        }).authorizer,
         tools: {
           bash: tool({
             execute,

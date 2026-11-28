@@ -6,7 +6,7 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
-import { CONTAINER_ROW_STATUSES } from "../container/constants";
+import { CONTAINER_ROW_STATUSES } from "./schema";
 
 export const sandboxContainers = sqliteTable(
   "sandbox_containers",

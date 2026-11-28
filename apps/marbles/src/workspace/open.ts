@@ -1,15 +1,16 @@
 import { dirname, isAbsolute, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { Tasks } from "@foundry/tasks";
-import { plugin } from "bun";
+import { Catalog, type ModuleSource } from "~/authoring/catalog";
 import {
-  libraryOfLoad,
-  prebuiltOfLoad,
-  providersOfLoad,
-} from "~/authoring/bound";
-import { Catalog } from "~/authoring/catalog";
-import { expectHost, loadInto, setHost } from "~/authoring/runtime";
-import { initializeUsage } from "~/authoring/usage";
+  isAgent,
+  isDefinition,
+  isMonitorRecord,
+  isObserver,
+  isSchedule,
+  moduleSource,
+  taggedProvider,
+} from "~/authoring/declarations";
+import { runLoadScope, setHost } from "~/authoring/runtime";
 import type { Triggers } from "~/create";
 import { createEngine, readTriggers } from "~/create";
 import type { MarblesDatabase } from "~/database/open";
@@ -20,14 +21,13 @@ import type { Engine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import type { LogLevel, LogOrigin } from "~/lib/log";
 import type { Workspace } from "~/lib/state/workspace";
-import { workspaceAt, workspaceState } from "~/lib/state/workspace";
 import {
-  copyModules,
-  filesRead,
-  importLoad,
-  linkLibrary,
-  onRead,
-} from "~/workspace/copies";
+  insideState,
+  workspaceAt,
+  workspaceState,
+} from "~/lib/state/workspace";
+import { openLoadSession, realPathOf } from "~/workspace/loader";
+import { initializeUsage } from "~/workspace/node-usage";
 import {
   DEFAULT_SOURCE,
   resolveSource,
@@ -39,7 +39,6 @@ export interface HostOptions {
   readonly artifacts: string;
   readonly config: string;
   readonly directory?: string;
-  readonly dry: boolean;
   readonly spawned?: string;
   readonly state: string;
 }
@@ -54,117 +53,109 @@ export interface OpenedWorkspace {
   readonly workspace: Workspace;
 }
 
-const libraryUrl = (name: "index" | "prebuilt" | "providers"): string =>
-  new URL(
-    import.meta.url.endsWith(".ts")
-      ? `../authoring/${name}.ts`
-      : `./${name}.js`,
-    import.meta.url
-  ).href;
+function describeUnexported(item: object): string | undefined {
+  if (isDefinition(item)) {
+    return item.name === undefined ? item.kind : `${item.kind} "${item.name}"`;
+  }
+  if (isSchedule(item)) {
+    return item.workflow ? `schedule "${item.workflow}"` : "schedule";
+  }
+  if (isMonitorRecord(item)) {
+    return `monitor "${item.key}"`;
+  }
+  if (isObserver(item)) {
+    return item.name ? `observer "${item.name}"` : "observer";
+  }
+  const provider = taggedProvider(item);
+  if (provider !== undefined) {
+    return `provider "${provider.id}"`;
+  }
+  if (isAgent(item)) {
+    return `agent "${item.id}"`;
+  }
+  return undefined;
+}
 
-const PROVIDER_MODULES = ["claude-code", "codex", "gateway", "pi", "vercel"];
-
-const providerUrl = (name: string): string =>
-  new URL(
-    import.meta.url.endsWith(".ts")
-      ? `../lib/providers/${name}.ts`
-      : `./providers/${name}.js`,
-    import.meta.url
-  ).href;
-
-const providerModule = (name: string) =>
-  import(fileURLToPath(providerUrl(name))) as Promise<
-    Readonly<Record<string, unknown>>
-  >;
-
-let sourceLibrary: Promise<void> | undefined;
-
-function linkSourceLibrary(): Promise<void> {
-  sourceLibrary ??= (async () => {
-    const library = await import(fileURLToPath(libraryUrl("index")));
-    const prebuilt = await import(libraryUrl("prebuilt"));
-    const providers = await import(fileURLToPath(libraryUrl("providers")));
-    plugin({
-      name: "marbles-source-library",
-      setup(builder) {
-        copyModules(builder);
-        builder.module("@foundry.sh/marbles/prebuilt", () => ({
-          exports: prebuilt,
-          loader: "object",
-        }));
-        builder.module("@foundry.sh/marbles", () => ({
-          exports: library,
-          loader: "object",
-        }));
-        builder.module("@foundry.sh/marbles/providers", () => ({
-          exports: providers,
-          loader: "object",
-        }));
-        for (const name of PROVIDER_MODULES) {
-          builder.module(`@foundry.sh/marbles/providers/${name}`, async () => ({
-            exports: await providerModule(name),
-            loader: "object",
-          }));
-        }
-      },
-      target: "bun",
-    });
-    linkLibrary("@foundry.sh/marbles", (load) => libraryOfLoad(library, load));
-    linkLibrary("@foundry.sh/marbles/prebuilt", (load) =>
-      prebuiltOfLoad(prebuilt, load)
-    );
-    linkLibrary("@foundry.sh/marbles/providers", (load) =>
-      providersOfLoad(providers, load)
-    );
-    for (const name of PROVIDER_MODULES) {
-      linkLibrary(`@foundry.sh/marbles/providers/${name}`, () =>
-        providerModule(name)
-      );
+function warnUnexported(
+  configPath: string,
+  catalog: Catalog,
+  created: ReadonlySet<object>,
+  locked: ReadonlySet<object>,
+  print: (line: string) => void
+): void {
+  const catalogEmpty =
+    catalog.definitions.size === 0 &&
+    catalog.agents.size === 0 &&
+    catalog.schedules.size === 0 &&
+    catalog.monitors.size === 0 &&
+    catalog.observers.length === 0 &&
+    catalog.providers.size === 0;
+  const labels: string[] = [];
+  for (const item of created) {
+    if (catalog.hasCollected(item) || locked.has(item)) {
+      continue;
     }
-  })();
-  return sourceLibrary;
+    if ((isAgent(item) || isDefinition(item)) && !catalogEmpty) {
+      continue;
+    }
+    const label = describeUnexported(item);
+    if (label !== undefined) {
+      labels.push(label);
+    }
+  }
+  if (labels.length === 0) {
+    return;
+  }
+  const noun = labels.length === 1 ? "declaration" : "declarations";
+  const pronoun = labels.length === 1 ? "it" : "them";
+  print(
+    `[source] warning: ${String(labels.length)} unexported ${noun} (${labels.join(", ")}) in ${configPath} will not be registered; add \`export const ...\` to register ${pronoun}`
+  );
 }
 
 async function loadSource(
   configPath: string,
   {
     catalog,
-    dry,
     read,
     workspaceId,
   }: {
     catalog: Catalog;
-    dry: boolean;
     read?: (file: string) => void;
     workspaceId: string;
   },
   print: (line: string) => void
 ): Promise<readonly string[] | false> {
-  expectHost();
   const files = sourceFiles(configPath);
   if (files === undefined) {
     return false;
   }
-  await linkSourceLibrary();
-  let loaded: readonly string[] = [];
-  await loadInto(
-    workspaceId,
-    catalog,
-    async (load) => {
-      const reading = read === undefined ? undefined : onRead(load, read);
-      try {
-        await importLoad(sourceRoot(configPath), files, load);
-      } catch (error) {
-        reading?.forget();
-        throw error;
-      } finally {
-        loaded = filesRead(load);
+  const session = await openLoadSession(read === undefined ? {} : { read });
+  try {
+    const {
+      created,
+      locked,
+      value: modules,
+    } = await runLoadScope({ workspaceId }, async () => {
+      const loaded: ModuleSource[] = [];
+      for (const file of files) {
+        const real = realPathOf(file);
+        const imported = await session.importModule(real);
+        loaded.push(moduleSource(imported, real));
       }
-    },
-    { dry }
-  );
+      return loaded;
+    });
+    catalog.collect(modules);
+    catalog.validate();
+    warnUnexported(configPath, catalog, created, locked, print);
+  } catch (error) {
+    catalog.reset();
+    throw error;
+  } finally {
+    session.dispose();
+  }
   print(`[source] ${configPath}`);
-  return loaded;
+  return [...session.files].sort();
 }
 
 function placed(args: HostOptions): {
@@ -225,7 +216,10 @@ export async function recordedWorkspace(
 ): Promise<OpenedWorkspace | undefined> {
   const state = resolve(args.state);
   const record = await readDatabase(stateDatabase(state), (database) =>
-    new WorkspaceRegistry({ database, state }).read(id)
+    new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+      database,
+    }).read(id)
   );
   if (record === undefined) {
     return;
@@ -265,7 +259,6 @@ export async function openWorkspace(
       at.configPath,
       {
         catalog,
-        dry: args.dry,
         ...(read === undefined ? {} : { read }),
         workspaceId: workspaceState(resolve(args.state), at.root).id,
       },
@@ -275,11 +268,7 @@ export async function openWorkspace(
   if (files !== false) {
     return opened(args, before, environment, { catalog, cwd, files });
   }
-  if (
-    args.dry ||
-    onMissing === undefined ||
-    !(await onMissing(before.configPath))
-  ) {
+  if (onMissing === undefined || !(await onMissing(before.configPath))) {
     return opened(args, before, environment, { catalog, cwd });
   }
   const created = placed(args);
@@ -328,7 +317,6 @@ function workspaceEngine(
     askable: options.askable,
     catalog,
     cwd,
-    dry: args.dry,
     environment,
     ...(options.log ? { log: options.log } : {}),
     print: options.print,
@@ -348,7 +336,6 @@ export function hostTriggers(
   { catalog, workspace }: OpenedWorkspace
 ): Triggers {
   return readTriggers(catalog, {
-    dry: args.dry,
     stateRoot: resolve(args.state),
     workspaceId: workspace.id,
   });
@@ -362,8 +349,8 @@ export async function touchWorkspace(
 ): Promise<void> {
   if (database !== undefined) {
     await new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) => insideState(args.state, workspaceId),
       database: database.database,
-      state: args.state,
     }).touch(workspace, config, registers);
   }
 }
@@ -378,8 +365,8 @@ export async function asRegistered(
     return workspace;
   }
   const record = await new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(args.state, workspaceId),
     database: database.database,
-    state: args.state,
   }).read(workspace.workspace.id);
   return record === undefined ? workspace : { ...workspace, cwd: record.cwd };
 }

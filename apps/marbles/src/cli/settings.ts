@@ -5,6 +5,7 @@ import { isRecord, writeJson } from "~/lib/state/json";
 import { isTheme, type ThemeName } from "~/model/settings";
 
 export interface Settings {
+  readonly dismissedProviderOffers?: readonly string[];
   readonly providerSetupComplete?: true;
   readonly theme: ThemeName;
 }
@@ -61,9 +62,17 @@ export function loadSettings(path: string): LoadedSettings {
       settings: DEFAULT_SETTINGS,
     };
   }
-  const { providerSetupComplete, theme } = parsed.value;
-  const setup: Pick<Settings, "providerSetupComplete"> =
-    providerSetupComplete === true ? { providerSetupComplete } : {};
+  const { dismissedProviderOffers, providerSetupComplete, theme } =
+    parsed.value;
+  const setup = {
+    ...(providerSetupComplete === true
+      ? { providerSetupComplete: true as const }
+      : {}),
+    ...(Array.isArray(dismissedProviderOffers) &&
+    dismissedProviderOffers.every((id) => typeof id === "string")
+      ? { dismissedProviderOffers }
+      : {}),
+  };
   if (theme === undefined || isTheme(theme)) {
     return {
       path,

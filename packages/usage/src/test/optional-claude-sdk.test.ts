@@ -5,8 +5,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => {
 });
 
 it("loads shared usage and reads API key limits without the Claude Agent SDK", async () => {
-  const { usage } = await import("../index");
-  const { anthropic } = await import("../providers/anthropic");
+  const { anthropic, usage } = await import("../node");
 
   expect(usage).toBeDefined();
   await expect(anthropic({ apiKey: "test" }).limits()).resolves.toEqual({

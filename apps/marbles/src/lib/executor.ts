@@ -1,9 +1,9 @@
-import type { ModelManager } from "@foundry/models";
+import type { Models } from "@foundry/models";
 import { servesKind } from "@foundry/models";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { CLI_HARNESSES, harnessOf } from "~/lib/cli-harnesses";
 
-export function selectExecutor(models: ModelManager): TurnExecutorRef {
+export function selectExecutor(models: Models): TurnExecutorRef {
   if (
     !models.providers.some(
       (candidate) => servesKind(candidate, "text") && candidate.available

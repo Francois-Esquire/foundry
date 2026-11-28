@@ -9,42 +9,41 @@ import {
   Scope as ScopeMod,
   SubscriptionRef,
 } from "effect";
-
-import type { SuspensionState } from "./channels";
-import { compileWorkflowDefinition } from "./definition-compiler";
-import { DefinitionAuthoringError } from "./definition-errors";
-import type { WorkflowDefinitionPlan } from "./definition-plan";
+import { compileWorkflowDefinition } from "./definition/compiler";
+import type { WorkflowDefinitionPlan } from "./definition/plan";
 import {
   definitionBindingFor,
   definitionMaterializer,
   definitionRuntimeSeed,
   describeWorkflowDefinition,
   WorkflowPlanBuilder,
-} from "./definition-plan";
+} from "./definition/plan";
 import type {
   DefinitionBinding,
   DefinitionContext,
   DefinitionDescriptor,
   DefinitionGraphBuilder,
+  Factory,
 } from "./definitions";
-import type { BaseContext } from "./executable";
-import { isSuspendSignal } from "./executable";
-import { errorToShape, resolveInput, runEffectPromise } from "./helpers";
-import type { WorkflowEffectAccess } from "./internal/workflow-effect-access";
-import { workflowEffectAccessKey } from "./internal/workflow-effect-access";
-import type { Factory } from "./orchestrator";
+import { DefinitionAuthoringError } from "./definitions";
+import { errorToShape, resolveInput, runEffectPromise } from "./effect-interop";
 import type { ErrorShape } from "./schema";
+import type { SuspensionState } from "./slices/channels";
+import type { BaseContext } from "./slices/executable";
+import { isSuspendSignal } from "./slices/executable";
 import type {
   SnapshotState,
   WorkflowSnapshot,
   WorkflowStepNode,
-} from "./snapshot";
+} from "./slices/snapshot";
 import type { StepSpec } from "./step";
 import { isStepBailError, Step } from "./step";
 import type { LogSink, TelemetryLogEntry, TelemetryState } from "./telemetry";
 import { noopSink, Telemetry } from "./telemetry";
 import type { Bail, RunStatus } from "./types";
 import { isBail } from "./types";
+import type { WorkflowEffectAccess } from "./workflow-effect-access";
+import { workflowEffectAccessKey } from "./workflow-effect-access";
 
 export function deriveWorkflowTree<I, O, X extends BaseContext>(
   step: Step<I, O, X>,
@@ -218,10 +217,6 @@ export abstract class Workflow<
     return this.#requireRuntime().telemetry;
   }
 
-  get #scope(): Scope.CloseableScope {
-    return this.#requireRuntime().scope;
-  }
-
   protected abstract define(
     graph: DefinitionGraphBuilder<I, O, Record<never, never>, X>
   ): void;
@@ -233,10 +228,17 @@ export abstract class Workflow<
   create(context?: DefinitionContext<X>) {
     const source = this;
     return Object.freeze({
-      run(input: I, invocationContext?: DefinitionContext<X>): Promise<O> {
+      async run(
+        input: I,
+        invocationContext?: DefinitionContext<X>
+      ): Promise<O> {
         const binding = definitionBindingFor(context, invocationContext);
         const runtime = source.#materialize(input, binding);
-        return runtime.run(input, definitionRuntimeSeed(binding));
+        try {
+          return await runtime.run(input, definitionRuntimeSeed(binding));
+        } finally {
+          await runtime.dispose();
+        }
       },
     });
   }
@@ -366,26 +368,32 @@ export abstract class Workflow<
 
     Effect.runSync(root.snapshot.setWorkflow(tree));
 
-    Effect.runFork(
-      FxStream.runForEach(root.snapshot.changes, (snapshotState) =>
-        SubscriptionRef.update(state, (row) => ({
-          ...row,
-          steps: snapshotState.steps,
-          tree: snapshotState.workflow,
-        }))
-      ).pipe(Effect.ensuring(ScopeMod.close(scope, Exit.void)))
+    Effect.runSync(
+      Effect.forkIn(
+        FxStream.runForEach(root.snapshot.changes, (snapshotState) =>
+          SubscriptionRef.update(state, (row) => ({
+            ...row,
+            steps: snapshotState.steps,
+            tree: snapshotState.workflow,
+          }))
+        ),
+        scope
+      )
     );
 
-    Effect.runFork(
-      FxStream.runForEach(status.changes, (next) =>
-        SubscriptionRef.update(state, (row) => ({
-          ...row,
-          status: next,
-          ...(next === "running" && row.startedAt === undefined
-            ? { startedAt: new Date().toISOString() }
-            : {}),
-        }))
-      ).pipe(Effect.ensuring(ScopeMod.close(scope, Exit.void)))
+    Effect.runSync(
+      Effect.forkIn(
+        FxStream.runForEach(status.changes, (next) =>
+          SubscriptionRef.update(state, (row) => ({
+            ...row,
+            status: next,
+            ...(next === "running" && row.startedAt === undefined
+              ? { startedAt: new Date().toISOString() }
+              : {}),
+          }))
+        ),
+        scope
+      )
     );
 
     return new RuntimeWorkflow({
@@ -411,8 +419,12 @@ export abstract class Workflow<
     return this;
   }
 
-  dispose(): Promise<void> {
-    return Effect.runPromise(ScopeMod.close(this.#scope, Exit.void));
+  async dispose(options: { readonly abort?: boolean } = {}): Promise<void> {
+    if (this.#runtime === undefined) {
+      return;
+    }
+    await Effect.runPromise(ScopeMod.close(this.#runtime.scope, Exit.void));
+    await this.#runtime.root.dispose(options);
   }
 
   get status(): RunStatus {
@@ -634,10 +646,17 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Effect.Effect<void> {
     return Effect.promise(() =>
-      this.root.resolveOccurrence(stepPath, name, occurrence, value)
+      this.root.resolveOccurrence(
+        stepPath,
+        name,
+        occurrence,
+        value,
+        correlationId
+      )
     );
   }
 
@@ -645,10 +664,11 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Promise<void> {
     return runEffectPromise(
-      this.#resolveOccurrence(stepPath, name, occurrence, value)
+      this.#resolveOccurrence(stepPath, name, occurrence, value, correlationId)
     );
   }
 
@@ -672,11 +692,18 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Effect.Effect<void> {
     const self = this;
     return Effect.gen(function* () {
-      yield* self.#resolveOccurrence(stepPath, name, occurrence, value);
+      yield* self.#resolveOccurrence(
+        stepPath,
+        name,
+        occurrence,
+        value,
+        correlationId
+      );
       yield* SubscriptionRef.set(self.#status, "queued");
       yield* SubscriptionRef.update(self.#state, (row) => ({
         ...row,
@@ -689,10 +716,11 @@ export abstract class Workflow<
     stepPath: readonly string[],
     name: string,
     occurrence: number,
-    value: unknown
+    value: unknown,
+    correlationId?: string
   ): Promise<void> {
     return runEffectPromise(
-      this.#resumeOccurrence(stepPath, name, occurrence, value)
+      this.#resumeOccurrence(stepPath, name, occurrence, value, correlationId)
     );
   }
 
@@ -710,20 +738,6 @@ export abstract class Workflow<
     });
   }
 
-  #markStarted(at: string): Effect.Effect<string> {
-    const self = this;
-    return Effect.gen(function* () {
-      const { startedAt } = yield* SubscriptionRef.get(self.#state);
-      if (startedAt !== undefined) {
-        return startedAt;
-      }
-      return yield* SubscriptionRef.modify(self.#state, (row) => {
-        const kept = row.startedAt ?? at;
-        return [kept, { ...row, startedAt: kept }];
-      });
-    });
-  }
-
   seedState(
     persisted: Partial<WorkflowState> & { status: RunStatus }
   ): Promise<void> {
@@ -734,20 +748,17 @@ export abstract class Workflow<
   [workflowEffectAccessKey](): WorkflowEffectAccess<I, O> {
     return {
       cancel: (reason) => this.#cancel(reason),
-      markStarted: (at) => this.#markStarted(at),
-      resolve: (name, value) => this.#resolve(name, value),
-      resolveOccurrence: (path, name, occurrence, value) =>
-        this.#resolveOccurrence(path, name, occurrence, value),
-      result: Deferred.await(this.#result),
-      resume: (name, value) => this.#resume(name, value),
-      resumeOccurrence: (path, name, occurrence, value) =>
-        this.#resumeOccurrence(path, name, occurrence, value),
+      restoreTelemetry: (telemetry) =>
+        Effect.sync(() => this.#telemetry.restore(telemetry)).pipe(
+          Effect.zipRight(
+            SubscriptionRef.update(this.#state, (row) => ({
+              ...row,
+              telemetry: this.#telemetry.snapshot(),
+            }))
+          )
+        ),
       run: (input, context) => this.#run(input, context),
-      seedState: (state) => this.#seedState(state),
       state: SubscriptionRef.get(this.#state),
-      stateChanges: this.#state.changes,
-      status: SubscriptionRef.get(this.#status),
-      statusChanges: this.#status.changes,
     };
   }
 }

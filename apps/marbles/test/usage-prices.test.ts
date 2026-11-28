@@ -1,6 +1,6 @@
 import type { SessionMessage } from "@foundry/agents/session";
 import type { Provider, ProviderModelDefinition } from "@foundry/models";
-import { ModelManager } from "@foundry/models";
+import { Models } from "@foundry/models";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
@@ -20,7 +20,7 @@ const ROW: ProviderModelDefinition = {
   vendor: "openai",
 };
 
-function manager(row: ProviderModelDefinition): ModelManager {
+function manager(row: ProviderModelDefinition): Models {
   const provider: Provider = {
     available: true,
     id: "codex",
@@ -28,9 +28,8 @@ function manager(row: ProviderModelDefinition): ModelManager {
       throw new Error("no turn runs here");
     },
     models: [row],
-    offline: false,
   };
-  return new ModelManager({ providers: [provider] });
+  return new Models({ providers: [provider] });
 }
 
 const message: SessionMessage = {
@@ -151,52 +150,10 @@ it("an engine holds the models.dev load while it runs, and disposing it aborts a
   expect(signal(0)?.aborted).toBe(true);
 });
 
-it("Airplane Mode gives up the load, and leaving it starts the load again", async () => {
-  const { fetch, signal } = hangingFetch();
-  vi.resetModules();
-  const { testEngine } = await import("./helpers/engine");
-  const engine = testEngine();
-  try {
-    engine.airplane.set(true);
-    expect(engine.airplane.enabled).toBe(true);
-    expect(signal(0)?.aborted).toBe(true);
-    engine.airplane.set(false);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(signal(1)?.aborted).toBe(false);
-  } finally {
-    await engine.dispose();
-  }
-  expect(signal(1)?.aborted).toBe(true);
-});
-
-it("an engine that started offline is priced after Airplane Mode is turned on and off", async () => {
-  const fetch = vi
-    .fn(async () => Response.json(PAYLOAD))
-    .mockRejectedValueOnce(new Error("offline"));
-  vi.stubGlobal("fetch", fetch);
-  vi.resetModules();
-  const { testEngine } = await import("./helpers/engine");
-  const { loadedModelsDev } = await import(
-    "@foundry/models/catalog/models-dev-source"
-  );
-  const engine = testEngine();
-  try {
-    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    await Promise.resolve();
-    expect(loadedModelsDev()).toBeUndefined();
-    engine.airplane.set(true);
-    engine.airplane.set(false);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    await vi.waitFor(() => expect(loadedModelsDev()).toBeDefined());
-  } finally {
-    await engine.dispose();
-  }
-});
-
 async function claudeCode(
   costs: readonly number[],
   defaultSettings: ClaudeCodeSettings = {}
-): Promise<ModelManager> {
+): Promise<Models> {
   let call = 0;
   vi.doMock("ai-sdk-provider-claude-code", async (original) => ({
     ...(await original<object>()),
@@ -236,8 +193,10 @@ async function claudeCode(
         ),
     }),
   }));
-  const { claudeCodeProvider } = await import("@foundry/models/claude-code");
-  return new ModelManager({
+  const { claudeCodeProvider } = await import(
+    "@foundry/models/providers/claude-code"
+  );
+  return new Models({
     providers: [
       claudeCodeProvider({
         config: { available: true },
@@ -256,24 +215,27 @@ async function claudeCode(
   });
 }
 
-async function twoTurns(models: () => Promise<ModelManager>) {
+async function twoTurns(models: () => Promise<Models>) {
   vi.stubEnv("FOUNDRY_MODELS_DEV_URL", "");
   vi.resetModules();
   const built = await models();
-  const { catalog } = await import("~/authoring/catalog");
   const { agent } = await import("~/authoring/resources");
   const { step } = await import("~/authoring/builder");
   const { startEngine } = await import("./helpers/engine");
   const { totalOf } = await import("~/workspace/usage");
-  const { costCell } = await import("~/cli/state/usage-format");
+  const { costCell } = await import("~/tui/state/usage-format");
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
-  step("review").do(async ({ agents }) => {
+  const review = step("review").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     await session.generate("first");
     await session.generate("second");
     return "done";
   });
-  const engine = await startEngine({ models: built, print: () => undefined });
+  const engine = await startEngine({
+    collect: [reviewer, review],
+    models: built,
+    print: () => undefined,
+  });
   try {
     await (await engine.launch("review", {})).result;
     const facts = (await engine.usage.read()).facts.toSorted(
@@ -285,7 +247,6 @@ async function twoTurns(models: () => Promise<ModelManager>) {
     };
   } finally {
     await engine.dispose();
-    catalog.reset();
     vi.doUnmock("ai-sdk-provider-claude-code");
   }
 }

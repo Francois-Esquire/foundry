@@ -1,14 +1,13 @@
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
-export { claudeCodeProvider } from "@foundry/models/claude-code";
-export { codexProvider } from "@foundry/models/codex";
-export { piProvider } from "@foundry/models/pi";
-export { createContainers } from "@foundry/sandbox/container/containers";
+export { claudeCodeProvider } from "@foundry/models/providers/claude-code";
+export { codexProvider } from "@foundry/models/providers/codex";
+export { piProvider } from "@foundry/models/providers/pi";
+export { createContainers } from "@foundry/sandbox";
 export { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";
-export type { RunRecord } from "@foundry/workflows/schema";
-export { WorkspaceSystem } from "@foundry/workspaces";
-export { git } from "@foundry/workspaces/git";
+export { Workspaces } from "@foundry/workspaces";
 export { directory } from "@foundry/workspaces/node";
+export { git } from "@foundry/workspaces/node/git";
 export { nodeObserver } from "@foundry/workspaces/node/watch";
 export type { TurnExecutorRef } from "~/lib/cli-harnesses";
 export { SessionRouteError } from "~/lib/managers/agents";
@@ -34,6 +33,7 @@ export {
   ConfigurationError,
   MemoryProviderStore,
 } from "~/lib/providers/store";
+export type { RunRecord } from "~/lib/workflow-runs";
 export type {
   AutomationRecord,
   AutomationService,
@@ -82,6 +82,7 @@ export { TERMINAL_RUN_STATUSES } from "./run-store";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
 export type { SandboxAuthority } from "./sandbox/session";
+export { FileRunOutputSink } from "./state/output";
 export type { CalendarSlot, Schedule, Trigger, Weekday } from "./triggers";
 export type {
   AgentDefinition,
@@ -90,19 +91,19 @@ export type {
   AgentRoute,
   Agents,
   ArtifactDefinition,
-  Artifacts,
   Context,
   DeferredAgent,
   SandboxDefinition,
   Sandboxes,
   SandboxHandle,
   SandboxSpec,
+  ScopedArtifacts,
+  ScopedWorkspaces,
   Session,
   SessionOptions,
   SessionRef,
   WorkspaceDefinition,
   WorkspaceHandle,
-  Workspaces,
 } from "./types";
 export type {
   DirectUsageFact,

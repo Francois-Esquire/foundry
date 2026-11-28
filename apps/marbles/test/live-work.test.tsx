@@ -1,15 +1,15 @@
 import { Sessions } from "@foundry/agents/session";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { RunRecord } from "@foundry/workflows/schema";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "~/cli/state/dashboard-model";
-import type { RunActions } from "~/cli/state/run-actions";
-import { DashboardView } from "~/cli/views/dashboard";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { RunScope } from "~/lib/run-scope";
 import type { LiveWork } from "~/lib/step-work";
+import type { RunRecord } from "~/lib/workflow-runs";
+import type { DashboardSnapshot } from "~/tui/state/dashboard-model";
+import type { RunActions } from "~/tui/state/run-actions";
+import { DashboardView } from "~/tui/views/dashboard";
 import { questionOwners } from "~/workspace/live-work";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { flush, mount, press, unmount } from "./helpers/render";
@@ -84,7 +84,6 @@ function snapshotOf(
   return dashboardSnapshot([record], {
     definitions: [],
     feed: [],
-    lastFinish: new Map(),
     live: new Map([[record.id, work]]),
     monitors: new Map(),
     now: 200,
@@ -170,7 +169,7 @@ test("two turns of the same agent and model in one step each carry their own ide
 });
 
 test("a question from a child session waits on the turn that delegated it, not on the other turn in the step, and is answered from there", async () => {
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const sessions = new Sessions({ store });
   await sessions.createSession({ id: "run-session" });
   for (const parent of ["parent-a", "parent-b"]) {

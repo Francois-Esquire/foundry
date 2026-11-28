@@ -1,6 +1,6 @@
 # @foundry/workspaces
 
-The Workspace system. A Workspace is the durable registration of one
+The `Workspaces` package. A Workspace is the durable registration of one
 authoritative source; an entry is one included path within it. The source owns
 current bytes — the package owns identity, inclusion, and the last
 successfully reconciled inventory.
@@ -13,27 +13,28 @@ The root remains on `WorkspaceSource`; actual file contents are read from storag
 Saves accept `expectedDigest` for the version last read.
 
 File classification, kinds, and their constants live in `@foundry/lib/file-classification`.
-Package constants live in `@foundry/workspaces/constants`; Node watcher constants stay under `src/node/constants.ts`.
+`DIRECTORY_SOURCE` is exported from `@foundry/workspaces` and defined in `src/directory.ts`, the baseline ignore patterns in `src/traverse.ts`.
 
 The root `Workspace` class owns identity, the catalog, reconciliation, and
-the serialization guarantee. It knows nothing about where bytes come from.
-Every source and every capability is a layer: a class mixin the system wraps
-around the root when it opens an instance.
+the serialization guarantee. It delegates byte access to a composed
+`WorkspaceSourceAdapter`. Every source and capability is a `WorkspaceExtension`
+that supplies a source adapter and/or attaches capabilities and lifecycle hooks
+when `Workspaces` opens an instance.
 
 The root entry has no Node runtime imports or default storage. Its directory
-layer requires caller-supplied storage: `directory({ filesystem })`.
+extension requires caller-supplied storage: `directory({ filesystem })`.
 `WorkspaceFileSystem` combines `StorageReader` and `AtomicStorageWriter` from
 `@foundry/core/storage`. Storage owns its path separator; catalog paths
 remain POSIX. Digests use Web Crypto.
 
-For Node disk access, import the default directory adapter from `/node`:
+For Node disk access, import the default directory adapter or `workspaces()` factory from `/node`:
 
 ```ts
-import { WorkspaceSystem } from "@foundry/workspaces";
-import { git } from "@foundry/workspaces/git";
+import { Workspaces } from "@foundry/workspaces";
 import { directory } from "@foundry/workspaces/node";
+import { git } from "@foundry/workspaces/node/git";
 
-const workspaces = new WorkspaceSystem().extend(directory()).extend(git());
+const workspaces = new Workspaces().extend(directory()).extend(git());
 const page = await workspaces.list({ limit: 20 }); // opens only this page
 const next =
   page.nextCursor === undefined
@@ -57,7 +58,7 @@ await ws.remove(); // forgets the registration and closes the instance
 await workspaces.closeAll();
 ```
 
-Subscribe to committed catalog changes on the system:
+Subscribe to committed catalog changes on `Workspaces`:
 
 ```ts
 const unsubscribe = workspaces.on("change", ({ action, entry }) => {
@@ -73,8 +74,8 @@ is published by the catalog the moment it commits. Removal forgets catalog
 entries without deleting source files. Unchanged observations emit nothing.
 Delivery is in-process, with no replay; listeners receive detached payloads
 and their failures go to `onError` (default: `console.error`) rather than
-failing committed operations. Closing an instance does not unsubscribe system
-listeners. Changes made outside this system are observed on the next refresh.
+failing committed operations. Closing an instance does not unsubscribe
+`Workspaces` listeners. Changes made outside this `Workspaces` are observed on the next refresh.
 Enable storage observation to refresh automatically.
 
 ## Persistence
@@ -86,23 +87,23 @@ enforces nothing else. `MemoryWorkspaceStore` (on
 persist elsewhere:
 
 ```ts
-const workspaces = new WorkspaceSystem({ store, onError: log });
+const workspaces = new Workspaces({ store, onError: log });
 ```
 
-The system drives a catalog over that store, and the catalog owns every rule:
+`Workspaces` drives a catalog over that store, and the catalog owns every rule:
 one Workspace per canonical root and per source reference, entries owned by
 their Workspace, a valid tree after every change, and each change applied
 whole or refused. A store implementation therefore only persists; those rules
-come with the system. Catalog mutations and per-Workspace observations, saves,
+come with `Workspaces`. Catalog mutations and per-Workspace observations, saves,
 and removals each run one at a time in-process. Each catalog mutation reads
-and commits inside the store's optional `transaction`, so a second system over
+and commits inside the store's optional `transaction`, so a second `Workspaces` over
 the same store cannot write between them; both stores here offer one. Over a
-store without it, a second system can still interleave.
+store without it, a second `Workspaces` can still interleave.
 
 | Path                                | Holds                                                               |
 | ----------------------------------- | ------------------------------------------------------------------- |
 | `@foundry/workspaces/store`         | `WorkspaceStore` and its write types.                               |
-| `@foundry/workspaces/store/memory`  | `MemoryWorkspaceStore`, the default `WorkspaceSystem` uses.         |
+| `@foundry/workspaces/store/memory`  | `MemoryWorkspaceStore`, the default `Workspaces` uses.              |
 | `@foundry/workspaces/store/sqlite`  | `SqliteWorkspaceStore`, over a host's Drizzle database.             |
 | `@foundry/workspaces/store/tables`  | The Drizzle tables it uses: `workspaces`, `workspace_entries`.      |
 | `@foundry/workspaces/testing/store` | `describeWorkspaceStore`, the suite every store passes.             |
@@ -181,7 +182,7 @@ host chooses, first in every key. Marbles passes its workspace id. A store
 reads and writes only its own scope.
 
 ```ts
-import { WorkspaceSystem } from "@foundry/workspaces";
+import { Workspaces } from "@foundry/workspaces";
 import { SqliteWorkspaceStore } from "@foundry/workspaces/store/sqlite";
 
 const store = new SqliteWorkspaceStore({
@@ -192,7 +193,7 @@ const store = new SqliteWorkspaceStore({
     await recordChange(transaction, write);
   },
 });
-const workspaces = new WorkspaceSystem({ store, onError: log });
+const workspaces = new Workspaces({ store, onError: log });
 ```
 
 The tables hold each record field for field. A `Date` is integer epoch
@@ -230,7 +231,7 @@ transaction holds the write lock while it reads: Drizzle's libSQL driver
 begins every transaction with `BEGIN IMMEDIATE` and offers no deferred
 (read-only) transaction through the database type the store accepts.
 
-Two systems over one `SqliteWorkspaceStore` are kept apart. In this process
+Two `Workspaces` over one `SqliteWorkspaceStore` are kept apart. In this process
 the store's calls take turns, so one made while a transaction runs waits
 for it. Across connections, each transaction takes SQLite's write lock at
 its first statement. A write from another process then waits for as long
@@ -307,46 +308,58 @@ unsubscribe, cancel pending work, and await the running observation.
 ```ts
 import { nodeObserver } from "@foundry/workspaces/node/watch";
 
-const workspaces = new WorkspaceSystem().extend(
+const workspaces = new Workspaces().extend(
   directory({ observer: nodeObserver }),
 );
 // ...
 await workspaces.closeAll();
 ```
 
-The Node adapter tries optional `@parcel/watcher`, then recursive `fs.watch`.
-If neither starts, or the active watcher reports failure, it polls. Native
-watching stays outside the portable root import. For storage without a native
-signal, pass `polling(intervalMs)` from `@foundry/workspaces`.
-Polling and native watchers observe current state; they do not record every
-intermediate write or provide a durable event log.
+The Node adapter uses recursive `fs.watch`. If it fails to start or reports
+an error, it falls back to polling. Native watching stays outside the portable
+root import. For storage without a native signal, pass `polling(intervalMs)`
+from `@foundry/workspaces`. Polling and native watchers observe current state;
+they do not record every intermediate write or provide a durable event log.
 
-A layer is a `WorkspaceExtension`: `applies(registration)` decides from the
-stored registration, `wrap(Base)` is the mixin. Layers apply in registration order, each
-extending the class the previous one returned, so `super` runs the chain. The
-layer that answers `scan`, `readFile`, and `writeFile` must come first for its
-source; anything after it only adds. A record no layer claims is refused at
-open with `WorkspaceSourceUnsupportedError`.
+An extension is a `WorkspaceExtension`: `applies(registration)` decides from
+the stored registration, `source(registration)` supplies the
+`WorkspaceSourceAdapter` for a source-owning extension, and
+`attach({ registration, capabilities })` returns optional capabilities and
+`start(workspace)`/`stop(workspace)` lifecycle hooks. Extensions apply in
+registration order so later attachments can read earlier capabilities.
+A record no source extension claims is refused at open with
+`WorkspaceSourceUnsupportedError`.
 
-The system is the source of every Workspace. A floor also names the ref
-`load` accepts (`ref: "path"`) and turns it into a registration (`identify`);
-`load` dispatches on the key. Every extension carries three types the system
-accumulates through `extend` — the ref, what `load(ref)` returns, and what
-every opened Workspace carries — so a composed system's `load`, `open`, and
-`list` are typed by exactly the layers it holds. A layer that applies per
-record declares its capability optional (`{ git?: Git }`).
+`Workspaces` is the source of every Workspace. A source extension also names the
+ref `load` accepts (`ref: "path"`) and turns it into a registration
+(`identify`); `load` dispatches on the key. Every extension carries three types
+`Workspaces` accumulates through `extend` — the ref, what `load(ref)` returns,
+and what every opened Workspace carries — so a composed `Workspaces`'s `load`,
+`open`, and `list` are typed by exactly the extensions it holds. An extension
+whose `applies` can return `false` contributes its capabilities as optional;
+only one whose `applies` always returns `true` (or that declares
+`WorkspaceExtension<Ref, Source, Capabilities, true>`) contributes them as
+required. Each extension's capabilities are intersected with the others',
+and a union one extension declares stays a union.
 
 Composition by hand needs no registry:
 
 ```ts
-import { WithDirectory, Workspace } from "@foundry/workspaces";
+import { directorySource, Workspace } from "@foundry/workspaces";
 
-const Cls = WithDirectory(Workspace, { filesystem });
-const ws = new Cls(registration, context); // context: catalog, serialize, report, close
+const ws = new Workspace(
+  registration,
+  context,
+  directorySource(registration.source.path, { filesystem }),
+);
 ```
 
-`start` and `stop` are protected hooks the system alone calls; a layer that
-holds a resource overrides them and calls `super`.
+`directorySource(root)` needs a canonical root, one where
+`realpath(root) === root`, such as `registration.source.path`. Its confined
+reads, writes, and creates check that equality and fail when it does not hold.
+
+Lifecycle `start` and `stop` hooks run in registration order on open and in
+reverse order on close.
 
 An instance fixes `id` and `source` at construction and reads everything else
 from the catalog per call, so two instances of one id never disagree. Every
@@ -354,10 +367,10 @@ refresh scans after it was asked — it never joins a scan already in flight —
 and an instance reopened while its predecessor's work is still running waits
 behind it.
 
-`@foundry/workspaces/node` also exports `WithDirectory` with default disk
-storage and `nodeFileSystem`.
+`@foundry/workspaces/node` also exports `workspaces()` (pre-wired with `directory({ observer: nodeObserver })`), `directorySource` with default disk
+storage, and `nodeFileSystem`.
 
-Git is opt-in on `@foundry/workspaces/git`: the `git()` layer, plus
+Git is opt-in on `@foundry/workspaces/node/git`: the `git()` extension, plus
 `Git.at(root)`, `Git.open(root)`, `Git.isRepository(root)`, and worktrees on
 the resulting `Git`.
 

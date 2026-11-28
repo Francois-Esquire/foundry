@@ -2,9 +2,11 @@ import { basename } from "node:path";
 import { asBusy } from "~/database/busy";
 import type { StoreDatabase } from "~/database/open";
 import { ALL_WORKSPACES, ResourceView } from "~/database/resources";
-import type { StoredTick } from "~/database/triggers";
-import { isMonitorTick, storedTicks } from "~/database/triggers";
+import type { ScheduleSnapshot } from "~/database/triggers";
+import { storedSchedules } from "~/database/triggers";
 import { WorkspaceRegistry } from "~/database/workspaces";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import { insideState } from "~/lib/state/workspace";
 import type {
   OwnerWorkspace,
   RunSnapshot,
@@ -26,12 +28,14 @@ export function otherWorkspaces(
   options: OtherWorkspacesOptions
 ): (now: number) => Promise<OtherWorkspaces> {
   const { database, state, workspace } = options;
-  const registry = new WorkspaceRegistry({ database, state });
-  const view = new ResourceView({ database, scope: ALL_WORKSPACES, state });
-  const here = new ResourceView({
+  const registry = new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
     database,
-    scope: { workspace },
-    state,
+  });
+  const view = new ResourceView({
+    acceptWorkspace: (workspaceId) => insideState(state, workspaceId),
+    database,
+    scope: ALL_WORKSPACES,
   });
   let last: { readonly at: number; readonly read: OtherWorkspaces } | undefined;
 
@@ -44,32 +48,20 @@ export function otherWorkspaces(
     );
     const ownerOf = (id: string): OwnerWorkspace =>
       owners.get(id) ?? { id, name: id };
-    const shared = await here.sharedRuns();
-    const seen = new Set(
-      shared.map(({ ref }) => `${ref.owner}\u0000${ref.id}`)
-    );
-    const others = (await view.runs(RUNS)).filter(
-      ({ ref }) =>
-        ref.owner !== workspace && !seen.has(`${ref.owner}\u0000${ref.id}`)
-    );
-    const runs = [...shared, ...others]
-      .sort(
-        (a, b) =>
-          b.value.record.timestamps.createdAt -
-          a.value.record.timestamps.createdAt
-      )
-      .map(({ ref, value, workspaces }) =>
-        ownedElsewhere(
-          storedRunSnapshot(value.record, now),
-          ownerOf(ref.owner),
-          workspaces
-        )
+    const runs = (await view.runs(RUNS))
+      .filter(({ ref }) => ref.owner !== workspace)
+      .map(({ ref, value }) =>
+        ownedElsewhere(storedRunSnapshot(value.record, now), ownerOf(ref.owner))
       );
     const triggers: TriggerSnapshot[] = [];
     for (const owner of owners.values()) {
       if (owner.id !== workspace) {
-        for (const tick of await storedTicks(database, owner.id)) {
-          triggers.push(triggerSnapshot(tick, owner));
+        for (const stored of await storedSchedules(
+          database,
+          owner.id,
+          NODE_OWNER_LIVENESS
+        )) {
+          triggers.push(triggerSnapshot(stored, owner));
         }
       }
     }
@@ -88,11 +80,7 @@ export function otherWorkspaces(
   };
 }
 
-function ownedElsewhere(
-  run: RunSnapshot,
-  owner: OwnerWorkspace,
-  workspaces: readonly string[]
-): RunSnapshot {
+function ownedElsewhere(run: RunSnapshot, owner: OwnerWorkspace): RunSnapshot {
   return {
     ...run,
     ...(run.logs === undefined
@@ -105,19 +93,17 @@ function ownedElsewhere(
         }),
     name: `${run.name} · ${owner.name}`,
     workspace: owner,
-    ...(workspaces.length > 1 ? { workspaces } : {}),
   };
 }
 
 function triggerSnapshot(
-  tick: StoredTick,
+  stored: ScheduleSnapshot,
   owner: OwnerWorkspace
 ): TriggerSnapshot {
-  const { key, last, pending, running } = tick;
-  const kind = isMonitorTick(tick) ? "monitor" : "schedule";
+  const { key, kind, label, lastStatus, nextDue, pending, running } = stored;
   let status: TriggerSnapshot["status"] =
     kind === "monitor" ? "watching" : "waiting";
-  if (last?.lastStatus === "failed") {
+  if (lastStatus === "failed") {
     status = "failed";
   }
   if (running !== null) {
@@ -127,10 +113,10 @@ function triggerSnapshot(
     description: `${kind} in ${owner.name}${pending === undefined ? "" : ` · a launch of ${pending} waits`}`,
     id: key,
     kind,
-    name: `${last?.label ?? key} · ${owner.name}`,
-    ...(last === undefined
+    name: `${label} · ${owner.name}`,
+    ...(nextDue === undefined
       ? {}
-      : { next: new Date(last.nextDue).toLocaleString() }),
+      : { next: new Date(nextDue).toLocaleString() }),
     status,
     targetId: pending ?? key,
     workspace: owner,

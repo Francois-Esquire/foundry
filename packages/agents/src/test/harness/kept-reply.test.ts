@@ -5,7 +5,7 @@ import type { StreamPart } from "../../harness/stream-transform";
 import { transformStream } from "../../harness/stream-transform";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { SqliteSessionStore } from "../../store/sqlite";
 import {
   createScriptedMockModel,
@@ -89,7 +89,7 @@ describe("a turn's reply over the SQLite store", () => {
 
 describe("a reply the store refuses", () => {
   function refusingHarness() {
-    const inner = new InMemorySessionStore();
+    const inner = new MemorySessionStore();
     const { store } = recordingStore(inner, (write) => {
       if (write.putMessages?.some((m) => m.role === "assistant")) {
         throw new Error("disk full");

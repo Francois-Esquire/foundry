@@ -2,7 +2,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { SessionHarness } from "../../harness/session-harness";
 import { createSkillRegistry } from "../../skills/registry";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import { textStreamResult } from "../helpers/mock-language-model";
 
 function capturingModel() {
@@ -34,7 +34,7 @@ describe("AgentHarness — instructions", () => {
       {
         instructions: "You are the Document agent.",
         model,
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: {},
       },
       { sessionId: "s" }
@@ -60,7 +60,7 @@ describe("AgentHarness — instructions", () => {
       {
         instructions: `You are the Document agent.\n\n${skills.instructions}`,
         model,
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: skills.tools,
       },
       { sessionId: "s" }

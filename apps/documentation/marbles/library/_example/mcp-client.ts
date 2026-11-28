@@ -31,7 +31,7 @@ export async function countOverMcp(
               (entry): entry is [string, string] => entry[1] !== undefined
             )
           ),
-          FOUNDRY_HOME: options.home,
+          FOUNDRY_ROOT: options.home,
         };
   const client = new Client({ name: "count-example", version: "0.0.0" });
   await client.connect(
@@ -42,23 +42,26 @@ export async function countOverMcp(
     })
   );
   try {
-    const { runId } = json(
+    const { id } = json(
       await client.callTool({
         arguments: { input: { extension: ".ts" }, name: "count" },
-        name: "dispatch_workflow",
+        name: "enqueue_workflow",
       })
     );
     const deadline = Date.now() + 30_000;
     for (;;) {
-      const run = json(
-        await client.callTool({ arguments: { runId }, name: "get_run" })
-      );
+      const { item: run } = json(
+        await client.callTool({
+          arguments: { id, resource: "run" },
+          name: "get",
+        })
+      ) as { readonly item: Record<string, unknown> };
       if (run.status !== "queued" && run.status !== "running") {
         return run;
       }
       if (Date.now() >= deadline) {
         throw new Error(
-          `Run ${String(runId)} did not settle within the polling window.`
+          `Run ${String(id)} did not settle within the polling window.`
         );
       }
       await sleep(POLL_MS);

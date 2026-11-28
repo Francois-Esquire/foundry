@@ -1,17 +1,9 @@
-import { schedule, step, workflow } from "@foundry.sh/marbles";
+import { Catalog, schedule, step, workflow } from "@foundry.sh/marbles";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
-import type { ScheduledEngine } from "~/lib/schedule";
-import {
-  describeTrigger,
-  nextDue,
-  parseEvery,
-  runSchedules,
-} from "~/lib/schedule";
+import { describeTrigger, nextDue, parseEvery } from "~/lib/schedule";
 import { JSON_INPUT_FIELD } from "~/lib/schema";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { CalendarSlot, Schedule } from "~/lib/triggers";
 
 import { declared, testEngine } from "./helpers/engine";
@@ -28,40 +20,21 @@ const NO_NAME_PATTERN = /has no name/;
 
 const text = z.object({ text: z.string() });
 
-function loopEngine(
-  schedules: readonly Schedule[],
-  started: () => void
-): ScheduledEngine {
-  return {
-    cancel: () => Promise.resolve(),
-    has: () => true,
-    launch: () => {
-      started();
-      return Promise.resolve({ id: "run", result: Promise.resolve() });
-    },
-    schedules: () => Promise.resolve(schedules),
-    triggers: new MemoryTriggerStore(),
-  } as ScheduledEngine;
-}
-
 function bindLog(lines: string[]) {
   bindLaunch(testEngine({ print: (line) => lines.push(line) }).bindings);
 }
-
-afterEach(() => {
-  catalog.reset();
-});
 
 describe("definitions", () => {
   it("register by name and list in the catalog with their kind", () => {
     const shout = step("shout")
       .input(text)
       .do(({ input }) => input.text.toUpperCase());
-    expect(catalog.definitions.get("shout")).toBe(shout);
+    const loud = workflow("loud", shout({}, { text: "hi" }));
+    const collected = Catalog.collect([shout, loud]);
+    expect(collected.definitions.get("shout")).toBe(shout);
     expect(shout.name).toBe("shout");
-    workflow("loud", shout({}, { text: "hi" }));
     expect(
-      declared()
+      declared(collected)
         .entries()
         .map((entry) => [entry.kind, entry.name])
     ).toEqual([
@@ -81,12 +54,12 @@ describe("definitions", () => {
         version: 1,
       },
     };
-    step("opaque")
+    const opaqueStep = step("opaque")
       .input(opaque)
       .do(({ input }) => input.n);
-    step("bare").do(() => 1);
+    const bare = step("bare").do(() => 1);
     expect(
-      declared()
+      declared([opaqueStep, bare])
         .entries()
         .map((entry) => [entry.name, entry.input.fields])
     ).toEqual([
@@ -96,8 +69,9 @@ describe("definitions", () => {
   });
 
   it("refuse a duplicate name across steps and workflows", () => {
-    step("x").do(() => null);
-    expect(() => workflow("x", step().do(() => 1)({}))).toThrow(
+    const first = step("x").do(() => null);
+    const second = workflow("x", step().do(() => 1)({}));
+    expect(() => Catalog.collect([first, second])).toThrow(
       ALREADY_REGISTERED_PATTERN
     );
   });
@@ -142,17 +116,18 @@ describe("definitions", () => {
     const shout = step("shout")
       .input(text)
       .do(({ input }) => input.text);
-    schedule(shout({}, { text: "a" })).every("6h");
-    schedule(shout({}, { text: "a" })).every("30m");
-    schedule(shout({}, { text: "b" })).every("1h");
-    const keys = [...catalog.schedules.keys()];
+    const s1 = schedule(shout({}, { text: "a" })).every("6h");
+    const s2 = schedule(shout({}, { text: "a" })).every("30m");
+    const s3 = schedule(shout({}, { text: "b" })).every("1h");
+    const collected = Catalog.collect([shout, s1, s2, s3]);
+    const keys = [...collected.schedules.keys()];
     expect(keys).toHaveLength(3);
     const [first, second, third] = keys as [string, string, string];
     expect(first).toMatch(SHOUT_KEY_PATTERN);
     expect(second).toBe(`${first}-2`);
     expect(third).toMatch(SHOUT_KEY_PATTERN);
     expect(third).not.toBe(first);
-    expect(catalog.schedules.get(first)).toEqual({
+    expect(collected.schedules.get(first)).toEqual({
       input: { text: "a" },
       key: first,
       kind: "schedule",
@@ -164,8 +139,9 @@ describe("definitions", () => {
 
   it("a bare target has the target's name as its key", () => {
     const wave = step("wave").do(() => 1);
-    schedule(wave).every("1h");
-    expect(catalog.schedules.get("wave")).toMatchObject({
+    const scheduled = schedule(wave).every("1h");
+    const collected = Catalog.collect([wave, scheduled]);
+    expect(collected.schedules.get("wave")).toMatchObject({
       input: null,
       key: "wave",
       label: "wave",
@@ -179,13 +155,15 @@ describe("definitions", () => {
       .do(({ input }) => input.text);
     const say = step("say").do(() => "x");
     expect(() => schedule(shout({ text: say({}) }))).toThrow(WRAP_PATTERN);
-    expect(() => schedule(step().do(() => 1))).toThrow(NO_NAME_PATTERN);
+    const unnamed = schedule(step().do(() => 1)).every("1h");
+    expect(() => Catalog.collect([unnamed])).toThrow(NO_NAME_PATTERN);
   });
 
   it("schedule a calendar slot, minute defaulting to 0", () => {
     const w = step("w").do(() => 1);
-    schedule(w).at({ hour: 9, weekday: "mon" });
-    expect(catalog.schedules.get("w")?.trigger).toEqual({
+    const scheduled = schedule(w).at({ hour: 9, weekday: "mon" });
+    const collected = Catalog.collect([w, scheduled]);
+    expect(collected.schedules.get("w")?.trigger).toEqual({
       kind: "calendar",
       slot: { hour: 9, minute: 0, weekday: "mon" },
     });
@@ -215,205 +193,6 @@ describe("cadence", () => {
     expect(() => parseEvery("9007199254740993d")).toThrow(
       POSITIVE_CADENCE_PATTERN
     );
-  });
-
-  it("fires from the last completion, so a mid-run tick is skipped", async () => {
-    const dispatched: number[] = [];
-    let clock = 0;
-    const controller = new AbortController();
-    const every: Schedule = {
-      input: null,
-      key: "e",
-      kind: "schedule",
-      label: "e",
-      trigger: { kind: "interval", ms: 10 },
-      workflow: "w",
-    };
-    const engine = loopEngine([every], () => {
-      dispatched.push(clock);
-      clock += 25;
-      if (dispatched.length === 3) {
-        controller.abort();
-      }
-    });
-    expect(nextDue(every, 100)).toBe(110);
-
-    await runSchedules(engine, {
-      now: () => clock,
-      print: () => undefined,
-      signal: controller.signal,
-      sleep: (ms) => {
-        clock += ms;
-        return Promise.resolve();
-      },
-    });
-    expect(dispatched).toEqual([10, 45, 80]);
-  });
-
-  it("launches nothing once stopped while it read the schedules", async () => {
-    const stop = new AbortController();
-    const reading = Promise.withResolvers<void>();
-    const entered = Promise.withResolvers<void>();
-    const due: Schedule = {
-      input: null,
-      key: "s",
-      kind: "schedule",
-      label: "s",
-      registeredAt: 0,
-      trigger: { kind: "interval", ms: 1000 },
-      workflow: "job",
-    };
-    let reads = 0;
-    let launched = 0;
-    const engine = {
-      cancel: () => Promise.resolve(),
-      has: () => true,
-      launch: () => {
-        launched += 1;
-        return Promise.resolve({ id: "run", result: Promise.resolve() });
-      },
-      schedules: async () => {
-        reads += 1;
-        if (reads === 1) {
-          entered.resolve();
-          await reading.promise;
-        }
-        return [due];
-      },
-      triggers: new MemoryTriggerStore(),
-    } as unknown as ScheduledEngine;
-    const done = runSchedules(engine, {
-      now: () => 2000,
-      print: () => undefined,
-      signal: stop.signal,
-    });
-    await entered.promise;
-    stop.abort();
-    reading.resolve();
-    await done;
-    expect(launched).toBe(0);
-  });
-
-  it("launches nothing once stopped while its tick waited for the claim, and gives the claim up", async () => {
-    const stop = new AbortController();
-    const claiming = Promise.withResolvers<void>();
-    const entered = Promise.withResolvers<void>();
-    const due: Schedule = {
-      input: null,
-      key: "s",
-      kind: "schedule",
-      label: "s",
-      registeredAt: 0,
-      trigger: { kind: "interval", ms: 1000 },
-      workflow: "job",
-    };
-    const triggers = new MemoryTriggerStore();
-    const { claimTick } = triggers;
-    let launched = 0;
-    const engine = {
-      cancel: () => Promise.resolve(),
-      has: () => true,
-      launch: () => {
-        launched += 1;
-        return Promise.resolve({ id: "run", result: Promise.resolve() });
-      },
-      schedules: () => Promise.resolve([due]),
-      triggers: Object.assign(triggers, {
-        async claimTick(key: string) {
-          entered.resolve();
-          await claiming.promise;
-          return await claimTick.call(triggers, key);
-        },
-      }),
-    } as unknown as ScheduledEngine;
-    const done = runSchedules(engine, {
-      now: () => 2000,
-      print: () => undefined,
-      signal: stop.signal,
-    });
-    await entered.promise;
-    stop.abort();
-    claiming.resolve();
-    await done;
-    expect(launched).toBe(0);
-    expect(await claimTick.call(triggers, "s")).toEqual({ claimed: true });
-  });
-
-  it("reports a failed read of the schedules and reads again after the polling delay", async () => {
-    let clock = 0;
-    const controller = new AbortController();
-    const every: Schedule = {
-      input: null,
-      key: "read",
-      kind: "schedule",
-      label: "read",
-      trigger: { kind: "interval", ms: 10 },
-      workflow: "w",
-    };
-    const dispatched: number[] = [];
-    const engine = loopEngine([every], () => {
-      dispatched.push(clock);
-      controller.abort();
-    });
-    const reads = engine.schedules;
-    let failures = 1;
-    engine.schedules = () => {
-      if (failures > 0) {
-        failures -= 1;
-        return Promise.reject(new Error("database busy"));
-      }
-      return reads();
-    };
-    const lines: string[] = [];
-    await runSchedules(engine, {
-      now: () => clock,
-      print: (line) => lines.push(line),
-      signal: controller.signal,
-      sleep: (ms) => {
-        clock += ms;
-        return Promise.resolve();
-      },
-    });
-    expect(lines).toContain(
-      "[schedule] reading schedules failed: Error: database busy"
-    );
-    expect(dispatched).toEqual([1010]);
-  });
-
-  it("waits a cadence after a tick another holder skipped, rather than spinning", async () => {
-    let clock = 0;
-    const controller = new AbortController();
-    const every: Schedule = {
-      input: null,
-      key: "held",
-      kind: "schedule",
-      label: "held",
-      trigger: { kind: "interval", ms: 10 },
-      workflow: "w",
-    };
-    const engine = loopEngine([every], () => {
-      throw new Error("a held trigger must not start");
-    });
-    expect(await engine.triggers.claimTick("held")).toEqual({ claimed: true });
-    const skipped: number[] = [];
-    await runSchedules(engine, {
-      now: () => clock,
-      print: (line) => {
-        if (line.includes("skipped")) {
-          skipped.push(clock);
-        }
-        if (skipped.length === 3) {
-          controller.abort();
-        }
-      },
-      signal: controller.signal,
-      sleep: (ms) => {
-        clock += ms;
-        return Promise.resolve();
-      },
-    });
-    expect(skipped).toEqual([10, 20, 30]);
-    await engine.triggers.finishTick("held");
   });
 });
 

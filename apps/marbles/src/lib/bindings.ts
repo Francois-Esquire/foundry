@@ -1,12 +1,18 @@
 import type { Log } from "~/lib/log";
 import type { TriggerStore } from "~/lib/trigger-store";
 
-import type { Exec } from "./command";
+import type { Exec } from "./command-error";
 import type { ExecutionContext } from "./execution-context";
 import type { AgentTurns } from "./managers/agents";
-import type { Catalogue } from "./managers/workspaces";
+import type { Runs } from "./managers/runs";
+import type { LocalWorkspaces } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
-import type { Agents, Artifacts, Sandboxes, Workspaces } from "./types";
+import type {
+  Agents,
+  Sandboxes,
+  ScopedArtifacts,
+  ScopedWorkspaces,
+} from "./types";
 
 export interface ManagerArgs {
   readonly frame: Frame;
@@ -15,23 +21,24 @@ export interface ManagerArgs {
 }
 
 export interface HostBindings {
-  readonly catalogue?: Catalogue;
+  readonly catalogue?: LocalWorkspaces;
   readonly triggers?: TriggerStore;
 }
 
 export interface Bindings {
   readonly agents: (args: ManagerArgs) => Agents;
-  readonly artifacts: (args: ManagerArgs) => Artifacts;
+  readonly artifacts: (args: ManagerArgs) => ScopedArtifacts;
   readonly context?: ExecutionContext;
   readonly exec?: (args: ManagerArgs) => Exec;
   readonly host?: HostBindings;
   readonly log: Log;
   readonly root: string;
+  readonly runs?: (args?: ManagerArgs) => Runs;
   readonly sandboxes: (args: ManagerArgs) => Sandboxes;
   readonly setupLog?: (run: {
     readonly id: string;
     readonly workflow: string;
   }) => Log;
   readonly turns?: (args?: ManagerArgs) => AgentTurns;
-  readonly workspaces: (args: ManagerArgs) => Workspaces;
+  readonly workspaces: (args: ManagerArgs) => ScopedWorkspaces;
 }

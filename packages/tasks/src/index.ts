@@ -1,6 +1,10 @@
-export type { AvailabilityOptions } from "./availability";
+export type {
+  AvailabilityOptions,
+  SettledStatus,
+  TaskAvailability,
+} from "./availability";
 // biome-ignore lint/performance/noBarrelFile: This is a declared package entry point; preserve its public exports.
-export { deriveAvailability } from "./availability";
+export { deriveAvailability, isSettled } from "./availability";
 export { TASK_ERROR_CODES, TaskError, type TaskErrorCode } from "./errors";
 export type {
   ChangedTask,
@@ -14,9 +18,26 @@ export type {
 } from "./operations";
 export {
   MAX_OPERATIONS_PER_CHANGE,
+  taskChangeResultSchema,
   taskChangeSchema,
   taskOperationSchema,
 } from "./operations";
+export type {
+  DepthOptions,
+  ReadyQuery,
+  TagQuery,
+  TaskNode,
+  TaskQuery,
+  TaskRelations,
+} from "./queries";
+export {
+  depthOptionsSchema,
+  readyQuerySchema,
+  taskNodeSchema,
+  taskPageSchema,
+  taskQuerySchema,
+  taskRelationsSchema,
+} from "./queries";
 export type {
   JsonObject,
   Task,
@@ -26,26 +47,11 @@ export type {
   TaskId,
   TaskStatus,
 } from "./schema";
-export { TASK_STATUSES, taskSchema } from "./schema";
-export {
-  depthOptionsSchema,
-  readyQuerySchema,
-  taskChangeResultSchema,
-  taskNodeSchema,
-  taskPageSchema,
-  taskQuerySchema,
-  taskRelationsSchema,
-} from "./schemas";
-export type { TaskSnapshot, TaskStore, TaskStoreWrite } from "./store/index";
-export { type CreateOptions, Tasks, type TasksOptions } from "./tasks";
+export { TASK_STATUSES, taskId, taskSchema } from "./schema";
 export type {
-  DepthOptions,
-  ReadyQuery,
-  SettledStatus,
-  TagQuery,
-  TaskAvailability,
-  TaskNode,
-  TaskQuery,
-  TaskRelations,
-} from "./types";
-export { isSettled, taskId } from "./types";
+  TaskSnapshot,
+  TaskStore,
+  TaskStoreListQuery,
+  TaskStoreWrite,
+} from "./store/index";
+export { type CreateOptions, Tasks, type TasksOptions } from "./tasks";

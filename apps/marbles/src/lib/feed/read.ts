@@ -1,4 +1,4 @@
-import type { ArtifactResolved, Artifacts } from "@foundry/artifacts";
+import type { ArtifactResolved, ArtifactSubstrate } from "@foundry/artifacts";
 import { isUsableContent } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
 import type { AskMode, InputDelivery, InputStatus } from "~/lib/feed/entry";
@@ -39,13 +39,12 @@ export interface FeedEntrySnapshot {
   readonly step: string;
   readonly title: string;
   readonly workspace: { readonly id: string; readonly name: string };
-  readonly workspaces?: readonly string[];
 }
 
 export type FeedReader = (now?: Date) => Promise<FeedEntrySnapshot[]>;
 
 export function feedReader(
-  artifacts: Pick<Artifacts, "list" | "readFile">
+  artifacts: Pick<ArtifactSubstrate, "list" | "readFile">
 ): FeedReader {
   const cache = new Map<
     string,

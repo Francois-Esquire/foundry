@@ -1,9 +1,10 @@
 import type { StorageSubscription } from "@foundry/core/storage";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { WorkspaceChange } from "../catalog";
 import { observe, polling } from "../observation";
-import type { ObservedFacts, WorkspaceChange } from "../types";
+import type { ObservedFacts } from "../source-adapter";
 
-import { WorkspaceSystem } from "../workspace-system";
+import { Workspaces } from "../workspaces";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -20,7 +21,7 @@ function fixture() {
     nextScan = undefined;
     return pending ? pending() : Promise.resolve(entries);
   });
-  const system = new WorkspaceSystem().extend({
+  const workspaces = new Workspaces().extend({
     applies: () => true,
     identify: () => ({
       name: "test",
@@ -28,29 +29,26 @@ function fixture() {
     }),
     name: "memory",
     ref: "memory",
-    wrap: (Base) =>
-      class extends Base {
-        scan() {
-          return scan();
-        }
-        protected watch(changed: () => void): Promise<StorageSubscription> {
-          subscribed();
-          signal = changed;
-          return Promise.resolve({
-            close: () => {
-              closed();
-              return Promise.resolve();
-            },
-          });
-        }
+    source: () => ({
+      scan: () => scan(),
+      watch(changed: () => void): Promise<StorageSubscription> {
+        subscribed();
+        signal = changed;
+        return Promise.resolve({
+          close: () => {
+            closed();
+            return Promise.resolve();
+          },
+        });
       },
+    }),
   });
   return {
     blockScan: (value: () => Promise<readonly ObservedFacts[]>) => {
       nextScan = value;
     },
     closed,
-    open: () => system.load({ memory: "test" }),
+    open: () => workspaces.load({ memory: "test" }),
     scan,
     setEntries: (value: readonly ObservedFacts[]) => {
       entries = value;
@@ -59,7 +57,7 @@ function fixture() {
       signal();
     },
     subscribed,
-    system,
+    workspaces,
   };
 }
 
@@ -69,8 +67,8 @@ describe("workspace observation", () => {
     const f = fixture();
     const workspace = await f.open();
     const changed = vi.fn<(change: WorkspaceChange) => void>();
-    f.system.on("change", changed);
-    await f.system.open(workspace.id);
+    f.workspaces.on("change", changed);
+    await f.workspaces.open(workspace.id);
     expect(f.subscribed).toHaveBeenCalledTimes(1);
     f.scan.mockClear();
     f.setEntries([{ name: "empty", path: "empty", type: "directory" }]);
@@ -88,7 +86,7 @@ describe("workspace observation", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(changed).toHaveBeenCalledTimes(1);
     f.signal();
-    await f.system.closeAll();
+    await f.workspaces.closeAll();
     f.signal();
     await vi.advanceTimersByTimeAsync(100);
     expect(f.closed).toHaveBeenCalledTimes(1);
@@ -116,7 +114,7 @@ describe("workspace observation", () => {
     expect(await workspace.entries()).toEqual([
       expect.objectContaining({ path: "late" }),
     ]);
-    await f.system.closeAll();
+    await f.workspaces.closeAll();
   });
 
   it("refreshes current source after an older watcher scan finishes", async () => {
@@ -133,7 +131,7 @@ describe("workspace observation", () => {
     captured.resolve([]);
     const view = await refreshing;
     expect(view.entries).toEqual([expect.objectContaining({ path: "late" })]);
-    await f.system.closeAll();
+    await f.workspaces.closeAll();
   });
 
   it("retains signals during its own scan and drains before closing", async () => {
@@ -157,7 +155,7 @@ describe("workspace observation", () => {
     f.signal();
     await vi.advanceTimersByTimeAsync(50);
     let stopped = false;
-    const closing = f.system.close(workspace.id).then(() => {
+    const closing = f.workspaces.close(workspace.id).then(() => {
       stopped = true;
     });
     await vi.advanceTimersByTimeAsync(0);

@@ -3,6 +3,7 @@ import type { TaskEvent } from "@foundry.sh/marbles";
 import {
   agent,
   artifact,
+  Catalog,
   observe,
   sandbox,
   step,
@@ -19,8 +20,8 @@ import {
   it,
   vi,
 } from "vitest";
-import { catalog } from "~/authoring/catalog";
-import { expectHost, setHost } from "~/authoring/runtime";
+import type { CollectInput } from "~/authoring/catalog";
+import { setHost } from "~/authoring/runtime";
 import type { Engine } from "~/lib/engine";
 import { TASKS } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
@@ -31,7 +32,6 @@ import { temporaryDirectory } from "./helpers/temporary";
 
 const NOT_A_SOURCE = /not something Marbles emits/;
 const DISPOSED = /host that held these tasks was disposed/;
-const LOADING = /not available while its source loads/;
 
 const engines: Engine[] = [];
 let machine: TestMachine;
@@ -46,12 +46,12 @@ afterAll(() => {
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
 });
 
-function host(state: string, askable = false): Engine {
+function host(state: string, askable = false, collect?: CollectInput): Engine {
   const engine = testEngine({
     askable,
+    collect,
     print: () => undefined,
     records: machine.records(state),
     state,
@@ -75,7 +75,7 @@ describe("tasks", () => {
 
   it("is the host's workspace tasks, delivered to what the source observes", async () => {
     const seen: TaskEvent[] = [];
-    observe(
+    const obs = observe(
       tasks,
       (payload) => {
         seen.push(payload);
@@ -83,7 +83,7 @@ describe("tasks", () => {
       { name: "hosted" }
     );
     const state = machine.workspace();
-    const engine = host(state);
+    const engine = host(state, false, [obs]);
     await engine.start();
 
     const task = await tasks.create({ tags: ["review"], title: "Hosted" });
@@ -104,9 +104,6 @@ describe("tasks", () => {
     await engine.dispose();
     await expect(tasks.create({ title: "Late" })).rejects.toThrow(DISPOSED);
     await expect(tasks.list()).rejects.toThrow(DISPOSED);
-
-    expectHost();
-    await expect(tasks.list()).rejects.toThrow(LOADING);
 
     const nextState = machine.workspace();
     const next = host(nextState);
@@ -134,7 +131,7 @@ describe("tasks", () => {
       await tasks.create({ title: "Trigger" });
       return await nested.run();
     });
-    observe(
+    const triggerObs = observe(
       tasks,
       (event) => {
         if (event.tasks.some((delta) => delta.after?.title === "Trigger")) {
@@ -144,14 +141,15 @@ describe("tasks", () => {
       },
       { name: "trigger" }
     );
+    const declarations = [asked, nested, writer, triggerObs];
     const state = temporaryDirectory("marbles-tasks-");
-    const first = host(state, true);
+    const first = host(state, true, declarations);
     await first.start();
     await new Promise((done) => setTimeout(done, 0));
 
     await expect(writer.run()).resolves.toBe("nested");
     expect(ids.nested).toBe(ids.writer);
-    const parked = await vi.waitFor(async () => {
+    const suspended = await vi.waitFor(async () => {
       const found = (await first.runs()).find(
         (run) => run.step === "observed-question"
       );
@@ -159,7 +157,7 @@ describe("tasks", () => {
       return found;
     });
     expect(ids.handler).toBe("outside any run");
-    expect(parked?.id).toBe(ids.asked);
+    expect(suspended?.id).toBe(ids.asked);
     expect(ids.asked).not.toBe(ids.writer);
     expect(
       (await first.runs()).find((run) => run.id === ids.writer)?.status
@@ -168,7 +166,7 @@ describe("tasks", () => {
     await first.stop({ cancel: true });
     await first.dispose();
     engines.splice(engines.indexOf(first), 1);
-    const next = host(state, true);
+    const next = host(state, true, declarations);
     await next.start();
     const question = await vi.waitFor(async () => {
       const open = (await next.feed()).find(
@@ -233,53 +231,68 @@ describe("tasks", () => {
       observe(new Tasks(), () => undefined, { name: "plain" })
     ).toThrow(NOT_A_SOURCE);
     // @ts-expect-error Only a name and types.
-    observe(tasks, () => undefined, { id: "x", name: "extra" });
-    expect(
-      observe(
-        tasks,
-        (payload) => {
-          // @ts-expect-error The payload is the source's.
-          expect(payload.missing).toBeUndefined();
-        },
-        { name: "typed" }
-      )
-    ).toEqual({ kind: "observer", name: "typed", source: "tasks" });
+    const extra = observe(tasks, () => undefined, { id: "x", name: "extra" });
+    const typed = observe(
+      tasks,
+      (payload) => {
+        // @ts-expect-error The payload is the source's.
+        expect(payload.missing).toBeUndefined();
+      },
+      { name: "typed" }
+    );
+    expect(typed).toMatchObject({
+      kind: "observer",
+      name: "typed",
+      source: "tasks",
+    });
     const handed: string[] = [];
-    expect(
-      observe(tasks, function byFunction(payload) {
-        handed.push(payload.type);
-      })
-    ).toMatchObject({ name: "byFunction" });
-    expect(
-      observe(
-        workflow,
-        (run) => {
-          handed.push(run.runId);
-        },
-        { name: "runs", types: ["run.failed"] }
-      )
-    ).toEqual({ kind: "observer", name: "runs", source: "runs" });
-    expect(observe(artifact, () => undefined, { name: "a" }).source).toBe(
-      "artifacts"
+    const byFunctionObs = observe(tasks, function byFunction(payload) {
+      handed.push(payload.type);
+    });
+    expect(byFunctionObs).toMatchObject({ name: "byFunction" });
+    const runs = observe(
+      workflow,
+      (run) => {
+        handed.push(run.runId);
+      },
+      { name: "runs", types: ["run.failed"] }
     );
-    expect(observe(sandbox, () => undefined, { name: "s" }).source).toBe(
-      "sandboxes"
-    );
-    expect(observe(workspace, () => undefined, { name: "w" }).source).toBe(
-      "workspaces"
-    );
-    expect(observe(agent, () => undefined, { name: "g" }).source).toBe(
-      "sessions"
-    );
-    expect(() =>
-      // @ts-expect-error A type the source does not emit.
-      observe(workflow, () => undefined, { name: "bad", types: ["nope"] })
-    ).not.toThrow();
-    expect(() => observe(tasks, () => undefined)).toThrow("name this observer");
-    expect(() => observe(tasks, () => undefined, { name: "typed" })).toThrow(
+    expect(runs).toMatchObject({
+      kind: "observer",
+      name: "runs",
+      source: "runs",
+    });
+    const a = observe(artifact, () => undefined, { name: "a" });
+    const s = observe(sandbox, () => undefined, { name: "s" });
+    const w = observe(workspace, () => undefined, { name: "w" });
+    const g = observe(agent, () => undefined, { name: "g" });
+    expect(a.source).toBe("artifacts");
+    expect(s.source).toBe("sandboxes");
+    expect(w.source).toBe("workspaces");
+    expect(g.source).toBe("sessions");
+    // @ts-expect-error A type the source does not emit.
+    const bad = observe(workflow, () => undefined, {
+      name: "bad",
+      types: ["nope"],
+    });
+    const unnamed = observe(tasks, () => undefined);
+    expect(() => Catalog.collect([unnamed])).toThrow("name this observer");
+    const dup = observe(tasks, () => undefined, { name: "typed" });
+    expect(() => Catalog.collect([typed, dup])).toThrow(
       'named "typed" is already declared'
     );
-    expect(catalog.observers.map((observer) => observer.name)).toEqual([
+    const collected = Catalog.collect([
+      extra,
+      typed,
+      byFunctionObs,
+      runs,
+      a,
+      s,
+      w,
+      g,
+      bad,
+    ]);
+    expect(collected.observers.map((observer) => observer.name)).toEqual([
       "extra",
       "typed",
       "byFunction",
@@ -290,6 +303,6 @@ describe("tasks", () => {
       "g",
       "bad",
     ]);
-    expect(catalog.observers[3]?.types).toEqual(["run.failed"]);
+    expect(collected.observers[3]?.types).toEqual(["run.failed"]);
   });
 });

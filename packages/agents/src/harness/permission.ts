@@ -1,22 +1,26 @@
-import { randomUUID } from "node:crypto";
-import type { ApprovalResolution } from "@foundry/lib/config/authorization";
+import type { AccessRequest, Grant } from "@foundry/authorization";
+import { AuthorizationStateError, grantId } from "@foundry/authorization";
 import type {
-  AgentAuthorizationDecision,
-  AgentAuthorizationRequest,
-} from "../authorization/authorization";
-import { validateApprovalResponse } from "../session/converter";
-import type { AgentApprovalRequest } from "../session/events";
-import { Sessions } from "../session/sessions";
-import type { SessionMessage, SessionPart } from "../session/types";
-import { raceAbort } from "./abortable";
-import { harnessProfileDecision } from "./permission-profile";
-import { toolAuthorizationRequest } from "./tool-compiler";
-import type {
-  HarnessAuthoritySettings,
   HarnessPermissionCallback,
   HarnessPermissionRequest,
-} from "./turn-driver";
-import { validateHarnessProfile } from "./turn-driver";
+} from "@foundry/core/agents";
+import { validateHarnessProfile } from "@foundry/core/agents";
+import { withAbort } from "@foundry/lib/abort";
+import type { ApprovalResolution } from "../authorization/authorization";
+import {
+  agentPrincipal,
+  agentPrincipalMatcher,
+  capabilityToAccessRequest,
+  capabilityToScope,
+  HOST_APPROVER,
+} from "../authorization/authorization";
+import type { Capability } from "../authorization/capability";
+import type { SessionPart } from "../schema";
+import type { AgentApprovalRequest } from "../session/events";
+import { Sessions } from "../session/sessions";
+import type { HarnessAuthoritySettings } from "./harness-session";
+import { applyHarnessProfile } from "./permission-profile";
+import { deriveInvocationId } from "./tool-compiler";
 
 const SECRET_ASSIGNMENT =
   /\b(api[_-]?key|token|password|passwd|secret|authorization)(["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)/gi;
@@ -59,26 +63,80 @@ export function redactHarnessSummary(
     .slice(0, maxLength);
 }
 
-function authorizationRequest(
-  settings: Pick<HarnessAuthoritySettings, "agentId" | "agentGeneration">,
-  request: Pick<
-    HarnessPermissionRequest,
-    "sessionId" | "toolName" | "toolCallId" | "input" | "source" | "capability"
-  >
-): AgentAuthorizationRequest {
-  return toolAuthorizationRequest({
-    agentGeneration: settings.agentGeneration,
-    agentId: settings.agentId,
-    capability: request.capability ?? {
+function capabilityFor(
+  request: Pick<HarnessPermissionRequest, "capability" | "source" | "toolName">
+): Capability {
+  return (
+    request.capability ?? {
       kind: "tool.call",
       source: request.source ?? "harness",
       tool: request.toolName,
+    }
+  );
+}
+
+function accessRequestFor(
+  settings: Pick<
+    HarnessAuthoritySettings,
+    "agentGeneration" | "agentId" | "authoritySessionId" | "principalAttributes"
+  >,
+  request: Pick<
+    HarnessPermissionRequest,
+    | "activityId"
+    | "capability"
+    | "input"
+    | "sessionId"
+    | "source"
+    | "toolCallId"
+    | "toolName"
+  >,
+  waitsForApproval: boolean
+): {
+  readonly accessRequest: AccessRequest;
+  readonly capability: Capability;
+  readonly invocationId: string;
+  readonly requestedBy: ReturnType<typeof agentPrincipal>;
+} {
+  const capability = capabilityFor(request);
+  const authoritySessionId = settings.authoritySessionId ?? request.sessionId;
+  const invocationId = deriveInvocationId(
+    {
+      agentGeneration: settings.agentGeneration,
+      agentId: settings.agentId,
+      sessionId: request.sessionId,
     },
+    request.toolCallId
+  );
+  const accessRequest = capabilityToAccessRequest({
+    agentGeneration: settings.agentGeneration,
+    agentId: settings.agentId,
+    capability,
     input: request.input,
-    sessionId: request.sessionId,
-    tool: { name: request.toolName, source: request.source ?? "harness" },
-    toolCallId: request.toolCallId,
+    invocationId,
+    sessionId: authoritySessionId,
   });
+  const requestedBy = agentPrincipal(
+    settings.agentId,
+    settings.agentGeneration,
+    {
+      ...settings.principalAttributes,
+      agentId: settings.agentId,
+      ...(settings.agentGeneration === undefined
+        ? {}
+        : { agentGeneration: settings.agentGeneration }),
+      approvalMode: waitsForApproval ? "live" : "deferred",
+      inputSummary: summarizeHarnessInput(request.input),
+      recordSessionId: request.sessionId,
+      sessionId: authoritySessionId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      toolSource: request.source ?? "harness",
+      ...(request.activityId === undefined
+        ? {}
+        : { activityId: request.activityId }),
+    }
+  );
+  return { accessRequest, capability, invocationId, requestedBy };
 }
 
 export function createHarnessPermission(
@@ -89,52 +147,178 @@ export function createHarnessPermission(
     settings.profile.mode === "attended" &&
     settings.profile.unresolved === "ask" &&
     settings.approve !== undefined;
+  const appliedSessions = new Map<string, Promise<void>>();
+
   return async (request) => {
     request.signal.throwIfAborted();
-    const posture = harnessProfileDecision(settings.profile, request);
-    if (posture === "deny") {
-      return { behavior: "deny", message: "Denied by harness profile." };
-    }
-    const auth = authorizationRequest(settings, request);
-    let decision = await settings.policy.decide(auth);
-    if (decision.kind === "requires-approval" && posture === "allow") {
-      decision = { kind: "allow", source: "kind-policy" };
-    }
-    if (decision.kind === "requires-approval") {
-      const approval = await recordApprovalRequest(
-        settings,
-        request,
-        auth,
-        waitsForApproval
+    const authoritySessionId = settings.authoritySessionId ?? request.sessionId;
+    let applying = appliedSessions.get(authoritySessionId);
+    if (applying === undefined) {
+      const pending = applyHarnessProfile(
+        settings.authorization,
+        settings.profile,
+        {
+          agentGeneration: settings.agentGeneration,
+          agentId: settings.agentId,
+          includeGrants: settings.skipProfileGrants !== true,
+          sessionId: authoritySessionId,
+        }
+      ).then(
+        () => undefined,
+        (error: unknown) => {
+          appliedSessions.delete(authoritySessionId);
+          throw error;
+        }
       );
-      if (!waitsForApproval) {
-        return {
-          behavior: "deny",
-          message: `Needs approval: ${request.toolName}. The request was recorded for a future run.`,
-        };
-      }
-      decision = await resolveLiveApproval(settings, request, auth, approval);
+      appliedSessions.set(authoritySessionId, pending);
+      applying = pending;
     }
+    await applying;
+
+    const { accessRequest, capability, invocationId, requestedBy } =
+      accessRequestFor(settings, request, waitsForApproval);
+
+    const decision = await settings.authorization.check(accessRequest);
+    if (decision.kind === "deny") {
+      return { behavior: "deny", message: decision.reason };
+    }
+    if (decision.kind === "allow") {
+      const outcome = await settings.authorization.authorize(
+        accessRequest,
+        invocationId,
+        { idempotent: true, openPending: false, signal: request.signal }
+      );
+      if (outcome.kind === "permitted") {
+        outcome.permit.release();
+        return { behavior: "allow" };
+      }
+      if (outcome.kind === "denied") {
+        return { behavior: "deny", message: outcome.reason };
+      }
+    }
+
+    const pendingGrant = await settings.authorization.request({
+      holder: agentPrincipalMatcher(settings.agentId, settings.agentGeneration),
+      invocationId,
+      requestedBy,
+      scope: capabilityToScope(capability),
+      sessionId: authoritySessionId,
+    });
+    const approval = await recordApprovalRequest(
+      settings,
+      request,
+      capability,
+      pendingGrant.id,
+      waitsForApproval
+    );
+    const { approve } = settings;
+    if (!(waitsForApproval && approve)) {
+      return {
+        behavior: "deny",
+        message: `Needs approval: ${request.toolName}. The request was recorded for a future run.`,
+      };
+    }
+
+    return await resolveLiveHarnessApproval(
+      settings,
+      approve,
+      request,
+      pendingGrant,
+      approval,
+      capability,
+      authoritySessionId,
+      accessRequest,
+      invocationId
+    );
+  };
+}
+
+async function resolveLiveHarnessApproval(
+  settings: HarnessAuthoritySettings,
+  approve: NonNullable<HarnessAuthoritySettings["approve"]>,
+  request: HarnessPermissionRequest,
+  pendingGrant: Grant,
+  approval: AgentApprovalRequest,
+  capability: Capability,
+  authoritySessionId: string,
+  accessRequest: AccessRequest,
+  invocationId: string
+): Promise<{ behavior: "allow" } | { behavior: "deny"; message: string }> {
+  let resolution: ApprovalResolution;
+  try {
+    resolution = await withAbort(
+      approve({
+        ...approval,
+        input: request.input,
+        inputSummary: summarizeHarnessInput(request.input),
+        sessionId: request.sessionId,
+        signal: request.signal,
+        ...(request.title
+          ? { title: redactHarnessSummary(request.title) }
+          : {}),
+        suggestions: request.suggestions,
+      }),
+      request.signal
+    );
     request.signal.throwIfAborted();
-    const claim = await settings.policy.claim(auth, decision);
-    return claim.kind === "authorized"
-      ? { behavior: "allow" }
-      : { behavior: "deny", message: claim.reason };
+  } catch (error) {
+    await settings.authorization
+      .revoke(
+        { grantId: pendingGrant.id, kind: "grant" },
+        "Live approval cancelled"
+      )
+      .catch(() => undefined);
+    throw error;
+  }
+
+  await applyGrantResolution(
+    settings,
+    pendingGrant,
+    capability,
+    request.sessionId,
+    authoritySessionId,
+    resolution
+  );
+
+  if (!resolution.approved) {
+    return {
+      behavior: "deny",
+      message: resolution.reason ?? "Denied by approver.",
+    };
+  }
+
+  request.signal.throwIfAborted();
+  const retry = await settings.authorization.authorize(
+    accessRequest,
+    invocationId,
+    { idempotent: true, openPending: false, signal: request.signal }
+  );
+  if (retry.kind === "permitted") {
+    retry.permit.release();
+    return { behavior: "allow" };
+  }
+  return {
+    behavior: "deny",
+    message:
+      retry.kind === "denied"
+        ? retry.reason
+        : "Approval required but not yet resolved.",
   };
 }
 
 async function recordApprovalRequest(
   settings: HarnessAuthoritySettings,
   request: HarnessPermissionRequest,
-  auth: AgentAuthorizationRequest,
+  capability: Capability,
+  approvalId: string,
   waitsForApproval: boolean
 ): Promise<AgentApprovalRequest> {
   const approval: AgentApprovalRequest = {
     activityId: request.activityId,
     agentGeneration: settings.agentGeneration,
     agentId: settings.agentId,
-    approvalId: randomUUID(),
-    capability: auth.capability,
+    approvalId,
+    capability,
     input: summarizeHarnessInput(request.input),
     toolCallId: request.toolCallId,
     toolName: request.toolName,
@@ -165,73 +349,131 @@ async function recordApprovalRequest(
   return approval;
 }
 
-async function resolveLiveApproval(
-  settings: HarnessAuthoritySettings & {
-    approve?: HarnessAuthoritySettings["approve"];
-  },
-  request: HarnessPermissionRequest,
-  auth: AgentAuthorizationRequest,
-  approval: AgentApprovalRequest
-): Promise<AgentAuthorizationDecision> {
-  const { approve } = settings;
-  if (!approve) {
-    throw new Error("No live approver configured.");
-  }
-  const resolution = await raceAbort(
-    approve({
-      ...approval,
-      input: request.input,
-      inputSummary: summarizeHarnessInput(request.input),
-      sessionId: request.sessionId,
-      signal: request.signal,
-      ...(request.title ? { title: redactHarnessSummary(request.title) } : {}),
-      suggestions: request.suggestions,
-    }),
-    request.signal
-  );
-  request.signal.throwIfAborted();
-  return await recordApprovalResponse(
-    settings,
-    auth,
-    request.sessionId,
-    approval.approvalId,
-    resolution
-  );
-}
-
-async function recordApprovalResponse(
-  settings: Pick<HarnessAuthoritySettings, "store" | "policy">,
-  auth: AgentAuthorizationRequest,
+async function applyGrantResolution(
+  settings: Pick<HarnessAuthoritySettings, "authorization" | "store">,
+  grant: Grant,
+  capability: Capability,
   sessionId: string,
-  approvalId: string,
+  authoritySessionId: string,
   resolution: ApprovalResolution
-): Promise<AgentAuthorizationDecision> {
-  const decision = await settings.policy.resolveApproval(auth, resolution);
+): Promise<void> {
+  const approver = resolution.approver ?? HOST_APPROVER;
+  const lifetime = resolution.lifetime ?? "once";
+  if (resolution.approved) {
+    await settings.authorization.approve(grant.id, {
+      approver,
+      ...(resolution.reason === undefined ? {} : { reason: resolution.reason }),
+      rootAuthority: true,
+      usesRemaining: 1,
+    });
+    if (lifetime === "session" || lifetime === "persistent") {
+      await settings.authorization.grant({
+        canDelegate: true,
+        holder: grant.holder,
+        issuanceKey: `approval:${grant.id}:${lifetime}`,
+        issuer: approver,
+        ...(resolution.reason === undefined
+          ? {}
+          : { reason: resolution.reason }),
+        requestedBy: grant.requestedBy,
+        scope: capabilityToScope(capability),
+        ...(lifetime === "session" ? { sessionId: authoritySessionId } : {}),
+      });
+    }
+  } else {
+    await settings.authorization.deny(grant.id, {
+      approver,
+      reason: resolution.reason ?? "Denied by approver.",
+    });
+  }
+
   await new Sessions({ store: settings.store }).appendMessage({
     parts: [
       {
-        approvalId,
-        approved: decision.kind === "allow",
-        reason: decision.kind === "deny" ? decision.reason : undefined,
-        scope: resolution.lifetime === "persistent" ? "always" : "once",
+        approvalId: grant.id,
+        approved: resolution.approved,
+        ...(resolution.approved
+          ? { granted: true }
+          : { reason: resolution.reason }),
+        scope: lifetime === "persistent" ? "always" : "once",
         type: "tool_approval_response",
       },
     ],
     role: "system",
     sessionId,
   });
-  return decision;
+}
+
+function grantBelongsToAgent(
+  grant: Grant,
+  agentId: string,
+  agentGeneration?: number
+): boolean {
+  if (grant.holder.kind !== "exact") {
+    return false;
+  }
+  const { principal } = grant.holder;
+  if (principal.kind !== "agent" || principal.id !== agentId) {
+    return false;
+  }
+  const expectedVersion =
+    agentGeneration === undefined ? undefined : String(agentGeneration);
+  return principal.version === expectedVersion;
+}
+
+function capabilityFromGrantOrHistory(
+  grant: Grant,
+  part?: Extract<SessionPart, { type: "tool_approval_request" }>
+): Capability {
+  if (part !== undefined) {
+    return part.capability;
+  }
+  const fallbackTool =
+    grant.scope.target.kind === "exact" ? grant.scope.target.value : "unknown";
+  const toolName =
+    typeof grant.requestedBy.attributes?.toolName === "string"
+      ? grant.requestedBy.attributes.toolName
+      : fallbackTool;
+  const toolSource =
+    typeof grant.requestedBy.attributes?.toolSource === "string"
+      ? (grant.requestedBy.attributes.toolSource as
+          | "harness"
+          | "builtin"
+          | "declared"
+          | "skill"
+          | "mcp"
+          | "mesh"
+          | "module")
+      : "harness";
+  return {
+    kind: "tool.call",
+    source: toolSource,
+    tool: toolName,
+  };
 }
 
 export async function resolveHarnessApproval(
   settings: Pick<
     HarnessAuthoritySettings,
-    "store" | "policy" | "agentId" | "agentGeneration"
+    | "agentGeneration"
+    | "agentId"
+    | "authoritySessionId"
+    | "authorization"
+    | "store"
   >,
   sessionId: string,
   approvalId: string,
   resolution: ApprovalResolution
 ): Promise<void> {
+  const grant = await settings.authorization.getGrant(grantId(approvalId));
+  if (
+    grant === null ||
+    !grantBelongsToAgent(grant, settings.agentId, settings.agentGeneration)
+  ) {
+    throw new Error(
+      "Approval does not belong to this harness agent generation."
+    );
+  }
   const history = await settings.store.listMessages(sessionId);
   const part = history
     .flatMap((message) => message.parts)
@@ -242,26 +484,14 @@ export async function resolveHarnessApproval(
         value.type === "tool_approval_request" &&
         value.approvalId === approvalId
     );
+  const capability = capabilityFromGrantOrHistory(grant, part);
   if (
-    !part ||
-    part.agentId !== settings.agentId ||
-    part.agentGeneration !== settings.agentGeneration ||
-    part.capability.kind !== "tool.call" ||
-    (part.capability.source !== "harness" &&
-      part.capability.source !== "builtin")
+    capability.kind !== "tool.call" ||
+    (capability.source !== "harness" && capability.source !== "builtin")
   ) {
     throw new Error(
       "Approval does not belong to this harness agent generation."
     );
-  }
-  if (part.approvalMode === "deferred") {
-    refuseOtherAnswer(history, approvalId, resolution);
-  } else {
-    validateApprovalResponse(history, {
-      approvalId,
-      approved: resolution.approved,
-      type: "tool_approval_response",
-    });
   }
   if (
     resolution.approved &&
@@ -272,161 +502,22 @@ export async function resolveHarnessApproval(
       "A deferred harness approval requires a session or persistent grant for the next run."
     );
   }
-  const auth = authorizationRequest(settings, {
-    capability: part.capability,
-    input: part.input,
-    sessionId,
-    source: part.capability.source,
-    toolCallId: part.toolCallId,
-    toolName: part.name,
-  });
-  if (part.approvalMode === "deferred") {
-    await answerDeferredApproval(
+
+  try {
+    await applyGrantResolution(
       settings,
-      auth,
+      grant,
+      capability,
       sessionId,
-      approvalId,
+      settings.authoritySessionId ?? grant.sessionId ?? sessionId,
       resolution
     );
-    return;
-  }
-  await recordApprovalResponse(
-    settings,
-    auth,
-    sessionId,
-    approvalId,
-    resolution
-  );
-}
-
-type ApprovalResponse = Extract<
-  SessionPart,
-  { type: "tool_approval_response" }
->;
-
-function storedResponse(
-  history: readonly SessionMessage[],
-  approvalId: string
-): ApprovalResponse | undefined {
-  return history
-    .flatMap((message) => message.parts)
-    .find(
-      (value): value is ApprovalResponse =>
-        value.type === "tool_approval_response" &&
-        value.approvalId === approvalId
-    );
-}
-
-function responseScope(resolution: ApprovalResolution): "always" | "once" {
-  return resolution.lifetime === "persistent" ? "always" : "once";
-}
-
-function sameAnswer(
-  stored: ApprovalResponse,
-  resolution: ApprovalResolution
-): boolean {
-  return (
-    stored.approved === resolution.approved &&
-    stored.scope === responseScope(resolution)
-  );
-}
-
-function alreadyAnswered(approvalId: string): Error {
-  return new Error(`Approval "${approvalId}" already has a response`);
-}
-
-function refuseOtherAnswer(
-  history: readonly SessionMessage[],
-  approvalId: string,
-  resolution: ApprovalResolution
-): void {
-  const stored = storedResponse(history, approvalId);
-  if (stored && !sameAnswer(stored, resolution)) {
-    throw alreadyAnswered(approvalId);
-  }
-}
-
-async function answerDeferredApproval(
-  settings: Pick<HarnessAuthoritySettings, "store" | "policy">,
-  auth: AgentAuthorizationRequest,
-  sessionId: string,
-  approvalId: string,
-  resolution: ApprovalResolution
-): Promise<void> {
-  const sessions = new Sessions({ store: settings.store });
-  const recorded = await sessions.appendMessageIf(
-    {
-      parts: [
-        {
-          approvalId,
-          approved: resolution.approved,
-          ...(resolution.approved
-            ? { granted: false }
-            : { reason: resolution.reason }),
-          scope: responseScope(resolution),
-          type: "tool_approval_response",
-        },
-      ],
-      role: "system",
-      sessionId,
-    },
-    (history) => storedResponse(history, approvalId) === undefined
-  );
-  if (recorded !== undefined) {
-    await grantAnswer(settings, sessions, recorded, auth, resolution);
-    return;
-  }
-  const answer = storedAnswer(
-    await settings.store.listMessages(sessionId),
-    approvalId
-  );
-  if (!(answer && sameAnswer(answer.response, resolution))) {
-    throw alreadyAnswered(approvalId);
-  }
-  if (answer.response.granted !== false) {
-    return;
-  }
-  if ((await settings.policy.decide(auth)).kind === "allow") {
-    await markGranted(sessions, answer.message);
-    return;
-  }
-  await grantAnswer(settings, sessions, answer.message, auth, resolution);
-}
-
-async function grantAnswer(
-  settings: Pick<HarnessAuthoritySettings, "policy">,
-  sessions: Sessions,
-  message: SessionMessage,
-  auth: AgentAuthorizationRequest,
-  resolution: ApprovalResolution
-): Promise<void> {
-  const decision = await settings.policy.resolveApproval(auth, resolution);
-  if (resolution.approved && decision.kind === "allow") {
-    await markGranted(sessions, message);
-  }
-}
-
-async function markGranted(
-  sessions: Sessions,
-  message: SessionMessage
-): Promise<void> {
-  await sessions.updateMessage(message.id, {
-    parts: message.parts.map((part) =>
-      part.type === "tool_approval_response" ? { ...part, granted: true } : part
-    ),
-  });
-}
-
-function storedAnswer(
-  history: readonly SessionMessage[],
-  approvalId: string
-):
-  | { readonly message: SessionMessage; readonly response: ApprovalResponse }
-  | undefined {
-  for (const message of history) {
-    const response = storedResponse([message], approvalId);
-    if (response !== undefined) {
-      return { message, response };
+  } catch (error) {
+    if (error instanceof AuthorizationStateError) {
+      throw new Error(`Approval "${approvalId}" already has a response`, {
+        cause: error,
+      });
     }
+    throw error;
   }
 }

@@ -1,8 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { step, workflow } from "../src/authoring/builder";
-import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
-import { DashboardView } from "../src/cli/views/dashboard";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
 import { startEngine } from "./helpers/engine";
 import { mount, press, unmount } from "./helpers/render";
@@ -19,7 +18,6 @@ function close() {
 
 afterEach(async () => {
   await unmount();
-  catalog.reset();
 });
 
 test("a step definition that only ran inside another workflow says where its usage counts, instead of only 'no usage recorded'", async () => {
@@ -28,13 +26,15 @@ test("a step definition that only ran inside another workflow says where its usa
     const session = await agents.session(reviewer);
     return (await session.generate("shared")).text;
   });
-  workflow("flow").do(() => shared({}));
-  const engine = await startEngine({ print: () => undefined });
+  const flow = workflow("flow").do(() => shared({}));
+  const engine = await startEngine({
+    collect: [reviewer, shared, flow],
+    print: () => undefined,
+  });
   const launched = await engine.launch("flow", {});
   await launched.result;
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: engine.definitions(),
-    lastFinish: new Map(),
     monitors: engine.monitors(),
     root: process.cwd(),
     schedules: [],

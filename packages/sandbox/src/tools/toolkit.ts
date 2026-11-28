@@ -1,17 +1,17 @@
 import { globToRegExp } from "@foundry/lib/glob";
 import type { z } from "zod";
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "../constants";
 import { SandboxError } from "../errors";
 import {
+  DEFAULT_SANDBOX_WORKING_DIRECTORY,
   normalizeSandboxPath,
   normalizeSandboxWorkingDirectory,
 } from "../path";
-import type { Sandbox, SandboxExecResult, SandboxSearchMatch } from "../types";
-import { DEFAULT_READ_LIMIT, MAX_EDIT_RESULT_CHARS } from "./constants";
+import type { Sandbox, SandboxExecResult } from "../sandbox";
 import type { SandboxToolName } from "./definitions";
 import {
   bashDefinition,
   cdDefinition,
+  DEFAULT_READ_LIMIT,
   editDefinition,
   globDefinition,
   grepDefinition,
@@ -22,6 +22,8 @@ import {
 } from "./definitions";
 import type { SandboxToolGuards } from "./guards";
 import { guardExecute, guardState } from "./guards";
+
+export const MAX_EDIT_RESULT_CHARS = 16 * 1024 * 1024;
 
 export interface SandboxToolCallOptions {
   readonly abortSignal?: AbortSignal;
@@ -163,14 +165,6 @@ export function createSandboxToolkit(
       output_mode,
     }) => {
       const target = resolve(path ?? workdir);
-      if (sandbox.files.search) {
-        const matches = await sandbox.files.search(pattern, {
-          path: await reading(target),
-          ...(fileGlob === undefined ? {} : { glob: fileGlob }),
-          caseInsensitive: case_insensitive,
-        });
-        return formatMatches(matches, relative, output_mode, line_numbers);
-      }
       const argv = grepCommand(await reading(target), {
         case_insensitive,
         glob: fileGlob,
@@ -224,17 +218,18 @@ export function createSandboxToolkit(
     cdDefinition,
     async ({ path }) => {
       const target = changeDirectory(path, workdir);
-      if (!(await sandbox.files.isDirectory(await reading(target)))) {
+      const readable = await reading(target);
+      if (!(await sandbox.files.isDirectory(readable))) {
         throw new SandboxError(
           "invalid-contract",
-          `sandbox working directory does not exist or is not a directory: ${target}`,
+          `cannot change directory: ${target} does not exist or is not a directory`,
           { details: { path: target } }
         );
       }
-      const entries = await sandbox.files.list(await reading(target));
+      const entries = await sandbox.files.list(readable);
       workdir = target;
       return entries.length === 0
-        ? `Working directory is now ${target} (it is empty, or not a directory).`
+        ? `Working directory is now ${target} (it is empty).`
         : `Working directory is now ${target} (${String(entries.length)} entries).`;
     },
     () => workdir
@@ -259,7 +254,7 @@ export function createSandboxToolkit(
         return formatExec(result);
       } catch (error) {
         if (onTimeout?.signal.aborted) {
-          return `Command timed out after ${timeout}ms (the process may still be running in the sandbox).`;
+          return `Command timed out after ${timeout}ms (the command was cancelled, but processes it started may still be running).`;
         }
         throw error;
       } finally {
@@ -316,37 +311,6 @@ function numberLines(
   }
   return slice
     .map((line, index) => `${String(start + index).padStart(6)}\t${line}`)
-    .join("\n");
-}
-
-function formatMatches(
-  matches: readonly SandboxSearchMatch[],
-  relative: (path: string) => string,
-  outputMode: "content" | "files_with_matches" | "count",
-  lineNumbers: boolean
-): string {
-  if (matches.length === 0) {
-    return "No matches found.";
-  }
-  if (outputMode === "files_with_matches") {
-    return [...new Set(matches.map((match) => relative(match.path)))].join(
-      "\n"
-    );
-  }
-  if (outputMode === "count") {
-    const counts = new Map<string, number>();
-    for (const match of matches) {
-      const path = relative(match.path);
-      counts.set(path, (counts.get(path) ?? 0) + 1);
-    }
-    return [...counts].map(([path, n]) => `${path}:${n}`).join("\n");
-  }
-  return matches
-    .map((match) =>
-      lineNumbers
-        ? `${relative(match.path)}:${match.line}:${match.text}`
-        : `${relative(match.path)}:${match.text}`
-    )
     .join("\n");
 }
 

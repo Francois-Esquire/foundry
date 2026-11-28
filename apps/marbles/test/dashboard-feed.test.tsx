@@ -1,9 +1,9 @@
 import { act, useState } from "react";
 import { afterEach, expect, test } from "vitest";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { feedKey } from "../src/cli/state/feed-model";
-import { DashboardView } from "../src/cli/views/dashboard";
 import type { FeedAnswer } from "../src/lib/feed/entry";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { feedKey } from "../src/tui/state/feed-model";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { dashboardSnapshot } from "../stories/fixtures/snapshot";
 import {
   click,
@@ -94,7 +94,7 @@ test("answers an open question from the feed with a number key", async () => {
   expect(answers).toEqual([["feed-merge", "hold"]]);
 });
 
-test("shows a question shared from another workspace, and answers it only there", async () => {
+test("shows another workspace's question, and answers it only there", async () => {
   const answers: [string, FeedAnswer][] = [];
   const answer = (id: string, value: FeedAnswer) => {
     answers.push([id, value]);
@@ -107,7 +107,6 @@ test("shows a question shared from another workspace, and answers it only there"
         ? {
             ...entry,
             workspace: { id: "ws-docs", name: "docs" },
-            workspaces: ["ws-docs", "ws-foundry"],
           }
         : entry
     ),
@@ -116,10 +115,8 @@ test("shows a question shared from another workspace, and answers it only there"
     <DashboardView onAnswer={answer} onClose={close} snapshot={snapshot} />
   );
   await act(async () => ui.mockInput.pressKey("F"));
-  await act(async () => ui.mockInput.pressKey("w"));
   await flush(ui);
   const frame = ui.captureCharFrame();
-  expect(frame).toContain("Feed · This workspace · foundry");
   expect(frame).toContain("Merge the docs update?");
   expect(frame).not.toContain("1-2 answer");
   await act(async () => ui.mockInput.pressKey("2"));

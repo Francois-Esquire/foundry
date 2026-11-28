@@ -7,13 +7,23 @@ import type {
   WorkspaceEntryId,
   WorkspaceId,
   WorkspaceRegistration,
-} from "../types";
+} from "../schema";
 import type {
+  EntryCountQuery,
+  EntryPageQuery,
   WorkspaceSave,
   WorkspaceStore,
   WorkspaceStoreWrite,
 } from "./index";
-import { byCodePoint, byPathThenId, pageInputOf, pageOffset } from "./order";
+import {
+  byCodePoint,
+  byCodePointPathThenId,
+  byPathThenId,
+  entryCountQueryOf,
+  entryPageQueryOf,
+  pageInputOf,
+  pageOffset,
+} from "./order";
 
 const REENTRY =
   "MemoryWorkspaceStore was called from inside its own transaction; use the view passed to the transaction's work instead";
@@ -44,6 +54,17 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
               storage.apply(copy);
             })
           ),
+        countEntries: (workspaceId, query) => {
+          let owned: EntryCountQuery;
+          try {
+            owned = entryCountQueryOf(query);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return onStaged((storage) =>
+            storage.countEntries(workspaceId, owned)
+          );
+        },
         findWorkspaceByPath: (path) =>
           onStaged((storage) => storage.findWorkspaceByPath(path)),
         findWorkspaceBySourceId: (sourceId) =>
@@ -54,6 +75,17 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
           onStaged((storage) => storage.getWorkspace(workspaceId)),
         listEntries: (workspaceId) =>
           onStaged((storage) => storage.listEntries(workspaceId)),
+        listEntriesPage: (workspaceId, input) => {
+          let query: EntryPageQuery;
+          try {
+            query = entryPageQueryOf(input);
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          return onStaged((storage) =>
+            storage.listEntriesPage(workspaceId, query)
+          );
+        },
         listWorkspaces: (input) =>
           onStaged((storage) => storage.listWorkspaces(input)),
       };
@@ -104,6 +136,34 @@ export class MemoryWorkspaceStore implements WorkspaceStore {
 
   listEntries(workspaceId: WorkspaceId): Promise<readonly WorkspaceEntry[]> {
     return this.inTurn((storage) => storage.listEntries(workspaceId));
+  }
+
+  listEntriesPage(
+    workspaceId: WorkspaceId,
+    input?: EntryPageQuery
+  ): Promise<Page<WorkspaceEntry, number>> {
+    let query: EntryPageQuery;
+    try {
+      query = entryPageQueryOf(input);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.inTurn((storage) =>
+      storage.listEntriesPage(workspaceId, query)
+    );
+  }
+
+  countEntries(
+    workspaceId: WorkspaceId,
+    query?: EntryCountQuery
+  ): Promise<number> {
+    let owned: EntryCountQuery;
+    try {
+      owned = entryCountQueryOf(query);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return this.inTurn((storage) => storage.countEntries(workspaceId, owned));
   }
 
   private inTurn<R>(answer: (storage: Storage) => R): Promise<R> {
@@ -212,6 +272,39 @@ class Storage {
     return [...(this.entries.get(workspaceId)?.values() ?? [])]
       .sort(byPathThenId)
       .map((entry) => structuredClone(entry));
+  }
+
+  listEntriesPage(
+    workspaceId: WorkspaceId,
+    input: EntryPageQuery = {}
+  ): Page<WorkspaceEntry, number> {
+    const limit = pageLimit(input.limit);
+    const offset = pageOffset(input.cursor);
+    const ranked = [...(this.entries.get(workspaceId)?.values() ?? [])]
+      .filter((entry) => input.type === undefined || entry.type === input.type)
+      .sort(byCodePointPathThenId);
+    const page = sliceRanked(ranked, limit, offset);
+    return {
+      ...page,
+      items: page.items.map((entry) => structuredClone(entry)),
+    };
+  }
+
+  countEntries(workspaceId: WorkspaceId, query: EntryCountQuery = {}): number {
+    const bucket = this.entries.get(workspaceId);
+    if (bucket === undefined) {
+      return 0;
+    }
+    if (query.type === undefined) {
+      return bucket.size;
+    }
+    let total = 0;
+    for (const entry of bucket.values()) {
+      if (entry.type === query.type) {
+        total += 1;
+      }
+    }
+    return total;
   }
 
   private oldest(

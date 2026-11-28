@@ -1,9 +1,9 @@
+import { createNodeSchedulerClient } from "@foundry/scheduling/node";
 import type { Engine } from "~/lib/engine";
-import { runSchedules } from "~/lib/schedule";
+import { runScheduler } from "~/lib/schedule-loop";
 
 export interface RunLoopOptions {
   readonly cancel?: AbortSignal;
-  readonly letGo?: AbortSignal;
   readonly print?: (line: string) => void;
   readonly signal?: AbortSignal;
 }
@@ -12,7 +12,6 @@ export async function runSchedulesUntilStopped(
   engine: Engine,
   {
     cancel,
-    letGo,
     print = (line) => {
       process.stdout.write(`${line}\n`);
     },
@@ -31,9 +30,9 @@ export async function runSchedulesUntilStopped(
     signal.addEventListener("abort", stop, { once: true });
   }
   try {
-    await runSchedules(engine, {
+    await runScheduler(engine, {
       ...(cancel === undefined ? {} : { cancel }),
-      ...(letGo === undefined ? {} : { letGo }),
+      createClient: createNodeSchedulerClient,
       print,
       signal: controller.signal,
     });

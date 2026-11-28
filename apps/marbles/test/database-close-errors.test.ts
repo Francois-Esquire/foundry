@@ -14,8 +14,8 @@ import { DatabaseTriggerStore } from "~/database/triggers";
 import { DatabaseUsageStore } from "~/database/usage";
 import { testInstances } from "./helpers/engine";
 
-vi.mock("~/database/workspaces", async (original) => {
-  const actual = await original<typeof import("~/database/workspaces")>();
+vi.mock("~/database/open", async (original) => {
+  const actual = await original<typeof import("~/database/open")>();
   return {
     ...actual,
     openHostDatabase: async (
@@ -101,7 +101,7 @@ it("reports a trigger store's cleanup and the handle's close when both fail", as
     root,
     "triggers"
   );
-  await triggers.lastTick("tick");
+  await triggers.monitorState("monitor");
   expect(await failures(triggers.close())).toEqual([
     "triggers cleanup failed",
     "the database failed to close",

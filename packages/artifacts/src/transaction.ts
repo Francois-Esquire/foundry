@@ -3,14 +3,18 @@ import type { StorageNode } from "@foundry/core/storage";
 
 import { isStoragePath, withParentDirectories } from "@foundry/core/storage";
 import { canonicalizeJson } from "@foundry/lib/json";
-
-import type { Blob, BlobFiles, ContentTree, StoredFile } from "./blob";
 import type { BlobEffects } from "./blob-repository";
 import { BlobRepository } from "./blob-repository";
-import type { ByteInput, Ownership } from "./blob-staging";
-import { BlobStaging, isReferenceInput } from "./blob-staging";
-import type { ArtifactChange, EventInput } from "./change";
-import type { ContentMetadata } from "./content";
+import type { BlobFiles, ByteInput, Ownership } from "./blob-staging";
+import {
+  BlobStaging,
+  isExternalBlobInput,
+  isReferenceInput,
+  MAX_FILE_BYTES,
+  MAX_TREE_BYTES,
+} from "./blob-staging";
+import type { EventInput } from "./change";
+import { ArtifactChange } from "./change";
 import {
   assertJsonMetadata,
   digestTree,
@@ -30,10 +34,13 @@ import {
   FileTooLargeError,
   InvalidArtifactInputError,
   StaleContentError,
+  TransactionRolledBackError,
 } from "./errors";
+import type { ArtifactId, BlobId, ContentId } from "./ids";
+import { artifactIdSchema, contentIdSchema } from "./ids";
 import type { ArtifactCursor } from "./listing";
-import type { ArtifactId, BlobId, ContentId } from "./ref";
-import { artifactIdSchema, contentIdSchema } from "./ref";
+import type { Blob, ContentMetadata, ContentTree, StoredFile } from "./schema";
+import type { ArtifactStore } from "./store";
 import type {
   Artifact,
   ArtifactOperations,
@@ -69,9 +76,96 @@ export function operationEffects(): OperationEffects {
 }
 
 export interface TransactionLimits {
+  readonly clock?: () => Date;
   readonly files?: BlobFiles;
+  readonly id?: () => string;
   readonly maxFileBytes: number;
   readonly maxTreeBytes: number;
+}
+
+export interface ArtifactTransactionOptions {
+  readonly clock?: () => Date;
+  readonly files?: BlobFiles;
+  readonly id?: () => string;
+  readonly maxFileBytes?: number;
+  readonly maxTreeBytes?: number;
+  readonly readOnly?: boolean;
+}
+
+export interface ArtifactTransactionResult<T> {
+  readonly effects: OperationEffects;
+  readonly value: T;
+}
+
+async function discardPublished(
+  files: BlobFiles | undefined,
+  published: ReadonlySet<string>
+): Promise<void> {
+  if (files === undefined) {
+    return;
+  }
+  for (const path of published) {
+    await files.remove(path).catch(() => undefined);
+  }
+}
+
+export function runArtifactTransaction<T>(
+  store: ArtifactStore,
+  operation: (artifacts: ArtifactOperations) => Promise<T>,
+  options: ArtifactTransactionOptions = {}
+): Promise<ArtifactTransactionResult<T>> {
+  const effects = operationEffects();
+  const limits: TransactionLimits = {
+    ...(options.clock ? { clock: options.clock } : {}),
+    ...(options.files ? { files: options.files } : {}),
+    ...(options.id ? { id: options.id } : {}),
+    maxFileBytes: options.maxFileBytes ?? MAX_FILE_BYTES,
+    maxTreeBytes: options.maxTreeBytes ?? MAX_TREE_BYTES,
+  };
+  const changeOptions = {
+    ...(options.clock ? { clock: options.clock } : {}),
+    ...(options.id ? { id: options.id } : {}),
+    ...(options.readOnly === undefined ? {} : { readOnly: options.readOnly }),
+  };
+  const execute = async (
+    target: ArtifactStore
+  ): Promise<ArtifactTransactionResult<T>> => {
+    const change = ArtifactChange.begin(target, changeOptions);
+    const staging = new BlobStaging(limits);
+    let attempted = false;
+    try {
+      const transaction = new ArtifactTransaction(
+        change,
+        effects,
+        limits,
+        staging
+      );
+      const value = await operation(transaction);
+      if (change.failure) {
+        throw new TransactionRolledBackError({ cause: change.failure.error });
+      }
+      if (!change.readOnly) {
+        await transaction.reclaim();
+        const write = change.write();
+        if (write) {
+          attempted = true;
+          await target.commit(write);
+        }
+      }
+      return { effects, value };
+    } catch (error) {
+      if (!attempted) {
+        await discardPublished(options.files, effects.published);
+      }
+      throw error;
+    } finally {
+      change.settle();
+      await staging.discard();
+    }
+  };
+  return store.transaction === undefined
+    ? execute(store)
+    : store.transaction(execute);
 }
 
 export interface LocatedFile {
@@ -112,8 +206,8 @@ export class ArtifactTransaction implements ArtifactOperations {
       Object.defineProperty(ArtifactTransaction.prototype, name, {
         configurable: true,
         value(this: ArtifactTransaction, ...args: unknown[]) {
-          return this.#change.operation(() =>
-            Reflect.apply(operation, this, args)
+          return this.#change.operation((scoped) =>
+            Reflect.apply(operation, this.#fork(scoped), args)
           );
         },
         writable: true,
@@ -122,8 +216,11 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   readonly #change: ArtifactChange;
+  readonly #clock: () => Date;
   readonly #effects: OperationEffects;
+  readonly #id: () => string;
   readonly #blobs: BlobRepository;
+  readonly #limits: TransactionLimits;
   readonly #maxTreeBytes: number;
   readonly #staging: BlobStaging;
 
@@ -134,10 +231,22 @@ export class ArtifactTransaction implements ArtifactOperations {
     staging: BlobStaging = new BlobStaging(limits)
   ) {
     this.#change = change;
+    this.#clock = limits.clock ?? (() => new Date());
     this.#effects = effects;
+    this.#id = limits.id ?? (() => crypto.randomUUID());
     this.#blobs = new BlobRepository(change, effects, { ...limits, staging });
+    this.#limits = limits;
     this.#maxTreeBytes = limits.maxTreeBytes;
     this.#staging = staging;
+  }
+
+  #fork(change: ArtifactChange): ArtifactTransaction {
+    return new ArtifactTransaction(
+      change,
+      this.#effects,
+      this.#limits,
+      this.#staging
+    );
   }
 
   async checkCreate(input: CreateArtifactInput): Promise<void> {
@@ -187,7 +296,11 @@ export class ArtifactTransaction implements ArtifactOperations {
   ): Promise<void> {
     const active = artifact.content;
     for (const [path, entry] of Object.entries(entries ?? {})) {
-      if (isStructural(entry) || isReferenceInput(entry)) {
+      if (
+        isStructural(entry) ||
+        isReferenceInput(entry) ||
+        isExternalBlobInput(entry)
+      ) {
         continue;
       }
       const previous =
@@ -218,7 +331,12 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   async #checkReferences(entries: EntryInputs | undefined): Promise<void> {
     for (const [path, entry] of Object.entries(entries ?? {})) {
-      if (!isStructural(entry) && isReferenceInput(entry)) {
+      if (isStructural(entry)) {
+        continue;
+      }
+      if (isExternalBlobInput(entry)) {
+        this.#blobs.checkExternal(path, entry);
+      } else if (isReferenceInput(entry)) {
         await this.#blobs.resolve(path, entry);
       }
     }
@@ -279,7 +397,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     return this.#updateArtifact(
       id,
       (row) => ({
-        archivedAt: row.archivedAt ?? new Date(),
+        archivedAt: row.archivedAt ?? this.#clock(),
         status: "archived",
       }),
       () => ({ artifactId: id, type: "artifact.archived" })
@@ -364,7 +482,7 @@ export class ArtifactTransaction implements ArtifactOperations {
         digest: await digestTree(tree),
         metadata,
         tree,
-        updatedAt: nextTime(active),
+        updatedAt: nextTime(active, this.#clock),
       };
       await this.#change.putContent(content);
       this.#releaseTree(active.tree);
@@ -540,7 +658,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     if (sameJson(row.metadata, metadata)) {
       return row;
     }
-    const content = { ...row, metadata, updatedAt: nextTime(row) };
+    const content = { ...row, metadata, updatedAt: nextTime(row, this.#clock) };
     await this.#change.putContent(content);
     this.#effects.changed.add(row.artifactId);
     this.#change.record({
@@ -572,19 +690,11 @@ export class ArtifactTransaction implements ArtifactOperations {
     );
   }
 
-  async findContent(
+  findContent(
     id: ArtifactId,
     by: { readonly sessionId: string; readonly messageId: string }
   ): Promise<Content | null> {
-    return (
-      [...(await this.#change.listContents(id))]
-        .reverse()
-        .find(
-          (row) =>
-            row.metadata.sessionId === by.sessionId &&
-            row.metadata.messageId === by.messageId
-        ) ?? null
-    );
+    return this.#change.findContent(id, by);
   }
 
   async deleteContent(input: {
@@ -665,7 +775,9 @@ export class ArtifactTransaction implements ArtifactOperations {
     readonly olderThan: Date;
   }): Promise<{ readonly contents: number; readonly blobs: number }> {
     let contents = 0;
-    for (const content of await this.#change.listContents()) {
+    for (const content of await this.#change.listContents(undefined, {
+      state: ["ready", "failed"],
+    })) {
       if (
         (content.state !== "ready" && content.state !== "failed") ||
         content.updatedAt >= input.olderThan
@@ -755,6 +867,10 @@ export class ArtifactTransaction implements ArtifactOperations {
     for (const [path, entry] of puts) {
       if (isStructural(entry)) {
         tree[path] = structuralNode(entry);
+      } else if (isExternalBlobInput(entry)) {
+        const blob = await this.#blobs.attach(path, entry);
+        assigned.add(blob.id);
+        tree[path] = storedFile(blob, entry.mime);
       } else if (isReferenceInput(entry)) {
         const blob = await this.#blobs.resolve(path, entry);
         assigned.add(blob.id);
@@ -806,13 +922,13 @@ export class ArtifactTransaction implements ArtifactOperations {
     metadata: ContentMetadata
   ): Promise<Content> {
     validatePointers(metadata, tree);
-    const now = new Date();
+    const now = this.#clock();
     const content: Content = {
       artifactId,
       createdAt: now,
       digest: await digestTree(tree),
       frozenAt: null,
-      id: contentIdSchema.parse(crypto.randomUUID()),
+      id: contentIdSchema.parse(this.#id()),
       metadata,
       state: "ready",
       tag: null,
@@ -824,7 +940,7 @@ export class ArtifactTransaction implements ArtifactOperations {
   }
 
   async #markFrozen(row: Content): Promise<Content> {
-    const now = nextTime(row);
+    const now = nextTime(row, this.#clock);
     const content: Content = {
       ...row,
       frozenAt: now,
@@ -843,8 +959,11 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   async #file(input: CreateArtifactInput): Promise<ArtifactId> {
     await this.checkCreate(input);
-    const id = input.id ?? artifactIdSchema.parse(crypto.randomUUID());
-    const now = new Date();
+    const id = input.id ?? artifactIdSchema.parse(this.#id());
+    if (input.id === undefined && (await this.#change.getArtifact(id))) {
+      throw new ArtifactExistsError(id);
+    }
+    const now = this.#clock();
     await this.#change.putArtifact({
       archivedAt: null,
       contentId: null,
@@ -876,7 +995,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     if (!touches && sameArtifact(previous, updated)) {
       return previous;
     }
-    const artifact = { ...updated, updatedAt: new Date() };
+    const artifact = { ...updated, updatedAt: this.#clock() };
     await this.#change.putArtifact(artifact);
     this.#effects.changed.add(id);
     const made = event();
@@ -893,9 +1012,8 @@ export class ArtifactTransaction implements ArtifactOperations {
   async #assertTagFree(row: Content, tag: string): Promise<void> {
     nonEmpty("tag", tag);
     if (
-      (await this.#change.listContents(row.artifactId)).some(
-        (other) => other.id !== row.id && other.tag === tag
-      )
+      (await this.#change.findContentByTag(row.artifactId, tag, row.id)) !==
+      null
     ) {
       throw new DuplicateTagError(row.artifactId, tag);
     }
@@ -1061,8 +1179,8 @@ function sameJson(left: Readonly<object>, right: Readonly<object>): boolean {
   return canonicalizeJson(left) === canonicalizeJson(right);
 }
 
-function nextTime(row: Content): Date {
-  return new Date(Math.max(Date.now(), row.updatedAt.getTime() + 1));
+function nextTime(row: Content, clock: () => Date): Date {
+  return new Date(Math.max(clock().getTime(), row.updatedAt.getTime() + 1));
 }
 
 function nonEmpty(field: string, value: string): void {

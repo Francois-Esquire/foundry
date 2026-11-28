@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { isMissingPath } from "@foundry/lib/atomic-file";
+import { isMissingPath } from "@foundry/lib/node/atomic-file";
 import { collectionManifest } from "./collection-manifest";
 import type { CollectionManifest, WorkspaceId } from "./collection-types";
 import type { DatasetReader, DatasetTransport } from "./dataset";

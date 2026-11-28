@@ -1,0 +1,189 @@
+import { tool } from "ai";
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+
+import { capabilityToAccessRequest } from "../../authorization/authorization";
+import { AgentHarness } from "../../harness/agent-harness";
+import { SessionHarness } from "../../harness/session-harness";
+import type { SessionEvent } from "../../session/events";
+import { MemorySessionStore } from "../../store/memory";
+import { createPermissiveAuthorization } from "../helpers/authorizer";
+import {
+  createScriptedMockModel,
+  textStreamResult,
+  toolCallStreamResult,
+} from "../helpers/mock-language-model";
+
+function contextCapturingTool() {
+  const seen: { context?: unknown } = {};
+  return {
+    seen,
+    tools: {
+      probe: tool({
+        contextSchema: z.custom<Record<string, unknown>>(),
+        description: "records its tool context",
+        execute: (_input, { context }) => {
+          seen.context = context;
+          return "ok";
+        },
+        inputSchema: z.object({}),
+      }),
+    },
+  };
+}
+
+function probingModel() {
+  return createScriptedMockModel({
+    stream: [
+      toolCallStreamResult("call-1", "probe", {}),
+      textStreamResult("done"),
+    ],
+  });
+}
+
+async function drainGeneric(stream: AsyncIterable<unknown>): Promise<void> {
+  await Array.fromAsync(stream);
+}
+
+async function drain(stream: AsyncIterable<SessionEvent>): Promise<void> {
+  await Array.fromAsync(stream);
+}
+
+describe("AgentHarness.authorization", () => {
+  it("exposes the configured authorization as the same instance the tools are gated by", async () => {
+    const authorization = await createPermissiveAuthorization();
+    const harness = new AgentHarness({
+      authorization,
+      instructions: "x",
+      model: createScriptedMockModel({}),
+    });
+
+    expect(harness.authorization).toBe(authorization);
+  });
+
+  it("defaults to a fail-closed empty authorization with no grants when none is configured", async () => {
+    const harness = new AgentHarness({
+      instructions: "x",
+      model: createScriptedMockModel({}),
+    });
+
+    await expect(
+      harness.authorization.check(
+        capabilityToAccessRequest({
+          agentId: "agent",
+          capability: { kind: "tool.call", source: "declared", tool: "probe" },
+          invocationId: "probe-1",
+        })
+      )
+    ).resolves.toMatchObject({ kind: "ask" });
+  });
+});
+
+describe("AgentHarness — tool context", () => {
+  it("hands a tool call with no caller context an empty object", async () => {
+    const authorization = await createPermissiveAuthorization();
+    const { tools, seen } = contextCapturingTool();
+    const harness = new AgentHarness({
+      authorization,
+      instructions: "x",
+      model: probingModel(),
+      tools,
+    });
+
+    const { parts } = await harness.stream({ prompt: "hi" });
+    await drainGeneric(parts);
+
+    expect(seen.context).toEqual({});
+  });
+
+  it("hands the tool the caller's own context object, unchanged", async () => {
+    const authorization = await createPermissiveAuthorization();
+    const { tools, seen } = contextCapturingTool();
+    const callerContext = { db: "the-db", sessionId: "s1" };
+    const harness = new AgentHarness({
+      authorization,
+      instructions: "x",
+      model: probingModel(),
+      tools,
+      toolsContext: callerContext,
+    });
+
+    const { parts } = await harness.stream({ prompt: "hi" });
+    await drainGeneric(parts);
+
+    expect(seen.context).toBe(callerContext);
+  });
+
+  it("preserves a frozen, WeakSet-branded context — the shape hosts actually use", async () => {
+    const branded = new WeakSet();
+    const callerContext = Object.freeze({ db: "the-db" });
+    branded.add(callerContext);
+
+    const authorization = await createPermissiveAuthorization();
+    const { tools, seen } = contextCapturingTool();
+    const harness = new AgentHarness({
+      authorization,
+      instructions: "x",
+      model: probingModel(),
+      tools,
+      toolsContext: callerContext,
+    });
+
+    const { parts } = await harness.stream({ prompt: "hi" });
+    await drainGeneric(parts);
+
+    expect(branded.has(seen.context as object)).toBe(true);
+  });
+
+  it("never writes a property onto the caller's context object", async () => {
+    const { tools, seen } = contextCapturingTool();
+    const callerContext = { db: "the-db" };
+    const harness = new AgentHarness({
+      authorization: await createPermissiveAuthorization(),
+      instructions: "x",
+      model: probingModel(),
+      tools,
+      toolsContext: callerContext,
+    });
+
+    const { parts } = await harness.stream({ prompt: "hi" });
+    await drainGeneric(parts);
+
+    expect(Reflect.ownKeys(callerContext)).toEqual(["db"]);
+    expect(seen.context).toBe(callerContext);
+  });
+});
+
+describe("SessionHarness — authorization and tool context", () => {
+  it("runs under the same authorization instance as the agent harness it wraps", async () => {
+    const authorization = await createPermissiveAuthorization();
+    const harness = new SessionHarness({
+      authorization,
+      instructions: "x",
+      model: createScriptedMockModel({}),
+      sessionId: "s1",
+      store: new MemorySessionStore(),
+    });
+
+    expect(harness.authorization).toBe(authorization);
+  });
+
+  it("hands every turn's tools the caller's own context object, unchanged", async () => {
+    const authorization = await createPermissiveAuthorization();
+    const { tools, seen } = contextCapturingTool();
+    const callerContext = { db: "the-db", sessionId: "s1" };
+    const harness = new SessionHarness({
+      authorization,
+      instructions: "x",
+      model: probingModel(),
+      sessionId: "s1",
+      store: new MemorySessionStore(),
+      tools,
+      toolsContext: callerContext,
+    });
+
+    await drain(harness.stream("hi"));
+
+    expect(seen.context).toBe(callerContext);
+  });
+});

@@ -29,15 +29,15 @@ examples; create and choose directories appropriate for the account:
 ```sh
 cd /srv/my-project
 marbles list
-export FOUNDRY_HOME=/srv/foundry
-marbles roll inventory
-marbles run </dev/null
+export FOUNDRY_ROOT=/srv/foundry
+marbles run inventory
+marbles </dev/null
 ```
 
 `inventory` must be a definition in that project. Use an attended terminal
 and `marbles` for the dashboard if the work asks questions. Headless `run`
 attaches the workspace to the Marbles process, whose triggers keep running
-after Ctrl+C; a run that asks parks until a dashboard answers.
+after Ctrl+C; a run that asks suspends until a dashboard answers.
 
 ## What deployment must supply
 
@@ -50,14 +50,14 @@ those facilities. Edited modules reload on their own, through the next
 engine generation; one whose change does not load keeps the previous load
 running and shows the error until a later edit loads.
 
-Process supervision and [workflow durability](/marbles/foundation/durability)
+Process supervision and [workflow durability](/marbles/concepts/durability)
 serve different purposes. Restarting the process brings its loops back, but
-it does not resume an interrupted running step. A scheduler that launches
-`roll` again creates a new run. Account for earlier external effects before
+it does not resume an interrupted running step. A scheduler that invokes
+`marbles run` again creates a new run. Account for earlier external effects before
 relaunching.
 
 State is scoped to the canonical workspace path. Changing that path changes
-the workspace ID, even with the same `FOUNDRY_HOME`. Everything Marbles
+the workspace ID, even with the same `FOUNDRY_ROOT`. Everything Marbles
 keeps is under that home. Preserve it when continuity matters, and stop
 active processes before moving it. The run snapshots from
 [Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md),
@@ -72,13 +72,13 @@ between independent machines as a worker-coordination mechanism.
 
 ## Limits to plan around
 
-- A parked run can be adopted by a later dashboard on the same setup. A
+- A suspended run can be answered by a later dashboard on the same setup. A
   run interrupted mid-body is not automatically resumed.
 - An ephemeral host loses local history unless its storage is preserved.
 - Host CLI authentication, sandbox guest lifetime, mounts, and networking
   must work on the target host. Containerizing the CLI does not itself
   provide a working MicroSandbox environment.
-- A remote scheduler invoking `roll` must choose work that needs no
+- A remote scheduler invoking `marbles run` or `marbles enqueue` must choose work that needs no
   interactive answer and account for its own retry policy.
 
 This page describes the supported process and state model, not a tested

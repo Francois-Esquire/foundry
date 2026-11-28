@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { EventInput } from "../change";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
-import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ref";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
+import { artifactIdSchema, blobIdSchema, contentIdSchema } from "../ids";
 import type { Artifact, ArtifactEvent, Blob, Content } from "../schema";
 import type {
+  ArtifactListing,
   ArtifactListQuery,
   ArtifactStore,
   ArtifactStoreWrite,
@@ -205,11 +206,29 @@ export type ArtifactStoreMode =
       readonly recording: () => Promise<RecordingArtifactStores>;
     };
 
+export interface ArtifactStoreCapabilities {
+  readonly exactTotal?: boolean;
+  readonly loneSurrogates?: boolean;
+}
+
 export function describeArtifactStore(
   name: string,
   open: () => ScopedArtifactStores | Promise<ScopedArtifactStores>,
-  mode: ArtifactStoreMode
+  mode: ArtifactStoreMode,
+  capabilities: ArtifactStoreCapabilities = {}
 ): void {
+  const exactTotal = capabilities.exactTotal ?? true;
+  const loneSurrogates = capabilities.loneSurrogates ?? true;
+  const expectListing = (
+    listing: ArtifactListing,
+    expectedArtifacts: readonly Artifact[],
+    expectedTotal: number
+  ) => {
+    expect(listing.artifacts).toEqual(expectedArtifacts);
+    if (exactTotal) {
+      expect(listing.total).toBe(expectedTotal);
+    }
+  };
   if (mode.hooked) {
     describeRecordedEvents(name, mode.recording);
   }
@@ -305,9 +324,127 @@ export function describeArtifactStore(
       };
       await store.commit({ putBlobs: [inline, backed] });
       expect(await store.findBlobs(OTHER_DIGEST)).toEqual([backed]);
+      if (store.findBlobByPath !== undefined && backed.path !== undefined) {
+        expect(await store.findBlobByPath(backed.path)).toEqual(backed);
+        expect(await store.findBlobByPath("missing/path")).toBeNull();
+      }
       expect(sorted(await store.listBlobs())).toEqual(
         sorted([{ id: inline.id }, { id: backed.id, path: backed.path }])
       );
+    });
+
+    it("paginates blobs and contents and performs targeted content lookups when implemented", async () => {
+      const store = await fresh();
+      const first = artifact({ name: "First" });
+      const second = artifact({ name: "Second" });
+      const blobA = { ...inlineBlob(), id: blobIdSchema.parse("blob-1") };
+      const blobB: Blob = {
+        byteLength: 1,
+        createdAt: AT,
+        digest: OTHER_DIGEST,
+        id: blobIdSchema.parse("blob-2"),
+        path: "objects/blob-2",
+      };
+      const blobC = { ...inlineBlob(), id: blobIdSchema.parse("blob-3") };
+      const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
+      const c1: Content = {
+        ...content(first.id, [blobA.id]),
+        createdAt: at(1),
+        id: contentIdSchema.parse("c-1"),
+        metadata: { messageId: "m1", sessionId: "s1" },
+        state: "frozen",
+        tag: "v1.0.0",
+      };
+      const c2: Content = {
+        ...content(first.id),
+        createdAt: at(2),
+        id: contentIdSchema.parse("c-2"),
+        metadata: { messageId: "m1", sessionId: "s1" },
+        state: "ready",
+        tag: null,
+      };
+      const c3: Content = {
+        ...content(second.id),
+        createdAt: at(3),
+        id: contentIdSchema.parse("c-3"),
+        metadata: { messageId: "m2", sessionId: "s2" },
+        state: "failed",
+        tag: "v1.0.0",
+      };
+      await store.commit({
+        putArtifacts: [first, second],
+        putBlobs: [blobC, blobA, blobB],
+        putContents: [c3, c1, c2],
+      });
+
+      if (store.listBlobsPage !== undefined) {
+        const page1 = await store.listBlobsPage({ limit: 2 });
+        expect(page1).toEqual({
+          items: [{ id: blobA.id }, { id: blobB.id, path: blobB.path }],
+          nextCursor: blobB.id,
+        });
+        const page2 = await store.listBlobsPage({
+          cursor: page1.nextCursor,
+          limit: 2,
+        });
+        expect(page2).toEqual({ items: [{ id: blobC.id }] });
+        await expect(store.listBlobsPage({ limit: 0 })).rejects.toThrow(
+          RangeError
+        );
+      }
+
+      if (store.listContentsPage !== undefined) {
+        const page1 = await store.listContentsPage({ limit: 2 });
+        expect(page1.items).toEqual([c1, c2]);
+        expect(page1.nextCursor).toBe(c2.id);
+        const page2 = await store.listContentsPage({
+          cursor: page1.nextCursor,
+          limit: 2,
+        });
+        expect(page2).toEqual({ items: [c3] });
+        expect(
+          await store.listContentsPage({ artifactId: first.id, limit: 1 })
+        ).toEqual({ items: [c1], nextCursor: c1.id });
+        expect(
+          await store.listContentsPage({ state: ["ready", "failed"] })
+        ).toEqual({ items: [c2, c3] });
+        expect(await store.listContentsPage({ tagged: true })).toEqual({
+          items: [c1, c3],
+        });
+        expect(await store.listContentsPage({ tagged: false })).toEqual({
+          items: [c2],
+        });
+        await expect(store.listContentsPage({ limit: 0 })).rejects.toThrow(
+          RangeError
+        );
+      }
+
+      if (store.findContentByTag !== undefined) {
+        expect(await store.findContentByTag(first.id, "v1.0.0")).toEqual(c1);
+        expect(await store.findContentByTag(second.id, "v1.0.0")).toEqual(c3);
+        expect(await store.findContentByTag(first.id, "v2.0.0")).toBeNull();
+      }
+
+      if (store.findContent !== undefined) {
+        expect(
+          await store.findContent(first.id, {
+            messageId: "m1",
+            sessionId: "s1",
+          })
+        ).toEqual(c2);
+        expect(
+          await store.findContent(first.id, {
+            messageId: "m2",
+            sessionId: "s2",
+          })
+        ).toBeNull();
+        expect(
+          await store.findContent(second.id, {
+            messageId: "m2",
+            sessionId: "s2",
+          })
+        ).toEqual(c3);
+      }
     });
 
     it("finds the Contents and chunked blobs naming a blob", async () => {
@@ -588,32 +725,32 @@ export function describeArtifactStore(
       const listed = (query: Partial<ArtifactListQuery>) =>
         store.listArtifacts({ limit: 10, ...query });
 
-      expect(await listed({})).toEqual({
-        artifacts: [early, tiedLow, tiedHigh, other],
-        total: 4,
-      });
-      expect((await listed({ includeArchived: true })).total).toBe(5);
-      expect(await listed({ type: "image/png" })).toEqual({
-        artifacts: [other],
-        total: 1,
-      });
-      expect(await listed({ includeArchived: true, text: "NOTES" })).toEqual({
-        artifacts: [early, archived],
-        total: 2,
-      });
+      expectListing(await listed({}), [early, tiedLow, tiedHigh, other], 4);
+      const withArchived = await listed({ includeArchived: true });
+      expect(withArchived.artifacts).toHaveLength(5);
+      if (exactTotal) {
+        expect(withArchived.total).toBe(5);
+      }
+      expectListing(await listed({ type: "image/png" }), [other], 1);
+      expectListing(
+        await listed({ includeArchived: true, text: "NOTES" }),
+        [early, archived],
+        2
+      );
       expect(
         (await listed({ text: tiedHigh.id.slice(0, 3) })).artifacts
       ).toEqual([tiedHigh]);
-      expect(await listed({ limit: 2 })).toEqual({
-        artifacts: [early, tiedLow],
-        total: 4,
-      });
-      expect(
-        await listed({ after: { createdAt: at(2), id: tiedLow.id }, limit: 2 })
-      ).toEqual({ artifacts: [tiedHigh, other], total: 4 });
-      expect(
-        await listed({ after: { createdAt: at(4), id: other.id } })
-      ).toEqual({ artifacts: [], total: 4 });
+      expectListing(await listed({ limit: 2 }), [early, tiedLow], 4);
+      expectListing(
+        await listed({ after: { createdAt: at(2), id: tiedLow.id }, limit: 2 }),
+        [tiedHigh, other],
+        4
+      );
+      expectListing(
+        await listed({ after: { createdAt: at(4), id: other.id } }),
+        [],
+        4
+      );
     });
 
     it("matches text as toLowerCase does, by code unit, with % and _ as themselves", async () => {
@@ -634,7 +771,9 @@ export function describeArtifactStore(
       await store.commit({ putArtifacts: Object.values(records) });
       const matching = async (text: string) => {
         const listing = await store.listArtifacts({ limit: 100, text });
-        expect(listing.total).toBe(listing.artifacts.length);
+        if (exactTotal) {
+          expect(listing.total).toBe(listing.artifacts.length);
+        }
         return listing.artifacts.map((row) => row.name).sort();
       };
 
@@ -651,7 +790,9 @@ export function describeArtifactStore(
       expect(await matching("%d")).toEqual([]);
       expect(await matching("markdown")).toEqual(["By type"]);
       expect(await matching("id-äb")).toEqual(["By id"]);
-      expect(await matching("\uD83D")).toEqual(["😀 face"]);
+      if (loneSurrogates) {
+        expect(await matching("\uD83D")).toEqual(["😀 face"]);
+      }
       expect(await matching("\u0000")).toEqual([]);
       expect(await matching("")).toHaveLength(Object.keys(records).length);
     });
@@ -678,8 +819,12 @@ export function describeArtifactStore(
       expect(await names()).toEqual(order);
       expect(await names(undefined, 2)).toEqual(order.slice(0, 2));
       expect(await names("😀")).toEqual(order.slice(2));
-      expect(await names("\uD83D")).toEqual(order.slice(1));
-      expect((await page("")).total).toBe(4);
+      if (loneSurrogates) {
+        expect(await names("\uD83D")).toEqual(order.slice(1));
+      }
+      if (exactTotal) {
+        expect((await page("")).total).toBe(4);
+      }
     });
 
     it("counts every match of the filter, whatever the cursor and limit", async () => {
@@ -722,10 +867,10 @@ export function describeArtifactStore(
       ];
       for (const [query, listed, total] of cases) {
         const listing = await store.listArtifacts({ limit: 10, ...query });
-        expect(
-          [listing.artifacts.length, listing.total],
-          JSON.stringify(query)
-        ).toEqual([listed, total]);
+        expect(listing.artifacts.length, JSON.stringify(query)).toBe(listed);
+        if (exactTotal) {
+          expect(listing.total, JSON.stringify(query)).toBe(total);
+        }
       }
       const [low, ...higher] = sorted(rows);
       const byId = await store.listArtifacts({
@@ -734,7 +879,9 @@ export function describeArtifactStore(
         limit: 10,
       });
       expect(sorted(byId.artifacts)).toEqual(higher);
-      expect(byId.total).toBe(5);
+      if (exactTotal) {
+        expect(byId.total).toBe(5);
+      }
       const afterInvalid = (id: string, limit: number) =>
         store.listArtifacts({
           after: { createdAt: new Date(Number.NaN), id: id as ArtifactId },
@@ -744,55 +891,47 @@ export function describeArtifactStore(
       const pivot = higher[1]?.id ?? "";
       const kept = rows.filter((row) => row.id > pivot);
       expect((await afterInvalid(pivot, 10)).artifacts).toEqual(kept);
-      expect(await afterInvalid(pivot, 1)).toEqual({
-        artifacts: kept.slice(0, 1),
-        total: 5,
-      });
+      expectListing(await afterInvalid(pivot, 1), kept.slice(0, 1), 5);
       expect((await afterInvalid("", 10)).artifacts).toEqual(rows);
     });
 
-    it("matches text holding a lone surrogate by code unit, within one field, and bounds it by limit", async () => {
-      const store = await fresh();
-      const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
-      const rows = [
-        artifact({ createdAt: at(1), name: "😀 face" }),
-        artifact({ createdAt: at(2), name: "😀 other" }),
-        artifact({ createdAt: at(3), name: "x😀", type: "text/plain" }),
-        artifact({ createdAt: at(4), name: "🙂 face" }),
-        artifact({ createdAt: at(5), name: "\u0AD8\u3D00" }),
-      ];
-      await store.commit({ putArtifacts: rows });
-      const names = async (text: string, limit = 10) => {
-        const listing = await store.listArtifacts({ limit, text });
-        return {
-          names: listing.artifacts.map((row) => row.name),
-          total: listing.total,
+    it.runIf(loneSurrogates)(
+      "matches text holding a lone surrogate by code unit, within one field, and bounds it by limit",
+      async () => {
+        const store = await fresh();
+        const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
+        const rows = [
+          artifact({ createdAt: at(1), name: "😀 face" }),
+          artifact({ createdAt: at(2), name: "😀 other" }),
+          artifact({ createdAt: at(3), name: "x😀", type: "text/plain" }),
+          artifact({ createdAt: at(4), name: "🙂 face" }),
+          artifact({ createdAt: at(5), name: "\u0AD8\u3D00" }),
+        ];
+        await store.commit({ putArtifacts: rows });
+        const check = async (
+          text: string,
+          expectedNames: readonly string[],
+          expectedTotal: number,
+          limit = 10
+        ) => {
+          const listing = await store.listArtifacts({ limit, text });
+          expect(listing.artifacts.map((row) => row.name)).toEqual(
+            expectedNames
+          );
+          if (exactTotal) {
+            expect(listing.total).toBe(expectedTotal);
+          }
         };
-      };
 
-      expect(await names("\uD83D")).toEqual({
-        names: ["😀 face", "😀 other", "x😀", "🙂 face"],
-        total: 4,
-      });
-      expect(await names("\uDE00")).toEqual({
-        names: ["😀 face", "😀 other", "x😀"],
-        total: 3,
-      });
-      expect(await names("\uDE00 f")).toEqual({
-        names: ["😀 face"],
-        total: 1,
-      });
-      expect(await names("\uDE00t")).toEqual({ names: [], total: 0 });
-      expect(await names("\uDE00 O")).toEqual({
-        names: ["😀 other"],
-        total: 1,
-      });
-      expect(await names("\uD83D", 1)).toEqual({
-        names: ["😀 face"],
-        total: 4,
-      });
-      expect(await names("\uD83D\u0000")).toEqual({ names: [], total: 0 });
-    });
+        await check("\uD83D", ["😀 face", "😀 other", "x😀", "🙂 face"], 4);
+        await check("\uDE00", ["😀 face", "😀 other", "x😀"], 3);
+        await check("\uDE00 f", ["😀 face"], 1);
+        await check("\uDE00t", [], 0);
+        await check("\uDE00 O", ["😀 other"], 1);
+        await check("\uD83D", ["😀 face"], 4, 1);
+        await check("\uD83D\u0000", [], 0);
+      }
+    );
 
     it("names each referencing record once, and forgets a reference put away", async () => {
       const store = await fresh();
@@ -871,7 +1010,9 @@ export function describeArtifactStore(
           ["__proto__"]: { own: true },
           nested: { list: [1, -1.5, "two", null, true, { deep: [] }] },
           sessionId: "s",
-          unicode: "\u0000 and \uD800 kept in JSON",
+          unicode: loneSurrogates
+            ? "\u0000 and \uD800 kept in JSON"
+            : "\u0000 kept in JSON",
         },
         publishedAt: later,
         status: "archived",
@@ -997,7 +1138,11 @@ export function describeArtifactStore(
         putBlobs: blobs,
         putContents: versions,
       });
-      expect((await store.listArtifacts({ limit: 10 })).total).toBe(count);
+      const sample = await store.listArtifacts({ limit: 10 });
+      expect(sample.artifacts).toHaveLength(10);
+      if (exactTotal) {
+        expect(sample.total).toBe(count);
+      }
       expect(await store.listContents()).toHaveLength(count);
       expect(await store.listBlobs()).toHaveLength(count);
       expect(
@@ -1136,9 +1281,13 @@ export function describeArtifactStore(
           requireTransaction(store)((view) => view.listArtifacts({ limit }))
         ).rejects.toThrow("limit must be a positive safe integer");
       }
-      expect(
-        (await store.listArtifacts({ limit: Number.MAX_SAFE_INTEGER })).total
-      ).toBe(2);
+      const full = await store.listArtifacts({
+        limit: Number.MAX_SAFE_INTEGER,
+      });
+      expect(full.artifacts).toHaveLength(2);
+      if (exactTotal) {
+        expect(full.total).toBe(2);
+      }
     });
 
     it("lists by the query as it stands when called, whatever the caller changes after", async () => {
@@ -1165,7 +1314,7 @@ export function describeArtifactStore(
       held.resolve();
       await running;
 
-      expect(await listing).toEqual({ artifacts: [second], total: 3 });
+      expectListing(await listing, [second as Artifact], 3);
     });
 
     it("keeps a blob's bytes as they were at the call, even over shared memory", async () => {

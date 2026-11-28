@@ -1,6 +1,6 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { writeFileAtomicSync } from "@foundry/lib/atomic-file";
+import { writeFileAtomicSync } from "@foundry/lib/node/atomic-file";
 import { refuseUnfinishedApply } from "./apply-journal";
 import { createOperatorContext } from "./architectural-operator";
 import type { PlanSiteResult, Site } from "./codemod-types";

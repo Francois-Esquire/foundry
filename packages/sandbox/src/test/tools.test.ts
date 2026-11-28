@@ -1,11 +1,11 @@
-import { MAX_EDIT_RESULT_CHARS } from "@foundry/sandbox/tools/constants";
-import { sandboxToolDefinitions } from "@foundry/sandbox/tools/definitions";
-import type { SandboxToolEvent } from "@foundry/sandbox/tools/guards";
-import { SandboxRateLimitError } from "@foundry/sandbox/tools/guards";
+import type { SandboxToolEvent } from "@foundry/sandbox/tools";
 import {
   createSandboxToolkit,
   createSandboxToolSchemas,
-} from "@foundry/sandbox/tools/toolkit";
+  MAX_EDIT_RESULT_CHARS,
+  SandboxRateLimitError,
+  sandboxToolDefinitions,
+} from "@foundry/sandbox/tools";
 import { describe, expect, it } from "vitest";
 
 import type { FakeSandboxOptions } from "./helpers/fake-sandbox";
@@ -593,5 +593,44 @@ describe("createSandboxToolSchemas", () => {
     expect(
       createSandboxToolkit(sandbox, { tools: ["read", "cd"] }).instructions
     ).toContain("starts at `/workspace` and `cd` moves");
+  });
+});
+
+describe("tool bookkeeping", () => {
+  it("never fails a tool call because the audit threw", async () => {
+    const { sandbox } = await toolkitOver();
+    const toolkit = createSandboxToolkit(sandbox, {
+      audit: {
+        record: () => {
+          throw new Error("audit sink down");
+        },
+      },
+    });
+
+    await expect(
+      toolkit.tools.write.execute(
+        { content: "kept", file_path: "a.txt" },
+        NO_OPTIONS
+      )
+    ).resolves.toContain("Wrote 4 bytes");
+    await expect(
+      toolkit.tools.read.execute({ file_path: "missing.txt" }, NO_OPTIONS)
+    ).rejects.not.toThrow("audit sink down");
+  });
+
+  it("asks the host to resolve a cd target once", async () => {
+    const { sandbox } = await toolkitOver();
+    await sandbox.files.writeFile("src/a.ts", "");
+    const asked: string[] = [];
+    const toolkit = createSandboxToolkit(sandbox, {
+      resolvePath: (path) => {
+        asked.push(path);
+        return Promise.resolve(path);
+      },
+    });
+
+    await toolkit.tools.cd.execute({ path: "src" }, NO_OPTIONS);
+
+    expect(asked).toEqual([`${sandbox.workingDirectory}/src`]);
   });
 });

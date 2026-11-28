@@ -14,6 +14,7 @@ interface TaskCommandInputs {
   readonly change: { readonly change: TaskChange };
   readonly dependencies: { readonly id: string };
   readonly get: { readonly depth?: number; readonly id: string };
+  readonly inspect: { readonly depth?: number; readonly id: string };
   readonly list: { readonly query: TaskQuery };
   readonly ready: { readonly query: ReadyQuery };
 }
@@ -22,6 +23,7 @@ interface TaskCommandResults {
   readonly change: TaskChangeResult;
   readonly dependencies: TaskRelations;
   readonly get: TaskNode;
+  readonly inspect: TaskNode & TaskRelations;
   readonly list: Page<TaskNode, number>;
   readonly ready: Page<Task, number>;
 }

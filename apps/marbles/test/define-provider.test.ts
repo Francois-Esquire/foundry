@@ -4,9 +4,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { Catalog, catalog } from "~/authoring/catalog";
+import { Catalog, collectCatalog } from "~/authoring/catalog";
 import { defineProvider } from "~/authoring/providers";
-import { dispose, inLoad, loadInto } from "~/authoring/runtime";
+import { dispose } from "~/authoring/runtime";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
@@ -18,11 +18,10 @@ import { testHome } from "./helpers/home";
 
 const SRC = resolve("src");
 const DEFINED_TWICE =
-  /provider "vercel" already defined \(.*define-provider\.test\.ts:\d+\); second definition \(.*define-provider\.test\.ts:\d+\)/;
+  /provider "vercel" already defined \(a\.ts\); second definition \(b\.ts\)/;
 const roots: string[] = [];
 
 afterEach(async () => {
-  catalog.reset();
   await dispose();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { force: true, recursive: true }))
@@ -37,10 +36,10 @@ async function scratch(): Promise<string> {
   return root;
 }
 
-const CUSTOM = `const echo = defineProvider({
+const CUSTOM = `export const echo = defineProvider({
   catalog: () => [{ id: "echo", kind: "text", modelId: "echo" }],
   create: ({ id, models }) => ({
-    provider: { available: true, id, languageModel: () => ({}), models: [...models], offline: false },
+    provider: { available: true, id, languageModel: () => ({}), models: [...models] },
   }),
   id: "acme",
   label: "Acme",
@@ -52,15 +51,15 @@ const DEFINING = `import { step } from "@foundry.sh/marbles";
 import { defineProvider } from "@foundry.sh/marbles/providers";
 import { claudeCode } from "@foundry.sh/marbles/providers/claude-code";
 import { vercel } from "@foundry.sh/marbles/providers/vercel";
-defineProvider(vercel);
-defineProvider(claudeCode);
-defineProvider(claudeCode);
+export const vercelProvider = defineProvider(vercel);
+export const claudeA = defineProvider(claudeCode);
+export const claudeB = defineProvider(claudeCode);
 ${CUSTOM}
-step("build").do(() => "built");
+export const build = step("build").do(() => "built");
 `;
 
 const PLAIN = `import { step } from "@foundry.sh/marbles";
-step("build").do(() => "built");
+export const build = step("build").do(() => "built");
 `;
 
 async function workspace(
@@ -93,7 +92,12 @@ async function machineProviders(state: string): Promise<void> {
           providers: [
             { enabled: true, id: "claude-code", plugin: "claude-code" },
             { enabled: true, id: "codex", plugin: "codex" },
-            { enabled: true, id: "pi", plugin: "pi" },
+            {
+              enabled: true,
+              id: "gateway",
+              plugin: "gateway",
+              settings: { baseURL: "http://127.0.0.1:9" },
+            },
             {
               enabled: true,
               id: "vercel",
@@ -152,23 +156,21 @@ process.exit(0);
   return JSON.parse(output.trim().split("\n").at(-1) ?? "{}");
 }
 
-it("refuses a definition once the engine it would reach is built, and anything that is not a provider", async () => {
+it("refuses anything that is not a provider and returns a pure tagged declaration", () => {
   expect(() => defineProvider({} as never)).toThrow(
     "defineProvider: pass a provider"
   );
-  const { instanceRuntime } = await import("~/authoring/runtime");
-  await instanceRuntime();
-  expect(() => defineProvider(vercel)).toThrow(
-    "a workspace's providers are fixed once its engine is built"
-  );
+  const declared = defineProvider(vercel);
+  expect(declared.id).toBe("vercel");
+  expect(declared.label).toBe(vercel.label);
 });
 
 const UNDEFINED_VERCEL =
-  'provider "vercel" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { vercel } from "@foundry.sh/marbles/providers/vercel"; defineProvider(vercel);';
-const UNDEFINED_PI =
-  'provider "pi" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { pi } from "@foundry.sh/marbles/providers/pi"; defineProvider(pi);';
+  'provider "vercel" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { vercel } from "@foundry.sh/marbles/providers/vercel"; export const vercelProvider = defineProvider(vercel);';
+const UNDEFINED_GATEWAY =
+  'provider "gateway" is unavailable: this workspace does not define it; to use it, add to the workspace\'s source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { gateway } from "@foundry.sh/marbles/providers/gateway"; export const gatewayProvider = defineProvider(gateway);';
 const UNDEFINED_ACME =
-  'provider "acme" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source';
+  'provider "acme" is unavailable: this workspace does not define it; to use it, pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", and export it from the workspace\'s source';
 
 it("gives each workspace Claude Code, Codex and only the providers its own source defines, and forgets them when the call goes", async () => {
   const root = await scratch();
@@ -177,7 +179,8 @@ it("gives each workspace Claude Code, Codex and only the providers its own sourc
   const beta = await workspace(root, "beta", PLAIN);
   const report = await inProcess(
     root,
-    `const registration = { config: ${JSON.stringify(alpha.source)}, root: ${JSON.stringify(alpha.dir)} };
+    `const { writeFileSync } = await import("node:fs");
+  const registration = { config: ${JSON.stringify(alpha.source)}, root: ${JSON.stringify(alpha.dir)} };
   const first = await hosted.register(registration);
   const other = await hosted.register({ config: ${JSON.stringify(beta.source)}, root: ${JSON.stringify(beta.dir)} });
   report.alpha = problems(first);
@@ -186,7 +189,7 @@ it("gives each workspace Claude Code, Codex and only the providers its own sourc
   report.beta = problems(other);
   report.betaReady = ready(other);
   await hosted.unregister(first.id);
-  await Bun.write(${JSON.stringify(alpha.source)}, ${JSON.stringify(PLAIN)});
+  writeFileSync(${JSON.stringify(alpha.source)}, ${JSON.stringify(PLAIN)});
   const again = await hosted.register(registration);
   report.reloaded = problems(again);
   report.reloadedReady = ready(again);`
@@ -194,12 +197,12 @@ it("gives each workspace Claude Code, Codex and only the providers its own sourc
   const alphaProblems = report.alpha as Record<string, string>;
   expect(alphaProblems.vercel).not.toContain("does not define");
   expect(alphaProblems.acme).toBe("ready");
-  expect(alphaProblems.pi).toBe(UNDEFINED_PI);
+  expect(alphaProblems.gateway).toBe(UNDEFINED_GATEWAY);
   expect(report.alphaReady).toEqual(["acme"]);
   expect(report.acme).toBe("acme");
   expect(report.beta).toMatchObject({
     acme: UNDEFINED_ACME,
-    pi: UNDEFINED_PI,
+    gateway: UNDEFINED_GATEWAY,
     vercel: UNDEFINED_VERCEL,
   });
   const betaProblems = report.beta as Record<string, string>;
@@ -219,8 +222,8 @@ for (let tries = 0; tries < 200 && !globalThis.${other}; tries += 1) {
   await new Promise((settle) => setTimeout(settle, 10));
 }
 globalThis.overlapped = (globalThis.overlapped ?? 0) + (globalThis.${other} ? 1 : 0);
-defineProvider(${provider});
-step("build").do(() => "built");
+export const chosenProvider = defineProvider(${provider});
+export const build = step("build").do(() => "built");
 `;
 
 it("keeps the providers of two workspaces whose sources load at once apart", async () => {
@@ -234,7 +237,7 @@ it("keeps the providers of two workspaces whose sources load at once apart", asy
   const beta = await workspace(
     root,
     "beta",
-    overlapping("betaLoading", "alphaLoading", "pi")
+    overlapping("betaLoading", "alphaLoading", "gateway")
   );
   const report = await inProcess(
     root,
@@ -250,54 +253,44 @@ it("keeps the providers of two workspaces whose sources load at once apart", asy
   const alphaProblems = report.alpha as Record<string, string>;
   const betaProblems = report.beta as Record<string, string>;
   expect(alphaProblems.vercel).not.toContain("does not define");
-  expect(alphaProblems.pi).toBe(UNDEFINED_PI);
-  expect(betaProblems.pi).not.toContain("does not define");
+  expect(alphaProblems.gateway).toBe(UNDEFINED_GATEWAY);
+  expect(betaProblems.gateway).not.toContain("does not define");
   expect(betaProblems.vercel).toBe(UNDEFINED_VERCEL);
 }, 120_000);
 
-let loads = 0;
-
-async function loading(work: () => void): Promise<Catalog> {
-  loads += 1;
-  const into = new Catalog();
-  await loadInto(`define-provider-${String(loads)}`, into, (load) =>
-    Promise.resolve(inLoad(load, work))
-  );
-  return into;
-}
-
-it("refuses a provider defined twice, naming both places, and takes the defaults again harmlessly", async () => {
-  const defaults = await loading(() => {
-    expect(defineProvider(vercel)).toBe(vercel);
-    defineProvider(claudeCode);
-    defineProvider(claudeCode);
-    defineProvider(codex);
-    defineProvider(codex);
+it("refuses a provider defined twice, naming both places, and takes the defaults again harmlessly", () => {
+  const defaults = collectCatalog({
+    claudeA: defineProvider(claudeCode),
+    claudeB: defineProvider(claudeCode),
+    codexA: defineProvider(codex),
+    codexB: defineProvider(codex),
+    vercelProvider: defineProvider(vercel),
   });
   expect([...defaults.providers.keys()]).toEqual(["vercel"]);
-  const twice = loading(() => {
-    defineProvider(vercel);
-    defineProvider(vercel);
-  });
-  await expect(twice).rejects.toThrow(DEFINED_TWICE);
-  await expect(
-    loading(() => {
-      defineProvider(vercel);
-      defineProvider({ ...vercel });
+  expect(() =>
+    Catalog.collect([
+      { exports: { first: defineProvider(vercel) }, file: "a.ts" },
+      { exports: { second: defineProvider(vercel) }, file: "b.ts" },
+    ])
+  ).toThrow(DEFINED_TWICE);
+  expect(() =>
+    collectCatalog({
+      first: defineProvider(vercel),
+      second: defineProvider({ ...vercel }),
     })
-  ).rejects.toThrow('provider "vercel" already defined');
-  await expect(
-    loading(() => {
-      defineProvider({ ...codex });
+  ).toThrow('provider "vercel" already defined');
+  expect(() =>
+    collectCatalog({
+      shadow: defineProvider({ ...codex }),
     })
-  ).rejects.toThrow('provider "codex" is one Marbles provides by default');
+  ).toThrow('provider "codex" is one Marbles provides by default');
 });
 
 const ASKING = `import { agent, step } from "@foundry.sh/marbles";
-const byId = agent({ name: "by-id", prompt: "Answer.", provider: "vercel" });
-const byModel = agent({ name: "by-model", prompt: "Answer.", model: "vercel/vendor/chat" });
-step("by-id").do(async ({ agents }) => (await (await agents.session(byId)).generate("Hi.")).text);
-step("by-model").do(async ({ agents }) => (await (await agents.session(byModel)).generate("Hi.")).text);
+export const byId = agent({ name: "by-id", prompt: "Answer.", provider: "vercel" });
+export const byModel = agent({ name: "by-model", prompt: "Answer.", model: "vercel/vendor/chat" });
+export const byIdStep = step("by-id").do(async ({ agents }) => (await (await agents.session(byId)).generate("Hi.")).text);
+export const byModelStep = step("by-model").do(async ({ agents }) => (await (await agents.session(byModel)).generate("Hi.")).text);
 `;
 
 it("fails a run through the Marbles process that asks for a saved provider the workspace does not define, saying what to add", async () => {
@@ -328,7 +321,7 @@ it("fails a run through the Marbles process that asks for a saved provider the w
   await mkdir(join(dir, ".foundry", "marbles"), { recursive: true });
   await writeFile(join(dir, ".foundry", "marbles", "ask.ts"), ASKING);
   const roll = (name: string) => {
-    const result = spawnSync(process.execPath, cliArgs("roll", name), {
+    const result = spawnSync(process.execPath, cliArgs("trigger", name), {
       cwd: dir,
       encoding: "utf8",
       env: { ...home.env, PATH: "/usr/bin:/bin" },

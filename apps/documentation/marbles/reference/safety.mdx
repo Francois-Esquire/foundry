@@ -20,7 +20,7 @@ process's environment and permissions.
 | Git command through workspace helpers | Print the command. |
 | Context `exec` or sandbox command | Print the command; return exit 0 with empty output. |
 | Run, session, trigger, grant, and artifact writes | Keep them in memory for this process. |
-| Parked run at quit | Cancel it. |
+| Suspended run at quit | Cancel it. |
 
 An empty successful command result cannot exercise failure handling or
 code that expects real command output.
@@ -31,7 +31,7 @@ monitors still scan, HTTP monitors still use the network, and Git status can
 still read the working tree. Worktree helpers still allocate a temporary
 directory even though their Git commands are echoed. Clients and tools you
 construct independently do not inherit these substitutions. Read the bodies
-before running `roll` on a module you did not write.
+before running `marbles run` on a module you did not write.
 
 :::note
 Use `--dry-run` to inspect managed execution, not to contain arbitrary code.
@@ -49,22 +49,23 @@ They can enforce their configured tool approval profile; see
 [Agent sessions](/marbles/reference/agent-sessions). Review their
 configuration before granting an automation access to your work.
 
-Schedule locks skip overlapping ticks for the same
-workspace and key. They do not coordinate every action or custom side effect
+Schedule claims keep two processes from dispatching the same occurrence of a
+workspace's schedule, and a schedule skips an occurrence while its previous
+run is still open. They do not coordinate every action or custom side effect
 across your machine.
 
 ## Continuity has boundaries
 
 State is saved to disk. Run history, trigger observations, sessions, and artifacts
-survive separate invocations. A run parked on a question or a pause survives a quit, a crash, or a kill, and is
-adopted by the next dashboard that can answer it. A run that was mid-body when
+survive separate invocations. A run suspended on a question or a pause survives a quit, a crash, or a kill, and
+resumes once a later dashboard answers it. A run that was mid-body when
 its process stopped is not resumed. Its last saved snapshot remains, but
 newer progress may not have reached disk; `status` marks saved running
 records orphaned. Cancellation stops what Marbles opened and cannot
 undo side effects already made. Model judgments and conversation history do
 not guarantee correctness.
 
-[Durability](/marbles/foundation/durability) records and coordinates work.
+[Durability](/marbles/concepts/durability) records and coordinates work.
 It does not grant permission for an external effect or make that effect
 happen exactly once. Retrying a step can issue another model request,
 command, or write; configure retries where repeating the work is safe.

@@ -1,30 +1,18 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { byCodeUnit } from "@foundry/lib/ordering";
-import simpleGit from "simple-git";
 import { errorCode } from "../errors";
-import type { WorkspaceCtor, WorkspaceExtension } from "../types";
+import type { WorkspaceExtension } from "../extension";
+import type { GitPathStatus, GitSnapshot } from "../source-adapter";
+
+export type { GitPathStatus, GitSnapshot } from "../source-adapter";
 
 const WORKTREE_PREFIX_PATTERN = /^worktree /;
 const BRANCH_PREFIX_PATTERN = /^branch refs\/heads\//;
-
-export interface GitPathStatus {
-  readonly path: string;
-  readonly staged: boolean;
-  readonly unstaged: boolean;
-  readonly untracked: boolean;
-}
-
-export type GitSnapshot =
-  | { readonly kind: "none" }
-  | { readonly kind: "unavailable"; readonly reason: string }
-  | {
-      readonly kind: "repository";
-      readonly branch: string | null;
-      readonly detached: boolean;
-      readonly paths: readonly GitPathStatus[];
-    };
+const BRANCH_HEAD_PREFIX = "# branch.head ";
+const MAX_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 export type GitRun = (cwd: string, args: readonly string[]) => Promise<string>;
 
@@ -38,7 +26,79 @@ export interface WorktreeOptions {
   readonly home?: string;
 }
 
-const runWithSimpleGit: GitRun = (cwd, args) => simpleGit(cwd).raw([...args]);
+class GitExecError extends Error {
+  readonly code: string | undefined;
+  readonly exitCode: number | null;
+  readonly stderr: string;
+
+  constructor(
+    message: string,
+    options: {
+      readonly cause: unknown;
+      readonly code?: string;
+      readonly exitCode: number | null;
+      readonly stderr: string;
+    }
+  ) {
+    super(message, { cause: options.cause });
+    this.name = "GitExecError";
+    this.code = options.code;
+    this.exitCode = options.exitCode;
+    this.stderr = options.stderr;
+  }
+}
+
+const REPOSITORY_LOCATION_VARIABLES = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_WORK_TREE",
+]);
+
+function gitEnv(): NodeJS.ProcessEnv {
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([name]) => !REPOSITORY_LOCATION_VARIABLES.has(name)
+      )
+    ),
+    LC_ALL: "C",
+  };
+}
+
+function execGit(cwd: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      [...args],
+      {
+        cwd,
+        encoding: "utf8",
+        env: gitEnv(),
+        maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve(stdout);
+          return;
+        }
+        const errno = typeof error.code === "string" ? error.code : undefined;
+        const exitCode = typeof error.code === "number" ? error.code : null;
+        reject(
+          new GitExecError(stderr.trim() || error.message, {
+            cause: error,
+            ...(errno === undefined ? {} : { code: errno }),
+            exitCode,
+            stderr,
+          })
+        );
+      }
+    );
+  });
+}
 
 const cut = new WeakSet<Worktree>();
 
@@ -48,7 +108,7 @@ export class Git {
 
   protected constructor(root: string, options: GitOptions) {
     this.root = root;
-    this.run = options.run ?? runWithSimpleGit;
+    this.run = options.run ?? execGit;
   }
 
   static at(root: string, options: GitOptions = {}): Git {
@@ -67,39 +127,53 @@ export class Git {
 
   static async isRepository(root: string): Promise<boolean> {
     try {
-      return await simpleGit(root).checkIsRepo();
+      const output = await execGit(root, [
+        "rev-parse",
+        "--is-inside-work-tree",
+      ]);
+      return output.trim() === "true";
     } catch {
       return false;
     }
   }
 
   async status(): Promise<GitSnapshot> {
-    let client: ReturnType<typeof simpleGit>;
+    let toplevel: string;
     try {
-      client = simpleGit(this.root);
-    } catch {
-      return { kind: "none" };
-    }
-
-    try {
-      if (!(await client.checkIsRepo())) {
+      const output = await execGit(this.root, [
+        "rev-parse",
+        "--is-inside-work-tree",
+        "--show-toplevel",
+      ]);
+      const [inside, rootLine] = output.trim().split("\n");
+      if (inside !== "true" || !rootLine) {
         return { kind: "none" };
       }
+      toplevel = rootLine;
     } catch (error) {
-      return unavailable(error);
+      return (await isOutsideRepository(this.root, error))
+        ? { kind: "none" }
+        : unavailable(error);
     }
 
     try {
-      const repositoryRoot = await realpath(
-        (await client.revparse(["--show-toplevel"])).trim()
-      );
-      const workspaceRoot = await realpath(this.root);
-      const status = await client.status();
+      const [repositoryRoot, workspaceRoot, porcelain] = await Promise.all([
+        realpath(toplevel),
+        realpath(this.root),
+        execGit(this.root, [
+          "status",
+          "--porcelain=v2",
+          "-z",
+          "--branch",
+          "--untracked-files=all",
+        ]),
+      ]);
+      const parsed = parsePorcelainV2Status(porcelain);
       return {
-        branch: status.detached ? null : status.current,
-        detached: status.detached,
+        branch: parsed.detached ? null : parsed.branch,
+        detached: parsed.detached,
         kind: "repository",
-        paths: confine(repositoryRoot, workspaceRoot, status.files),
+        paths: confine(repositoryRoot, workspaceRoot, parsed.files),
       };
     } catch (error) {
       return unavailable(error);
@@ -107,8 +181,20 @@ export class Git {
   }
 
   async hasBranch(name: string): Promise<boolean> {
-    const branches = await simpleGit(this.root).branchLocal();
-    return branches.all.includes(name);
+    try {
+      await execGit(this.root, [
+        "show-ref",
+        "--verify",
+        "--quiet",
+        `refs/heads/${name}`,
+      ]);
+      return true;
+    } catch (error) {
+      if (error instanceof GitExecError && error.exitCode === 1) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async worktrees(): Promise<readonly Worktree[]> {
@@ -200,27 +286,138 @@ export class Worktree extends Git {
   }
 }
 
-export function WithGit<B extends WorkspaceCtor>(
-  Base: B,
-  options: GitOptions = {}
-): B & WorkspaceCtor<GitCapable> {
-  return class extends Base implements GitCapable {
-    readonly git: Git = Git.at(this.source.path, options);
-  };
-}
-
-export interface GitCapable {
+export interface GitCapabilities {
   readonly git: Git;
 }
 
 export function git(
   options: GitOptions = {}
-): WorkspaceExtension<never, unknown, Partial<GitCapable>> {
+): WorkspaceExtension<never, unknown, Partial<GitCapabilities>> {
   return {
     applies: (registration) => Git.isRepository(registration.source.path),
+    attach: ({ registration }) => ({
+      capabilities: { git: Git.at(registration.source.path, options) },
+    }),
     name: "git",
-    wrap: (Base) => WithGit(Base, options),
   };
+}
+
+async function isOutsideRepository(
+  root: string,
+  error: unknown
+): Promise<boolean> {
+  if (!(error instanceof GitExecError)) {
+    return false;
+  }
+  if (error.code === "ENOTDIR") {
+    return true;
+  }
+  if (error.code === "ENOENT") {
+    return !(await directoryExists(root));
+  }
+  const stderr = error.stderr.toLowerCase();
+  return (
+    stderr.includes("not a git repository") ||
+    stderr.includes("must be run in a work tree")
+  );
+}
+
+async function directoryExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+interface ParsedPorcelainStatus {
+  readonly branch: string | null;
+  readonly detached: boolean;
+  readonly files: readonly RawFileStatus[];
+}
+
+function afterSpaces(line: string, count: number): string | undefined {
+  let cursor = 0;
+  for (let seen = 0; seen < count; seen += 1) {
+    const space = line.indexOf(" ", cursor);
+    if (space === -1) {
+      return;
+    }
+    cursor = space + 1;
+  }
+  return line.slice(cursor);
+}
+
+const PORCELAIN_PATH_SPACES: Readonly<Record<string, number>> = {
+  "1": 8,
+  "2": 9,
+  u: 10,
+};
+
+function parsePorcelainV2Entry(
+  token: string,
+  nextToken: string | undefined
+):
+  | { readonly consumedNext: boolean; readonly file: RawFileStatus }
+  | undefined {
+  if (token.startsWith("? ")) {
+    return {
+      consumedNext: false,
+      file: { index: "?", path: token.slice(2), worktree: "?" },
+    };
+  }
+  const [kind] = token;
+  const spaces = kind === undefined ? undefined : PORCELAIN_PATH_SPACES[kind];
+  const path = spaces === undefined ? undefined : afterSpaces(token, spaces);
+  if (path === undefined) {
+    return;
+  }
+  const consumedNext = kind === "2";
+  return {
+    consumedNext,
+    file: {
+      from: consumedNext ? nextToken : undefined,
+      index: token[2] ?? ".",
+      path,
+      worktree: token[3] ?? ".",
+    },
+  };
+}
+
+function parsePorcelainV2Status(output: string): ParsedPorcelainStatus {
+  const tokens = output.split("\0");
+  if (tokens.at(-1) === "") {
+    tokens.pop();
+  }
+  let branch: string | null = null;
+  let detached = false;
+  const files: RawFileStatus[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) {
+      continue;
+    }
+    if (token.startsWith(BRANCH_HEAD_PREFIX)) {
+      const head = token.slice(BRANCH_HEAD_PREFIX.length);
+      detached = head === "(detached)";
+      branch = detached ? null : head;
+      continue;
+    }
+    if (token.startsWith("# ")) {
+      continue;
+    }
+    const parsed = parsePorcelainV2Entry(token, tokens[index + 1]);
+    if (!parsed) {
+      continue;
+    }
+    files.push(parsed.file);
+    if (parsed.consumedNext) {
+      index += 1;
+    }
+  }
+
+  return { branch, detached, files };
 }
 
 function parseWorktreeList(
@@ -250,7 +447,7 @@ interface RawFileStatus {
   readonly from?: string | undefined;
   readonly index: string;
   readonly path: string;
-  readonly working_dir: string;
+  readonly worktree: string;
 }
 
 function confine(
@@ -281,11 +478,11 @@ function confine(
 
   for (const file of files) {
     const staged = isChanged(file.index);
-    const unstaged = isChanged(file.working_dir);
+    const unstaged = isChanged(file.worktree);
     record(file.path, {
       staged,
       unstaged,
-      untracked: file.index === "?" && file.working_dir === "?",
+      untracked: file.index === "?" && file.worktree === "?",
     });
     if (file.from === undefined) {
       continue;
@@ -307,5 +504,5 @@ function strip(prefix: string, path: string): string | null {
 }
 
 function isChanged(column: string): boolean {
-  return column !== " " && column !== "?" && column !== "";
+  return column !== "." && column !== " " && column !== "?" && column !== "";
 }

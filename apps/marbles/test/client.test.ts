@@ -47,7 +47,7 @@ function descriptorsOn(path: string): number[] {
 
 function machine(): Layout {
   const home = testHome({ providers: false });
-  vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv("FOUNDRY_ROOT", home.path);
   vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
   mkdirSync(home.layout.state, { recursive: true });
   return home.layout;
@@ -228,7 +228,7 @@ describe("connecting to the Marbles process", () => {
     const at = machine();
     await expect(
       connect({
-        cliEntry: join(at.home, "no-such-entry.ts"),
+        daemonEntry: join(at.home, "no-such-entry.ts"),
         layout: at,
         timeoutMs: 500,
       })
@@ -239,7 +239,7 @@ describe("connecting to the Marbles process", () => {
   it("keeps no descriptor to the daemon log when spawning the daemon throws", async () => {
     const at = machine();
     await expect(
-      connect({ cliEntry: "bad\0entry", layout: at, timeoutMs: 500 })
+      connect({ daemonEntry: "bad\0entry", layout: at, timeoutMs: 500 })
     ).rejects.toThrow();
     expect(descriptorsOn(join(at.state, "daemon.log"))).toEqual([]);
   });

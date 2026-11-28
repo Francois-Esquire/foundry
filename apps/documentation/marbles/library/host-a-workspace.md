@@ -20,7 +20,7 @@ without the CLI: `hostWorkspace` finds the source, snapshots the process environ
 imports the modules, builds and starts the engine, and returns a
 `WorkspaceHost`: the `WorkspaceConnection` the dashboard, the CLI, and the
 MCP server are written against, plus the engine itself. `layout` decides
-where state and artifacts live (`FOUNDRY_HOME`, else `~/.foundry`).
+where state and artifacts live (`FOUNDRY_ROOT`, else `~/.foundry`).
 
 ```ts
 import type { ProcessInstance } from "@foundry.sh/marbles/process";
@@ -44,7 +44,7 @@ try {
     artifacts: marbles.artifacts,
     askable: false, // true when something in this process can answer `ask`
     prepare(engine) {
-      // Before the engine starts, which is what adopts parked runs.
+      // Before the engine starts, which is what puts suspended runs' questions on the Feed.
       if (engine.state !== undefined) {
         claim = claimProcess(engine.state, { config: source, host: "worker" });
       }
@@ -65,8 +65,8 @@ try {
 }
 ```
 
-`roll` dispatches one definition or schedule and returns its value with the
-status lines printed meanwhile, as `marbles roll` does. `run` ticks the
+`roll` runs one step, workflow, schedule, or monitor and returns its value with the
+status lines printed meanwhile, as `marbles run` does. `run` ticks the
 schedules and monitors, including triggers agents add later, until the
 signal aborts; `runSchedulesUntilStopped(engine, options)` is the same loop
 over a bare engine. `describe`, `snapshot`, `dispatchWorkflow`,
@@ -93,12 +93,12 @@ source is relative to, which is the workspace's root without one. `cwd`
 sets where the workspace's runs start and its commands run, the root when
 omitted. Claim the workspace's state directory
 (`engine.state`, which is `<state>/<workspace-id>`) inside `prepare`, so
-the engine starts only once the claim holds, and two programs hosting the
-same workspace themselves never adopt the same parked runs. The Marbles
-process claims no workspace directory: its engine generations take each
-parked run by a claim on its row in the Marbles database instead, and one
-of them hosting the workspace while your program does is not refused by
-the lock. A live
+the engine starts only once the claim holds, and two programs never host
+the same workspace at once. The Marbles process claims no workspace
+directory: its engine generations share the workspace's runs through the
+Marbles database instead, where any of them can answer a suspended run, and
+one of them hosting the workspace while your program does is not refused
+by the lock. A live
 holder throws `ProcessHeldError`, naming who has it; a lock left by an
 exited process is taken over. Pass `dry: true` to persist nothing.
 `watchSource(configPath, { onChange, signal })` polls the
@@ -144,7 +144,7 @@ another version rather than stop it. Either way, a daemon that keeps its
 artifacts somewhere other than `layout.artifacts` is refused, naming both
 paths; both refusals are a `ProcessMismatchError`, and a daemon that holds
 the claim but does not answer is a `ProcessTimeoutError`. `stopProcess({
-layout })` is what `marbles stop` does: it stops the daemon whatever its
+layout })` is what `marbles daemon stop` does: it stops the daemon whatever its
 version, calls `onStopping` once the daemon has agreed, and resolves with
 that daemon's `hello` once it has exited, or `undefined` when none ran.
 `attach` hosts the source's workspace, records it as `hosted` in the
@@ -173,8 +173,8 @@ gone, with a `Disconnect` saying why: `closed` after `close()`, `stopped`
 when the daemon stopped and released its claim, `died` when its claim
 still names a pid that no longer runs (with the log to read), `hung-up`
 when it is alive and dropped this connection, or `failed` with the socket
-error. `describeDisconnect` turns one into a line; headless `marbles run`
-prints it and exits 1 for anything but a stop. A live run's stream does not cross the socket, so
+error. `describeDisconnect` turns one into a line; `marbles` with its output
+piped prints it and exits 1 for anything but a stop. A live run's stream does not cross the socket, so
 `actions.runs.stream` is absent on a remote connection; read the
 [output journal](/marbles/reference/state#run-output) instead.
 

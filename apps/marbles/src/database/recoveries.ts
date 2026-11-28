@@ -1,11 +1,8 @@
-import { eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
-import type { StoreDatabase } from "~/database/open";
-import { readDatabase } from "~/database/open";
 import { marblesRecoveries } from "~/database/tables";
-import { stateDatabase } from "~/layout";
-import type { RecoveryLog, RecoveryReport } from "~/lib/crash-recovery";
-import { recoveryReportSchema } from "~/lib/crash-recovery";
+import type { StoreDatabase } from "~/database/types";
+import type { RecoveryLog, RecoveryReport } from "~/lib/recovery-report";
+import { recoveryReportSchema } from "~/lib/recovery-report";
 
 export interface DatabaseRecoveryLogOptions {
   readonly database: StoreDatabase;
@@ -31,27 +28,4 @@ export class DatabaseRecoveryLog implements RecoveryLog {
         .onConflictDoUpdate({ set: row, target: marblesRecoveries.scope });
     });
   }
-}
-
-export async function readLastRecovery(
-  state: string,
-  scope: string
-): Promise<RecoveryReport | null> {
-  const rows = await asBusy(() =>
-    readDatabase(stateDatabase(state), (database) =>
-      database
-        .select()
-        .from(marblesRecoveries)
-        .where(eq(marblesRecoveries.scope, scope))
-    )
-  );
-  const [row] = rows ?? [];
-  if (row === undefined) {
-    return null;
-  }
-  const parsed = recoveryReportSchema.safeParse({
-    at: row.at,
-    steps: row.steps,
-  });
-  return parsed.success ? parsed.data : null;
 }

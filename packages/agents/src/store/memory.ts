@@ -1,12 +1,18 @@
+import type { Page } from "@foundry/core/pagination";
+import { pageAfter } from "@foundry/lib/pagination";
 import { ownedEvents } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
 import type { SessionMessage, SessionRecord } from "../schema";
-import type { SessionStore, SessionStoreWrite } from "./index";
+import type {
+  MessagePageQuery,
+  SessionStore,
+  SessionStoreWrite,
+} from "./index";
 
 const REENTRY =
-  "InMemorySessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
+  "MemorySessionStore was called from inside its own transaction; use the view passed to the transaction's work instead";
 
-export class InMemorySessionStore implements SessionStore {
+export class MemorySessionStore implements SessionStore {
   readonly #sessions = new Map<string, SessionRecord>();
   readonly #messages = new Map<string, readonly SessionMessage[]>();
   readonly #owners = new Map<string, string>();
@@ -59,13 +65,29 @@ export class InMemorySessionStore implements SessionStore {
     });
   }
 
-  #draft(): InMemorySessionStore {
-    const draft = new InMemorySessionStore();
+  listMessagesPage(
+    sessionId: string,
+    query: MessagePageQuery = {}
+  ): Promise<Page<SessionMessage, string>> {
+    return this.#turns.run(() => {
+      const messages = (this.#messages.get(sessionId) ?? []).filter((message) =>
+        matchesMessageQuery(message, query)
+      );
+      const page = pageAfter(messages, query, (message) => message.id);
+      return Promise.resolve({
+        ...page,
+        items: page.items.map((message) => structuredClone(message)),
+      });
+    });
+  }
+
+  #draft(): MemorySessionStore {
+    const draft = new MemorySessionStore();
     draft.#adopt(this);
     return draft;
   }
 
-  #adopt(source: InMemorySessionStore): void {
+  #adopt(source: MemorySessionStore): void {
     replaceEntries(this.#sessions, source.#sessions);
     replaceEntries(this.#messages, source.#messages);
     replaceEntries(this.#owners, source.#owners);
@@ -114,6 +136,22 @@ function copyOf(write: SessionStoreWrite): Copied {
     messages: (write.putMessages ?? []).map((m) => structuredClone(m)),
     sessions: (write.putSessions ?? []).map((s) => structuredClone(s)),
   };
+}
+
+function matchesMessageQuery(
+  message: SessionMessage,
+  query: MessagePageQuery
+): boolean {
+  if (query.role !== undefined && message.role !== query.role) {
+    return false;
+  }
+  if (
+    query.summarized !== undefined &&
+    Boolean(message.summarized) !== query.summarized
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function replaceEntries<K, V>(target: Map<K, V>, source: ReadonlyMap<K, V>) {

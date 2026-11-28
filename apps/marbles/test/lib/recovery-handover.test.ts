@@ -1,9 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { catalog } from "~/authoring/catalog";
 import { openWorkspaceRecords } from "~/database/managed";
 import type { Engine } from "~/lib/engine";
 import { testEngine } from "../helpers/engine";
@@ -19,7 +18,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
   await rm(root, { force: true, recursive: true });
 });
@@ -43,7 +41,7 @@ it("leaves a retiring engine's active task and workflow to it when the next engi
   const old = engineHere();
   old.task({
     name: "long",
-    queue: "tasks",
+    pool: "tasks",
     run: async () => {
       await taskGate.promise;
       return "task done";
@@ -68,7 +66,7 @@ it("leaves a retiring engine's active task and workflow to it when the next engi
   });
 
   const next = engineHere();
-  next.task({ name: "long", queue: "tasks", run: () => "elsewhere" });
+  next.task({ name: "long", pool: "tasks", run: () => "elsewhere" });
   next.define({ fn: () => "elsewhere", kind: "step", name: "flow" });
   await next.start();
   expect((await storedExecution(state, task.id))?.status).toBe("running");
@@ -83,7 +81,7 @@ it("leaves a retiring engine's active task and workflow to it when the next engi
   expect((await storedExecution(state, flow.id))?.status).toBe("complete");
 });
 
-it("leaves a parked run a retiring engine let go to be taken up, never closed out, when the next engine starts", async () => {
+it("leaves a suspended run a retiring engine let go to be taken up, never closed out, when the next engine starts", async () => {
   const entered = Promise.withResolvers<void>();
   const old = engineHere();
   old.define({
@@ -93,25 +91,27 @@ it("leaves a parked run a retiring engine let go to be taken up, never closed ou
       return "first";
     },
     kind: "step",
-    name: "parked",
+    name: "held",
   });
   await old.start();
-  const parked = await old.launch("parked", {});
-  parked.result.catch(() => undefined);
+  const suspended = await old.launch("held", {});
+  suspended.result.catch(() => undefined);
   await entered.promise;
-  expect(old.pause(parked.id, "parked", "hold")).toBe(true);
+  expect(old.pause(suspended.id, "held", "hold")).toBe(true);
   await vi.waitFor(() =>
-    expect(old.executions.get(parked.id)?.status).toBe("suspended")
+    expect(old.executions.get(suspended.id)?.status).toBe("suspended")
   );
   await old.retire({ pid: thisProcess().pid + 1, started: null });
 
   const next = engineHere();
-  next.define({ fn: () => "resumed", kind: "step", name: "parked" });
+  next.define({ fn: () => "resumed", kind: "step", name: "held" });
   await next.start();
-  const stored = await storedExecution(state, parked.id);
+  const stored = await storedExecution(state, suspended.id);
   expect(stored?.status).toBe("suspended");
-  await next.resume(parked.id, "parked");
+  await next.resume(suspended.id, "held");
   await vi.waitFor(async () =>
-    expect((await storedExecution(state, parked.id))?.status).toBe("complete")
+    expect((await storedExecution(state, suspended.id))?.status).toBe(
+      "complete"
+    )
   );
 });

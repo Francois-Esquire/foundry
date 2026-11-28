@@ -1,21 +1,11 @@
+import type { Authorization } from "@foundry/authorization";
+import type { AgentModel, ModelRoute } from "@foundry/core/agents";
 import type { ModelMessage, Output, ProviderMetadata } from "ai";
-
-import type {
-  LoopAgent,
-  TurnCallSettings,
-  TurnContext,
-} from "../agents/loop-agent";
-import { TURN_SETTINGS } from "../agents/loop-agent";
-import type { Mesh } from "../agents/mesh";
-import { createMesh } from "../agents/mesh";
-import type { AgentModel, ModelRoute } from "../agents/model";
-import type { AgentCompatibilityRegistry } from "../agents/registry";
-import { createAgentCompatibilityRegistry } from "../agents/registry";
-import type { AgentAuthorizer } from "../authorization/authorization";
 import { effectiveLimit, resolveBudget } from "../contexts/budget";
 import { cacheDirectivesFor, mergeProviderOptions } from "../contexts/cache";
 import { estimatingCounter } from "../contexts/counter";
 import type { SessionWindowOptions, WindowModel } from "../contexts/types";
+import type { SessionMessage, SessionPart, SessionRole } from "../schema";
 import type { Summarizer } from "../session/compactor";
 import { maybeCompact } from "../session/compactor";
 import {
@@ -28,24 +18,17 @@ import type {
   StreamHandlers,
 } from "../session/events";
 import { Sessions } from "../session/sessions";
-import type {
-  SessionMessage,
-  SessionPart,
-  SessionRole,
-} from "../session/types";
 import type { SessionStore } from "../store";
-import { InMemorySessionStore } from "../store/memory";
-import { composeTools } from "../tools/compose";
+import { MemorySessionStore } from "../store/memory";
 import type { AgentHarnessSettings } from "./agent-harness";
 import { AgentHarness } from "./agent-harness";
+import type { LoopAgent, TurnCallSettings, TurnContext } from "./loop-agent";
+import { TURN_SETTINGS } from "./loop-agent";
 import type { StreamSource } from "./stream-transform";
 import { transformStream } from "./stream-transform";
 
 export type SessionHarnessSettings = AgentHarnessSettings & {
   store?: SessionStore;
-  registry?: AgentCompatibilityRegistry;
-  mesh?: Mesh;
-  nodeId?: string;
   compaction?: CompactionSettings;
 };
 
@@ -68,14 +51,11 @@ export class SessionHarness {
   readonly agent: LoopAgent;
   readonly model: AgentModel;
   readonly route: ModelRoute;
-  readonly policy: AgentAuthorizer;
+  readonly authorization: Authorization;
   readonly agentId: string;
   readonly agentGeneration?: number;
   readonly sessionId: string;
   readonly store: SessionStore;
-  readonly registry: AgentCompatibilityRegistry;
-  readonly mesh: Mesh;
-  readonly nodeId: string;
   readonly #harness: AgentHarness;
   readonly #sessions: Sessions;
   readonly #compaction: CompactionSettings | undefined;
@@ -86,36 +66,25 @@ export class SessionHarness {
 
   constructor(settings: SessionHarnessSettings, context?: TurnContext) {
     const {
-      store = new InMemorySessionStore(),
-      registry = createAgentCompatibilityRegistry(),
-      mesh = createMesh({ registry, store }),
-      nodeId = "primary",
+      store = new MemorySessionStore(),
       compaction,
-      tools,
       ...harnessSettings
     } = settings;
 
     const harness = new AgentHarness(
-      {
-        ...harnessSettings,
-        allowSystemInMessages: true,
-        tools: composeTools(tools, mesh.tools(nodeId)),
-      },
+      { ...harnessSettings, allowSystemInMessages: true },
       context
     );
     this.#harness = harness;
     this.agent = harness.agent;
     this.model = harness.model;
     this.route = harness.route;
-    this.policy = harness.policy;
+    this.authorization = harness.authorization;
     this.agentId = harness.agentId;
     this.agentGeneration = harness.agentGeneration;
     this.sessionId = harness.sessionId;
     this.store = store;
     this.#sessions = new Sessions({ store });
-    this.registry = registry;
-    this.mesh = mesh;
-    this.nodeId = nodeId;
     this.#compaction = compaction;
     this.#baseProviderOptions = settings.providerOptions;
   }

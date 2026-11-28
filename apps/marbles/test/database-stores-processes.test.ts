@@ -3,11 +3,12 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { afterEach, expect, it } from "vitest";
+import { artifactBlobs } from "~/database/local-artifacts";
 import { initializeDatabase } from "~/database/open";
-import { artifactBlobs, workspaceStores } from "~/database/stores";
+import { workspaceStores } from "~/database/stores";
 import { stateDatabase } from "~/layout";
 
 const WRITERS = 2;
@@ -106,7 +107,7 @@ it("keeps every write of separate processes over one database file, and what the
       .flat()
       .sort();
 
-    const manager = new ArtifactManager({
+    const manager = new Artifacts({
       files: blobFiles(artifactBlobs(artifacts, SCOPE)),
       store: stores.artifacts,
     });

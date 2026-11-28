@@ -1,6 +1,7 @@
 import type { PageInput } from "@foundry/core/pagination";
 import { byCodeUnit } from "@foundry/lib/ordering";
-import type { WorkspaceEntry } from "../types";
+import type { WorkspaceEntry } from "../schema";
+import type { EntryCountQuery, EntryPageQuery } from "./index";
 
 export function byCodePoint(left: string, right: string): number {
   const length = Math.min(left.length, right.length);
@@ -28,6 +29,13 @@ export function byPathThenId(a: WorkspaceEntry, b: WorkspaceEntry): number {
   return byPath(a, b) || byEntryId(a, b);
 }
 
+export function byCodePointPathThenId(
+  a: WorkspaceEntry,
+  b: WorkspaceEntry
+): number {
+  return byCodePoint(a.path, b.path) || byCodePoint(a.id, b.id);
+}
+
 export function pageOffset(cursor: number | undefined): number {
   if (cursor === undefined) {
     return 0;
@@ -44,4 +52,22 @@ export function pageInputOf(
   return input === undefined
     ? {}
     : { cursor: input.cursor, limit: input.limit };
+}
+
+export function entryPageQueryOf(
+  input: EntryPageQuery | undefined
+): EntryPageQuery {
+  return input === undefined
+    ? {}
+    : {
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.type === undefined ? {} : { type: input.type }),
+      };
+}
+
+export function entryCountQueryOf(
+  query: EntryCountQuery | undefined
+): EntryCountQuery {
+  return query?.type === undefined ? {} : { type: query.type };
 }

@@ -1,7 +1,6 @@
 import { asc, sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
-import { SessionWindow } from "../../contexts/session-window";
 import type { SessionChangeEvent } from "../../schema";
 import type { SessionStore } from "../../store";
 import type { SessionDatabase } from "../../store/sqlite";
@@ -11,13 +10,12 @@ import { describeSessionStore } from "../../testing/store";
 import { libsqlDatabases } from "../helpers/sqlite";
 
 function scopedStores(
-  database: SessionDatabase,
-  wrap: (store: SessionStore) => SessionStore = (store) => store
+  database: SessionDatabase
 ): (scope: string) => SessionStore {
   const scopes = new Map<string, SessionStore>();
   return (scope) => {
     const store =
-      scopes.get(scope) ?? wrap(new SqliteSessionStore({ database, scope }));
+      scopes.get(scope) ?? new SqliteSessionStore({ database, scope });
     scopes.set(scope, store);
     return store;
   };
@@ -79,21 +77,6 @@ for (const location of ["memory", "file"] as const) {
     {
       hooked: true,
       recording: async () => recordingStores(await databases.open()),
-    }
-  );
-  describeSessionStore(
-    `SessionWindow over SqliteSessionStore on libSQL (${location})`,
-    async () =>
-      scopedStores(await databases.open(), (store) => new SessionWindow(store)),
-    {
-      hooked: true,
-      recording: async () => {
-        const recording = await recordingStores(await databases.open());
-        return {
-          ...recording,
-          storage: (scope) => new SessionWindow(recording.storage(scope)),
-        };
-      },
     }
   );
 }

@@ -10,16 +10,15 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
-
-import { holdsLock } from "@foundry/lib/file-lock";
+import { holdsLock } from "@foundry/lib/node/file-lock";
 import {
   compareStarts,
   isGone,
   lookProcesses,
   type ProcessIdentity,
   sameProcess,
-  startedAt as startOf,
-} from "@foundry/lib/process-identity";
+  nodeStartedAt as startOf,
+} from "@foundry/lib/node/process-identity";
 import {
   queuedRuns,
   queuedRunsOwnedBy,
@@ -28,9 +27,9 @@ import {
 import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
-import { unheldParkedRuns } from "~/database/runs";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Layout } from "~/layout";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import {
   insideState,
   type Workspace,
@@ -60,6 +59,7 @@ import {
   GENERATION_NOTIFICATIONS,
   GENERATION_STOP_TIMEOUT_MS,
   type HelloResult,
+  handedParamsSchema,
   hostResultSchema,
   isWorkspaceMethod,
   type LoadResult,
@@ -71,7 +71,6 @@ import {
   queuedTakeSchema,
   readParamsSchema,
   registerParamsSchema,
-  releasedParamsSchema,
   type SetupDraftParams,
   startResultSchema,
   WORKSPACE_METHODS,
@@ -80,7 +79,7 @@ import {
   workspaceIdSchema,
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
-import { recordSpawned, SPAWN_RECOVERY_ENV } from "~/process/spawned";
+import { recordSpawned } from "~/process/spawned";
 import {
   DEFAULT_SOURCE,
   resolveSource,
@@ -253,7 +252,7 @@ function isMoving(error: unknown): boolean {
   return error instanceof Error && MOVING_ERRORS.has(error.name);
 }
 
-const MOVING_ERRORS = new Set(["QuestionMovingError", "EngineRetiringError"]);
+const MOVING_ERRORS = new Set(["EngineRetiringError"]);
 
 function settledStart(generation: Generation | undefined): Promise<void> {
   return (
@@ -311,10 +310,13 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     throw error;
   }
   const registry = new WorkspaceRegistry({
+    acceptWorkspace: (workspaceId) => insideState(layout.state, workspaceId),
     database: database.database,
-    state: layout.state,
   });
-  const records = new GenerationRecords({ database: database.database });
+  const records = new GenerationRecords({
+    database: database.database,
+    liveness: NODE_OWNER_LIVENESS,
+  });
   let hostsWritten: Promise<void> = Promise.resolve();
   const hostsDue = new Set<Generation>();
   const currentDue = new Set<Generation>();
@@ -472,8 +474,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         detached: true,
         env: {
           ...process.env,
-          FOUNDRY_HOME: layout.home,
-          [SPAWN_RECOVERY_ENV]: layout.spawned,
+          FOUNDRY_ROOT: layout.home,
         },
         stdio: ["ignore", "pipe", "pipe"],
       }
@@ -535,10 +536,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       lines((line) => print(`${prefix} ${line}`))
     );
     generations.add(generation);
-    recordSpawned(child.pid, true, {
-      ...process.env,
-      [SPAWN_RECOVERY_ENV]: undefined,
-    });
+    recordSpawned(child.pid, true, { recovery: false });
     return generation;
   }
 
@@ -649,11 +647,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
       }
       return;
     }
-    if (
-      method === GENERATION_NOTIFICATIONS.released ||
-      method === GENERATION_NOTIFICATIONS.handed
-    ) {
-      const parsed = releasedParamsSchema.safeParse(params);
+    if (method === GENERATION_NOTIFICATIONS.handed) {
+      const parsed = handedParamsSchema.safeParse(params);
       if (parsed.success) {
         handOver(parsed.data.id, parsed.data.runId).catch(() => undefined);
       }
@@ -684,7 +679,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     of: 0,
   };
   const waiting = new Map<string, Set<() => void>>();
-  const adopting = new Map<string, Promise<unknown>>();
+  const takingHanded = new Map<string, Promise<unknown>>();
   const taking = new Map<string, Promise<unknown>>();
 
   function outstanding(
@@ -742,7 +737,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     if (pending !== undefined) {
       return pending;
     }
-    if (adopting.has(key)) {
+    if (takingHanded.has(key)) {
       return Promise.resolve();
     }
     const previous = handovers.get(id) ?? Promise.resolve();
@@ -757,16 +752,16 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
         ) {
           return;
         }
-        if (adopting.has(key)) {
+        if (takingHanded.has(key)) {
           return;
         }
         try {
           const asked = outstanding(
-            adopting,
+            takingHanded,
             key,
-            ask(target, GENERATION_METHODS.adopt, { id, runId }),
-            (adopted) => {
-              if (adopted === true) {
+            ask(target, GENERATION_METHODS.takeHanded, { id, runId }),
+            (taken) => {
+              if (taken === true) {
                 declined.delete(key);
                 held(target, key);
                 changed(id);
@@ -774,8 +769,11 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
             }
           );
           if (
-            (await within(asked, HELD_WAIT_MS, `adopting run ${runId}`)) ===
-            true
+            (await within(
+              asked,
+              HELD_WAIT_MS,
+              `taking handed run ${runId}`
+            )) === true
           ) {
             declined.delete(key);
             held(target, key);
@@ -822,7 +820,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const offers: Promise<void>[] = [];
     for (const id of ids ?? target.hosts) {
       offers.push(takeOrphans(target, id));
-      for (const runId of await unheld(target, id)) {
+      for (const runId of await handedUntaken(target, id)) {
         const at = declined.get(`${id}\0${runId}`);
         if (now || at === undefined || Date.now() - at >= REOFFER_MS) {
           offers.push(handOver(id, runId));
@@ -832,21 +830,17 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     await Promise.all(offers);
   }
 
-  async function unheld(
+  async function handedUntaken(
     target: Generation,
     id: string
   ): Promise<readonly string[]> {
     try {
-      const parked = await unheldParkedRuns(database.database, id);
       const owner = target.identity;
       const queued =
         owner === undefined
           ? []
           : await queuedRunsOwnedBy(database.database, id, owner);
-      return [
-        ...parked,
-        ...queued.filter((runId) => !holding.keys.has(`${id}\0${runId}`)),
-      ];
+      return queued.filter((runId) => !holding.keys.has(`${id}\0${runId}`));
     } catch {
       return [];
     }
@@ -1870,7 +1864,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     const run = await readExecution(database.database, id, runId).catch(
       () => null
     );
-    if (run === null) {
+    if (run?.owner === undefined) {
       return;
     }
     const owner = { pid: run.owner.pid, started: run.owner.started ?? null };

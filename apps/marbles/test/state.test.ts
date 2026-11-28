@@ -7,18 +7,17 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { lockContents } from "@foundry/lib/file-lock";
+import { lockContents } from "@foundry/lib/node/file-lock";
 import { Step } from "@foundry/workflows/step";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultWorkspaceTriggers } from "~/database/managed";
-import type { ScheduledEngine } from "~/lib/schedule";
-import { runSchedules, tick } from "~/lib/schedule";
+import { rollSchedule } from "~/lib/schedule";
 import { acquireLock } from "~/lib/state/locks";
 import { workspaceState } from "~/lib/state/workspace";
-import type { TriggerStore } from "~/lib/trigger-store";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
+import { runStoreEffect } from "~/lib/workflow-runs";
 import { testEngine } from "./helpers/engine";
+import { occurrencesOf, startScheduler } from "./helpers/schedules";
 import { readStoredRuns } from "./helpers/stored-runs";
 import { temporaryDirectory } from "./helpers/temporary";
 
@@ -194,127 +193,63 @@ describe("locks", () => {
   });
 });
 
-describe("schedule state", () => {
+describe("schedule state", { timeout: 20_000 }, () => {
   const schedule: Schedule = {
     input: "hi",
     key: "s",
     kind: "schedule",
     label: "shout hi",
-    trigger: { kind: "interval", ms: 10 },
+    trigger: { kind: "interval", ms: 50 },
     workflow: "shout",
   };
 
-  it("records each tick and skips while another engine's tick of it is under way", async () => {
+  it("keeps each occurrence in the workspace's database for another engine to read", async () => {
     const state = temporaryDirectory("marbles-state-");
-    const { lines, print } = collector();
+    const { print } = collector();
     const engine = await engineIn(state, print);
-
-    const result = await tick(engine, schedule, { print });
-    expect(result).toEqual({ value: "HI" });
+    engine.schedule(schedule);
+    const scheduler = startScheduler(engine);
     const other = defaultWorkspaceTriggers(state, process.cwd(), "test");
-    expect(await other.lastTick("s")).toEqual({
-      kind: "schedule",
-      label: "shout hi",
-      lastFinish: expect.any(String),
-      lastStart: expect.any(String),
-      lastStatus: "complete",
-      nextDue: expect.any(String),
-    });
-
-    await expect(
-      tick(engine, { ...schedule, workflow: "explode" }, { print })
-    ).rejects.toThrow(BOOM_PATTERN);
-    expect(await other.lastTick("s")).toMatchObject({ lastStatus: "failed" });
-
-    expect(await other.claimTick("s")).toEqual({ claimed: true });
-    await expect(tick(engine, schedule, { print })).resolves.toEqual({
-      skipped: "held by this process",
-    });
-    expect(lines).toContain("[schedule] s skipped: held by this process");
-    await other.finishTick("s");
-    await other.close();
-    await engine.dispose();
+    try {
+      await vi.waitFor(
+        async () =>
+          expect(await occurrencesOf({ triggers: other }, "s")).toContainEqual(
+            expect.objectContaining({
+              state: expect.objectContaining({
+                kind: "settled",
+                outcome: "complete",
+              }),
+            })
+          ),
+        { interval: 50, timeout: 10_000 }
+      );
+      const stored = await runStoreEffect(
+        (await other.schedules()).getSchedule("s")
+      );
+      expect(stored?.target).toEqual({
+        handler: { name: "shout" },
+        input: { input: "hi", kind: "schedule", label: "shout hi" },
+      });
+    } finally {
+      await scheduler.stop();
+      await other.close();
+      await engine.dispose();
+    }
   });
 
-  it("gives a tick's claim up when its record cannot be written, so the next tick runs", async () => {
-    const memory = new MemoryTriggerStore();
-    let refusals = 1;
-    const triggers: TriggerStore = {
-      claimTick: (key) => memory.claimTick(key),
-      clearPendingLaunch: (key) => memory.clearPendingLaunch(key),
-      close: () => memory.close(),
-      finishTick: (key, history) => {
-        if (history !== undefined && refusals > 0) {
-          refusals -= 1;
-          return Promise.reject(new Error("the database is busy"));
-        }
-        return memory.finishTick(key, history);
-      },
-      lastTick: (key) => memory.lastTick(key),
-      monitorState: (key) => memory.monitorState(key),
-      saveMonitorState: (key, state) => memory.saveMonitorState(key, state),
-    };
-    let launches = 0;
-    const engine = {
-      cancel: () => Promise.resolve(),
-      has: () => true,
-      launch: () => {
-        launches += 1;
-        return Promise.resolve({ id: "run", result: Promise.resolve("ok") });
-      },
-      schedules: () => Promise.resolve([schedule]),
-      triggers,
-    } as ScheduledEngine;
-
-    await expect(
-      tick(engine, schedule, { print: () => undefined })
-    ).rejects.toThrow("the database is busy");
-    await expect(
-      tick(engine, schedule, { print: () => undefined })
-    ).resolves.toEqual({ value: "ok" });
-    expect(launches).toBe(2);
-    expect(await memory.lastTick("s")).toMatchObject({
-      lastStatus: "complete",
-    });
-  });
-
-  it("seeds the loop from the recorded finish so a restart keeps cadence", async () => {
-    const triggers = new MemoryTriggerStore();
-    await triggers.claimTick("s");
-    await triggers.finishTick("s", {
-      lastFinish: new Date(95).toISOString(),
-      lastStart: new Date(90).toISOString(),
-      lastStatus: "complete",
-      nextDue: new Date(105).toISOString(),
-    });
-    const dispatched: number[] = [];
-    let clock = 100;
-    const controller = new AbortController();
-    const engine = {
-      cancel: () => Promise.resolve(),
-      has: () => true,
-      launch: () => {
-        dispatched.push(clock);
-        controller.abort();
-        return Promise.resolve({ id: "run", result: Promise.resolve() });
-      },
-      schedules: () => Promise.resolve([schedule]),
-      triggers,
-    } as ScheduledEngine;
-
-    await runSchedules(engine, {
-      now: () => clock,
-      print: () => undefined,
-      signal: controller.signal,
-      sleep: (ms) => {
-        clock += ms;
-        return Promise.resolve();
-      },
-    });
-    expect(dispatched).toEqual([105]);
-    expect(await triggers.lastTick("s")).toMatchObject({
-      lastFinish: new Date(105).toISOString(),
-      nextDue: new Date(115).toISOString(),
-    });
+  it("fails a roll of a schedule whose run fails", async () => {
+    const state = temporaryDirectory("marbles-state-");
+    const { print } = collector();
+    const engine = await engineIn(state, print);
+    try {
+      await expect(rollSchedule(engine, schedule, { print })).resolves.toEqual({
+        value: "HI",
+      });
+      await expect(
+        rollSchedule(engine, { ...schedule, workflow: "explode" }, { print })
+      ).rejects.toThrow(BOOM_PATTERN);
+    } finally {
+      await engine.dispose();
+    }
   });
 });

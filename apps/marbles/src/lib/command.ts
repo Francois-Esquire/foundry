@@ -1,54 +1,20 @@
 import { execFile } from "node:child_process";
 import type { Writable } from "node:stream";
-import { showArgv } from "@foundry/lib/argv";
-import { recordChild, SPAWN_RECOVERY_ENV } from "@foundry/lib/spawn-record";
-
+import { recordChild } from "@foundry/lib/node/spawn-record";
+import { showArgv } from "./argv";
+import type { CommandResult, Exec, ExecOptions } from "./command-error";
+import { CommandError } from "./command-error";
 import { StepInputError, type StepWork } from "./step-work";
 import type { SandboxHandle, SandboxInstance } from "./types";
 
-export interface CommandResult {
-  readonly exitCode: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
-
-export interface ExecOptions {
-  readonly check?: boolean;
-  readonly cwd?: string;
-  readonly environment?: Readonly<Record<string, string>>;
-  readonly sandbox?: SandboxHandle | SandboxInstance;
-}
-
-export type Exec = (
-  argv: readonly string[],
-  options?: ExecOptions
-) => Promise<CommandResult>;
-
 export interface CommandSite {
   readonly cwd: () => string;
-  readonly dry: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly print: (line: string) => void;
   readonly signal: () => AbortSignal | undefined;
   readonly spawned?: string;
   readonly work?: StepWork;
   readonly write?: (value: unknown) => void;
-}
-
-export class CommandError extends Error {
-  override readonly name = "CommandError";
-  readonly result: CommandResult;
-
-  constructor(argv: readonly string[], result: CommandResult) {
-    const said = (result.stderr || result.stdout).trim().split("\n").slice(-5);
-    super(
-      [
-        `${showArgv(argv)} exited with ${String(result.exitCode)}`,
-        ...said,
-      ].join("\n")
-    );
-    this.result = result;
-  }
 }
 
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -96,9 +62,7 @@ function onHost(
     recordChild(
       child,
       false,
-      site.spawned === undefined
-        ? process.env
-        : { ...process.env, [SPAWN_RECOVERY_ENV]: site.spawned }
+      site.spawned === undefined ? { recovery: false } : {}
     );
   }).finally(() => ended?.());
 }
@@ -147,9 +111,6 @@ export function commandRunner(site: CommandSite): Exec {
         { ...options, sandbox: options.sandbox },
         site
       );
-    } else if (site.dry) {
-      site.print(`[exec] ${options.cwd ?? site.cwd()}: ${showArgv(argv)}`);
-      result = { exitCode: 0, stderr: "", stdout: "" };
     } else {
       result = await onHost(argv, options, site);
     }

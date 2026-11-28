@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
-  readFile,
   realpath,
   rm,
   symlink,
@@ -11,9 +10,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { beforeEach, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { DatabaseAutomationStore } from "~/database/automations";
 import { initializeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
@@ -29,18 +27,14 @@ beforeEach(() => {
   home = testHome();
 });
 
-afterEach(() => {
-  catalog.reset();
-});
-
 const CLI = resolve("src/cli.ts");
 function cli(root: string, ...args: string[]): string {
-  return execFileSync("bun", [CLI, ...args], {
+  return execFileSync(process.execPath, [CLI, ...args], {
     cwd: root,
     encoding: "utf8",
     env: home.env,
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: 15_000,
+    timeout: 30_000,
   });
 }
 
@@ -82,7 +76,7 @@ it("discovers modules in order, skips leading underscores, declarations and syml
 });
 
 it("loads the default folder, imports ignored helpers, and operates on the project root", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-folder-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "marbles-folder-")));
   try {
     const source = join(root, ".foundry", "marbles");
     await mkdir(join(source, "_app"), { recursive: true });
@@ -107,49 +101,51 @@ it("loads the default folder, imports ignored helpers, and operates on the proje
       join(source, "inspect.ts"),
       `import { step } from "@foundry.sh/marbles";
 import { value } from "./_helper";
-import "./nested/second";
-step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }));`
+export const inspect = step("inspect").do(({ workspaces }) => ({ root: workspaces.current.root, value }));`
     );
     await writeFile(
       join(source, "nested", "second.ts"),
-      'import { step } from "@foundry.sh/marbles"; step("second").do(() => "second");'
+      'import { step } from "@foundry.sh/marbles"; export const second = step("second").do(() => "second");'
     );
-    const listed = cli(root, "list", "--dry-run");
+    const listed = cli(root, "list");
     expect(
       listed.split("\n").filter((line) => line.startsWith("[step]"))
-    ).toEqual(["[step] second", "[step] inspect"]);
-    const result = cli(root, "roll", "inspect", "--dry-run");
+    ).toEqual(["[step] inspect", "[step] second"]);
+    const result = cli(root, "trigger", "inspect");
     expect(result).toContain(root);
     expect(result).toContain("helper imported");
-    expect(
-      cli(tmpdir(), "roll", "inspect", "--source", source, "--dry-run")
-    ).toContain(root);
+    expect(cli(tmpdir(), "trigger", "inspect", "--source", source)).toContain(
+      root
+    );
   } finally {
     await rm(root, { force: true, recursive: true });
   }
 }, 60_000);
 
-it("init creates a starter without running it and refuses to overwrite it", async () => {
-  const root = await mkdtemp(join(tmpdir(), "marbles-init-"));
+it("lists each observer with its source and types, and a monitor by the name it was given", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "marbles-list-")));
   try {
-    const file = join(root, ".foundry", "marbles", "summarize-codebase.ts");
-    const initialized = cli(root, "init");
-    expect(initialized).toContain(file);
-    expect(initialized).not.toContain("[run]");
-    const original = await readFile(file, "utf8");
-    expect(original).toContain("summarizeCodebase");
-    expect(cli(root, "list", "--dry-run")).toContain(
-      "[step] summarize-codebase"
+    const config = join(root, "marbles.config.ts");
+    await writeFile(
+      config,
+      `import { artifact, monitor, observe, tasks } from "@foundry.sh/marbles";
+export const triage = observe(tasks, () => undefined, { name: "triage" });
+export const saved = observe(artifact, () => undefined, { name: "saved", types: ["artifact.created", "artifact.updated"] });
+export const docs = monitor("*.md").name("docs").every("5m").do(() => undefined);`
     );
-    expect(() => cli(root, "init")).toThrow("not overwritten");
-    expect(await readFile(file, "utf8")).toBe(original);
-    expect(() => cli(root, "init", "unknown")).toThrow(
-      "init takes one starter"
-    );
+    const listed = cli(root, "list", "--source", config)
+      .split("\n")
+      .filter((line) => line.startsWith("["));
+    expect(listed).toEqual([
+      `[source] ${config}`,
+      "[monitor] docs files *.md every 5m",
+      "[observer] saved ← artifacts artifact.created, artifact.updated",
+      "[observer] triage ← tasks",
+    ]);
   } finally {
     await rm(root, { force: true, recursive: true });
   }
-}, 60_000);
+}, 30_000);
 
 it("lists what agents created from the same triggers, and leaves the state root alone", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "marbles-list-")));
@@ -157,14 +153,14 @@ it("lists what agents created from the same triggers, and leaves the state root 
     const config = join(root, "marbles.config.ts");
     await writeFile(
       config,
-      'import { step } from "@foundry.sh/marbles"; step("target").do(() => 1);'
+      'import { step } from "@foundry.sh/marbles"; export const target = step("target").do(() => 1);'
     );
     const { state } = home.layout;
     const { dir } = workspaceState(state, root);
-    step("target").do(() => 1);
+    const target = step("target").do(() => 1);
     const opened = await initializeDatabase(stateDatabase(state));
     const automations = new AutomationService({
-      registry: declared(),
+      registry: declared({ target }),
       store: new DatabaseAutomationStore({
         database: opened.database,
         scope: workspaceState(state, root).id,

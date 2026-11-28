@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { isMissingPath } from "@foundry/lib/atomic-file";
+import { isMissingPath } from "@foundry/lib/node/atomic-file";
 import { engines } from "../../package.json" with { type: "json" };
 import { startServer } from "../server/server";
 import { savedCollection, savedDataset } from "./dataset-files";

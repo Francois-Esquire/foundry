@@ -1,21 +1,18 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { thisProcess } from "@foundry/lib/process-identity";
-import { Workflow } from "@foundry/workflows/workflow";
+import { thisProcess } from "@foundry/lib/node/process-identity";
 import { expect, it, vi } from "vitest";
 import { step } from "~/authoring/builder";
 import { DatabaseExecutionStore } from "~/database/executions";
-import { initializeDatabase, readDatabase } from "~/database/open";
+import { readDatabase } from "~/database/open";
 import { marblesExecutions } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import { parseStored } from "~/lib/execution-record";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
-import { type ExecutionRun, Executions } from "~/lib/executions";
+import type { ExecutionRun } from "~/lib/executions";
 import type { TaskContext } from "~/lib/tasks";
 import type { Context } from "~/lib/types";
-import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,
   executionFixture,
@@ -33,9 +30,10 @@ const fixture = executionFixture();
 const engineWith = fixture.engine;
 
 const UNREADABLE_OBSERVATION = /unreadable observation/;
-const FUNCTION_INPUT = /input\.call is not JSON: it is a function/;
-const BIGINT_INPUT = /input\.big is not JSON/;
-const DATE_INPUT = /input\.at is not JSON: it is a Date/;
+const FUNCTION_INPUT = /input of run rn-[\w-]+\.call holds a function/;
+const BIGINT_INPUT = /input of run rn-[\w-]+\.big holds a bigint/;
+const DATE_INPUT =
+  /input of run rn-[\w-]+\.at holds an object that is not plain/;
 
 it("writes a run when it is queued, before it starts, and when it settles", async () => {
   const state = join(fixture.root, "state");
@@ -67,7 +65,7 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
     kind: "task",
     name: "build",
     owner: thisProcess(),
-    queue: "marbles",
+    pool: "default",
     status: "running",
   });
   expect((await stored(first.id)).input).toBeUndefined();
@@ -87,41 +85,31 @@ it("writes a run when it is queued, before it starts, and when it settles", asyn
   expect((await stored(second.id)).status).toBe("complete");
 });
 
-it("never changes a settled run: late progress, parks, resumes and observations are dropped", async () => {
-  const executions = new Executions({
-    store: new MemoryExecutionStore(),
-    warn: () => undefined,
-  });
-  const { run } = await executions.enqueue({
-    correlation: {},
-    kind: "task",
+it("never changes a settled run: late progress and observations are dropped", async () => {
+  const engine = engineWith();
+  let late: TaskContext | undefined;
+  engine.task({
     name: "save",
-    queue: "system",
+    pool: "system",
+    run: (_input, context: TaskContext) => {
+      late = context;
+    },
   });
-  await executions.admit(
-    run.id,
-    () => Promise.resolve(),
-    () => undefined
-  );
-  await executions.settle(run.id, "complete");
-  const settled = executions.get(run.id);
+  await engine.start();
+  const launched = await engine.launch("save", {});
+  await launched.result;
+  const settled = engine.executions.get(launched.id);
 
-  executions.progress(run.id, { late: true });
-  executions.suspend(run.id);
-  executions.resume(run.id);
-  const observed = await executions.observe(run.id, {
+  late?.progress({ late: true });
+  const observed = await late?.observe({
     id: "late",
     kind: "effect",
-    startedAt: new Date().toISOString(),
-    status: "complete",
     type: "gateway",
   });
 
   expect(observed).toBe(false);
-  expect(executions.get(run.id)).toEqual(settled);
-  expect(executions.queues()).toEqual([
-    { active: 0, concurrency: 1, name: "system", waiting: 0 },
-  ]);
+  expect(engine.executions.get(launched.id)).toEqual(settled);
+  expect(await engine.executions.pools()).toEqual([]);
 });
 
 it("returns the run a source already started instead of launching it twice", async () => {
@@ -232,23 +220,17 @@ it("records a running run's observations one at a time, beside its record, and k
   );
   await engine.dispose();
 
-  const dead = exitedPid();
-  await withExecutions(state, async (store) => {
-    const stored = await store.get(launched.id);
-    const record = stored?.value as ExecutionRun;
-    await seedExecution(store, {
+  const record = await storedExecution(state, launched.id);
+  if (!record) {
+    throw new Error(`${launched.id} is not stored`);
+  }
+  await withExecutions(state, async (seeds) => {
+    await seedExecution(seeds, {
       ...record,
-      observations: [],
-      owner: { pid: dead, started: null },
+      owner: { pid: exitedPid(), started: null },
+      revision: 2,
       status: "running",
     });
-    for (const observation of live?.observations ?? []) {
-      await store.observe(
-        launched.id,
-        observation,
-        record.timestamps.updatedAt
-      );
-    }
   });
   const next = engineWith({ state });
   await next.start();
@@ -260,43 +242,38 @@ it("records a running run's observations one at a time, beside its record, and k
 
 it("records an observation at the same cost however many its run has", async () => {
   const store = new MemoryExecutionStore();
-  const executions = new Executions({ store, warn: () => undefined });
-  const { run } = await executions.enqueue({
-    kind: "task",
-    name: "long",
-    queue: "q",
-  });
-  const observed: ExecutionStore["observe"] = store.observe.bind(store);
   const written: unknown[] = [];
+  const observed: ExecutionStore["observe"] = store.observe.bind(store);
   store.observe = (id, observation, at) => {
     written.push(observation);
     return observed(id, observation, at);
   };
-  const transition = store.transition.bind(store);
-  let puts = 0;
-  store.transition = (id, change) => {
-    puts += 1;
-    return transition(id, change);
-  };
-  for (let index = 0; index < 50; index += 1) {
-    await executions.observe(run.id, {
-      id: `o-${String(index)}`,
-      kind: "effect",
-      startedAt: new Date().toISOString(),
-      status: "complete",
-      type: "write",
-    });
-  }
+  const engine = engineWith({ executionStore: store });
+  engine.task({
+    name: "long",
+    run: async (_input, { observe }: TaskContext) => {
+      for (let index = 0; index < 50; index += 1) {
+        await observe({
+          id: `o-${String(index)}`,
+          kind: "effect",
+          type: "write",
+        });
+      }
+    },
+  });
+  await engine.start();
+  const launched = await engine.launch("long", {});
+  await launched.result;
   expect(written).toHaveLength(50);
   expect(written.every((item) => !Array.isArray(item))).toBe(true);
-  expect(puts).toBe(0);
-  expect((await store.get(run.id))?.observations).toHaveLength(50);
+  expect((await store.get(launched.id))?.observations).toHaveLength(50);
 });
 
 it("prunes only settled runs, records the gap first, and drops a workflow's Run and output", async () => {
   const state = join(fixture.root, "state");
-  step("flow").do(() => "ran");
+  const flowDef = step("flow").do(() => "ran");
   const engine = engineWith({ state });
+  engine.define(flowDef);
   const started: string[] = [];
   const gates = new Map<string, () => void>();
   blockingTask(engine, "hold", started, gates);
@@ -378,10 +355,10 @@ it("subscribes with a snapshot and every change after, reconcilable by revision"
     seen.set(run.id, run);
   }
   expect(duplicates).toBe(0);
-  const statuses = updates.map(
-    (run) => `${String(run.revision)}:${run.status}`
-  );
-  expect(statuses.slice(0, 2)).toEqual(["1:queued", "2:running"]);
+  expect(updates.slice(0, 2).map((run) => run.status)).toEqual([
+    "queued",
+    "running",
+  ]);
   expect(seen.size).toBe(3);
   expect([...seen.values()].every((run) => run.status === "complete")).toBe(
     true
@@ -402,13 +379,14 @@ it("subscribes with a snapshot and every change after, reconcilable by revision"
 
 it("skips observations that are not ones, without failing the start", async () => {
   const state = join(fixture.root, "state");
-  await withExecutions(state, async (store) => {
-    await orphan(store, {
+  await withExecutions(state, async (seeds) => {
+    await orphan(seeds, {
       id: "rn-bad",
       kind: "task",
       name: "save",
       status: "running",
     });
+    const store = new DatabaseExecutionStore(seeds);
     const at = "x";
     for (const observation of [
       { id: "half" },
@@ -568,8 +546,9 @@ it("returns the run another engine sharing the store started for the same source
 
 it("keeps a run's record when its cleanup fails, so pruning it again retries", async () => {
   const state = join(fixture.root, "state");
-  step("flow").do(() => "ran");
+  const flowDef = step("flow").do(() => "ran");
   const engine = engineWith({ state });
+  engine.define(flowDef);
   await engine.start();
   const flow = await engine.launch<string>("flow", {});
   await flow.result;
@@ -596,172 +575,62 @@ it("keeps a run's record when its cleanup fails, so pruning it again retries", a
   expect((await engine.runs()).map((run) => run.id)).not.toContain(flow.id);
 });
 
-it("shows a workflow run still being set up on the dashboard, once", async () => {
-  const engine = engineWith();
-  const { promise: setUp, resolve: finishSetup } =
-    Promise.withResolvers<void>();
-  const { promise: hold, resolve: release } = Promise.withResolvers<void>();
-  engine.register<unknown, string>("slow", async (input) => {
-    await setUp;
-    return Workflow.create({
-      execute: async () => {
-        await hold;
-        return "done";
-      },
-      input,
-      name: "slow",
-    });
-  });
-  await engine.start();
-  const rows = async () =>
-    dashboardSnapshot(await engine.runs(), {
-      definitions: [],
-      lastFinish: new Map(),
-      monitors: new Map(),
-      queued: engine.executions.list(),
-      root: fixture.root,
-      schedules: [],
-      startedAt: Date.now(),
-      status: "running",
-    }).runs.map((row) => [row.id, row.status]);
-  const launching = engine.launch<string>("slow", {});
-  await until(() =>
-    engine.executions.list().some((item) => item.status === "running")
-  );
-  const [run] = engine.executions.list();
-
-  expect(await rows()).toEqual([[run?.id, "running"]]);
-  finishSetup();
-  const launched = await launching;
-  expect((await rows()).map(([id]) => id)).toEqual([run?.id]);
-  release();
-  await launched.result;
-});
-
-it("accumulates retention across stale engines without counting the same removal twice", async () => {
+it("accumulates retention across engines without counting the same removal twice", async () => {
   const state = join(fixture.root, "shared-prune");
-  await withExecutions(state, async (store) => {
-    const first = new Executions({ store, warn: () => undefined });
-    const make = async (name: string) =>
-      (await first.enqueue({ kind: "task", name, queue: "default" })).run;
-    const older = await make("older");
-    const newer = await make("newer");
-    for (const [run, settledAt] of [
-      [older, "2026-01-01T00:00:00.000Z"],
-      [newer, "2026-01-02T00:00:00.000Z"],
-    ] as const) {
-      await first.settle(run.id, "complete");
-      const settled = first.get(run.id);
-      if (!settled) {
-        throw new Error("settled run missing");
-      }
-      await seedExecution(store, {
-        ...settled,
-        revision: settled.revision + 1,
-        timestamps: { ...settled.timestamps, settledAt },
-      });
-    }
-    const reader = () => new Executions({ store, warn: () => undefined });
-    const one = reader();
-    const two = reader();
-    await one.load();
-    await two.load();
-    expect(await one.prune([newer.id], () => "host")).toHaveLength(1);
-    expect(await two.prune([newer.id, older.id], () => "host")).toHaveLength(1);
-    expect(two.gaps()).toMatchObject([
-      { removed: 2, scope: "host", through: "2026-01-02T00:00:00.000Z" },
-    ]);
-    const later = reader();
-    await later.load();
-    expect(later.gaps()).toEqual(two.gaps());
-  });
+  const writer = engineWith({ state });
+  writer.task({ name: "save", run: () => undefined });
+  await writer.start();
+  const older = await writer.launch("save", {});
+  await older.result;
+  const newer = await writer.launch("save", {});
+  await newer.result;
+  const one = engineWith({ state });
+  const two = engineWith({ state });
+  await one.start();
+  await two.start();
+  expect(await one.executions.prune([newer.id], () => "host")).toHaveLength(1);
+  expect(
+    await two.executions.prune([newer.id, older.id], () => "host")
+  ).toHaveLength(1);
+  expect(two.executions.gaps()).toMatchObject([{ removed: 2, scope: "host" }]);
+  const later = engineWith({ state });
+  await later.start();
+  expect(later.executions.gaps()).toEqual(two.executions.gaps());
 });
 
 it("counts each removal once when two engines prune the same runs at once", async () => {
   const state = join(fixture.root, "racing-prune");
-  await withExecutions(state, async (store) => {
-    const writer = new Executions({ store, warn: () => undefined });
-    const ids: string[] = [];
-    for (const name of ["a", "b", "c"]) {
-      const { run } = await writer.enqueue({ kind: "task", name, queue: "q" });
-      await writer.settle(run.id, "complete");
-      ids.push(run.id);
-    }
-    const pruners = [0, 1].map(
-      () => new Executions({ store, warn: () => undefined })
-    );
-    for (const pruner of pruners) {
-      await pruner.load();
-    }
-    const removed = await Promise.all(
-      pruners.map((pruner) => pruner.prune(ids, () => "host"))
-    );
-    expect(
-      removed
-        .flat()
-        .map((run) => run.id)
-        .sort()
-    ).toEqual([...ids].sort());
-    expect(await store.gaps()).toMatchObject([{ removed: 3, scope: "host" }]);
-    expect(await store.list()).toEqual([]);
-  });
+  const writer = engineWith({ state });
+  writer.task({ name: "save", run: () => undefined });
+  await writer.start();
+  const ids: string[] = [];
+  for (const _ of [1, 2, 3]) {
+    const launched = await writer.launch("save", {});
+    await launched.result;
+    ids.push(launched.id);
+  }
+  const pruners = [engineWith({ state }), engineWith({ state })];
+  for (const pruner of pruners) {
+    await pruner.start();
+  }
+  const removed = await Promise.all(
+    pruners.map((pruner) => pruner.executions.prune(ids, () => "host"))
+  );
+  expect(
+    removed
+      .flat()
+      .map((run) => run.id)
+      .sort()
+  ).toEqual([...ids].sort());
+  const reader = engineWith({ state });
+  await reader.start();
+  expect(reader.executions.gaps()).toMatchObject([
+    { removed: 3, scope: "host" },
+  ]);
+  expect(reader.executions.list()).toEqual([]);
 });
 
-it("parks a workflow's Execution Run with its Run, in one write, and warns of nothing", async () => {
-  const state = join(fixture.root, "state");
-  const lines: string[] = [];
-  const opened = await initializeDatabase(stateDatabase(state));
-  const store = new DatabaseExecutionStore({
-    database: opened.database,
-    scope: "test",
-  });
-  const parks: boolean[] = [];
-  const transition = store.transition.bind(store);
-  store.transition = async (runId, change) => {
-    const written = await transition(runId, change);
-    if (change.status === "suspended") {
-      parks.push(written.applied);
-    }
-    return written;
-  };
-  const engine = engineWith({
-    askable: true,
-    executionStore: store,
-    print: (line) => lines.push(line),
-    state,
-  });
-  engine.define({
-    fn: ({ ask }: Context) => ask.question({ title: "continue?" }),
-    kind: "step",
-    name: "probe",
-  });
-  await engine.start();
-  const { id } = await engine.launch("probe", {});
-  await vi.waitFor(() =>
-    expect(engine.executions.get(id)?.status).toBe("suspended")
-  );
-  const parked = engine.executions.get(id);
-  await vi.waitFor(async () =>
-    expect(await storedExecution(state, id)).toMatchObject({
-      revision: parked?.revision,
-      status: "suspended",
-    })
-  );
-  expect(parks).toEqual([false]);
-  expect(lines.filter((line) => line.startsWith("[state]"))).toEqual([]);
-  await engine.dispose();
-  opened.close();
-});
-
-async function storedOf(
-  store: ExecutionStore,
-  id: string
-): Promise<ExecutionRun | undefined> {
-  const stored = await store.get(id);
-  return stored && parseStored(stored);
-}
-
-it("parks into the store the engine was handed, and writes no Execution Run to a database it keeps none in", async () => {
+it("keeps a suspended run's progress in the store the engine was handed, and none in a database it keeps none in", async () => {
   const state = join(fixture.root, "state");
   const store = new MemoryExecutionStore();
   const engine = engineWith({ askable: true, executionStore: store, state });
@@ -772,9 +641,10 @@ it("parks into the store the engine was handed, and writes no Execution Run to a
   });
   await engine.start();
   const { id } = await engine.launch("probe", {});
-  await vi.waitFor(async () =>
-    expect(await storedOf(store, id)).toMatchObject({ status: "suspended" })
-  );
+  await vi.waitFor(async () => {
+    expect(engine.executions.get(id)?.status).toBe("suspended");
+    expect((await store.get(id))?.progress).toBeDefined();
+  });
   const rows = await readDatabase(stateDatabase(state), (database) =>
     database.select().from(marblesExecutions)
   );

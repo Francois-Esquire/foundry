@@ -1,60 +1,105 @@
-import { fillArgv, parseArgv, placeholdersOf } from "@foundry/lib/argv";
 import type { Bail } from "@foundry/workflows/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Scope } from "~/authoring/runtime";
-import { captureScope, declaringCatalog } from "~/authoring/runtime";
-import type { CommandResult, ExecOptions } from "~/lib/command";
+import {
+  activeSetupCounters,
+  claimLoadDefinition,
+  ownRun,
+  trackCreatedDeclaration,
+} from "~/authoring/runtime";
+import { fillArgv, parseArgv, placeholdersOf } from "~/lib/argv";
+import { timeoutMs } from "~/lib/cadence";
+import type { CommandResult, ExecOptions } from "~/lib/command-error";
 import type {
+  AnyDefinition,
   LockedNode,
   SetupFn,
-  Shared,
   StepConfig,
   StepFn,
 } from "~/lib/definition";
 import { isLockedNode } from "~/lib/definition";
 import { observable, RUNS } from "~/lib/events/source";
+import { DEFINITION_IDENTITY, EXPLICIT_NAME, STATIC_TREE } from "~/lib/handles";
+import { sha256HexSync } from "~/lib/hash";
 import type { Input, Output } from "~/lib/schema";
 import { inputKeysOf } from "~/lib/schema";
-import { timeoutMs } from "~/lib/tree";
 import type { Context } from "~/lib/types";
-import type { CallSite } from "./identity";
-import { bindingAt, callSite, canInfer, originOf } from "./identity";
-import type { StepDefinition, WorkflowDefinition } from "./lock";
+import { enqueueNamed } from "./instances";
+import type {
+  Enqueued,
+  EnqueueOptions,
+  StepDefinition,
+  WorkflowDefinition,
+} from "./lock";
 import { lockable } from "./lock";
 
 type Empty = Record<string, never>;
 
 type Produces<O, X> = unknown extends O ? X : O;
 
-interface Identity {
-  readonly fields: Pick<Shared, "name" | "nameHint" | "origin">;
-  readonly inferred: boolean;
+function nameHintOf(kind: "step" | "workflow"): string {
+  return `give it one: ${kind}("name") or export it as a named constant`;
 }
 
-function identify(
-  kind: "step" | "workflow",
-  name: string | undefined,
-  site: CallSite | undefined
-): Identity {
-  const explicit = `give it one: ${kind}("name")`;
-  if (site === undefined) {
-    return {
-      fields: name === undefined ? { nameHint: explicit } : { name },
-      inferred: false,
-    };
+const CLOSURE_COUNTER_KEY = Symbol.for("marbles.definition.closureCounter.v1");
+
+function nextClosureId(): number {
+  const holder = globalThis as Record<symbol, { count: number } | undefined>;
+  let state = holder[CLOSURE_COUNTER_KEY];
+  if (state === undefined) {
+    state = { count: 0 };
+    holder[CLOSURE_COUNTER_KEY] = state;
   }
-  const origin = originOf(site);
-  if (name !== undefined) {
-    return { fields: { name, origin }, inferred: false };
+  state.count += 1;
+  return state.count;
+}
+
+function anonymousIdentity(
+  definition: AnyDefinition,
+  sourceText?: string
+): string {
+  const source =
+    sourceText ??
+    (definition.kind === "step"
+      ? definition.fn.toString()
+      : definition.setup.toString());
+  const hash = sha256HexSync(`${definition.kind}:${source}`).slice(0, 16);
+  const setup = activeSetupCounters();
+  if (setup !== undefined) {
+    const occurrence = setup.get("definition") ?? 0;
+    setup.set("definition", occurrence + 1);
+    return `setup:definition#${String(occurrence)}:${hash}`;
   }
-  const bound = bindingAt(site);
-  if (bound !== undefined) {
-    return { fields: { name: bound, origin }, inferred: true };
+  const running = ownRun();
+  if (running !== undefined) {
+    const { occurrence } = running.scope.claim(running.frame, "definition");
+    return `run:definition#${String(occurrence)}:${hash}`;
   }
-  const nameHint = canInfer(site.file)
-    ? explicit
-    : `install typescript@6 in the config's project to name it from its const, or ${explicit}`;
-  return { fields: { nameHint, origin }, inferred: false };
+  const loaded = claimLoadDefinition(hash);
+  if (loaded !== undefined) {
+    return loaded;
+  }
+  return `closure:definition#${String(nextClosureId())}:${hash}`;
+}
+
+function tagged<D extends AnyDefinition>(
+  definition: D,
+  explicitName: boolean,
+  staticTree?: LockedNode,
+  sourceText?: string
+): D {
+  if (explicitName) {
+    Object.defineProperty(definition, EXPLICIT_NAME, { value: true });
+  } else {
+    Object.defineProperty(definition, DEFINITION_IDENTITY, {
+      configurable: true,
+      value: anonymousIdentity(definition, sourceText),
+    });
+  }
+  if (staticTree !== undefined) {
+    Object.defineProperty(definition, STATIC_TREE, { value: staticTree });
+  }
+  trackCreatedDeclaration(definition);
+  return definition;
 }
 
 interface StepFields {
@@ -63,11 +108,7 @@ interface StepFields {
   readonly input?: StandardSchemaV1;
   readonly name?: string;
   readonly output?: StandardSchemaV1;
-  readonly scope?: Scope;
-  readonly site?: CallSite;
 }
-
-const now: Scope = (work) => work();
 
 export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
   readonly #fields: StepFields;
@@ -110,40 +151,56 @@ export class StepBuilder<I = Empty, R = Empty, Ret = unknown, O = unknown> {
     command:
       | string
       | ((context: Context<I>) => CommandLine | Promise<CommandLine>),
-    options?: ExecOptions
+    options?:
+      | ExecOptions
+      | ((context: Context<I>) => ExecOptions | Promise<ExecOptions>)
   ): StepDefinition<I, CommandResult, R> {
     const run =
       typeof command === "string"
         ? templateCommand(command, this.#fields)
         : command;
     const { output: _output, ...fields } = this.#fields;
-    const untyped = new StepBuilder<I, R>(fields);
-    return untyped.do(async (context) =>
-      context.exec(await run(context), options)
-    ) as unknown as StepDefinition<I, CommandResult, R>;
+    const sourceText =
+      typeof command === "string"
+        ? `exec:${command}`
+        : `exec:${command.toString()}`;
+    const definition = lockable<StepDefinition<I, CommandResult, R>>({
+      ...(fields.config === undefined ? {} : { config: fields.config }),
+      ...(fields.description === undefined
+        ? {}
+        : { description: fields.description }),
+      fn: async (context) => {
+        const line = await run(context);
+        return context.exec(
+          line,
+          typeof options === "function" ? await options(context) : options
+        );
+      },
+      ...(fields.name === undefined
+        ? { nameHint: nameHintOf("step") }
+        : { name: fields.name }),
+      ...(fields.input === undefined ? {} : { input: fields.input }),
+      kind: "step",
+    });
+    return tagged(definition, fields.name !== undefined, undefined, sourceText);
   }
 
   do<X extends Ret | Bail<unknown>>(
     fn: StepFn<I, X>
   ): StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R> {
-    const { config, description, input, name, output, scope, site } =
-      this.#fields;
-    return (scope ?? now)(() => {
-      const identity = identify("step", name, site);
-      const definition = lockable<
-        StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R>
-      >({
-        ...(config === undefined ? {} : { config }),
-        ...(description === undefined ? {} : { description }),
-        fn,
-        ...identity.fields,
-        ...(input === undefined ? {} : { input }),
-        kind: "step",
-        ...(output === undefined ? {} : { output }),
-      });
-      declaringCatalog().define(definition, identity.inferred);
-      return definition;
+    const { config, description, input, name, output } = this.#fields;
+    const definition = lockable<
+      StepDefinition<I, Produces<O, Exclude<X, Bail<unknown>>>, R>
+    >({
+      ...(config === undefined ? {} : { config }),
+      ...(description === undefined ? {} : { description }),
+      fn,
+      ...(name === undefined ? { nameHint: nameHintOf("step") } : { name }),
+      ...(input === undefined ? {} : { input }),
+      kind: "step",
+      ...(output === undefined ? {} : { output }),
     });
+    return tagged(definition, name !== undefined);
   }
 }
 
@@ -184,83 +241,62 @@ function templateCommand(
 }
 
 export function step(name?: string): StepBuilder {
-  return new StepBuilder({
-    ...(name === undefined ? {} : { name }),
-    scope: captureScope(),
-    site: callSite(),
-  });
+  return new StepBuilder(name === undefined ? {} : { name });
 }
+
+step.enqueue = <O = unknown>(
+  name: string,
+  input?: Record<string, unknown>,
+  options?: EnqueueOptions
+): Promise<Enqueued<O>> =>
+  enqueueNamed("step", name, input ?? {}, options) as Promise<Enqueued<O>>;
 
 export class WorkflowBuilder<I = Empty, R = Empty> {
   readonly #name: string | undefined;
-  readonly #site: CallSite | undefined;
   readonly #description: string | undefined;
   readonly #input: StandardSchemaV1 | undefined;
-  readonly #scope: Scope;
 
-  constructor(
-    name?: string,
-    site?: CallSite,
-    description?: string,
-    input?: StandardSchemaV1,
-    scope: Scope = now
-  ) {
+  constructor(name?: string, description?: string, input?: StandardSchemaV1) {
     this.#name = name;
-    this.#site = site;
     this.#description = description;
     this.#input = input;
-    this.#scope = scope;
   }
 
   describe(text: string): WorkflowBuilder<I, R> {
-    return new WorkflowBuilder(
-      this.#name,
-      this.#site,
-      text,
-      this.#input,
-      this.#scope
-    );
+    return new WorkflowBuilder(this.#name, text, this.#input);
   }
 
   input<S extends StandardSchemaV1>(
     schema: S
   ): WorkflowBuilder<Output<S>, Input<S>> {
-    return new WorkflowBuilder(
-      this.#name,
-      this.#site,
-      this.#description,
-      schema,
-      this.#scope
-    );
+    return new WorkflowBuilder(this.#name, this.#description, schema);
   }
 
   do<O>(setup: SetupFn<I, O>): WorkflowDefinition<I, O, R> {
-    return this.#scope(() =>
-      finishWorkflow<I, O, R>(
-        identify("workflow", this.#name, this.#site),
-        this.#description,
-        this.#input,
-        setup
-      )
+    return finishWorkflow<I, O, R>(
+      this.#name,
+      this.#description,
+      this.#input,
+      setup
     );
   }
 }
 
 function finishWorkflow<I, O, R = I>(
-  identity: Identity,
+  name: string | undefined,
   description: string | undefined,
   input: StandardSchemaV1 | undefined,
-  setup: SetupFn<I, O>
+  setup: SetupFn<I, O>,
+  staticTree?: LockedNode
 ): WorkflowDefinition<I, O, R> {
   const definition = lockable<WorkflowDefinition<I, O, R>>({
     ...(description === undefined ? {} : { description }),
-    ...identity.fields,
+    ...(name === undefined ? { nameHint: nameHintOf("workflow") } : { name }),
     ...(input === undefined ? {} : { input }),
     kind: "workflow",
     setup,
   });
-  declaringCatalog().define(definition, identity.inferred);
-  return definition;
+  return tagged(definition, name !== undefined, staticTree);
 }
 
 type TreeArg<O = unknown> = LockedNode<O> | (() => LockedNode<O>);
@@ -276,27 +312,26 @@ export function workflow(
   second?: TreeArg
 ): WorkflowDefinition | WorkflowBuilder {
   const name = typeof first === "string" ? first : undefined;
-  const site = callSite();
   const tree = typeof first === "string" ? second : first;
   if (tree === undefined) {
-    return new WorkflowBuilder(
-      name,
-      site,
-      undefined,
-      undefined,
-      captureScope()
-    );
+    return new WorkflowBuilder(name);
   }
-  const identity = identify("workflow", name, site);
   if (typeof tree === "function") {
-    return finishWorkflow(identity, undefined, undefined, () => tree());
+    return finishWorkflow(name, undefined, undefined, () => tree());
   }
   if (!isLockedNode(tree)) {
     throw new Error(
       `workflow(${name ? `"${name}"` : ""}): expected a locked node or a function returning one`
     );
   }
-  return finishWorkflow(identity, undefined, undefined, () => tree);
+  return finishWorkflow(name, undefined, undefined, () => tree, tree);
 }
+
+workflow.enqueue = <O = unknown>(
+  name: string,
+  input?: Record<string, unknown>,
+  options?: EnqueueOptions
+): Promise<Enqueued<O>> =>
+  enqueueNamed("workflow", name, input ?? {}, options) as Promise<Enqueued<O>>;
 
 observable(workflow, RUNS);

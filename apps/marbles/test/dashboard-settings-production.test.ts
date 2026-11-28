@@ -9,9 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { parseArgs } from "~/cli/args";
-import { runInteractive } from "~/cli/interactive";
-import { applyTheme } from "~/cli/theme";
+import { parseArgs } from "~/cli/index";
 import { theme } from "~/components/ui/theme";
 import type {
   RollResult,
@@ -22,6 +20,8 @@ import type { DashboardSnapshot } from "~/model/dashboard";
 import type { SettingsChange } from "~/model/settings";
 import type * as Client from "~/process/client";
 import { SPAWN_RECORD_ENV } from "~/process/spawned";
+import { runInteractive } from "~/tui/interactive";
+import { applyTheme } from "~/tui/theme";
 import { testHome } from "./helpers/home";
 
 interface Captured {
@@ -47,7 +47,7 @@ const captured = vi.hoisted(
   })
 );
 
-vi.mock("~/cli/app", () => ({
+vi.mock("~/tui/app", () => ({
   openDashboard: (_name: string, controller: AbortController) => {
     captured.controller = controller;
     return Promise.resolve({
@@ -139,7 +139,7 @@ let running: Promise<void> | undefined;
 async function useHome(providers: boolean) {
   dir = await mkdtemp(join(tmpdir(), "marbles-settings-production-"));
   const home = testHome({ providers });
-  vi.stubEnv("FOUNDRY_HOME", home.path);
+  vi.stubEnv("FOUNDRY_ROOT", home.path);
   vi.stubEnv(SPAWN_RECORD_ENV, home.env[SPAWN_RECORD_ENV]);
   ({ state } = home.layout);
   captured.updates.length = 0;

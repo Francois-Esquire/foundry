@@ -1,27 +1,12 @@
-export type {
-  Blob,
-  BlobFiles,
-  BlobSource,
-  BlobStagingArea,
-  ContentTree,
-  StoredFile,
-} from "./blob";
 // biome-ignore lint/performance/noBarrelFile: Preserve the public package entry point shared with Agents.
-export { validateBlob } from "./blob";
+export { Artifacts, type ArtifactsOptions } from "./artifacts";
 export {
-  ARTIFACT_SOURCE,
-  ARTIFACT_STATUSES,
+  type BlobFiles,
+  type BlobStagingArea,
   CHUNK_BYTES,
-  CONTENT_STATES,
   MAX_FILE_BYTES,
   MAX_TREE_BYTES,
-} from "./constants";
-export type {
-  ArtifactLifecycleStatus,
-  ArtifactMetadata,
-  ContentMetadata,
-  ContentState,
-} from "./content";
+} from "./blob-staging";
 export {
   digestTree,
   filePointers,
@@ -44,15 +29,27 @@ export {
   StaleContentError,
   TransactionRolledBackError,
 } from "./errors";
+export type { ArtifactId, BlobId, ContentId } from "./ids";
+export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ids";
 export type { ArtifactCursor } from "./listing";
 export { artifactCursor, normalizeArtifactQuery } from "./listing";
-export { ArtifactManager, type ArtifactManagerOptions } from "./manager";
-export type { ArtifactId, BlobId, ContentId } from "./ref";
-export { artifactIdSchema, blobIdSchema, contentIdSchema } from "./ref";
 export type {
   ArtifactEvent,
   ArtifactEventType,
+  ArtifactLifecycleStatus,
+  ArtifactMetadata,
   ArtifactRecords,
+  Blob,
+  BlobSource,
+  ContentMetadata,
+  ContentState,
+  ContentTree,
+  StoredFile,
+} from "./schema";
+export {
+  ARTIFACT_STATUSES,
+  CONTENT_STATES,
+  validateBlob,
 } from "./schema";
 export type {
   Artifact,
@@ -60,7 +57,7 @@ export type {
   ArtifactObserver,
   ArtifactOperations,
   ArtifactResolved,
-  Artifacts,
+  ArtifactSubstrate,
   Content,
   ContentResolved,
   ContentSummary,
@@ -79,3 +76,9 @@ export type {
   WriteFence,
   WriteInput,
 } from "./substrate";
+export type {
+  ArtifactTransactionOptions,
+  ArtifactTransactionResult,
+  OperationEffects,
+} from "./transaction";
+export { runArtifactTransaction } from "./transaction";

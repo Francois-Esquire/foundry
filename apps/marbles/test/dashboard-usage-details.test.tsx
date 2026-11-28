@@ -5,12 +5,11 @@ import { Sessions } from "@foundry/agents/session";
 import { act } from "react";
 import { afterEach, expect, test } from "vitest";
 import { step } from "../src/authoring/builder";
-import { catalog } from "../src/authoring/catalog";
 import { agent } from "../src/authoring/resources";
-import type { DashboardSnapshot } from "../src/cli/state/dashboard-model";
-import { DashboardView } from "../src/cli/views/dashboard";
 import type { SessionRef } from "../src/lib/types";
 import { MemoryUsageStore } from "../src/lib/usage-store";
+import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
+import { DashboardView } from "../src/tui/views/dashboard";
 import { dashboardSnapshot } from "../src/workspace/snapshot";
 import { durableSessions, transcriptOf } from "./helpers/durable-sessions";
 import { startEngine } from "./helpers/engine";
@@ -36,7 +35,6 @@ let state: string | undefined;
 
 afterEach(async () => {
   await unmount();
-  catalog.reset();
   if (state) {
     rmSync(state, { force: true, recursive: true });
   }
@@ -46,12 +44,13 @@ afterEach(async () => {
 async function damagedSnapshot(): Promise<DashboardSnapshot> {
   state = mkdtempSync(join(tmpdir(), "marbles-details-"));
   const reviewer = agent({ name: "reviewer", prompt: "Review." });
-  step("priced").do(async ({ agents }) => {
+  const priced = step("priced").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     await session.generate("one");
   });
   const dir = state;
   const durable = () => ({
+    collect: [reviewer, priced],
     print: () => undefined,
     sessions: durableSessions(dir),
     state: dir,
@@ -81,7 +80,6 @@ async function damagedSnapshot(): Promise<DashboardSnapshot> {
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
-    lastFinish: new Map(),
     monitors: second.monitors(),
     root: state,
     schedules: [],
@@ -137,12 +135,13 @@ test("run, step and workflow details at 80 columns say a total may be incomplete
 test("a workflow with no valid facts shows unowned unreadable usage in its Catalog details instead of 'no usage recorded'", async () => {
   state = mkdtempSync(join(tmpdir(), "marbles-details-"));
   const dir = state;
+  const healthy = step("healthy").do(() => "no agents here");
   const durable = () => ({
+    collect: [healthy],
     print: () => undefined,
     sessions: durableSessions(dir),
     state: dir,
   });
-  step("healthy").do(() => "no agents here");
   const first = await startEngine(durable());
   const launched = await first.launch("healthy", {});
   await launched.result;
@@ -158,7 +157,6 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
   const second = await startEngine(durable());
   const snapshot = dashboardSnapshot(await second.runs(), {
     definitions: second.definitions(),
-    lastFinish: new Map(),
     monitors: second.monitors(),
     root: dir,
     schedules: [],
@@ -189,11 +187,6 @@ test("a workflow with no valid facts shows unowned unreadable usage in its Catal
 test("a known workflow whose running run the reader cannot load shows an unattributed turn, or once the transcript cannot be read an unreadable record, in its Catalog details instead of 'no usage recorded'", async () => {
   state = mkdtempSync(join(tmpdir(), "marbles-details-"));
   const dir = state;
-  const durable = () => ({
-    print: () => undefined,
-    sessions: durableSessions(dir),
-    state: dir,
-  });
   const helper = agent({ name: "helper", prompt: "Help." });
   let ref: SessionRef | undefined;
   let release: () => void = () => undefined;
@@ -213,7 +206,12 @@ test("a known workflow whose running run the reader cannot load shows an unattri
         await gate;
       }
     });
-  consumer();
+  const durable = () => ({
+    collect: [helper, consumer()],
+    print: () => undefined,
+    sessions: durableSessions(dir),
+    state: dir,
+  });
   const host = await startEngine(durable());
   const direct = await host.agents.session(helper);
   await direct.generate("saved direct turn");
@@ -224,12 +222,9 @@ test("a known workflow whose running run the reader cannot load shows an unattri
     usageStore: new FailingUsageStore(new MemoryUsageStore(), () => true),
   });
   const catalogDetails = async (): Promise<string> => {
-    catalog.reset();
-    consumer();
     const reader = await startEngine(durable());
     const snapshot = dashboardSnapshot(await reader.runs(), {
       definitions: reader.definitions(),
-      lastFinish: new Map(),
       monitors: reader.monitors(),
       root: dir,
       schedules: [],

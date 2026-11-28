@@ -1,8 +1,8 @@
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
-import type { ChannelEvent } from "../channels";
-import type { StepSnapshot } from "../snapshot";
+import type { ChannelEvent } from "../slices/channels";
+import type { StepSnapshot } from "../slices/snapshot";
 
 import { Step } from "../step";
 

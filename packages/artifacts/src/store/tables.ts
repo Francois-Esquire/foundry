@@ -5,11 +5,11 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-
-import { ARTIFACT_STATUSES, CONTENT_STATES } from "../constants";
-import type { ArtifactId, BlobId, ContentId } from "../ref";
+import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type { ArtifactMetadata, ContentMetadata, ContentTree } from "../schema";
+import { ARTIFACT_STATUSES, CONTENT_STATES } from "../schema";
 
 export const artifacts = sqliteTable(
   "artifacts",
@@ -19,7 +19,7 @@ export const artifacts = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     id: text("id").$type<ArtifactId>().notNull(),
     idLower: text("id_lower").notNull(),
-    idOrder: blob("id_order", { mode: "buffer" }).notNull(),
+    idOrder: blob("id_order", { mode: "buffer" }).$type<Uint8Array>().notNull(),
     metadata: text("metadata", { mode: "json" })
       .$type<ArtifactMetadata>()
       .notNull(),
@@ -68,7 +68,16 @@ export const artifactContents = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),
-    index("artifact_contents_scope_artifact").on(table.scope, table.artifactId),
+    index("artifact_contents_scope_artifact").on(
+      table.scope,
+      table.artifactId,
+      table.id
+    ),
+    index("artifact_contents_scope_artifact_tag").on(
+      table.scope,
+      table.artifactId,
+      table.tag
+    ),
   ]
 );
 
@@ -76,7 +85,7 @@ export const artifactBlobs = sqliteTable(
   "artifact_blobs",
   {
     byteLength: integer("byte_length").notNull(),
-    bytes: blob("bytes", { mode: "buffer" }),
+    bytes: blob("bytes", { mode: "buffer" }).$type<Uint8Array>(),
     chunks: text("chunks", { mode: "json" }).$type<readonly BlobId[]>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     digest: text("digest").notNull(),
@@ -87,6 +96,7 @@ export const artifactBlobs = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.scope, table.id] }),
     index("artifact_blobs_scope_digest").on(table.scope, table.digest),
+    uniqueIndex("artifact_blobs_scope_path").on(table.scope, table.path),
   ]
 );
 

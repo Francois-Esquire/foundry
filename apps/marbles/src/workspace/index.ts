@@ -8,6 +8,7 @@ export type { WorkspaceRecords } from "~/lib/events/records";
 export type {
   DispatchInfo,
   DispatchOptions,
+  ObserverEntry,
   RollResult,
   RunControls,
   RunInfo,
@@ -28,5 +29,4 @@ export {
 export { runSchedulesUntilStopped } from "~/workspace/loop";
 export { findWorkspace, type OpenedWorkspace } from "~/workspace/open";
 export { DEFAULT_SOURCE, sourceRoot } from "~/workspace/source";
-export { type SetupDraft, STARTERS } from "~/workspace/templates";
-export { sourceDigest, watchSource } from "~/workspace/watch";
+export { type SetupDraft, STARTER } from "~/workspace/templates";

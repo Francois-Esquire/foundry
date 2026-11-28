@@ -18,7 +18,7 @@ import {
   syncDirectorySync,
   writeFileAtomic,
   writeFileAtomicSync,
-} from "../atomic-file";
+} from "../node/atomic-file";
 
 let directory: string;
 

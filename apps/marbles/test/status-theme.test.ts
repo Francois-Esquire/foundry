@@ -1,16 +1,16 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { parseArgs } from "~/cli/args";
-import { COMMANDS } from "~/cli/command-line";
-import { applyTheme } from "~/cli/theme";
+import { createCliContext } from "~/cli/context";
+import { COMMANDS, parseArgs } from "~/cli/index";
 import { BUILT_IN_PALETTES } from "~/components/ui/theme";
+import { applyTheme } from "~/tui/theme";
 import type { OpenedWorkspace } from "~/workspace/open";
 import { temporaryDirectory } from "./helpers/temporary";
 
 const shown = vi.hoisted(() => ({ backgrounds: [] as string[] }));
 
-vi.mock("~/cli/status/view", async () => {
+vi.mock("~/tui/views/status", async () => {
   const { theme } = await import("~/components/ui/theme");
   return {
     showStatus: () => {
@@ -51,18 +51,22 @@ describe("the interactive status view", () => {
       join(state, "settings.json"),
       JSON.stringify({ theme: "light" })
     );
-    const parsed = parseArgs(["status"]);
-    if (parsed.command !== "status") {
-      throw new Error("expected the status command");
+    const parsed = parseArgs(["workspaces"]);
+    if (parsed.command !== "workspaces") {
+      throw new Error("expected the workspaces command");
     }
     const args = { ...parsed, state };
-    const handler = COMMANDS.status;
+    const handler = COMMANDS.workspaces;
     if (handler.needs !== "workspace") {
-      throw new Error("expected status to need a workspace");
+      throw new Error("expected workspaces to need a workspace");
     }
     const opened = { workspace: { id: "ws1" } } as unknown as OpenedWorkspace;
     asTerminal();
-    await handler.run(args, opened);
+    const ctx = {
+      ...createCliContext({ argv: ["workspaces"], flags: args }),
+      workspace: opened,
+    };
+    await handler.run(ctx, args);
     expect(shown.backgrounds).toEqual([
       BUILT_IN_PALETTES.light.colors.background,
     ]);

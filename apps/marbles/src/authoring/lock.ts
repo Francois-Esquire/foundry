@@ -1,5 +1,5 @@
-import { runDefinition } from "~/authoring/instances";
-import { captureScope } from "~/authoring/runtime";
+import { enqueueDefinition, runDefinition } from "~/authoring/instances";
+import { captureScope, trackLockedDeclaration } from "~/authoring/runtime";
 import type {
   AnyDefinition,
   LockedNode,
@@ -13,6 +13,8 @@ import { inputKeysOf } from "~/lib/schema";
 type Children = Readonly<Record<string, LockedNode>>;
 
 type Literal<R, C> = Omit<R, keyof C>;
+type NoInput<R> = Record<string, never> extends R ? [] : [children: never];
+
 type LiteralArgs<R, C> =
   Record<string, never> extends Literal<R, C>
     ? [input?: Literal<R, C>]
@@ -38,20 +40,38 @@ export interface Lockable<R, O> {
     children: C & Accepts<R, C>,
     ...input: LiteralArgs<R, C>
   ): LockedNode<O>;
+  parallel(...none: NoInput<R>): LockedNode<O>;
   series<C extends Children>(
     children: C & Accepts<R, C>,
     ...input: LiteralArgs<R, C>
   ): LockedNode<O>;
+  series(...none: NoInput<R>): LockedNode<O>;
   <C extends Children>(
     children: C & Accepts<R, C>,
     ...input: LiteralArgs<R, C>
   ): LockedNode<O>;
+  (...none: NoInput<R>): LockedNode<O>;
 }
 
+type RunArgs<R> = Record<string, never> extends R ? [input?: R] : [input: R];
+
+export interface EnqueueOptions {
+  readonly key?: string;
+}
+
+export interface Enqueued<O> {
+  readonly id: string;
+  readonly result: Promise<O>;
+}
+
+type EnqueueArgs<R> =
+  Record<string, never> extends R
+    ? [input?: R, options?: EnqueueOptions]
+    : [input: R, options?: EnqueueOptions];
+
 export interface Runnable<R, O> {
-  run(
-    ...input: Record<string, never> extends R ? [input?: R] : [input: R]
-  ): Promise<O>;
+  enqueue(...args: EnqueueArgs<R>): Promise<Enqueued<O>>;
+  run(...input: RunArgs<R>): Promise<O>;
 }
 
 export interface StepDefinition<I = Record<string, never>, O = unknown, R = I>
@@ -79,14 +99,14 @@ function lock(
 ): LockedNode {
   const pairs = Object.entries(children);
   for (const [key, child] of pairs) {
+    if (definition.kind === "workflow" && key === "$workflow") {
+      throw new Error(
+        `${describe(definition)}: child "${key}" is reserved for nested workflows`
+      );
+    }
     if (!isLockedNode(child)) {
       throw new Error(
         `${describe(definition)}: child "${key}" is not a locked node; call the definition first`
-      );
-    }
-    if (child.definition.kind === "workflow") {
-      throw new Error(
-        `${describe(definition)}: child "${key}" is a workflow; a workflow can only be the root of a run, so lock its steps here instead`
       );
     }
   }
@@ -106,6 +126,7 @@ function lock(
       );
     }
   }
+  trackLockedDeclaration(definition);
   return {
     children: pairs,
     definition,
@@ -121,16 +142,16 @@ export function lockable<D extends AnyDefinition>(
     keyof Lockable<never, unknown> | keyof Runnable<never, unknown>
   >
 ): D {
-  const call = (children: Children, literal?: Record<string, unknown>) =>
-    lock(definition, "series", children, literal);
+  const call = (children?: Children, literal?: Record<string, unknown>) =>
+    lock(definition, "series", children ?? {}, literal);
   const definition = call as unknown as D;
   const members: Record<string, unknown> = {
     ...fields,
     name: (fields as { name?: string }).name,
-    parallel: (children: Children, literal?: Record<string, unknown>) =>
-      lock(definition, "parallel", children, literal),
-    series: (children: Children, literal?: Record<string, unknown>) =>
-      lock(definition, "series", children, literal),
+    parallel: (children?: Children, literal?: Record<string, unknown>) =>
+      lock(definition, "parallel", children ?? {}, literal),
+    series: (children?: Children, literal?: Record<string, unknown>) =>
+      lock(definition, "series", children ?? {}, literal),
   };
   for (const [key, value] of Object.entries(members)) {
     Object.defineProperty(call, key, {
@@ -141,9 +162,16 @@ export function lockable<D extends AnyDefinition>(
     });
   }
   const scope = captureScope();
-  Object.defineProperty(call, "run", {
-    configurable: true,
-    value: (input?: unknown) => runDefinition(definition, input ?? {}, scope),
+  Object.defineProperties(call, {
+    enqueue: {
+      configurable: true,
+      value: (input?: unknown, options?: EnqueueOptions) =>
+        enqueueDefinition(definition, input ?? {}, scope, options),
+    },
+    run: {
+      configurable: true,
+      value: (input?: unknown) => runDefinition(definition, input ?? {}, scope),
+    },
   });
   return definition;
 }

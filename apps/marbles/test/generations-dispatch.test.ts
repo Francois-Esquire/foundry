@@ -1,10 +1,10 @@
 import { join } from "node:path";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
-import { GenerationRecords, readLiveGenerations } from "~/database/generations";
+import { GenerationRecords } from "~/database/generations";
+import { readLiveGenerations } from "~/database/open";
 import type { Engine } from "~/lib/engine";
-import { CODEX } from "~/lib/harnesses";
 import type { DispatchInfo, DispatchOptions } from "~/model/connection";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { type TestEngineOptions, testEngine } from "./helpers/engine";
@@ -15,6 +15,7 @@ import {
   switchingWorkspace,
   whenLogged,
 } from "./helpers/generation-switch";
+import { CODEX } from "./helpers/harnesses";
 
 const AGENT_DISPATCH = "agent-dispatch";
 
@@ -28,7 +29,7 @@ afterEach(async () => {
 
 async function host(options: TestEngineOptions) {
   const engine = testEngine({
-    queues: { marbles: { concurrency: 1 } },
+    pools: { default: { limit: 1 } },
     ...options,
   });
   engines.push(engine);
@@ -49,7 +50,7 @@ async function host(options: TestEngineOptions) {
 }
 
 async function twoGenerations() {
-  const sessions = new InMemorySessionStore();
+  const sessions = new MemorySessionStore();
   const reply: TestEngineOptions["reply"] = ({ executor, prompt }) =>
     `${executor.provider}|${prompt}`;
   const old = await host({
@@ -124,7 +125,7 @@ describe("a queued agent dispatch taken by another generation", () => {
   });
 
   it("continues a session an earlier dispatch left", async () => {
-    const sessions = new InMemorySessionStore();
+    const sessions = new MemorySessionStore();
     const first = await host({ sessions });
     const before = await first.jobs.start({
       agent: "helper",
@@ -258,7 +259,7 @@ describe("a run this host did not start but its engine owns", () => {
   });
 
   it("reports the failure of a run that failed", async () => {
-    const sessions = new InMemorySessionStore();
+    const sessions = new MemorySessionStore();
     const old = await host({ hold: () => true, sessions });
     const next = await host({
       reply: () => {
@@ -342,7 +343,7 @@ describe("a dispatched run that moves between engine generations", () => {
     );
   }, 150_000);
 
-  it("reads and cancels a parked workflow dispatch on the generation that took it", async () => {
+  it("reads and cancels a suspended workflow dispatch on the generation that took it", async () => {
     const fixture = await switchingWorkspace();
     const first = fixture.summary.pid ?? 0;
     const workspace = fixture.client.workspace(fixture.summary);

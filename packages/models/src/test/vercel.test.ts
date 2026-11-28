@@ -17,8 +17,8 @@ vi.mock("ai", () => ({
   wrapLanguageModel: mockWrapLanguageModel,
 }));
 
-const { vercelModels, vercelProvider } = await import("../vercel");
-const { ModelManager } = await import("../manager");
+const { vercelModels, vercelProvider } = await import("../providers/vercel");
+const { Models } = await import("../models");
 
 const FAKE_MODEL = { modelId: "any", provider: "vercel" };
 
@@ -85,10 +85,17 @@ describe("vercelModels", () => {
   });
 
   it("uses the public listing without a credential and accepts an empty catalog", async () => {
-    const fetch = vi.fn().mockResolvedValue(Response.json({ data: [] }));
+    const fetch = vi.fn(() => Promise.resolve(Response.json({ data: [] })));
     vi.stubGlobal("fetch", fetch);
     await expect(vercelModels()).resolves.toEqual([]);
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+    await expect(vercelModels({ apiKey: "   " })).resolves.toEqual([]);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "https://ai-gateway.vercel.sh/v1/models",
+      { headers: {} }
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
       "https://ai-gateway.vercel.sh/v1/models",
       { headers: {} }
     );
@@ -142,8 +149,10 @@ describe("vercelProvider", () => {
     );
   });
 
-  it("is unavailable without a key", () => {
+  it("is unavailable without a non-empty key", () => {
     expect(vercelProvider().available).toBe(false);
+    expect(vercelProvider({ config: { apiKey: "" } }).available).toBe(false);
+    expect(vercelProvider({ config: { apiKey: "   " } }).available).toBe(false);
     expect(vercelProvider({ config: { apiKey: "k" } }).available).toBe(true);
   });
 
@@ -158,7 +167,7 @@ describe("vercelProvider", () => {
   });
 
   it("resolves explicitly supplied models and defaults through the manager", () => {
-    const manager = new ModelManager({
+    const manager = new Models({
       providers: [
         vercelProvider({
           config: { apiKey: "k" },

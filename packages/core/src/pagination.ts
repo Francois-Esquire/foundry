@@ -6,5 +6,5 @@ export interface PageInput<Cursor = string> {
 export interface Page<T, Cursor = string> {
   readonly items: readonly T[];
   readonly nextCursor?: Cursor;
-  readonly total: number;
+  readonly total?: number;
 }

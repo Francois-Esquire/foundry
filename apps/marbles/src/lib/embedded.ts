@@ -2,17 +2,22 @@ export type { SessionEvent } from "@foundry/agents/session";
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for embedded hosts.
 export { Sessions } from "@foundry/agents/session";
 export type { SessionStore, SessionStoreWrite } from "@foundry/agents/store";
-export { InMemorySessionStore } from "@foundry/agents/store/memory";
-export type { Artifacts } from "@foundry/artifacts";
-export { ArtifactManager } from "@foundry/artifacts";
+export { MemorySessionStore } from "@foundry/agents/store/memory";
+export type { ArtifactSubstrate } from "@foundry/artifacts";
+export { Artifacts } from "@foundry/artifacts";
 export { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
-export { InMemoryArtifactStore } from "@foundry/artifacts/store/memory";
-export type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
+export { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+export { Authorization } from "@foundry/authorization";
+export type { AuthorizationStore } from "@foundry/authorization/store";
+export { MemoryAuthorizationStore } from "@foundry/authorization/store/memory";
 export type { Provider } from "@foundry/models";
-export { ModelManager } from "@foundry/models";
-export { gatewayModels, gatewayProvider } from "@foundry/models/gateway";
-export { vercelProvider } from "@foundry/models/vercel";
-export type { Containers } from "@foundry/sandbox/container/containers";
+export { Models } from "@foundry/models";
+export {
+  gatewayModels,
+  gatewayProvider,
+} from "@foundry/models/providers/gateway";
+export { vercelProvider } from "@foundry/models/providers/vercel";
+export type { Containers } from "@foundry/sandbox";
 export type { AutomationRecord } from "./automation/service";
 export type {
   AutomationStore,
@@ -42,11 +47,7 @@ export {
   EXECUTION_STATUSES,
   SETTLED_EXECUTION_STATUSES,
 } from "./execution-statuses";
-export type {
-  ExecutionStore,
-  ExecutionView,
-  StoredExecution,
-} from "./execution-store";
+export type { ExecutionStore } from "./execution-store";
 export { MemoryExecutionStore } from "./execution-store";
 export type {
   ExecutionObservation,
@@ -57,29 +58,24 @@ export type {
   HostObservation,
   ModelTurnObservation,
   ObservationStatus,
-  QueueSettings,
-  QueueState,
+  PoolConfig,
+  PoolStats,
   RetentionGap,
   ToolCallObservation,
 } from "./executions";
-export { DEFAULT_QUEUE } from "./executions";
+export { DEFAULT_POOL } from "./executions";
 export type { Launched, LaunchOptions } from "./launcher";
+export type { RunQuery, RunView } from "./managers/runs";
+export type { OwnerLiveness } from "./owner-liveness";
+export { PORTABLE_OWNER_LIVENESS } from "./owner-liveness";
 export type { RecordedScope } from "./run-scope";
 export type { RunStore, StoredScope } from "./run-store";
 export { MemoryRunStore } from "./run-store";
 export type { ActivityRecord, ActivityStore } from "./sandbox/activities";
-export type {
-  DeferredApprovalStore,
-  SavedApprovals,
-} from "./sandbox/deferred-approvals";
-export { MemoryDeferredApprovalStore } from "./sandbox/deferred-approvals";
+export type { OutputRecord, RunOutputSink } from "./state/output";
+export { MemoryRunOutputSink } from "./state/output";
 export type { TaskContext, TaskDefinition, TaskObservation } from "./tasks";
-export type {
-  MonitorState,
-  ScheduleHistory,
-  TickClaim,
-  TriggerStore,
-} from "./trigger-store";
+export type { MonitorState, TriggerStore } from "./trigger-store";
 export { MemoryTriggerStore } from "./trigger-store";
 export type {
   AgentDefinition,

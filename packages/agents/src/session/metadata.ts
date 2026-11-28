@@ -1,6 +1,6 @@
 import type { LanguageModelUsage } from "ai";
 
-import type { MessageMetadata, SessionUsage } from "./types";
+import type { MessageMetadata, SessionUsage } from "../schema";
 
 type NormalizedMetadata = Omit<MessageMetadata, "providerOptions">;
 

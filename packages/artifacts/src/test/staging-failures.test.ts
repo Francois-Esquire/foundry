@@ -2,9 +2,8 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { CHUNK_BYTES } from "../constants";
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
+import { CHUNK_BYTES } from "../blob-staging";
 import { blobFiles } from "../node";
 import { openStore, STORE_KINDS, type StoreKind } from "./helpers/stores";
 
@@ -16,9 +15,9 @@ const inject: {
 
 const STAGED = `${sep}.staging${sep}`;
 
-vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
+vi.mock("@foundry/lib/node/atomic-file", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@foundry/lib/atomic-file")>();
+    await importOriginal<typeof import("@foundry/lib/node/atomic-file")>();
   return {
     ...actual,
     syncDirectory: async (path: string) => {
@@ -82,7 +81,7 @@ async function harness(kind: StoreKind) {
   roots.push(root);
   const blobs = join(root, "blobs");
   const store = await openStore(kind);
-  const artifacts = new ArtifactManager({ files: blobFiles(blobs), store });
+  const artifacts = new Artifacts({ files: blobFiles(blobs), store });
   const staged = async () => {
     const found: string[] = [];
     const area = join(blobs, ".staging");

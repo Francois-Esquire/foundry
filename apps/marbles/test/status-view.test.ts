@@ -1,8 +1,8 @@
 import { createTestRenderer } from "@opentui/core/testing";
 import { describe, expect, test } from "vitest";
-import { statusText } from "../src/cli/status/text";
-import { createStatusView } from "../src/cli/status/view";
-import type { StatusReport } from "../src/status/model";
+import { statusText } from "~/cli/format/status";
+import type { StatusReport } from "~/process/status";
+import { createStatusView } from "~/tui/views/status";
 
 function report(orphaned = false): StatusReport {
   return {
@@ -87,7 +87,6 @@ function report(orphaned = false): StatusReport {
               createdAt: 0,
               id: "rn-0",
               orphaned: false,
-              sharedFrom: "ws2",
               status: "complete",
               step: "review",
               steps: [],
@@ -170,11 +169,10 @@ describe("OpenTUI status", () => {
     expect(output).not.toContain("\u001b");
   });
 
-  test("lists each run's steps as its detail, and marks a run shared from another workspace", () => {
+  test("lists each run's steps as its detail", () => {
     const output = statusText(report(), "ws1");
     expect(output).toContain("artifacts: 3");
     expect(output).toContain("  steps: gather [complete] · write [complete]");
-    expect(output).toContain("review  [complete] shared from ws2");
   });
 });
 

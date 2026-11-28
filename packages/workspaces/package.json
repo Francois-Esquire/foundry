@@ -2,7 +2,7 @@
   "name": "@foundry/workspaces",
   "version": "0.1.0",
   "private": true,
-  "description": "The Workspace system \u2014 one durable catalog over one authoritative source.",
+  "description": "Workspaces \u2014 one durable catalog over one authoritative source.",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -11,15 +11,15 @@
       "import": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./git": {
-      "types": "./dist/node/git.d.ts",
-      "import": "./src/node/git.ts",
-      "default": "./src/node/git.ts"
-    },
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./src/node/index.ts",
       "default": "./src/node/index.ts"
+    },
+    "./node/git": {
+      "types": "./dist/node/git.d.ts",
+      "import": "./src/node/git.ts",
+      "default": "./src/node/git.ts"
     },
     "./node/watch": {
       "types": "./dist/node/watch.d.ts",
@@ -63,7 +63,7 @@
     "!**/*.test.*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -72,29 +72,23 @@
   "dependencies": {
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
-    "ignore": "^7.0.6",
-    "simple-git": "^3.36.0",
-    "zod": "^4.4.3"
+    "ignore": "^7.0.16",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",
     "@libsql/client": "^0.18.0",
-    "@parcel/watcher": "^2.5.1",
-    "@types/bun": "1.3.14",
-    "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@types/bun": "1.4.5",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^4.1.12",
     "drizzle-orm": "^0.45.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.12"
   },
   "peerDependencies": {
-    "@parcel/watcher": "^2.5.1",
     "drizzle-orm": "^0.45.4"
   },
   "peerDependenciesMeta": {
-    "@parcel/watcher": {
-      "optional": true
-    },
     "drizzle-orm": {
       "optional": true
     }

@@ -1,7 +1,5 @@
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-
-import { Channels } from "../channels";
 import {
   ChannelEventSchema,
   StepAbortedEvent,
@@ -9,7 +7,8 @@ import {
   StepResolvedEvent,
   StepSkippedEvent,
 } from "../schema";
-import { Snapshot } from "../snapshot";
+import { Channels } from "../slices/channels";
+import { Snapshot } from "../slices/snapshot";
 
 const path = ["root"] as const;
 const at = "2026-05-02T00:00:00.000Z";

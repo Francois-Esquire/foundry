@@ -1,10 +1,11 @@
 import { join, resolve } from "node:path";
 import { inspect } from "node:util";
-
 import { refuseUnnamedWork } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
-import { openHostDatabase, WorkspaceRegistry } from "~/database/workspaces";
+import { openHostDatabase } from "~/database/open";
+import { WorkspaceRegistry } from "~/database/workspaces";
 import type { Engine } from "~/lib/engine";
+import { insideState } from "~/lib/state/workspace";
 import type { RollResult } from "~/model/connection";
 import type { GenerationHost, StagedWorkspace } from "~/workspace/host";
 import { stageWorkspace } from "~/workspace/host";
@@ -35,7 +36,7 @@ export type WorkspaceLoad =
       readonly root: string;
     };
 
-export class WorkspaceLoadError extends Error {
+class WorkspaceLoadError extends Error {
   override readonly name = "WorkspaceLoadError";
   readonly root: string;
 
@@ -57,7 +58,6 @@ export interface StagedWorkspaces {
 export interface HostedWorkspacesOptions {
   readonly artifacts: string;
   readonly askable?: boolean;
-  readonly dry?: boolean;
   readonly prepare?: (engine: Engine) => void;
   readonly print?: (root: string, line: string) => void;
   readonly read?: (root: string, file: string) => void;
@@ -70,7 +70,6 @@ interface Found {
     readonly artifacts: string;
     readonly config: string;
     readonly directory: string;
-    readonly dry: boolean;
     readonly state: string;
   };
   readonly found: ReturnType<typeof findWorkspace>;
@@ -78,7 +77,7 @@ interface Found {
 }
 
 export class HostedWorkspaces {
-  readonly #database: MarblesDatabase | undefined;
+  readonly #database: MarblesDatabase;
   readonly #hosts = new Map<string, GenerationHost>();
   readonly #pending = new Map<string, Promise<GenerationHost>>();
   readonly #unregistering = new Map<string, Promise<boolean>>();
@@ -89,7 +88,7 @@ export class HostedWorkspaces {
 
   private constructor(
     options: HostedWorkspacesOptions,
-    database: MarblesDatabase | undefined
+    database: MarblesDatabase
   ) {
     this.#options = options;
     this.#database = database;
@@ -98,9 +97,7 @@ export class HostedWorkspaces {
   static async open(
     options: HostedWorkspacesOptions
   ): Promise<HostedWorkspaces> {
-    const database = options.dry
-      ? undefined
-      : await openHostDatabase(options.state);
+    const database = await openHostDatabase(options.state);
     refuseUnnamedWork();
     return new HostedWorkspaces(options, database);
   }
@@ -138,7 +135,6 @@ export class HostedWorkspaces {
       artifacts: this.#options.artifacts,
       config: source,
       directory: root,
-      dry: this.#options.dry ?? false,
       state: this.#options.state,
     };
     try {
@@ -163,24 +159,21 @@ export class HostedWorkspaces {
   ): Promise<StagedWorkspace> {
     let host: GenerationHost | undefined;
     try {
-      if (this.#database !== undefined) {
-        await new WorkspaceRegistry({
-          database: this.#database.database,
-          state: args.state,
-        }).touch(found.workspace, found.config, {
-          ...(registration.cwd === undefined ? {} : { cwd: registration.cwd }),
-          hosted: true,
-        });
-      }
+      await new WorkspaceRegistry({
+        acceptWorkspace: (workspaceId) => insideState(args.state, workspaceId),
+        database: this.#database.database,
+      }).touch(found.workspace, found.config, {
+        ...(registration.cwd === undefined ? {} : { cwd: registration.cwd }),
+        hosted: true,
+      });
       const staged = await stageWorkspace({
         artifacts: args.artifacts,
         ...(this.#options.askable === undefined
           ? {}
           : { askable: this.#options.askable }),
         ...(registration.cwd === undefined ? {} : { cwd: registration.cwd }),
-        ...(this.#database === undefined ? {} : { database: this.#database }),
+        database: this.#database,
         directory: root,
-        dry: args.dry,
         onClose: (closing) => {
           if (host !== undefined && this.#hosts.get(host.id) === host) {
             this.#hosts.delete(host.id);
@@ -315,16 +308,14 @@ export class HostedWorkspaces {
 
   async #registered(): Promise<readonly WorkspaceRegistration[]> {
     const database = this.#database;
-    if (database === undefined) {
-      return [];
-    }
     if (this.#phase === "closed") {
       throw new Error("these hosted workspaces are closed");
     }
     const records = await this.#track(
       new WorkspaceRegistry({
+        acceptWorkspace: (workspaceId) =>
+          insideState(this.#options.state, workspaceId),
         database: database.database,
-        state: this.#options.state,
       }).list()
     );
     return records.filter((record) => record.hosted);
@@ -387,12 +378,10 @@ export class HostedWorkspaces {
     const host = this.#hosts.get(id);
     this.#hosts.delete(id);
     await host?.close();
-    if (this.#database === undefined) {
-      return host !== undefined;
-    }
     return await new WorkspaceRegistry({
+      acceptWorkspace: (workspaceId) =>
+        insideState(this.#options.state, workspaceId),
       database: this.#database.database,
-      state: this.#options.state,
     }).unhost(id);
   }
 
@@ -463,7 +452,7 @@ export class HostedWorkspaces {
       result.status === "rejected" ? [result.reason] : []
     );
     try {
-      this.#database?.close();
+      this.#database.close();
     } catch (error) {
       errors.push(error);
     }

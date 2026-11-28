@@ -1,20 +1,22 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-import { abandonHost, releaseEngine } from "~/authoring/runtime";
+import { expectHost, releaseEngine } from "~/authoring/runtime";
 import type { MarblesDatabase } from "~/database/open";
-import { openHostDatabase } from "~/database/workspaces";
+
+import { openHostDatabase } from "~/database/open";
 import type { Engine } from "~/lib/engine";
 import type { FeedReader } from "~/lib/feed/read";
-import { tick } from "~/lib/schedule";
+import { rollSchedule } from "~/lib/schedule";
 import { inputFromFields, SchemaError } from "~/lib/schema";
 import type { Workspace } from "~/lib/state/workspace";
-import { finishedAt } from "~/lib/trigger-store";
 import type { UsageRecords } from "~/lib/usage";
+import { runStoreEffect } from "~/lib/workflow-runs";
 import type {
   DispatchInfo,
   DispatchOptions,
   RollResult,
   RunInfo,
+  RunPage,
   WorkspaceActions,
   WorkspaceConfig,
   WorkspaceConnection,
@@ -44,7 +46,6 @@ export interface HostWorkspaceOptions {
   readonly cwd?: string;
   readonly database?: MarblesDatabase;
   readonly directory?: string;
-  readonly dry?: boolean;
   readonly onClose?: (closing: Promise<void>) => void;
   readonly onMissing?: (configPath: string) => Promise<boolean>;
   readonly prepare?: (engine: Engine) => void;
@@ -60,11 +61,7 @@ export interface WorkspaceHost extends WorkspaceConnection {
   readonly configPath: string;
   readonly engine: Engine;
   readonly files: readonly string[];
-  run(
-    signal: AbortSignal,
-    cancel?: AbortSignal,
-    letGo?: AbortSignal
-  ): Promise<void>;
+  run(signal: AbortSignal, cancel?: AbortSignal): Promise<void>;
   setStatus(line: string): void;
   readonly status: string;
   readonly workspace: Workspace;
@@ -102,7 +99,7 @@ async function inputHint(
     .map((record) => record.key);
   const carried =
     keys.length > 0
-      ? `, or roll a schedule key that carries it: ${keys.join(", ")}`
+      ? `, or run a schedule key that carries it: ${keys.join(", ")}`
       : "";
   return [
     `${error.message}.`,
@@ -132,6 +129,7 @@ export interface StagedWorkspace {
 export async function stageWorkspace(
   options: HostWorkspaceOptions
 ): Promise<StagedWorkspace> {
+  expectHost();
   const captured = new AsyncLocalStorage<string[]>();
   let status = "Loading marbles";
   const diagnostics = new Diagnostics();
@@ -147,7 +145,6 @@ export async function stageWorkspace(
     ...(options.directory === undefined
       ? {}
       : { directory: options.directory }),
-    dry: options.dry ?? false,
     ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     state: options.state,
   };
@@ -157,10 +154,9 @@ export async function stageWorkspace(
     print,
     ...(options.read === undefined ? {} : { read: options.read }),
   });
-  const shared = hostOptions.dry ? undefined : options.database;
+  const shared = options.database;
   let own: MarblesDatabase | undefined;
   const unbind = (): void => {
-    abandonHost(loaded.workspace.id, loaded.catalog);
     own?.close();
   };
   const release = async (built: Engine): Promise<void> => {
@@ -179,9 +175,9 @@ export async function stageWorkspace(
   let dispatches: BackgroundRuns;
   try {
     own =
-      hostOptions.dry || shared !== undefined
-        ? undefined
-        : await openHostDatabase(hostOptions.state);
+      shared === undefined
+        ? await openHostDatabase(hostOptions.state)
+        : undefined;
     opened = await asRegistered(
       shared ?? own,
       hostOptions,
@@ -262,7 +258,6 @@ export async function stageWorkspace(
                   workspace: opened.workspace.id,
                 }),
               }),
-          lastFinish: await lastFinishes(engine),
           ...(options.onClose === undefined
             ? {}
             : { onClose: options.onClose }),
@@ -286,7 +281,6 @@ interface Status {
   readonly diagnostics: Diagnostics;
   readonly fail: (line: string) => void;
   readonly feed: FeedReader;
-  readonly lastFinish: ReadonlyMap<string, number>;
   readonly onClose?: (closing: Promise<void>) => void;
   readonly others?: (now: number) => Promise<OtherWorkspaces>;
   readonly print: (line: string) => void;
@@ -327,19 +321,22 @@ async function readUsage(
   }
 }
 
-async function lastFinishes(
+async function nextDues(
   engine: Engine
-): Promise<ReadonlyMap<string, number>> {
-  const finished = new Map<string, number>();
-  for (const schedule of await engine.schedules()) {
-    const finish = finishedAt(
-      await engine.triggers.lastTick(schedule.key).catch(() => undefined)
-    );
-    if (finish !== undefined) {
-      finished.set(schedule.key, finish);
+): Promise<ReadonlyMap<string, number | null>> {
+  const due = new Map<string, number | null>();
+  try {
+    const store = await engine.triggers.schedules();
+    for (const schedule of await engine.schedules()) {
+      const cursor = await runStoreEffect(store.getCursor(schedule.key));
+      if (cursor !== undefined) {
+        due.set(schedule.key, cursor.nextDueAt);
+      }
     }
+  } catch {
+    return due;
   }
-  return finished;
+  return due;
 }
 
 function hosted(
@@ -352,7 +349,6 @@ function hosted(
     diagnostics,
     fail,
     feed,
-    lastFinish,
     onClose,
     others,
     print,
@@ -450,11 +446,13 @@ function hosted(
     configPath,
     describe(): Promise<WorkspaceConfig> {
       return Promise.resolve({
-        agents: [...catalog.agents.values()].map(({ id, model, provider }) => ({
-          id,
-          ...(model === undefined ? {} : { model }),
-          ...(provider === undefined ? {} : { provider }),
-        })),
+        agents: [...catalog.agents.entries()].map(
+          ([id, { model, provider }]) => ({
+            id,
+            ...(model === undefined ? {} : { model }),
+            ...(provider === undefined ? {} : { provider }),
+          })
+        ),
         definitions: dispatches.definitions(),
         monitors: [...catalog.monitors.values()].map(
           ({ key, label, source, trigger }) => ({
@@ -464,6 +462,7 @@ function hosted(
             trigger,
           })
         ),
+        observers: catalog.observerEntries(),
         root: workspace.root,
         schedules: [...catalog.schedules.values()],
         source: config,
@@ -471,12 +470,13 @@ function hosted(
     },
     dispatchAgent: (options: DispatchOptions): Promise<DispatchInfo> =>
       dispatches.start(options),
-    dispatchWorkflow: (name, input): Promise<DispatchInfo> =>
-      dispatches.startWorkflow(name, input),
+    dispatchWorkflow: (name, input, options): Promise<DispatchInfo> =>
+      dispatches.startWorkflow(name, input, options),
     engine,
     files: opened.files,
     getRun: (runId): Promise<RunInfo> => dispatches.get(runId),
     id: workspace.id,
+    listRuns: (query): Promise<RunPage> => dispatches.list(query),
     async roll(name, input): Promise<RollResult> {
       const schedule = (await engine.schedules()).find(
         (record) => record.key === name
@@ -484,12 +484,14 @@ function hosted(
       const launchInput = input === undefined ? schedule?.input : input;
       if (schedule) {
         const { lines, value } = await capture(() =>
-          tick(engine, { ...schedule, input: launchInput }, { print })
+          rollSchedule(engine, { ...schedule, input: launchInput }, { print })
         );
         return { lines, ...value };
       }
       if (!dispatches.definitions().some((entry) => entry.name === name)) {
-        throw new Error(`no workflow or schedule named "${name}"`);
+        throw new Error(
+          `no step, workflow, schedule, or monitor named "${name}"`
+        );
       }
       const { lines, value } = await capture(() =>
         engine.run<unknown>(name, launchInput).catch(async (error: unknown) => {
@@ -501,10 +503,9 @@ function hosted(
       return { lines, value };
     },
     root: workspace.root,
-    run: (signal, cancel, letGo) =>
+    run: (signal, cancel) =>
       runSchedulesUntilStopped(engine, {
         ...(cancel === undefined ? {} : { cancel }),
-        ...(letGo === undefined ? {} : { letGo }),
         print,
         signal,
       }),
@@ -525,9 +526,9 @@ function hosted(
         definitions: dispatches.definitions(),
         diagnostics: diagnostics.entries,
         feed: entries,
-        lastFinish,
         live: work,
         monitors: engine.monitors(),
+        nextDue: await nextDues(engine),
         now,
         ...(others === undefined ? {} : { others: await others(now) }),
         questionOwners: await questionOwners(engine.sessions, entries, work),

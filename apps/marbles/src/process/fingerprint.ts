@@ -8,7 +8,6 @@ import { DATA_EXTENSIONS, isModulePath } from "~/workspace/source";
 const SKIPPED = new Set([
   ".cache",
   ".git",
-  ".marbles",
   ".next",
   ".turbo",
   "build",

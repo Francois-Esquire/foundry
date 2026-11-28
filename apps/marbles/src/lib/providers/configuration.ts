@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type {
   ModelKind,
-  ModelManager,
+  Models,
   Provider,
   ProviderModelDefinition,
 } from "@foundry/models";
@@ -34,7 +34,6 @@ import {
   InvalidStoredConfiguration,
   keptConfigurations,
   MemoryProviderStore,
-  readOnlyProviders,
 } from "~/lib/providers/store";
 import type {
   ReadEvent,
@@ -70,12 +69,10 @@ export type ScopedRecord = ProviderEntryRecord & {
 export type Proposal = ScopedRecord & { readonly taken?: string };
 
 export interface ProviderConfigurationOptions {
-  readonly echo?: (instance: Provider) => Provider;
   readonly environment: Readonly<Record<string, string>>;
   readonly fixed?: readonly Provider[];
-  readonly models: ModelManager;
+  readonly models: Models;
   readonly plugins: readonly ProviderPlugin[];
-  readonly readOnly?: boolean;
   readonly store?: ProviderStore;
   readonly workspace?: ProviderWorkspace;
 }
@@ -118,12 +115,11 @@ export class ProviderConfiguration {
   #built: readonly Built[] = [];
   #instances = new Map<string, ProviderInstance>();
   #identities = new Map<string, { digest?: string; material: unknown }>();
-  #key: Buffer | undefined;
+  #key: Uint8Array | undefined;
   readonly #owned = new ProviderInstances();
   readonly #listings = new Map<string, Listing>();
   readonly #listed = new Map<string, number>();
   readonly #lists = new AbortController();
-  #online = new AbortController();
 
   constructor(options: ProviderConfigurationOptions) {
     this.#options = options;
@@ -134,7 +130,7 @@ export class ProviderConfiguration {
       options.fixed === undefined && options.store !== undefined
         ? options.store
         : new MemoryProviderStore();
-    this.#store = options.readOnly ? readOnlyProviders(store) : store;
+    this.#store = store;
     this.#machine = {
       kind: "machine",
       read: () => this.#view().machine,
@@ -306,7 +302,7 @@ export class ProviderConfiguration {
     }
     throw new ConfigurationError(
       "PROVIDERS_NOT_CONFIGURED",
-      `No model providers are configured. Run marbles${this.#options.readOnly ? " without --dry-run" : ""} in a terminal to set them up.`
+      "No model providers are configured. Run marbles in a terminal to set them up."
     );
   }
 
@@ -406,14 +402,6 @@ export class ProviderConfiguration {
     return [...named].map(undefinedProvider);
   }
 
-  setOffline(offline: boolean): void {
-    if (offline) {
-      this.#online.abort();
-    } else if (this.#online.signal.aborted) {
-      this.#online = new AbortController();
-    }
-  }
-
   dispose(): Promise<void> {
     this.#lists.abort();
     return this.#owned.dispose();
@@ -490,6 +478,11 @@ export class ProviderConfiguration {
   propose(): readonly Proposal[] {
     const env = this.#options.environment;
     return [...this.#plugins.values()].flatMap((plugin) => {
+      if (
+        this.#machine.read()?.providers.some((entry) => entry.id === plugin.id)
+      ) {
+        return [];
+      }
       const settings = plugin.detect?.({ env });
       if (settings === undefined || settings === null) {
         return [];
@@ -1055,10 +1048,7 @@ export class ProviderConfiguration {
     const served = plugin.ambient
       ? refusingWhenChanged(created.provider, patterns, env)
       : created.provider;
-    return {
-      ...created,
-      provider: this.#options.echo ? this.#options.echo(served) : served,
-    };
+    return { ...created, provider: served };
   }
 
   #create(
@@ -1093,7 +1083,7 @@ export class ProviderConfiguration {
 
   #digest(material: unknown): string {
     if (this.#key === undefined) {
-      if (this.#options.fixed === undefined && !this.#options.readOnly) {
+      if (this.#options.fixed === undefined) {
         throw new ConfigurationError(
           "CONFIGURATION_UNREADABLE",
           "an instance identity was asked for before the stored identity key was read"
@@ -1116,11 +1106,7 @@ export class ProviderConfiguration {
   }
 
   async #listAll(): Promise<readonly string[]> {
-    if (
-      this.#lists.signal.aborted ||
-      this.#online.signal.aborted ||
-      this.#options.fixed !== undefined
-    ) {
+    if (this.#lists.signal.aborted || this.#options.fixed !== undefined) {
       return [];
     }
     let files: (ProvidersFile | undefined)[];
@@ -1170,7 +1156,7 @@ export class ProviderConfiguration {
     const key = listingKey(plugin, settings, env);
     const started = (this.#listed.get(key) ?? 0) + 1;
     this.#listed.set(key, started);
-    const ended = AbortSignal.any([this.#lists.signal, this.#online.signal]);
+    const ended = this.#lists.signal;
     const signal = AbortSignal.any([
       ended,
       AbortSignal.timeout(LIST_TIMEOUT_MS),
@@ -1256,8 +1242,8 @@ function undefinedProvider(plugin: string): string {
   const name = OPT_IN[plugin];
   const fix =
     name === undefined
-      ? 'pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", in the workspace\'s source'
-      : `add to the workspace's source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { ${name} } from "@foundry.sh/marbles/providers/${plugin}"; defineProvider(${name});`;
+      ? 'pass its provider object to defineProvider, imported from "@foundry.sh/marbles/providers", and export it from the workspace\'s source'
+      : `add to the workspace's source: import { defineProvider } from "@foundry.sh/marbles/providers"; import { ${name} } from "@foundry.sh/marbles/providers/${plugin}"; export const ${name}Provider = defineProvider(${name});`;
   return `provider "${plugin}" is unavailable: this workspace does not define it; to use it, ${fix}`;
 }
 

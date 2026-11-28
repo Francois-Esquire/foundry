@@ -15,10 +15,10 @@
   "devDependencies": {
     "@foundry.sh/spyglass": "workspace:*",
     "@foundry/tsconfig": "workspace:*",
-    "@types/bun": "1.3.14",
-    "blume": "1.6.3",
-    "happy-dom": "^20.11.2",
+    "@types/bun": "1.4.5",
+    "blume": "2.2.7",
+    "happy-dom": "^21.0.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.12"
   }
 }

@@ -1,10 +1,7 @@
+import type { Reference } from "@foundry/core/agents";
 import { isReferenceable, REFERENCE } from "@foundry/core/agents";
-import type {
-  Interpolation,
-  InvocationKind,
-  Invoked,
-  PromptReference,
-} from "./language";
+import type { Interpolation } from "./interpolate";
+import type { Span } from "./spans";
 
 export function invoked<K extends InvocationKind>(
   kind: K,
@@ -60,3 +57,33 @@ export const ref = {
     invoked("template", name, args),
   variable: (name: string): PromptReference => ({ kind: "variable", name }),
 } as const;
+
+export type ArgumentSelector =
+  | { readonly by: "all" }
+  | { readonly by: "name"; readonly name: string }
+  | { readonly by: "position"; readonly index: number };
+
+export type InvocationKind = "command" | "skill" | "template";
+
+export interface Invoked<K extends InvocationKind> {
+  readonly arguments?: string;
+  readonly kind: K;
+  readonly name: string;
+}
+
+export type PromptReference =
+  | Exclude<Reference, { kind: "skill" }>
+  | Invoked<"command">
+  | Invoked<"skill">
+  | Invoked<"template">
+  | { readonly kind: "argument"; readonly selector: ArgumentSelector }
+  | { readonly command: string; readonly kind: "shell" }
+  | { readonly kind: "variable"; readonly name: string };
+
+export type PromptReferenceKind = PromptReference["kind"];
+
+export type LocatedPromptReference = PromptReference & {
+  readonly notation: string;
+  readonly origin: "symbol" | "text";
+  readonly span: Span;
+};

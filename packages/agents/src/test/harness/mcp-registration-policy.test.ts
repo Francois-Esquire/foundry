@@ -3,13 +3,17 @@ import type { Tool } from "ai";
 import { tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { SessionHarness } from "../../harness/session-harness";
-import { metaOf } from "../../harness/types";
+import { metaOf } from "../../harness/tool-registration";
 import { McpClient } from "../../mcp/client";
 import type { SessionEvent } from "../../session/events";
 import { Sessions } from "../../session/sessions";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
+import {
+  createPermissiveAuthorization,
+  denyAction,
+} from "../helpers/authorizer";
 import {
   createScriptedMockModel,
   textStreamResult,
@@ -68,9 +72,7 @@ describe("MCP registrations through the harness policy", () => {
     expect(metaOf(registration).source).toBe("mcp");
     expect(registration.description).toBe("does something dangerous");
 
-    const policy = createInMemoryAgentAuthorizer({
-      policy: { global: "allow" },
-    }).authorizer;
+    const authorization = await createPermissiveAuthorization();
     const model = createScriptedMockModel({
       stream: [
         toolCallStreamResult("call-1", "s1__dangerous", { target: "prod" }),
@@ -79,11 +81,11 @@ describe("MCP registrations through the harness policy", () => {
     });
     const harness = new SessionHarness(
       {
+        authorization,
         instructions: "x",
         model,
-        policy,
         sessionId: "s",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: { s1__dangerous: registration },
       },
       { sessionId: "s" }
@@ -101,9 +103,8 @@ describe("MCP registrations through the harness policy", () => {
     const execute = vi.fn(() => "should not run");
     const registration = await dangerousMcpRegistration(execute);
 
-    const policy = createInMemoryAgentAuthorizer({
-      policy: { global: "deny" },
-    }).authorizer;
+    const authorization = createMemoryAuthorization();
+    await denyAction(authorization, "mcp.tool");
     const model = createScriptedMockModel({
       stream: [
         toolCallStreamResult("call-1", "s1__dangerous", { target: "prod" }),
@@ -112,11 +113,11 @@ describe("MCP registrations through the harness policy", () => {
     });
     const harness = new SessionHarness(
       {
+        authorization,
         instructions: "x",
         model,
-        policy,
         sessionId: "s",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: { s1__dangerous: registration },
       },
       { sessionId: "s" }
@@ -133,9 +134,7 @@ describe("MCP registrations through the harness policy", () => {
     const execute = vi.fn(({ target }: { target: string }) => `did ${target}`);
     const registration = await dangerousMcpRegistration(execute);
 
-    const policy = createInMemoryAgentAuthorizer({
-      policy: { global: "ask" },
-    }).authorizer;
+    const authorization = createMemoryAuthorization();
     const model = createScriptedMockModel({
       stream: [
         toolCallStreamResult("call-1", "s1__dangerous", { target: "prod" }),
@@ -143,11 +142,11 @@ describe("MCP registrations through the harness policy", () => {
     });
     const harness = new SessionHarness(
       {
+        authorization,
         instructions: "x",
         model,
-        policy,
         sessionId: "s",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
         tools: { s1__dangerous: registration },
       },
       { sessionId: "s" }
@@ -192,7 +191,7 @@ describe("MCP registrations through the harness policy", () => {
       throw new Error("expected one tool");
     }
 
-    const store = new InMemorySessionStore();
+    const store = new MemorySessionStore();
     const sessions = new Sessions({ store });
     await sessions.createSession({ id: "s" });
     await sessions.appendMessage({

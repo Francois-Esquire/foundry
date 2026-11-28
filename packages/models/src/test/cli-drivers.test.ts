@@ -1,15 +1,19 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import type {
+  Capability,
+  HarnessPermissionRequest,
   HarnessResponseFormat,
   HarnessToolEvent,
-} from "@foundry/agents/harness";
+} from "@foundry/core/agents";
 import { tool } from "ai";
 import type { ClaudeCodeSettings } from "ai-sdk-provider-claude-code";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { createClaudeCodeDriver } from "../harness/claude-code";
-import { createCodexDriver } from "../harness/codex";
-import { collect, FakeAppServer, runOptions } from "./helpers/cli";
+import { createClaudeCodeDriver } from "../providers/claude-code/driver";
+import { createCodexDriver } from "../providers/codex/driver";
+import { collect, FakeAppServer, runOptions } from "./helpers/fake-app-server";
+
+const TOOL_META = Symbol.for("foundry.tool-meta");
 
 describe("Claude Code native driver", () => {
   it("sets per-session permission settings, records hooks and refusals, and resumes without replaying history", async () => {
@@ -130,6 +134,91 @@ describe("Claude Code native driver", () => {
       "refused",
     ]);
     expect(JSON.stringify(events)).not.toContain("secret");
+  });
+
+  it("forwards tool capability metadata on permission requests for host tools", async () => {
+    let settings: ClaudeCodeSettings = {};
+    const requests: HarnessPermissionRequest[] = [];
+    const capability: Capability = {
+      kind: "mcp.tool",
+      serverId: "github",
+      tool: "search",
+    };
+    const taggedTool = Object.assign(
+      tool({
+        execute: async () => "ok",
+        inputSchema: z.object({ q: z.string() }),
+      }),
+      {
+        [TOOL_META]: {
+          capability: (
+            _input: unknown,
+            context: { agentId: string; sessionId: string; toolCallId: string }
+          ) => {
+            expect(context).toMatchObject({
+              agentId: "agent-1",
+              sessionId: "session-1",
+              toolCallId: "tool-meta-1",
+            });
+            return capability;
+          },
+          source: "mcp" as const,
+        },
+      }
+    );
+    const model: LanguageModelV4 = {
+      doGenerate: vi.fn(),
+      async doStream(options) {
+        await settings.canUseTool?.(
+          "mcp__foundry__github__search",
+          { q: "foundry" },
+          {
+            requestId: "req-1",
+            signal: options.abortSignal ?? new AbortController().signal,
+            toolUseID: "tool-meta-1",
+          }
+        );
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.close();
+            },
+          }),
+        };
+      },
+      modelId: "sonnet",
+      provider: "test",
+      specificationVersion: "v4",
+      supportedUrls: {},
+    };
+    const driver = createClaudeCodeDriver({
+      agentId: "agent-1",
+      createModel: (_, value) => {
+        settings = value;
+        return model;
+      },
+      cwd: "/workspace",
+      modelId: "sonnet",
+      spawnClaudeCodeProcess: vi.fn(),
+    });
+    await collect(
+      await driver.run(
+        runOptions({
+          permission: async (request) => {
+            requests.push(request);
+            return { behavior: "allow" };
+          },
+          tools: { github__search: taggedTool },
+        })
+      )
+    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      capability,
+      source: "mcp",
+      toolCallId: "tool-meta-1",
+      toolName: "github__search",
+    });
   });
 });
 
@@ -418,6 +507,247 @@ describe("Codex native app-server driver", () => {
     const parts = await collect(stream);
     expect(parts).toHaveLength(1);
     expect(child.killed).toBe(true);
+  });
+
+  it("forwards tool capability metadata on dynamic host tool permission requests", async () => {
+    const child = new FakeAppServer();
+    const requests: HarnessPermissionRequest[] = [];
+    const capability: Capability = {
+      kind: "mcp.tool",
+      serverId: "docs",
+      tool: "lookup",
+    };
+    const taggedTool = Object.assign(
+      tool({
+        execute: async () => "found",
+        inputSchema: z.object({ query: z.string() }),
+      }),
+      {
+        [TOOL_META]: {
+          capability: () => capability,
+          source: "mcp" as const,
+        },
+      }
+    );
+    const driver = createCodexDriver({
+      agentId: "agent-1",
+      binPath: "/opt/codex",
+      cwd: "/workspace",
+      modelId: "model-1",
+      spawn: async () => child,
+    });
+    const stream = await driver.run(
+      runOptions({
+        permission: async (request) => {
+          requests.push(request);
+          return { behavior: "allow" };
+        },
+        profile: { ...runOptions().profile, disallowedTools: [] },
+        tools: { docs__lookup: taggedTool },
+      })
+    );
+    child.send({
+      id: 91,
+      method: "item/tool/call",
+      params: {
+        arguments: { query: "auth" },
+        callId: "call-meta-1",
+        tool: "docs__lookup",
+      },
+    });
+    child.send({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } },
+    });
+    await collect(stream);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      capability,
+      source: "mcp",
+      toolCallId: "call-meta-1",
+      toolName: "docs__lookup",
+    });
+  });
+
+  it("disables workspace-write networkAccess by default and allows opting in", async () => {
+    const defaultChild = new FakeAppServer();
+    const defaultDriver = createCodexDriver({
+      agentId: "agent-1",
+      binPath: "/opt/codex",
+      cwd: "/workspace",
+      modelId: "model-1",
+      spawn: async () => defaultChild,
+    });
+    const defaultStream = await defaultDriver.run(
+      runOptions({
+        profile: {
+          ...runOptions().profile,
+          allowedTools: ["Edit"],
+          disallowedTools: [],
+        },
+      })
+    );
+    expect(
+      defaultChild.messages.find((message) => message.method === "turn/start")
+        ?.params
+    ).toMatchObject({
+      sandboxPolicy: {
+        networkAccess: false,
+        type: "workspaceWrite",
+      },
+    });
+    defaultChild.send({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } },
+    });
+    await collect(defaultStream);
+
+    const optInChild = new FakeAppServer();
+    const optInDriver = createCodexDriver({
+      agentId: "agent-1",
+      binPath: "/opt/codex",
+      cwd: "/workspace",
+      modelId: "model-1",
+      networkAccess: true,
+      spawn: async () => optInChild,
+    });
+    const optInStream = await optInDriver.run(
+      runOptions({
+        profile: {
+          ...runOptions().profile,
+          allowedTools: ["Edit"],
+          disallowedTools: [],
+        },
+      })
+    );
+    expect(
+      optInChild.messages.find((message) => message.method === "turn/start")
+        ?.params
+    ).toMatchObject({
+      sandboxPolicy: {
+        networkAccess: true,
+        type: "workspaceWrite",
+      },
+    });
+    optInChild.send({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } },
+    });
+    await collect(optInStream);
+  });
+
+  it("validates maxSteps before launch and enforces maxSteps across dynamic host tools and approvals", async () => {
+    const spawn = vi.fn(async () => new FakeAppServer());
+    const invalidDriver = createCodexDriver({
+      agentId: "agent-1",
+      binPath: "/opt/codex",
+      cwd: "/workspace",
+      modelId: "model-1",
+      spawn,
+    });
+    await expect(
+      invalidDriver.run(
+        runOptions({
+          profile: {
+            ...runOptions().profile,
+            disallowedTools: [],
+            maxSteps: 0,
+          },
+        })
+      )
+    ).rejects.toThrow("Harness maxSteps must be a positive safe integer.");
+    expect(spawn).not.toHaveBeenCalled();
+
+    const child = new FakeAppServer();
+    const execute = vi.fn(async () => "ok");
+    const driver = createCodexDriver({
+      agentId: "agent-1",
+      binPath: "/opt/codex",
+      cwd: "/workspace",
+      modelId: "model-1",
+      spawn: async () => child,
+    });
+    const stream = await driver.run(
+      runOptions({
+        permission: async () => ({ behavior: "allow" }),
+        profile: {
+          ...runOptions().profile,
+          disallowedTools: [],
+          maxSteps: 1,
+        },
+        tools: {
+          probe: tool({ execute, inputSchema: z.object({}) }),
+        },
+      })
+    );
+    child.send({
+      id: 101,
+      method: "item/tool/call",
+      params: { arguments: {}, callId: "call-1", tool: "probe" },
+    });
+    child.send({
+      id: 102,
+      method: "item/tool/call",
+      params: { arguments: {}, callId: "call-2", tool: "probe" },
+    });
+    const parts = await collect(stream);
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: "Codex exceeded the harness tool step limit.",
+        }),
+        type: "error",
+      })
+    );
+    expect(child.killed).toBe(true);
+
+    const approvalChild = new FakeAppServer();
+    const permission = vi.fn(async () => ({ behavior: "allow" as const }));
+    const approvalDriver = createCodexDriver({
+      agentId: "agent-1",
+      binPath: "/opt/codex",
+      cwd: "/workspace",
+      modelId: "model-1",
+      spawn: async () => approvalChild,
+    });
+    const approvalStream = await approvalDriver.run(
+      runOptions({
+        permission,
+        profile: {
+          ...runOptions().profile,
+          disallowedTools: [],
+          maxSteps: 1,
+        },
+      })
+    );
+    approvalChild.send({
+      method: "item/started",
+      params: {
+        item: { command: "ls", id: "cmd-1", type: "commandExecution" },
+      },
+    });
+    approvalChild.send({
+      id: 201,
+      method: "item/commandExecution/requestApproval",
+      params: { command: "ls", itemId: "cmd-1" },
+    });
+    approvalChild.send({
+      id: 202,
+      method: "item/commandExecution/requestApproval",
+      params: { command: "pwd", itemId: "cmd-2" },
+    });
+    const approvalParts = await collect(approvalStream);
+    expect(permission).toHaveBeenCalledTimes(1);
+    expect(approvalParts).toContainEqual(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: "Codex exceeded the harness tool step limit.",
+        }),
+        type: "error",
+      })
+    );
+    expect(approvalChild.killed).toBe(true);
   });
 });
 

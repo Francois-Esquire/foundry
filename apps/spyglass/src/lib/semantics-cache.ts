@@ -6,7 +6,7 @@ import {
   statSync,
 } from "node:fs";
 import { join } from "node:path";
-import { writeFileAtomicSync } from "@foundry/lib/atomic-file";
+import { writeFileAtomicSync } from "@foundry/lib/node/atomic-file";
 import { encodePackageFile } from "./dataset-layout";
 import type { PackageLocalReport } from "./package-local-types";
 import { PACKAGE_LOCAL_REPORT_SCHEMA_VERSION } from "./package-local-types";

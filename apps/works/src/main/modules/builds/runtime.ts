@@ -1,11 +1,7 @@
 import { createHash } from "node:crypto";
-import { withConfirmedModuleContainerCleanup } from "@foundry/modules/platform/container-cleanup";
-import {
-  type Container,
-  createContainers,
-} from "@foundry/sandbox/container/containers";
+import type { Container, SandboxProcessesFacet } from "@foundry/sandbox";
+import { createContainers } from "@foundry/sandbox";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
-import type { SandboxProcessesFacet } from "@foundry/sandbox/types";
 import type { BuildRuntime } from "./controller";
 import { auditBuildWorkspace } from "./workspace";
 
@@ -19,26 +15,23 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 export async function createBuildRuntime(
   userData: string
 ): Promise<BuildRuntime> {
-  const { createMicrosandboxRuntime } = await import(
-    "@foundry/sandbox/container/microsandbox-runtime"
+  const { createMicrosandboxDriver } = await import(
+    "@foundry/sandbox/providers/microsandbox"
   );
-  const runtime = createMicrosandboxRuntime();
-  const containers = withConfirmedModuleContainerCleanup(
-    createContainers({
-      instanceLabel: createHash("sha256")
-        .update(`${userData}/modules/build`)
-        .digest("hex")
-        .slice(0, 16),
-      runtime,
-      store: new MemoryContainerStore(),
-    }),
-    runtime
-  );
+  const driver = createMicrosandboxDriver();
+  const containers = createContainers({
+    driver,
+    instanceLabel: createHash("sha256")
+      .update(`${userData}/modules/build`)
+      .digest("hex")
+      .slice(0, 16),
+    store: new MemoryContainerStore(),
+  });
   const cleanup = new Map<string, () => Promise<void>>();
   let prepared: Promise<void> | undefined;
   async function prepare() {
     prepared ??= (async () => {
-      if (!(await runtime.isInstalled())) {
+      if (driver.isInstalled !== undefined && !(await driver.isInstalled())) {
         throw new Error(
           "Module builds require the Microsandbox runtime. Install it before building."
         );
@@ -56,10 +49,9 @@ export async function createBuildRuntime(
       signal.throwIfAborted();
       const container = await containers.start(
         {
-          format: "foundry.sandbox.container/1",
           image: "docker.io/oven/bun:1-slim",
           mounts: [],
-          network: "unrestricted",
+          network: "open",
           resources: {
             cpus: 1,
             memoryBytes: 2 * 1024 * 1024 * 1024,
@@ -75,52 +67,11 @@ export async function createBuildRuntime(
         cleanup.delete(container.id);
       }
       cleanup.set(container.id, close);
-      try {
-        await container.files.copyIn(
-          Object.fromEntries(
-            Object.entries(source).map(([path, text]) => [
-              `${ROOT}/${path}`,
-              text,
-            ])
-          )
-        );
-        const commands = [
-          {
-            argv: [
-              "bun",
-              "install",
-              "--ignore-scripts",
-              ...(source["bun.lock"] ? ["--frozen-lockfile"] : []),
-            ],
-            phase: "installing",
-          },
-          { argv: ["bun", "run", "generate"], phase: "generating" },
-          { argv: ["bun", "run", "typecheck"], phase: "checking" },
-          { argv: ["bun", "run", "build"], phase: "building" },
-        ] as const;
-        for (const { phase, argv } of commands) {
-          signal.throwIfAborted();
-          progress({ phase });
-          const { exitCode, log } = await runBuildCommand(
-            container.processes,
-            argv,
-            { cwd: ROOT, signal }
-          );
-          progress({ log, phase });
-          if (exitCode !== 0) {
-            throw new Error(`${phase} failed (exit ${exitCode}).\n${log}`);
-          }
-        }
-        await auditBuildWorkspace(container.files, source, signal);
-        const lock = decoder.decode(
-          await container.files.readFile(`${ROOT}/bun.lock`)
-        );
-        const outputs = await collectOutputs(container, signal);
-        signal.throwIfAborted();
-        return { outputs, source: { ...source, "bun.lock": lock } };
-      } finally {
-        await close();
-      }
+      const built = await buildIn(container, source, signal, progress).catch(
+        (error: unknown) => closeAfterFailure(error, close)
+      );
+      await close();
+      return built;
     },
     async shutdown() {
       await Promise.all([...cleanup.values()].map((close) => close()));
@@ -129,11 +80,82 @@ export async function createBuildRuntime(
   };
 }
 
+async function buildIn(
+  container: Container,
+  source: Record<string, string>,
+  signal: AbortSignal,
+  progress: Parameters<BuildRuntime["run"]>[2]
+): ReturnType<BuildRuntime["run"]> {
+  await container.files.copyIn(
+    Object.fromEntries(
+      Object.entries(source).map(([path, text]) => [`${ROOT}/${path}`, text])
+    )
+  );
+  const commands = [
+    {
+      argv: [
+        "bun",
+        "install",
+        "--ignore-scripts",
+        ...(source["bun.lock"] ? ["--frozen-lockfile"] : []),
+      ],
+      phase: "installing",
+    },
+    { argv: ["bun", "run", "generate"], phase: "generating" },
+    { argv: ["bun", "run", "typecheck"], phase: "checking" },
+    { argv: ["bun", "run", "build"], phase: "building" },
+  ] as const;
+  for (const { phase, argv } of commands) {
+    signal.throwIfAborted();
+    progress({ phase });
+    if (container.processes?.spawn === undefined) {
+      throw new Error("Build container driver must support piped processes");
+    }
+    const { exitCode, log } = await runBuildCommand(container.processes, argv, {
+      cwd: ROOT,
+      signal,
+    });
+    progress({ log, phase });
+    if (exitCode !== 0) {
+      throw new Error(`${phase} failed (exit ${exitCode}).\n${log}`);
+    }
+  }
+  await auditBuildWorkspace(container.files, source, signal);
+  const lock = decoder.decode(
+    await container.files.readFile(`${ROOT}/bun.lock`)
+  );
+  const outputs = await collectOutputs(container, signal);
+  signal.throwIfAborted();
+  return { outputs, source: { ...source, "bun.lock": lock } };
+}
+
+async function closeAfterFailure(
+  error: unknown,
+  close: () => Promise<void>
+): Promise<never> {
+  const [closed] = await Promise.allSettled([close()]);
+  if (closed.status === "rejected") {
+    throw new AggregateError(
+      [error, closed.reason],
+      `${errorMessage(error)}\nBuild container cleanup also failed: ${errorMessage(closed.reason)}`,
+      { cause: error }
+    );
+  }
+  throw error;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function runBuildCommand(
   processes: Pick<SandboxProcessesFacet, "spawn">,
   argv: readonly string[],
   options: { readonly cwd: string; readonly signal: AbortSignal }
 ): Promise<{ readonly exitCode: number; readonly log: string }> {
+  if (processes.spawn === undefined) {
+    throw new Error("Build container driver must support piped processes");
+  }
   const child = await processes.spawn(argv, options);
   child.stdin.end();
   try {
@@ -189,6 +211,11 @@ async function collectOutputs(
   container: Container,
   signal: AbortSignal
 ): Promise<Record<string, Uint8Array>> {
+  const { storage } = container;
+  if (storage === undefined) {
+    throw new Error("Build container driver must support storage inspection");
+  }
+  const activeStorage = storage;
   const outputs: Record<string, Uint8Array> = {};
   let bytes = 0;
   let count = 0;
@@ -197,9 +224,7 @@ async function collectOutputs(
       throw new Error("Build outputs have too many nested directories");
     }
     signal.throwIfAborted();
-    for (const entry of await container.files.readDirectory(
-      `${ROOT}/${path}`
-    )) {
+    for (const entry of await activeStorage.readDirectory(`${ROOT}/${path}`)) {
       const file = `${path}/${entry.name}`;
       if (entry.type === "directory") {
         await visit(file, depth + 1);
@@ -219,14 +244,14 @@ async function collectOutputs(
       }
     }
   }
-  for (const entry of await container.files.readDirectory(`${ROOT}/packages`)) {
+  for (const entry of await storage.readDirectory(`${ROOT}/packages`)) {
     if (
       entry.type === "directory" &&
       (await container.files.isDirectory(`${ROOT}/packages/${entry.name}/dist`))
     ) {
       if (
-        (await container.files.lstat(`${ROOT}/packages/${entry.name}/dist`))
-          .type !== "directory"
+        (await storage.lstat(`${ROOT}/packages/${entry.name}/dist`)).type !==
+        "directory"
       ) {
         throw new Error("Build dist must be a directory");
       }

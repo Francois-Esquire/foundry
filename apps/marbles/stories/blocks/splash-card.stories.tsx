@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { defineStories, story } from "textbook-sh";
-import { summarizeConfig } from "~/cli/state/splash-model";
 import { SplashCard } from "~/components/blocks/splash-card";
 import { Text } from "~/components/ui/text";
 import type { SplashState } from "~/model/splash";
+import { summarizeConfig } from "~/tui/state/splash-model";
 import { dashboardSnapshot } from "../fixtures/snapshot";
 import { ignore, renderFrame } from "../frame";
 

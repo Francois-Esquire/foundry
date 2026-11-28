@@ -110,14 +110,13 @@ it("serves the workspace's tasks: a CLI change logged before any observer, tags,
     source,
     `import { appendFileSync } from "node:fs";
 import { observe, step, tasks } from "@foundry.sh/marbles";
-observe(tasks, (payload) => {
+export const seenObserver = observe(tasks, (payload) => {
   appendFileSync(${JSON.stringify(seen)}, JSON.stringify(payload) + "\\n");
 }, { name: "seen" });
-// Keeps failing, so it stays where it started.
-observe(tasks, () => {
+export const failingObserver = observe(tasks, () => {
   throw new Error("not yet");
 }, { name: "failing" });
-step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
+export const titles = step("titles").do(async () => (await tasks.list()).items.map((task) => task.title));`
   );
   const transport = new RecordedStdioTransport({
     args: ["--no-env-file", resolve("src/cli.ts"), "mcp", "--source", source],
@@ -159,7 +158,7 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     }),
   ]);
   try {
-    const attached = spawnSync("bun", cliArgs("attach", "--source", source), {
+    const attached = spawnSync("bun", cliArgs("start", "--source", source), {
       cwd: root,
       encoding: "utf8",
       env: home.env,
@@ -184,12 +183,12 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       tasks: [{ tags: ["review", "api"], title: "From MCP" }],
     });
 
-    const run = z.object({ runId: z.string() }).parse(
+    const run = z.object({ id: z.string() }).parse(
       JSON.parse(
         text(
           await client.callTool({
             arguments: { name: "titles" },
-            name: "dispatch_workflow",
+            name: "enqueue_workflow",
           })
         )
       )
@@ -197,8 +196,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     await vi.waitFor(async () => {
       const status = text(
         await client.callTool({
-          arguments: { runId: run.runId },
-          name: "get_run",
+          arguments: { id: run.id, resource: "run" },
+          name: "get",
         })
       );
       expect(status).toContain('"status":"completed"');
@@ -236,8 +235,11 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
 
     const before = await stored(state);
     const listed = await client.callTool({
-      arguments: { tags: { all: ["review"], any: ["api", "x"] } },
-      name: "list_tasks",
+      arguments: {
+        filter: { tags: { all: ["review"], any: ["api", "x"] } },
+        resource: "tasks",
+      },
+      name: "list",
     });
     expect(listed.isError, JSON.stringify(listed)).not.toBe(true);
     expect(listed.structuredContent).toMatchObject({
@@ -245,8 +247,11 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
       total: 1,
     });
     const ready = await client.callTool({
-      arguments: { tags: { all: ["missing"] } },
-      name: "ready_tasks",
+      arguments: {
+        filter: { ready: true, tags: { all: ["missing"] } },
+        resource: "tasks",
+      },
+      name: "list",
     });
     expect(ready.structuredContent).toEqual({ items: [], total: 0 });
     expect(before.tasks).toHaveLength(2);
@@ -289,9 +294,8 @@ step("titles").do(async () => (await tasks.list()).items.map((task) => task.titl
     const [first] = JSON.parse(after.stdout).items;
     for (const argv of [
       ["list"],
-      ["ready", "--any-tag", "cli"],
+      ["list", "--ready", "--tag", "cli"],
       ["get", first.id, "--depth", "1"],
-      ["deps", first.id],
     ]) {
       const read = cli(...argv, "--json");
       expect(read.status, `${argv.join(" ")}: ${read.stderr}`).toBe(0);

@@ -1,7 +1,8 @@
 import { normalizePosixPath, resolvePosixPath } from "@foundry/lib/paths";
 
-import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "./constants";
 import { SandboxError } from "./errors";
+
+export const DEFAULT_SANDBOX_WORKING_DIRECTORY = "/workspace";
 
 const PATH_PREFIX = /^path/;
 

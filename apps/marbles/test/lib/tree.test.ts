@@ -4,7 +4,6 @@ import { Workflow } from "@foundry/workflows/workflow";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { step, workflow } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import type { Bindings } from "~/lib/bindings";
 import type { AnyDefinition } from "~/lib/definition";
 import { createLog } from "~/lib/log";
@@ -15,7 +14,6 @@ import { unbound } from "../helpers/unbound";
 
 const TYPED_INPUT = /"typed" input: n/;
 const TYPED_OUTPUT = /"typed" output/;
-const NESTED_WORKFLOW = /"inner": a workflow can only be the root of a run/;
 const TIMED_OUT = /"slow" timed out after 30/;
 const UNREADABLE_TIMEOUT = /cannot read timeout "soon"/;
 const NOT_JSON =
@@ -35,7 +33,6 @@ const bindings: Bindings = {
 let scopes = new RunScopes();
 
 afterEach(() => {
-  catalog.reset();
   lines.length = 0;
   scopes = new RunScopes();
 });
@@ -383,7 +380,7 @@ describe("trees", () => {
     expect(scopes.size).toBe(0);
   });
 
-  it("rejects a workflow inside a run's tree before any body runs", async () => {
+  it("runs a workflow inside a run's tree as a subtree it sets up when its turn comes", async () => {
     let ran = 0;
     const leaf = step().do(() => {
       ran += 1;
@@ -391,9 +388,10 @@ describe("trees", () => {
     });
     const inner = workflow("inner", leaf({}));
     const outer = workflow("outer").do(() => inner({}));
-    await expect(launch(outer)).rejects.toThrow(NESTED_WORKFLOW);
+    const { wf } = await launch(outer);
     expect(ran).toBe(0);
-    expect(scopes.size).toBe(0);
+    await expect(wf.run()).resolves.toBe(1);
+    expect(ran).toBe(1);
   });
 
   it("parses launch input once, so a transform sees the raw value", async () => {

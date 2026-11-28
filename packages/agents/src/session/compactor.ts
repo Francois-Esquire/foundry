@@ -1,16 +1,13 @@
-import { isDeepStrictEqual } from "node:util";
-
 import type { LanguageModel, ModelMessage } from "ai";
-
 import { generateText, pruneMessages } from "ai";
-
 import type { TokenCounter } from "../contexts/types";
+import type { SessionMessage } from "../schema";
 import type { SessionStore } from "../store";
 import { toModelMessages } from "./converter";
+import { isDeepStrictEqual } from "./equal";
 import { stringifyValue } from "./serialize";
 import type { SummarizeResult } from "./sessions";
 import { foldSet, Sessions } from "./sessions";
-import type { SessionMessage } from "./types";
 
 type ModelMessagePart = Exclude<ModelMessage["content"], string>[number];
 

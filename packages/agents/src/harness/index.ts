@@ -1,17 +1,26 @@
-export type {
-  LoopAgent,
-  TurnCallSettings,
-  TurnContext,
-  TurnSettings,
-} from "../agents/loop-agent";
+// biome-ignore-all lint/performance/noBarrelFile: This is the exported @foundry/agents/harness public API.
 export type {
   AgentModel,
+  HarnessActivity,
+  HarnessActivityEvent,
+  HarnessCapabilities,
+  HarnessPermissionCallback,
+  HarnessPermissionProfile,
+  HarnessPermissionRequest,
+  HarnessPermissionResult,
+  HarnessQuestion,
+  HarnessQuestionCallback,
+  HarnessQuestionRequest,
+  HarnessQuestionResult,
+  HarnessResponseFormat,
+  HarnessToolEvent,
+  HarnessTurnDriver,
   ModelLimits,
   ModelRoute,
   ObserveTurn,
   TurnObservation,
-} from "../agents/model";
-// biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/agents/harness public API.
+} from "@foundry/core/agents";
+export { validateHarnessProfile } from "@foundry/core/agents";
 export {
   createHarnessActivityRecorder,
   reduceHarnessActivities,
@@ -23,14 +32,34 @@ export {
   CODING_INSTRUCTIONS,
   createBuiltinCodingHarness,
 } from "./builtin-coding";
+export { composeTools } from "./compose-tools";
 export { createDriverSession } from "./driver-session";
-export { directToolEffectPort } from "./effect-port";
+export type {
+  DriverSessionSettings,
+  HarnessAuthoritySettings,
+  HarnessSession,
+} from "./harness-session";
+export type {
+  LoopAgent,
+  TurnCallSettings,
+  TurnContext,
+  TurnSettings,
+} from "./loop-agent";
 export {
   createHarnessPermission,
   redactHarnessSummary,
   resolveHarnessApproval,
   summarizeHarnessInput,
 } from "./permission";
+export type {
+  CompiledHarnessProfile,
+  CompileHarnessProfileOptions,
+} from "./permission-profile";
+export {
+  applyHarnessProfile,
+  compileHarnessProfile,
+  compileHarnessRule,
+} from "./permission-profile";
 export type { HarnessQuestionToolSettings } from "./question";
 export { createHarnessQuestionTool, isHarnessQuestionTool } from "./question";
 export type {
@@ -46,39 +75,23 @@ export type {
   TransformOptions,
 } from "./stream-transform";
 export { transformStream } from "./stream-transform";
-export type { ToolAuthorizationContext } from "./tool-compiler";
+export type { ToolAccessRequestArgs } from "./tool-compiler";
 export {
   compileTools,
+  deriveInvocationId,
   isPolicyDeniedOutput,
   registerToolCall,
-  toolAuthorizationContext,
-  toolAuthorizationRequest,
+  toolAccessRequest,
 } from "./tool-compiler";
-export type {
-  DriverSessionSettings,
-  HarnessActivity,
-  HarnessActivityEvent,
-  HarnessAuthoritySettings,
-  HarnessCapabilities,
-  HarnessPermissionCallback,
-  HarnessPermissionProfile,
-  HarnessPermissionRequest,
-  HarnessPermissionResult,
-  HarnessQuestion,
-  HarnessQuestionCallback,
-  HarnessQuestionRequest,
-  HarnessQuestionResult,
-  HarnessResponseFormat,
-  HarnessSession,
-  HarnessToolEvent,
-  HarnessTurnDriver,
-} from "./turn-driver";
-export { validateHarnessProfile } from "./turn-driver";
 export type {
   AgentInvocationContext,
   RegisteredToolCall,
   ToolEffectLocation,
-  ToolEffectPort,
   ToolMeta,
-} from "./types";
-export { metaOf, TOOL_META, tagTool, tagTools } from "./types";
+} from "./tool-registration";
+export {
+  metaOf,
+  TOOL_META,
+  tagTool,
+  tagTools,
+} from "./tool-registration";

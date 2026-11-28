@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   ArtifactId,
   ArtifactOperations,
@@ -9,16 +8,17 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema, contentIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
+import { sha256HexSync } from "~/lib/hash";
 
 import type { ManagerArgs } from "../bindings";
 import type {
   ArtifactDefinition,
   ArtifactFiles,
   ArtifactRef,
-  Artifacts,
   ArtifactVersion,
   ArtifactWriteOptions,
   LatestArtifact,
+  ScopedArtifacts,
 } from "../types";
 
 export interface ArtifactsDeps {
@@ -32,7 +32,6 @@ export interface ArtifactsDeps {
     | "readRoot"
     | "revise"
   >;
-  readonly readThrough?: Pick<ArtifactOperations, "get" | "readFile">;
   readonly workspaceId: string;
 }
 
@@ -41,10 +40,7 @@ const CREATE_KIND = "artifacts.create";
 const ID_LENGTH = 24;
 
 export function artifactIdFor(workspaceId: string, name: string): ArtifactId {
-  const digest = createHash("sha256")
-    .update(`${workspaceId}\0${name}`)
-    .digest("hex")
-    .slice(0, ID_LENGTH);
+  const digest = sha256HexSync(`${workspaceId}\0${name}`).slice(0, ID_LENGTH);
   return artifactIdSchema.parse(`artifact-${digest}`);
 }
 
@@ -56,18 +52,26 @@ function isFileInput(
 
 function entriesOf(files: ArtifactFiles, fallbackMime?: string): FileInputs {
   return Object.fromEntries(
-    Object.entries(files).map(([path, content]) => [
-      path,
-      isFileInput(content)
-        ? content
-        : {
-            bytes:
-              typeof content === "string"
-                ? new TextEncoder().encode(content)
-                : content,
-            mime: classifyFile(path).mime ?? fallbackMime ?? null,
-          },
-    ])
+    Object.entries(files).map(([path, content]) => {
+      if (isFileInput(content)) {
+        if ("path" in content) {
+          throw new Error(
+            "artifact.write(): pre-staged external blob paths are not accepted from step code"
+          );
+        }
+        return [path, content];
+      }
+      return [
+        path,
+        {
+          bytes:
+            typeof content === "string"
+              ? new TextEncoder().encode(content)
+              : content,
+          mime: classifyFile(path).mime ?? fallbackMime ?? null,
+        },
+      ];
+    })
   );
 }
 
@@ -78,7 +82,7 @@ function versionOf(content: Content): ArtifactVersion {
 
 type Provenance = Readonly<Record<string, unknown>>;
 
-export class ArtifactsManager implements Artifacts {
+export class ArtifactsManager implements ScopedArtifacts {
   readonly #deps: ArtifactsDeps;
 
   constructor(deps: ArtifactsDeps) {
@@ -91,7 +95,9 @@ export class ArtifactsManager implements Artifacts {
       : artifactIdFor(this.#deps.workspaceId, artifact.name);
   }
 
-  create(input: Parameters<Artifacts["create"]>[0]): Promise<ArtifactVersion> {
+  create(
+    input: Parameters<ScopedArtifacts["create"]>[0]
+  ): Promise<ArtifactVersion> {
     return this.#create(input, {});
   }
 
@@ -102,7 +108,7 @@ export class ArtifactsManager implements Artifacts {
       metadata,
       name,
       type,
-    }: Parameters<Artifacts["create"]>[0],
+    }: Parameters<ScopedArtifacts["create"]>[0],
     provenance: Provenance
   ): Promise<ArtifactVersion> {
     const created = await this.#deps.artifacts.create({
@@ -173,24 +179,22 @@ export class ArtifactsManager implements Artifacts {
 
   async latest(artifact: ArtifactRef): Promise<LatestArtifact | undefined> {
     const id = this.#idOf(artifact);
-    for (const source of [this.#deps.artifacts, this.#deps.readThrough]) {
-      const found = await source?.get(id);
-      if (source && found?.content) {
-        const { content } = found;
-        const bytes = async (path: string) =>
-          (await source.readFile(content.id, path))?.blob;
-        return {
-          bytes,
-          text: async (path) => {
-            const read = await bytes(path);
-            return read === undefined
-              ? undefined
-              : new TextDecoder().decode(read);
-          },
-          version: versionOf(content),
-        };
-      }
+    const source = this.#deps.artifacts;
+    const found = await source.get(id);
+    if (!found?.content) {
+      return;
     }
+    const { content } = found;
+    const bytes = async (path: string) =>
+      (await source.readFile(content.id, path))?.blob;
+    return {
+      bytes,
+      text: async (path) => {
+        const read = await bytes(path);
+        return read === undefined ? undefined : new TextDecoder().decode(read);
+      },
+      version: versionOf(content),
+    };
   }
 
   listContents(artifact: ArtifactRef) {
@@ -208,7 +212,7 @@ export class ArtifactsManager implements Artifacts {
     return this.#deps.artifacts.readRoot(contentIdSchema.parse(versionId));
   }
 
-  scoped({ frame, scope }: ManagerArgs): Artifacts {
+  scoped({ frame, scope }: ManagerArgs): ScopedArtifacts {
     const provenance: Provenance = {
       runId: scope.id,
       sessionId: scope.session.id,

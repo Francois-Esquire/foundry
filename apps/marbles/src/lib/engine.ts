@@ -1,260 +1,173 @@
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import {
-  createAgentAuthorizer,
-  createInMemoryAgentAuthorizer,
-} from "@foundry/agents/authorization";
+import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { Artifacts as ArtifactSubstrate } from "@foundry/artifacts";
-import { Config } from "@foundry/lib/config";
-import type { GrantDocumentStorage } from "@foundry/lib/config/authorization/document";
-import {
-  type ProcessIdentity,
-  sameProcess,
-  thisProcess,
-} from "@foundry/lib/process-identity";
-import type { ModelManager } from "@foundry/models";
-import type { AirplaneMode } from "@foundry/models/airplane";
-import { airplaneMode } from "@foundry/models/airplane";
+import type { ArtifactSubstrate } from "@foundry/artifacts";
+import type { Authorization } from "@foundry/authorization";
+import type { AuthorizationStore } from "@foundry/authorization/store";
+import type { ProcessIdentity } from "@foundry/lib/process-identity";
+import type { Models } from "@foundry/models";
 import type { ModelsDevHold } from "@foundry/models/catalog/models-dev-source";
 import { holdModelsDev } from "@foundry/models/catalog/models-dev-source";
-import type { Containers } from "@foundry/sandbox/container/containers";
+import type { Containers } from "@foundry/sandbox";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import type { TaskStore } from "@foundry/tasks";
-import { ExecutionCoordinator } from "@foundry/workflows";
 import type { ChannelMessage } from "@foundry/workflows/channels";
-import { contributeQueueConfig } from "@foundry/workflows/config";
 import type { BaseContext } from "@foundry/workflows/executable";
-import type { Factory } from "@foundry/workflows/orchestrator";
-import { Orchestrator } from "@foundry/workflows/orchestrator";
-import type { RunRecord } from "@foundry/workflows/schema";
+import type { Output } from "ai";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
-import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings } from "~/lib/bindings";
 import { harnessOf } from "~/lib/cli-harnesses";
-import { commandRunner } from "~/lib/command";
+import type { CommandSite } from "~/lib/command";
+import type { Exec } from "~/lib/command-error";
 import {
   CrashRecovery,
+  type CrashRecoveryOptions,
   type RecoveryLog,
   type RecoveryReport,
 } from "~/lib/crash-recovery";
 import type { AnyDefinition } from "~/lib/definition";
-import { environmentSnapshot } from "~/lib/environment";
+import { EngineDefinitions } from "~/lib/engine-definitions";
+import {
+  agentsOf,
+  authorizationOf,
+  bindingsOf,
+  contextOf,
+  interactionsOf,
+  recordedIn,
+  sessionListing,
+  storedScopes,
+  storesOf,
+} from "~/lib/engine-setup";
 import type { ObserveOptions } from "~/lib/events/delivery";
 import { Delivery } from "~/lib/events/delivery";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler, Source } from "~/lib/events/source";
 import type { ExecutionContext } from "~/lib/execution-context";
-import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { ExecutionStore } from "~/lib/execution-store";
-import { MemoryExecutionStore } from "~/lib/execution-store";
-import type {
-  ExecutionRun,
-  ExecutionRuns,
-  QueueSettings,
-} from "~/lib/executions";
-import { DEFAULT_QUEUE, Executions } from "~/lib/executions";
-import { selectExecutor } from "~/lib/executor";
+import type { ExecutionRun, ExecutionRuns, PoolConfig } from "~/lib/executions";
+import { Executions } from "~/lib/executions";
 import type { FeedAnswer } from "~/lib/feed/entry";
 import type { FeedPublisher } from "~/lib/feed/publish";
 import { feedPublisher } from "~/lib/feed/publish";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
-import type { FeedRouter } from "~/lib/feed/route";
-import { feedRouter, movedAway, QuestionMovingError } from "~/lib/feed/route";
-import type { Dispatched } from "~/lib/held-runs";
-import { HeldRuns } from "~/lib/held-runs";
 import type {
-  DispatchedRun,
+  DefinitionLaunch,
   Launched,
   LaunchOptions,
-  QueuedTake,
+  QueuedAdoption,
 } from "~/lib/launcher";
-import { Launcher } from "~/lib/launcher";
-import { createLog, type LogLevel, type LogOrigin } from "~/lib/log";
-import { AgentsManager } from "~/lib/managers/agents";
+import { idempotencyKeyOf, Launcher } from "~/lib/launcher";
+import type { LogLevel, LogOrigin } from "~/lib/log";
+import type { AgentsDeps, AgentsManager } from "~/lib/managers/agents";
 import { ArtifactsManager } from "~/lib/managers/artifacts";
-import { SandboxesManager } from "~/lib/managers/sandboxes";
-import { skillResolver } from "~/lib/managers/skills";
-import type { Catalogue, GitOptions } from "~/lib/managers/workspaces";
-import { localCatalogue, WorkspacesManager } from "~/lib/managers/workspaces";
-import type { ProviderConfiguration } from "~/lib/providers/configuration";
-import type { DefinitionEntry, MonitorRecord } from "~/lib/registry";
-import { Registry } from "~/lib/registry";
-import { RunListing } from "~/lib/run-listing";
+import type { RunQuery, RunsSource, RunView } from "~/lib/managers/runs";
+import { engineRuns } from "~/lib/managers/runs";
 import {
-  adoptParkedRun,
-  adoptParkedRuns,
-  workflowStatuses,
-} from "~/lib/run-recovery";
-import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
-import { PAUSE_KIND, RunScopes, workingDirectory } from "~/lib/run-scope";
+  SandboxesManager,
+  type WorkspaceMaterialization,
+} from "~/lib/managers/sandboxes";
+import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
+import { localWorkspaces, WorkspacesManager } from "~/lib/managers/workspaces";
+import type { OwnerLiveness } from "~/lib/owner-liveness";
+import type { ProviderConfiguration } from "~/lib/providers/configuration";
+import { QueuedWorkflows } from "~/lib/queued-workflows";
+import type {
+  DefinitionEntry,
+  DefinitionRegistration,
+  MonitorRecord,
+} from "~/lib/registry";
+import type { Factory, RunQueueOptions } from "~/lib/run-queue";
+import type { ReadonlyRunScopes } from "~/lib/run-scope";
+import { RunScopes } from "~/lib/run-scope";
 import type { RunStore } from "~/lib/run-store";
-import { MemoryRunStore, TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
-import type { DeferredApprovalStore } from "~/lib/sandbox/deferred-approvals";
-import { StoredAgentGrantRepository } from "~/lib/sandbox/grants";
-import { HarnessInteractions } from "~/lib/sandbox/interactions";
-import { removeRunOutput } from "~/lib/state/output";
+import type { HarnessInteractions } from "~/lib/sandbox/interactions";
+import { type RunOutputSink, removeRunOutput } from "~/lib/state/output";
 import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
-import { factoryFor } from "~/lib/tree";
 import type { TriggerStore } from "~/lib/trigger-store";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
+import type { AgentLike, SkillSet } from "~/lib/types";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
-import type {
-  ReconciledRun,
-  RunRecorded,
-  SessionListing,
-} from "~/lib/usage-evidence";
-import { listsSessions, UsageEvidence } from "~/lib/usage-evidence";
+import type { ReconciledRun } from "~/lib/usage-evidence";
+import { UsageEvidence } from "~/lib/usage-evidence";
 import type { UsageStore } from "~/lib/usage-store";
-import { MemoryUsageStore } from "~/lib/usage-store";
+import type { RunRecord } from "~/lib/workflow-runs";
+
+export interface CatalogIdentity {
+  agentIdOf(agent: AgentLike<Output.Output>): string | undefined;
+  structuralIdentityOf(definition: AnyDefinition): string | undefined;
+}
 
 export interface EngineOptions {
   readonly activityStore?: ActivityStore;
-  readonly approvals?: DeferredApprovalStore;
-  readonly artifactReads?: Pick<ArtifactSubstrate, "get" | "readFile">;
   readonly artifacts: ArtifactSubstrate;
   readonly askable?: boolean;
+  readonly authorization?: Authorization;
+  readonly authorizationStore?: AuthorizationStore;
   readonly automationStore?: AutomationStore;
+  readonly catalog?: CatalogIdentity;
   readonly changeRetention?: number;
+  readonly commandRunner?: (site: CommandSite) => Exec;
   readonly containerRows?: Pick<ContainerStore, "list">;
   readonly containers: Containers | (() => Promise<Containers>);
+  readonly createMcpClient?: AgentsDeps["createMcpClient"];
+  readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly cwd?: string;
-  readonly dry?: boolean;
   readonly environment?: Readonly<Record<string, string>>;
   readonly executionStore?: ExecutionStore;
   readonly git?: GitOptions;
-  readonly grants?: GrantDocumentStorage;
   readonly handlerTimeout?: number;
   readonly home?: string;
+  readonly leaseTtlMs?: number;
+  readonly liveness?: OwnerLiveness;
   readonly log?: (level: LogLevel, message: string, origin: LogOrigin) => void;
-  readonly models: ModelManager;
+  readonly models: Models;
+  readonly outputSink?: RunOutputSink;
+  readonly pools?: Readonly<Record<string, PoolConfig>>;
   readonly print?: (line: string) => void;
   readonly providers?: ProviderConfiguration;
-  readonly queues?: Readonly<Record<string, QueueSettings>>;
+  readonly readFeedMedia?: (path: string) => Promise<Uint8Array>;
   readonly records?: WorkspaceRecords;
-  readonly recoverQueued?: boolean;
   readonly recoveryLog?: RecoveryLog;
   readonly root: string;
   readonly runs?: RunStore;
   readonly sessions: SessionStore;
+  readonly skills?: (set?: SkillSet) => Promise<Skill[]>;
   readonly spawned?: string;
   readonly state?: string;
-
+  readonly stopOrphans?: CrashRecoveryOptions["stopOrphans"];
   readonly triggers?: TriggerStore;
   readonly usageStore?: UsageStore;
   readonly workspaceId: string;
-  readonly workspaces?: Catalogue;
+  readonly workspaceMaterialization?: WorkspaceMaterialization;
+  readonly workspaces?: LocalWorkspaces;
   readonly worktrees?: string;
 }
 
-function contextOf(
-  options: EngineOptions,
-  spawned: string | undefined,
-  currentModels: () => ModelManager | undefined
-): ExecutionContext {
-  return {
-    cwd: options.cwd ?? options.root,
-    environment: options.environment ?? environmentSnapshot(),
-    get models() {
-      return currentModels();
-    },
-    ...(spawned === undefined ? {} : { spawned }),
-    workspaceId: options.workspaceId,
-  };
-}
-
-function sessionListing(
-  sessions: SessionStore,
-  usage: UsageStore
-): { readonly stamps?: SessionListing } {
-  if (listsSessions(sessions)) {
-    return { stamps: () => sessions.stamps() };
-  }
-  const outlives = !(
-    sessions instanceof InMemorySessionStore ||
-    usage instanceof MemoryUsageStore
-  );
-  return outlives ? { stamps: "unavailable" } : {};
-}
-
-function storesOf(options: EngineOptions): {
-  readonly automations: AutomationStore;
-  readonly executions: ExecutionStore;
-  readonly runs: RunStore;
-  readonly triggers: TriggerStore;
-  readonly usage: UsageStore;
-} {
-  return {
-    automations: options.automationStore ?? new MemoryAutomationStore(),
-    executions: options.executionStore ?? new MemoryExecutionStore(),
-    runs: options.runs ?? new MemoryRunStore(),
-    triggers: options.triggers ?? new MemoryTriggerStore(),
-    usage: options.usageStore ?? new MemoryUsageStore(),
-  };
-}
-
-function recordedIn(
-  scopes: ReadonlyRunScopes,
-  runs: RunStore
-): (runId: string) => Promise<RunRecorded> {
-  return async (runId) => {
-    const scope = scopes.get(runId);
-    if (scope) {
-      return { ledger: scope.ledger.toJSON(), session: scope.session.id };
-    }
-    try {
-      return await runs.recorded(runId);
-    } catch {
-      return "unreadable";
-    }
-  };
-}
-
-const RETIRED_POLL_MS = 250;
-const RELEASE_RETRY_MS = 1000;
-const RELEASE_RETRY_MAX_MS = 30_000;
-
-interface OwedRelease {
-  readonly released?: () => void;
-  said: boolean;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-interface Running {
-  readonly held: HeldRuns;
-  readonly listing: RunListing;
-  readonly orchestrator: Orchestrator;
-  readonly router: FeedRouter;
-  readonly store: ExecutionCoordinator;
-}
-
-const ORCHESTRATOR_CONCURRENCY = Number.MAX_SAFE_INTEGER;
-
 // biome-ignore lint/performance/noBarrelFile: Preserve the existing engine error export after moving run tracking.
-export { RunEndedError } from "~/lib/held-runs";
+export { RunEndedError } from "~/lib/followed-runs";
 
 export class Engine {
   readonly activities: HarnessActivities;
   readonly agents: AgentsManager;
   readonly artifacts: ArtifactsManager;
+  readonly authorization: Authorization;
   readonly automations: AutomationService;
   readonly bindings: Bindings;
   readonly context: ExecutionContext;
   readonly executions: ExecutionRuns;
   readonly feed: FeedReader;
   readonly interactions: HarnessInteractions;
-  readonly models: ModelManager;
-  readonly airplane: AirplaneMode;
+  readonly models: Models;
   readonly providers: ProviderConfiguration | undefined;
   readonly root: string;
   readonly sandboxes: SandboxesManager;
@@ -269,12 +182,17 @@ export class Engine {
   readonly worktrees: string;
 
   readonly #askable: boolean;
+  #catalog: CatalogIdentity | undefined;
+  readonly #createQueueClient: RunQueueOptions["createClient"] | undefined;
   readonly #evidence: UsageEvidence;
+  readonly #leaseTtlMs: number | undefined;
+  readonly #liveness: OwnerLiveness | undefined;
+  readonly #outputSink: RunOutputSink | undefined;
   readonly #publisher: FeedPublisher;
+  readonly #feedEntries: Pick<ArtifactSubstrate, "get">;
   readonly #print: (line: string) => void;
-  readonly #registry = new Registry();
-  readonly #scopes = new RunScopes();
-  readonly #extra = new Map<string, (orchestrator: Orchestrator) => void>();
+  readonly #definitions: EngineDefinitions;
+  readonly #scopes: RunScopes;
   readonly #executions: Executions;
   readonly #crashRecovery: CrashRecovery;
   readonly #recoveryLog: RecoveryLog | undefined;
@@ -286,31 +204,40 @@ export class Engine {
   readonly #automationStore: AutomationStore;
   readonly #executionStore: ExecutionStore;
   readonly #delivery: Delivery;
-  readonly #directNames = new WeakMap<AnyDefinition, string>();
-  #running: Running | undefined;
+  readonly #runsSource: RunsSource = {
+    declaredName: (definition) => this.#definitions.declaredName(definition),
+    enqueue: (definition, input, options) =>
+      this.enqueueDefinition(definition, input, options),
+    execution: (runId) => this.executions.get(runId),
+    executions: () => this.executions.list(),
+    named: (name) => this.definition(name),
+    nameOf: (name) => this.#definitions.nameOf(name),
+    resultOf: (runId) => this.#resultOf(runId),
+    stored: async (runId) => await this.#running?.record(runId),
+    storedAll: () =>
+      this.#running === undefined ? Promise.resolve([]) : this.runs(),
+    structuralIdentityOf: (definition) =>
+      this.#catalog?.structuralIdentityOf(definition),
+  };
+  #running: QueuedWorkflows | undefined;
   #phase: "new" | "starting" | "started" | "failed" | "stopping" = "new";
   #starting: Promise<this> | undefined;
   #stopping: Promise<void> | undefined;
   #cancelStopping: (() => Promise<void>) | undefined;
   #retiring = false;
-  readonly #letGo = new Set<string>();
-  readonly #owed = new Map<string, OwedRelease>();
-  #released = false;
   #disposing: Promise<void> | undefined;
   readonly #unwatch: () => void;
   readonly #unwatchRecords: () => void;
-  #prices: ModelsDevHold | undefined;
+  readonly #prices: ModelsDevHold;
 
   static worktreesFor(state: string | undefined): string {
     return join(state ?? join(tmpdir(), "marbles"), "worktrees");
   }
 
-  static persistence(
-    options: Pick<EngineOptions, "dry" | "spawned" | "state">
-  ): { readonly spawned?: string; readonly state?: string } {
-    if (options.dry === true) {
-      return {};
-    }
+  static persistence(options: Pick<EngineOptions, "spawned" | "state">): {
+    readonly spawned?: string;
+    readonly state?: string;
+  } {
     const { spawned, state } = options;
     return {
       ...(spawned === undefined ? {} : { spawned }),
@@ -322,38 +249,27 @@ export class Engine {
     const { models, root, sessions, workspaceId } = options;
     const { spawned, state } = Engine.persistence(options);
     const print = options.print ?? (() => undefined);
-    const home = options.home ?? homedir();
     const askable = options.askable ?? false;
     const { containers } = options;
     this.models = models;
     this.#prices = holdModelsDev();
-    const airplane = airplaneMode(models);
-    this.airplane = {
-      dispose: () => airplane.dispose(),
-      get enabled() {
-        return airplane.enabled;
-      },
-      set: (enabled) => {
-        airplane.set(enabled);
-        this.providers?.setOffline(enabled);
-        if (enabled) {
-          this.#releasePrices();
-        } else if (!this.#disposing) {
-          this.#prices ??= holdModelsDev();
-          this.#listModels();
-        }
-      },
-    };
     this.providers = options.providers;
     this.#unwatch =
       options.providers?.watch((problem) => print(`[providers] ${problem}`)) ??
       (() => undefined);
     this.root = root;
-    this.scopes = this.#scopes;
-    this.sessions = sessions;
-    this.state = state;
     const { automations, executions, runs, triggers, usage } =
       storesOf(options);
+    this.#scopes = new RunScopes(storedScopes(runs));
+    this.scopes = this.#scopes;
+    this.#definitions = new EngineDefinitions({
+      bindings: () => this.bindings,
+      launcher: () => this.#launcher,
+      running: () => this.#running,
+      scopes: this.#scopes,
+    });
+    this.sessions = sessions;
+    this.state = state;
     this.#automationStore = automations;
     this.#executionStore = executions;
     this.triggers = triggers;
@@ -365,15 +281,28 @@ export class Engine {
       sessions,
       ...sessionListing(sessions, usage),
     });
+    this.#catalog = options.catalog;
+    const resolveAgentId = (
+      agent: AgentLike<Output.Output>
+    ): string | undefined => this.#catalog?.agentIdOf(agent);
     this.workspaceId = workspaceId;
-    this.context = contextOf(options, spawned, () =>
-      this.disposed ? undefined : models
+    this.context = contextOf(
+      options,
+      spawned,
+      () => (this.disposed ? undefined : models),
+      resolveAgentId
     );
     this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
+    this.#createQueueClient = options.createQueueClient;
+    this.#leaseTtlMs = options.leaseTtlMs;
+    this.#liveness = options.liveness;
+    this.#outputSink = options.outputSink;
     this.#executions = new Executions({
-      ...(options.queues === undefined ? {} : { queues: options.queues }),
+      ...(options.liveness === undefined
+        ? {}
+        : { ownerIdentity: options.liveness.identity }),
+      ...(options.pools === undefined ? {} : { pools: options.pools }),
       removed: (run) => this.#removeRun(run),
-      runs,
       store: executions,
       warn: print,
     });
@@ -383,14 +312,13 @@ export class Engine {
       context: this.context,
       executions: this.#executions,
       print,
-      recoverQueued: options.recoverQueued ?? false,
       sandbox: (container, signal) => this.sandboxes.adopt(container, signal),
       workflows: {
-        cancel: async (id) => {
-          await this.#live().orchestrator.cancelRun(id);
-        },
-        dispatch: (run, input, signal) => this.#dispatch(run, input, signal),
-        has: (name) => this.#registered(name),
+        cancel: (id, reason) => this.#live().cancel(id, reason),
+        dispatch: (name, input, submit) =>
+          this.#live().dispatch(name, input, submit),
+        has: (name) => this.#definitions.registered(name),
+        poolOf: (name) => this.#definitions.poolOf(name),
       },
     });
     this.#records = options.records ?? new MemoryWorkspaceRecords();
@@ -403,80 +331,68 @@ export class Engine {
     });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
-    const catalogue = options.workspaces ?? localCatalogue(options.git ?? {});
+    const catalogue = options.workspaces ?? localWorkspaces(options.git ?? {});
     this.#askable = askable;
     this.#print = print;
-    this.#publisher = feedPublisher(options.artifacts, {
-      id: workspaceId,
-      name: basename(root),
-      root,
-    });
+    this.#publisher = feedPublisher(
+      options.artifacts,
+      {
+        id: workspaceId,
+        name: basename(root),
+        root,
+      },
+      {
+        ...(options.liveness === undefined
+          ? {}
+          : { liveness: options.liveness }),
+        ...(options.readFeedMedia === undefined
+          ? {}
+          : { readMedia: options.readFeedMedia }),
+      }
+    );
     this.feed = feedReader(options.artifacts);
+    this.#feedEntries = options.artifacts;
     this.activities = new HarnessActivities({
       feed: this.#publisher,
       ...(options.activityStore ? { store: options.activityStore } : {}),
     });
     this.#recoveryLog = options.recoveryLog;
-    this.#crashRecovery = this.#recoveryOf(options, print, runs);
+    this.#crashRecovery = this.#recoveryOf(options, print);
     this.automations = new AutomationService({
-      allowHttp: configuredMonitorUrl(this.#registry),
-      registry: this.#registry,
+      allowHttp: configuredMonitorUrl(this.#definitions.registry),
+      registry: this.#definitions.registry,
       store: automations,
     });
-    this.interactions = new HarnessInteractions({
-      askable,
-      feed: this.#publisher,
-      policy: options.grants
-        ? createAgentAuthorizer({
-            grants: new StoredAgentGrantRepository(options.grants),
-          })
-        : createInMemoryAgentAuthorizer().authorizer,
-      sessions,
-      ...(options.approvals ? { approvals: options.approvals } : {}),
-    });
+    this.authorization = authorizationOf(options);
+    this.interactions = interactionsOf(
+      options,
+      this.#publisher,
+      this.authorization
+    );
     const sandboxes = new SandboxesManager({
       containers:
         typeof containers === "function"
           ? containers
           : () => Promise.resolve(containers),
       root,
+      ...(options.workspaceMaterialization === undefined
+        ? {}
+        : { workspaceMaterialization: options.workspaceMaterialization }),
     });
     this.sandboxes = sandboxes;
-    this.agents = new AgentsManager({
+    this.agents = agentsOf(options, {
       activities: this.activities,
+      agentIdOf: resolveAgentId,
+      authorization: this.authorization,
       automations: this.automations,
-      containerOf: (sandbox) => sandboxes.containerOf(sandbox),
       context: this.context,
-      defaultExecutor: () => selectExecutor(models),
-      dry: options.dry ?? false,
-      executionOf: (provider) => options.providers?.executionOf(provider),
-      ...(options.providers
-        ? {
-            instanceOf: (provider: string) =>
-              options.providers?.identityOf(provider),
-          }
-        : {}),
-      cwd: this.context.cwd,
-      implementationOf: (provider) =>
-        options.providers
-          ?.list()
-          .find(
-            (entry) => entry.id === provider && entry.position !== undefined
-          )?.plugin,
+      executions: this.#executions,
       interactions: this.interactions,
-      models,
-      observe: (runId, observation) =>
-        this.#executions.observe(runId, observation),
-      requireProviders: () => options.providers?.require(),
-      sessions,
-      skills: skillResolver({ home, workspace: root }),
-      undefinedProvider: (id) => options.providers?.undefinedProvider(id),
-      usage: { ledger: this.usage, workspaceId },
-      warn: (message) => print(`[agents] ${message}`),
+      sandboxes,
+      usage: this.usage,
     });
     this.artifacts = new ArtifactsManager({
       artifacts: options.artifacts,
-      ...(options.artifactReads ? { readThrough: options.artifactReads } : {}),
       workspaceId,
     });
     this.workspaces = new WorkspacesManager({
@@ -486,55 +402,29 @@ export class Engine {
       root,
       worktreeHome: this.worktrees,
     });
-    this.bindings = {
-      agents: (args) => this.agents.scoped(args),
-      artifacts: (args) => this.artifacts.scoped(args),
+    this.bindings = bindingsOf(options, {
+      agents: this.agents,
+      artifacts: this.artifacts,
+      catalogue,
       context: this.context,
-      exec: ({ frame, scope, write }) =>
-        commandRunner({
-          cwd: () => workingDirectory(scope.cwd),
-          dry: options.dry ?? false,
-          environment: this.context.environment,
-          print,
-          ...(this.context.spawned === undefined
-            ? {}
-            : { spawned: this.context.spawned }),
-          signal: () => frame.signal,
-          work: frame.work,
-          write,
-        }),
-      host: { catalogue, triggers: this.triggers },
-      log: createLog((level, message) =>
-        options.log
-          ? options.log(level, message, { kind: "step" })
-          : print(message)
-      ),
-      root,
-      sandboxes: (args) => this.sandboxes.scoped(args),
-      setupLog: (run) =>
-        createLog((level, message) =>
-          options.log
-            ? options.log(level, message, {
-                kind: "setup",
-                runId: run.id,
-                workflow: run.workflow,
-              })
-            : print(message)
-        ),
-      turns: (args) => this.agents.turns(args),
-      workspaces: (args) => this.workspaces.scoped(args),
-    };
+      print,
+      runs: this.#runsSource,
+      sandboxes: this.sandboxes,
+      triggers: this.triggers,
+      workspaces: this.workspaces,
+    });
   }
 
-  async #removeRun(run: ExecutionRun): Promise<void> {
+  #removeRun(run: ExecutionRun): void {
     if (run.kind !== "workflow") {
       return;
     }
-    if (this.state !== undefined) {
+    if (this.#outputSink !== undefined) {
+      this.#outputSink.remove(run.id);
+    } else if (this.state !== undefined) {
       removeRunOutput(this.state, run.id);
     }
-    await this.#runs.remove(run.id);
-    this.#running?.listing.remove(run.id);
+    this.#running?.unlisted(run.id);
   }
 
   get harnesses(): readonly string[] {
@@ -547,42 +437,36 @@ export class Engine {
     ];
   }
 
-  define(definition: AnyDefinition): void {
-    if (definition.name !== undefined) {
-      this.#claim(definition.name, { definitions: false, label: "define" });
-    }
-    this.#registry.define(definition);
-    if (definition.name !== undefined) {
-      this.#adopt(definition.name);
-    }
+  bindCatalog(catalog: CatalogIdentity): void {
+    this.#catalog = catalog;
   }
 
-  #adopt(name: string): void {
-    const definition = this.#registry.definitions.get(name);
-    if (definition && this.#running) {
-      this.#running.orchestrator.register(
-        name,
-        factoryFor(definition, () => this.bindings, this.#scopes)
-      );
-    }
+  define(
+    definition: AnyDefinition,
+    pool?: string,
+    registration?: DefinitionRegistration
+  ): void {
+    this.#definitions.define(definition, pool, registration);
   }
 
   has(name: string): boolean {
-    return this.#registry.definitions.has(name);
+    return this.#definitions.registry.definitions.has(name);
+  }
+
+  definition(name: string): AnyDefinition | undefined {
+    return this.#definitions.registry.launchable(name);
   }
 
   definitions(): readonly DefinitionEntry[] {
-    return this.#registry.entries();
+    return this.#definitions.registry.entries();
   }
 
   schedule(record: Schedule): void {
-    this.#registry.schedule(record);
+    this.#definitions.registry.schedule(record);
   }
 
   monitor(record: MonitorRecord): void {
-    this.#claim(record.key, { definitions: false, label: "monitor" });
-    this.#registry.monitor(record);
-    this.#adopt(record.key);
+    this.#definitions.monitor(record);
   }
 
   observe<T extends Fact>(
@@ -600,7 +484,7 @@ export class Engine {
   }
 
   monitors(): ReadonlyMap<string, MonitorRecord> {
-    return this.#registry.monitors;
+    return this.#definitions.registry.monitors;
   }
 
   register<I, O, X extends BaseContext = BaseContext>(
@@ -610,52 +494,18 @@ export class Engine {
     if (this.#phase !== "new") {
       throw new Error(`register("${name}"): the engine has already started`);
     }
-    this.#claim(name, { definitions: true, label: "register" });
-    this.#extra.set(name, (orchestrator) =>
-      orchestrator.register(name, factory)
-    );
+    this.#definitions.register(name, factory);
   }
 
   task<I, O>(definition: TaskDefinition<I, O>): void {
-    this.#claim(definition.name, { definitions: true, label: "task" });
-    this.#launcher.task(definition as TaskDefinition);
-  }
-
-  #claim(
-    name: string,
-    claim: { readonly definitions: boolean; readonly label: string }
-  ): void {
-    if (
-      this.#launcher.has(name) ||
-      this.#extra.has(name) ||
-      (claim.definitions && this.#registry.definitions.has(name))
-    ) {
-      throw new Error(`${claim.label}("${name}"): already registered`);
-    }
-  }
-
-  #registered(name: string): boolean {
-    return this.#registry.definitions.has(name) || this.#extra.has(name);
-  }
-
-  #registerAll(orchestrator: Orchestrator): void {
-    for (const [name, definition] of this.#registry.definitions) {
-      orchestrator.register(
-        name,
-        factoryFor(definition, () => this.bindings, this.#scopes)
-      );
-    }
-    for (const register of this.#extra.values()) {
-      register(orchestrator);
-    }
+    this.#definitions.task(definition);
   }
 
   #recoveryOf(
     options: EngineOptions,
-    print: (line: string) => void,
-    runs: RunStore
+    print: (line: string) => void
   ): CrashRecovery {
-    const { containerRows } = options;
+    const { containerRows, liveness, stopOrphans } = options;
     const { spawned } = Engine.persistence(options);
     return new CrashRecovery({
       activities: this.activities,
@@ -663,9 +513,10 @@ export class Engine {
       ...(containerRows === undefined ? {} : { containerRows }),
       containers: () => this.sandboxes.containers(),
       executions: () => this.#executions.list(),
+      ...(liveness === undefined ? {} : { liveness }),
       print,
-      runs,
       ...(spawned === undefined ? {} : { spawned }),
+      ...(stopOrphans === undefined ? {} : { stopOrphans }),
     });
   }
 
@@ -687,105 +538,55 @@ export class Engine {
     const feed = this.#publisher;
     const print = this.#print;
     await this.#listModels();
-    const config = new Config();
-    contributeQueueConfig(config, {
-      concurrency: ORCHESTRATOR_CONCURRENCY,
-      defaultName: DEFAULT_QUEUE,
-    });
-    let orchestrator: Orchestrator | undefined;
-    let adopted: ReadonlyMap<string, RecordedScope> = new Map();
+    let running: QueuedWorkflows | undefined;
     try {
       await this.activities.load();
-      await this.#executions.load();
-      const store = new ExecutionCoordinator({
-        store: await this.#runs.open(
-          (runId) => this.#scopes.get(runId)?.recorded(),
-          (runId, status) => this.#executions.follows(runId, status)
-        ),
-      });
-      adopted = await adoptParkedRuns({
+      const store = await this.#runs.open((runId) =>
+        this.#scopes.get(runId)?.recorded()
+      );
+      running = await QueuedWorkflows.open({
         askable,
-        print,
-        registered: (name) => this.#registered(name),
-        runs: this.#runs,
-        settled: (runId) => this.#executions.storedSettled(runId),
-        store,
-      });
-      for (const [runId, scope] of adopted) {
-        this.#scopes.recover(runId, scope);
-      }
-      const statuses = await workflowStatuses(store, this.#executions.list());
-
-      orchestrator = new Orchestrator({
-        config,
-        recovers: (run) =>
-          adopted.has(run.id) && run.lastStatus === "suspended",
-        store,
-      });
-      await orchestrator.setup();
-      this.#registerAll(orchestrator);
-      await orchestrator.start();
-      const router = feedRouter({ askable, feed, orchestrator, print });
-      const held = new HeldRuns({
+        ...(this.#createQueueClient === undefined
+          ? {}
+          : { createQueueClient: this.#createQueueClient }),
+        durable: this.#runs.durable,
         executions: this.#executions,
-        orchestrator,
+        feed,
+        feedEntries: this.#feedEntries,
+        follow: (runId, dispatched) => this.#launcher.follow(runId, dispatched),
+        ...(this.#leaseTtlMs === undefined
+          ? {}
+          : { leaseTtlMs: this.#leaseTtlMs }),
+        ...(this.#liveness === undefined ? {} : { liveness: this.#liveness }),
+        ...(this.#outputSink === undefined
+          ? {}
+          : { outputSink: this.#outputSink }),
+        pools: this.#executions.initialPools(),
         print,
-        router,
+        registered: (name) => this.#definitions.registered(name),
         scopes: this.#scopes,
         state,
+        store,
       });
-      const recovered: {
-        createdAt: number;
-        name: string;
-        dispatched: Dispatched<unknown>;
-      }[] = [];
-
-      for (const runId of adopted.keys()) {
-        const dispatched = await orchestrator.get(runId);
-        const record = await store.getRun(runId);
-        if (!(dispatched && record)) {
-          this.#scopes.forget(runId);
-          await this.#runs.release(runId);
-          continue;
-        }
-        print(`[run] ${record.step} recovered ${runId}`);
-        recovered.push({
-          createdAt: record.timestamps.createdAt,
-          dispatched,
-          name: record.step,
-        });
-        await router.adopt(record.step, runId);
-      }
       await this.interactions.restore();
       await feed
         .cancelAbandoned()
         .catch((error: unknown) => print(`[feed] ${String(error)}`));
-      const listing = new RunListing(store);
-      await listing.load();
-      for (const { dispatched } of recovered) {
-        listing.add(dispatched.id);
-      }
-      this.#running = { held, listing, orchestrator, router, store };
-      for (const { createdAt, name, dispatched } of recovered) {
-        await this.#executions
-          .adoptParked({ createdAt, id: dispatched.id, name })
-          .catch((error: unknown) =>
-            print(
-              `[state] run ${dispatched.id} has no record: ${String(error)}`
-            )
-          );
-        this.#launcher.follow(dispatched.id, held.follow(name, dispatched));
-      }
+      await running.queue.pause();
+      this.#executions.attach(running.queue);
+      await this.#executions.load();
+      this.#running = running;
+      await this.#launcher.attach(running.queue);
+      this.#definitions.registerAll(running);
       await this.#delivery.start();
       this.#phase = "started";
-      await this.#recover(
-        new Set(recovered.map(({ dispatched }) => dispatched.id)),
-        statuses
+      const recovery = await this.#crashRecovery.recover(
+        async () => (await this.#launcher.recover()).interrupted
       );
-      const recovery = await this.#crashRecovery.recover(store);
       for (const runId of recovery.closed) {
-        listing.add(runId);
+        running.listed(runId);
       }
+      await running.queue.resume();
       this.#lastRecovery = recovery.report;
       await this.#recoveryLog
         ?.record(recovery.report)
@@ -796,67 +597,22 @@ export class Engine {
     } catch (error) {
       this.#phase = "failed";
       try {
-        try {
-          await this.#delivery.stop();
-          await this.#launcher.halt(true);
-          await orchestrator?.stop();
-          await this.#launcher.settled();
-        } finally {
-          for (const scope of this.#scopes) {
-            scope.abort(error);
-            await this.#scopes.settle(scope.id);
-          }
-        }
+        await this.#delivery.stop();
+        this.#executions.detach();
+        await running?.stop();
       } finally {
-        for (const runId of adopted.keys()) {
-          this.#scopes.forget(runId);
-        }
         this.#running = undefined;
-        await this.#runs.release().catch(() => undefined);
+        for (const scope of this.#scopes) {
+          scope.abort(error);
+          await this.#scopes.settle(scope.id);
+        }
       }
       throw error;
     }
     return this;
   }
 
-  #recover(
-    adopted: ReadonlySet<string>,
-    statuses: ReadonlyMap<string, string>
-  ): Promise<void> {
-    return this.#launcher.recover({
-      adopted,
-      fileStatus: (run) =>
-        run.kind === "workflow" ? statuses.get(run.id) : undefined,
-    });
-  }
-
-  async #dispatch(
-    run: ExecutionRun,
-    input: unknown,
-    signal: AbortSignal
-  ): Promise<DispatchedRun> {
-    const { orchestrator } = this.#live();
-    const { correlation } = run;
-    let dispatched: Dispatched<unknown>;
-    try {
-      dispatched = await orchestrator.run<unknown, unknown>(run.name, input, {
-        extensions:
-          "triggerId" in correlation
-            ? { triggerId: correlation.triggerId }
-            : {},
-        runId: run.id,
-        signal,
-      });
-    } catch (error) {
-      await this.#scopes.settle(run.id);
-      throw error;
-    }
-    const { held, listing } = this.#live();
-    listing.add(run.id);
-    return held.follow(run.name, dispatched);
-  }
-
-  #live(): Running {
+  #live(): QueuedWorkflows {
     if (!this.#running) {
       throw new Error("the engine has not started");
     }
@@ -875,7 +631,7 @@ export class Engine {
     if (await this.interactions.answer(entryId, answer)) {
       return;
     }
-    return this.#live().router.answer(entryId, answer);
+    return this.#live().answer(entryId, answer);
   }
 
   cancel(runId: string): Promise<void> {
@@ -906,49 +662,8 @@ export class Engine {
     return this.scopes.get(runId)?.pause(stepId, reason) ?? false;
   }
 
-  async resume(runId: string, stepId: string, prompt?: string): Promise<void> {
-    const { orchestrator } = this.#live();
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
-    if (this.#retiring || this.#letGo.has(runId)) {
-      throw new QuestionMovingError(runId);
-    }
-    const scope = this.#scopeOf(runId);
-    const pending = await orchestrator.listSuspensions({
-      kind: PAUSE_KIND,
-      runId,
-      status: "pending",
-    });
-    // biome-ignore lint/suspicious/noUnnecessaryConditions: Biome narrows the field to its initial value; `retire` sets it.
-    if (this.#retiring || this.#letGo.has(runId)) {
-      throw new QuestionMovingError(runId);
-    }
-    const below = stepId.split(".").slice(1).join(".");
-    const under = (path: string, wanted: string) =>
-      path === wanted || (wanted !== "" && path.startsWith(`${wanted}.`));
-    const parked = pending.items.filter(
-      (item) =>
-        under(item.stepPath.join("."), stepId) ||
-        under(item.stepPath.slice(1).join("."), below)
-    );
-    if (parked.length === 0) {
-      throw new Error(`"${stepId}" is not paused`);
-    }
-    const trimmed = prompt?.trim() || undefined;
-    for (const suspension of parked) {
-      const frame = scope.frames.get(suspension.stepPath.join("."));
-      if (frame && trimmed !== undefined) {
-        frame.resumePrompt = trimmed;
-      }
-      await orchestrator
-        .resolve(
-          suspension.id,
-          { prompt: trimmed ?? null },
-          { expectedRevision: suspension.revision }
-        )
-        .catch((error: unknown) => {
-          throw movedAway(error, runId);
-        });
-    }
+  resume(runId: string, stepId: string, prompt?: string): Promise<void> {
+    return this.#live().resume(runId, stepId, prompt);
   }
 
   async run<O>(
@@ -960,7 +675,15 @@ export class Engine {
     return launched.result;
   }
 
-  async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
+  async enqueueDefinition<O>(
+    definition: AnyDefinition,
+    input: unknown,
+    options: DefinitionLaunch = {}
+  ): Promise<Launched<O>> {
+    const { key } = options;
+    if (key !== undefined && (typeof key !== "string" || key.trim() === "")) {
+      throw new TypeError("enqueue(): a key must be a non-blank string");
+    }
     if (this.disposed) {
       throw new Error("engine is stopping");
     }
@@ -969,35 +692,36 @@ export class Engine {
     } else if (this.#phase === "starting") {
       await this.#starting;
     }
-    const { orchestrator } = this.#live();
-    let name = this.#directNames.get(definition);
-    if (name === undefined) {
-      const declared = definition.name;
-      const registered =
-        declared !== undefined &&
-        this.#registry.definitions.get(declared) === definition
-          ? declared
-          : undefined;
-      name = registered ?? `direct-${crypto.randomUUID()}`;
-      if (registered === undefined) {
-        const directName = name;
-        const register = (target: Orchestrator) =>
-          target.register(
-            directName,
-            factoryFor(
-              definition,
-              () => this.bindings,
-              this.#scopes,
-              directName
-            )
-          );
-        this.#extra.set(directName, register);
-        register(orchestrator);
-      }
-      this.#directNames.set(definition, name);
+    const declared = this.#definitions.declaredName(definition);
+    if (key !== undefined && declared === undefined) {
+      throw new Error(
+        `enqueue(): a key is matched by the definition's name, and ${definition.name === undefined ? "this definition has none" : `"${definition.name}" is not a definition this workspace declares`}; declare it by name in the workspace's source to enqueue it with a key`
+      );
     }
-    const launched = await this.launch<O>(name, input);
+    const name =
+      declared ?? this.#definitions.directName(definition, this.#live());
+    return await this.launch<O>(
+      name,
+      input,
+      key === undefined ? {} : { idempotencyKey: idempotencyKeyOf(name, key) }
+    );
+  }
+
+  async execute<O>(definition: AnyDefinition, input: unknown): Promise<O> {
+    const launched = await this.enqueueDefinition<O>(definition, input);
     return launched.result;
+  }
+
+  readRun(runId: string): Promise<RunView | null> {
+    return engineRuns(this.#runsSource).get(runId);
+  }
+
+  readRuns(query?: RunQuery): Promise<readonly RunView[]> {
+    return engineRuns(this.#runsSource).list(query);
+  }
+
+  #resultOf(runId: string): Promise<unknown> {
+    return this.#launcher.resultOf(runId);
   }
 
   async readUsage(): Promise<UsageRecords> {
@@ -1006,7 +730,7 @@ export class Engine {
       const ended = timestamps.completedAt ?? timestamps.failedAt;
       const unwritten =
         TERMINAL_RUN_STATUSES.has(record.status) &&
-        this.#live().held.workflow(record.id) !== undefined;
+        this.#live().following(record.id);
       return {
         active:
           record.status === "queued" ||
@@ -1031,18 +755,8 @@ export class Engine {
     return this.#lastRecovery;
   }
 
-  async runs(): Promise<readonly RunRecord[]> {
-    const { held, listing } = this.#live();
-    return (await listing.list()).map((record) => {
-      const current = held.workflow(record.id)?.state;
-      return current
-        ? {
-            ...record,
-            metadata: { ...record.metadata, workflow: current },
-            snapshot: current.tree ?? record.snapshot,
-          }
-        : record;
-    });
+  runs(): Promise<readonly RunRecord[]> {
+    return this.#live().records();
   }
 
   schedules(): Promise<readonly Schedule[]> {
@@ -1059,10 +773,7 @@ export class Engine {
 
   async retire(
     successor: ProcessIdentity,
-    options: {
-      readonly onHanded?: (runId: string) => void;
-      readonly onLetGo?: (runId: string) => void;
-    } = {}
+    options: { readonly onHanded?: (runId: string) => void } = {}
   ): Promise<{ readonly ended: Promise<void> }> {
     const running = this.#running;
     if (running === undefined) {
@@ -1070,59 +781,25 @@ export class Engine {
     }
     this.#retiring = true;
     this.#launcher.beginRetiring();
-    running.router.retire();
+    try {
+      for (const runId of await this.#launcher.handOver(successor)) {
+        options.onHanded?.(runId);
+      }
+    } catch (error) {
+      this.#print(`[engine] the run queue did not retire: ${String(error)}`);
+    }
     await this.#delivery.stop({ grace: 0 }).catch((error: unknown) => {
       this.#print(
         `[engine] the delivery claim was not given up as this engine retires: ${String(error)}`
       );
     });
-    const handedLate = (late: string) => options.onHanded?.(late);
-    for (const runId of await this.#launcher.handOver(successor, handedLate)) {
-      this.#letGo.add(runId);
-    }
-    running.orchestrator.on("suspended", ({ runId }) => {
-      if (
-        this.#letGo.has(runId) ||
-        running.held.workflow(runId) === undefined
-      ) {
-        return;
-      }
-      this.#giveBack(running, runId, () => options.onLetGo?.(runId)).catch(
-        (error: unknown) =>
-          this.#print(
-            `[run] ${runId} let go, and not reported: ${String(error)}`
-          )
-      );
-    });
-    for (const runId of running.held.withStatus(["suspended"])) {
-      if (!this.#letGo.has(runId)) {
-        await this.#giveBack(running, runId);
-      }
-    }
-    const left = () =>
-      this.#executions
-        .list()
-        .some(
-          (run) =>
-            !(
-              this.#letGo.has(run.id) ||
-              SETTLED_EXECUTION_STATUSES.has(run.status)
-            ) && sameProcess(run.owner, thisProcess())
-        );
-    const runsEnded = new Promise<void>((resolve) => {
-      const look = () => {
-        if (left()) {
-          setTimeout(look, RETIRED_POLL_MS).unref?.();
-        } else {
-          resolve();
-        }
-      };
-      look();
-    });
-    return { ended: runsEnded };
+    return { ended: this.#launcher.idle() };
   }
 
-  async takeQueued(runId: string, owner: ProcessIdentity): Promise<QueuedTake> {
+  async adoptQueued(
+    runId: string,
+    owner: ProcessIdentity
+  ): Promise<QueuedAdoption> {
     if (this.#running === undefined || this.#phase !== "started") {
       return { taken: false, why: "this engine is not running" };
     }
@@ -1130,161 +807,18 @@ export class Engine {
     if (this.#retiring) {
       return { taken: false, why: "this engine is retiring" };
     }
-    return await this.#launcher.takeOrphaned(runId, owner);
+    return await this.#launcher.adoptQueued(runId, owner);
   }
 
-  async adopt(runId: string): Promise<boolean> {
-    const running = this.#running;
-    const away = () =>
-      this.#running !== running || this.#phase !== "started" || this.#retiring;
-    if (running === undefined || away()) {
+  async takeHanded(runId: string): Promise<boolean> {
+    if (
+      this.#running === undefined ||
+      this.#phase !== "started" ||
+      this.#retiring
+    ) {
       return false;
     }
-    const handed = await this.#launcher.takeHanded(runId);
-    if (handed !== undefined) {
-      return handed;
-    }
-    const record = await running.store.getRun(runId);
-    if (record?.status !== "suspended" || away()) {
-      return false;
-    }
-    const owed = this.#forgive(runId);
-    let scope: Awaited<ReturnType<typeof adoptParkedRun>>;
-    try {
-      scope = await adoptParkedRun(record, {
-        askable: this.#askable,
-        print: () => undefined,
-        registered: (name) => this.#registered(name),
-        runs: this.#runs,
-        settled: (id) => this.#executions.storedSettled(id),
-        store: running.store,
-      });
-    } catch (error) {
-      if (owed !== undefined) {
-        await this.#giveBack(running, runId, owed.released);
-      }
-      throw error;
-    }
-    if (scope === undefined) {
-      if (owed !== undefined) {
-        await this.#giveBack(running, runId, owed.released);
-      }
-      return false;
-    }
-    this.#scopes.recover(runId, scope);
-    this.#letGo.delete(runId);
-    let dispatched: Awaited<ReturnType<Orchestrator["adopt"]>>;
-    try {
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-      if (!(await this.#executions.takeReleased(runId))) {
-        throw new Error("its execution run is not parked");
-      }
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-      dispatched = await running.orchestrator.adopt(runId);
-      if (dispatched === null) {
-        throw new Error("it is no longer parked in the store");
-      }
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-      await running.router.adopt(record.step, runId);
-      if (away()) {
-        throw new Error("this engine began to retire");
-      }
-    } catch (error) {
-      this.#scopes.forget(runId);
-      await running.orchestrator
-        .forget(runId)
-        .catch((failure: unknown) =>
-          this.#print(
-            `[run] ${record.step} ${runId} not dropped from the queue: ${String(failure)}`
-          )
-        );
-      await this.#giveBack(running, runId);
-      if (away()) {
-        this.#print(
-          `[run] ${record.step} ${runId} given back: this engine began to retire as it took it over`
-        );
-        return false;
-      }
-      throw new Error(`run ${runId} was not taken over: ${String(error)}`, {
-        cause: error,
-      });
-    }
-    this.#print(`[run] ${record.step} taken over ${runId}`);
-    running.listing.add(runId);
-    this.#launcher.follow(runId, running.held.follow(record.step, dispatched));
-    return true;
-  }
-
-  async #giveBack(
-    running: Running,
-    runId: string,
-    released?: () => void
-  ): Promise<void> {
-    this.#letGo.add(runId);
-    running.router.letGo(runId);
-    const before = this.#forgive(runId);
-    const tell = released ?? before?.released;
-    const owed: OwedRelease = {
-      ...(tell === undefined ? {} : { released: tell }),
-      said: false,
-    };
-    this.#owed.set(runId, owed);
-    await this.#release(runId, owed, RELEASE_RETRY_MS);
-  }
-
-  #forgive(runId: string): OwedRelease | undefined {
-    const owed = this.#owed.get(runId);
-    if (owed !== undefined) {
-      clearTimeout(owed.timer);
-      this.#owed.delete(runId);
-    }
-    return owed;
-  }
-
-  async #release(
-    runId: string,
-    owed: OwedRelease,
-    delay: number
-  ): Promise<void> {
-    if (this.#owed.get(runId) !== owed) {
-      return;
-    }
-    try {
-      await this.#runs.release(runId);
-    } catch (error) {
-      if (this.#owed.get(runId) !== owed) {
-        return;
-      }
-      if (this.#released) {
-        this.#owed.delete(runId);
-        return;
-      }
-      if (!owed.said) {
-        owed.said = true;
-        this.#print(
-          `[run] ${runId} not let go: ${String(error)}; it stays claimed here, unanswered, and is tried again`
-        );
-      }
-      owed.timer = setTimeout(() => {
-        this.#release(
-          runId,
-          owed,
-          Math.min(delay * 2, RELEASE_RETRY_MAX_MS)
-        ).catch(() => undefined);
-      }, delay);
-      owed.timer.unref?.();
-      return;
-    }
-    if (this.#owed.get(runId) === owed) {
-      this.#owed.delete(runId);
-      owed.released?.();
-    }
+    return (await this.#launcher.takeHanded(runId)) ?? false;
   }
 
   stop(options?: { readonly cancel?: boolean }): Promise<void> {
@@ -1301,6 +835,10 @@ export class Engine {
     }
     this.#phase = "stopping";
     const cancel = options?.cancel ?? false;
+    this.#launcher.close(
+      new Error("engine is stopping"),
+      cancel ? undefined : { externalOnly: true }
+    );
     const stopping = this.#stopping;
     if (stopping === undefined) {
       this.#stopping = this.#stop(this.#running, cancel);
@@ -1312,62 +850,40 @@ export class Engine {
     return this.#cancelStopping().then(() => stopping);
   }
 
-  async #stop(
-    { held, orchestrator, router }: Running,
-    cancel: boolean
-  ): Promise<void> {
+  async #stop(running: QueuedWorkflows, cancel: boolean): Promise<void> {
     let cancelling = cancel;
-    let halted = false;
     let ended = false;
-    const cancelHeld = async (): Promise<void> => {
-      const doomed = this.#runs.durable
-        ? ["queued", "running"]
-        : ["queued", "running", "suspended"];
-      await Promise.all(
-        held.withStatus(doomed).map((runId) => orchestrator.cancelRun(runId))
-      );
+    const cancelAll = async () => {
+      this.#launcher.close(new Error("engine is stopping"));
+      await this.#launcher.cancelPending();
+      await running.cancelFollowed();
     };
     this.#cancelStopping = async () => {
       if (cancelling || ended) {
         return;
       }
       cancelling = true;
-      this.#launcher.cancelPending();
-      if (halted) {
-        await cancelHeld();
-      }
+      await cancelAll();
     };
     try {
       if (cancel) {
-        this.#launcher.cancelPending();
+        await cancelAll();
       }
       await this.#delivery.stop();
       await this.interactions.close();
-      if (!this.#runs.durable) {
-        await router.cancelOpen();
-      }
-      await this.#launcher.halt(cancel);
-      halted = true;
+      await running.cancelQuestions();
       if (cancelling) {
-        await cancelHeld();
+        await cancelAll();
       }
-      await this.#executions.drained();
-      await orchestrator.drain();
-      await this.#launcher.settled();
-      await held.settle();
+      await this.#launcher.idle();
+      await running.drain();
+      await running.settle();
     } finally {
       ended = true;
-      try {
-        await orchestrator.stop();
-        await this.#executions.flush();
-        await this.#executions.retrySettlements();
-      } finally {
-        this.#released = true;
-        for (const runId of [...this.#owed.keys()]) {
-          this.#forgive(runId);
-        }
-        await this.#runs.release();
-      }
+      this.#launcher.close(new Error("engine is stopping"));
+      this.#executions.detach();
+      await running.stop();
+      await this.#executions.flush();
     }
   }
 
@@ -1375,7 +891,7 @@ export class Engine {
     runId: string,
     signal?: AbortSignal
   ): ReadableStream<ChannelMessage> | undefined {
-    return this.#running?.held.workflow(runId)?.root.subscribe(signal);
+    return this.#running?.stream(runId, signal);
   }
 
   async #listModels(): Promise<void> {
@@ -1393,11 +909,6 @@ export class Engine {
     }
   }
 
-  #releasePrices(): void {
-    this.#prices?.release();
-    this.#prices = undefined;
-  }
-
   dispose(): Promise<void> {
     this.#disposing ??= this.#dispose();
     return this.#disposing;
@@ -1408,6 +919,7 @@ export class Engine {
   }
 
   async #dispose(): Promise<void> {
+    this.#launcher.close(new Error("engine is stopping"));
     const errors: unknown[] = [];
     const close = async (action: () => Promise<void>) => {
       try {
@@ -1428,15 +940,12 @@ export class Engine {
     await close(() => this.triggers.close());
     await close(() => this.#automationStore.close());
     await close(() => this.#executions.flush());
-    await close(() => this.#executions.retrySettlements());
-    this.#executions.stopRetrying();
     await close(() => this.#executionStore.close());
     await close(() => this.interactions.close());
     await close(() => this.workspaces.close());
     await close(() => this.sandboxes.close());
     this.#unwatch();
-    this.airplane.dispose();
-    this.#releasePrices();
+    this.#prices.release();
     await close(async () => {
       await this.providers?.dispose();
     });

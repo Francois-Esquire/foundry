@@ -10,7 +10,7 @@ import {
   rmSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { processAlive } from "@foundry/lib/process-identity";
+import { processAlive } from "@foundry/lib/node/process-identity";
 import { deleteJournal, verifiedJournal } from "./apply-journal";
 import type { CollectionManifestWorkspace } from "./collection-manifest";
 import { collectionManifest } from "./collection-manifest";

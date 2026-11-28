@@ -1,126 +1,110 @@
 ---
 title: Software Factory
-description: Understand the roles, records, and loops behind development, maintenance, and improvement.
+description: SDLC on the factory floor, built from the same small marbles as everything else.
 sidebar:
   label: The factory floor
 ---
 
-> This factory will not solve your engineering woes. Agents can do substantial
-> work, but this guide keeps a human responsible for scope, engineering judgment,
-> and delivery. Review the code and its evidence. Revisit that level of supervision
-> as models improve and your own evaluations justify it.
+> This factory will not solve your engineering woes. Agents can do
+> substantial work, but this guide keeps a person responsible for scope,
+> judgment, and what ships. Review the code and its evidence. Loosen that
+> supervision only when your own evaluations justify it.
 
-The factory floor is the collection of workflows people operate. Start with
-one repository and an owner who can resolve conflicting findings, stop work,
-and decide what ships.
+The Software Factory takes a task from intake to a reviewed pull request.
+It introduces nothing new. Every piece is a marble from the earlier pages:
+a task backlog, an observer that dispatches ready work, steps that run in
+a worktree, a parallel check, an artifact of evidence, and an approval that
+suspends until a person answers.
 
-## The factory in four steps
-
-The development chapters build one workflow you launch with an issue number.
-The sequence is:
-
-1. **Take the issue.** `factory-intake` reads the GitHub issue and its
-   acceptance criteria and starts a work log, an artifact that every later
-   step reads and appends to.
-2. **Plan, then change the code.** `factory-plan` has an agent plan against
-   those criteria in a fresh worktree, without editing. `factory-implement`
-   has another agent make the change on a branch and records the commit.
-3. **Check the exact commit.** `factory-verify` installs, runs the tests, and
-   has a reviewing agent compare that commit with the issue and plan. Its
-   findings go back in the log; `factory-revise` starts another attempt.
-4. **A person approves delivery.** `factory-deliver` asks you to approve the
-   verified commit in the dashboard, then pushes it and opens the pull
-   request. `factory-status` later confirms the merge.
-
-Steps 1 to 3 are one command, `marbles roll factory --input '{"issue":42}'`;
-step 4 is deliberately separate and attended. The steps are ordinary Marbles
-definitions you write, not built-in roles, and the
-[development chapters](/marbles/use-cases/software-factory/development/intake)
-build each file. You can also launch them from an MCP client with
-`dispatch_workflow` ([one workflow, three ways](/marbles/library/one-workflow-three-ways)),
-and [monitor them](/marbles/use-cases/software-factory/monitor) from the
-dashboard.
-
-## Three kinds of work
-
-| Category | Purpose | Start here |
-| --- | --- | --- |
-| Development | Implement an accepted request and verify the result. | [Take an issue](/marbles/use-cases/software-factory/development/intake). |
-| Maintenance | Find drift, review ongoing work, and respond to incidents. | [Review existing pull requests](/marbles/use-cases/software-factory/maintenance/pull-requests). |
-| Improvement | Reduce recurring problems in the codebase and the factory itself. | [Inspect the factory](/marbles/use-cases/software-factory/improvement/inspector). |
-
-The categories cooperate. Maintenance may find that reviews keep missing a
-particular defect. An inspector investigates why, then proposes a skill or
-code change. The accepted change goes through evaluation and review before
-adoption. Code changes use the development cycle.
-
-## The base loop
+The factory is built from smaller factories. `factory-verify` is a whole
+workflow you can run on its own, and `factory-change` locks it under the
+build, so one run takes a task from a plan to a verdict. Delivery is a
+separate run, because it waits on a person.
 
 ```text
-observe → gather context → assess → act within scope → check → record
-                              ↑                         │
-                              └── revise or hand off ───┘
+          ┌──────────── revision loop: findings back on the task ────────────┐
+          ▼                                                                  │
+intake ─▶ task ─▶ factory-change: build ─▶ factory-verify (tests ∥ review) ─▶ verdict
+ (gh)    (ready)  (one run per attempt)                                       │
+                                                                              ▼
+                                       factory-deliver: approve ─▶ ship (push, PR)
+                                       (its own run, once per commit)
 ```
 
-An observation can be an issue, PR revision, failed check, changed skill, or
-scheduled inspection. Record the source and its revision before dispatch.
-Each stage returns evidence and a next action. Missing context calls for a
-question; an unsuccessful attempt may need revision or a handoff.
+## The stages
 
-One issue can take several runs. A completed run does not mean the issue is
-finished. A maintenance run that finds no action necessary is also useful.
+| Stage | Marbles | Page |
+| --- | --- | --- |
+| Intake | `tasks.create`, `observe(tasks)`, `.enqueue()` with a key | [Take work in](/marbles/use-cases/software-factory/intake) |
+| Plan and build | `withWorktree`, an agent session | [Plan and build](/marbles/use-cases/software-factory/build) |
+| Parallel verify | A nested `workflow`, `.parallel`, structured output, `report.artifact` | [Verify in parallel](/marbles/use-cases/software-factory/verify) |
+| Human gate and deliver | `ask.approval`, a later step that pushes | [Approve and deliver](/marbles/use-cases/software-factory/deliver) |
+| Revision loop | Task status, metadata, `observe(workflow)`, `runs.get` | [Close the loop](/marbles/use-cases/software-factory/revise) |
 
-## Roles and decisions
+The task is the work record. Its description holds the request and
+acceptance criteria. Its metadata holds what the stages learned: attempts,
+the last findings, the reviewer's session reference, and the pull request.
+Each run carries the task id as input, so any run can be traced back to its
+task with `runs.get(id)`.
 
-| Role | Responsibility |
-| --- | --- |
-| Triage agent | Establish whether a request is understood and ready to plan. |
-| Implementer | Make the scoped change and explain its decisions and checks. |
-| Reviewer | Assess the exact candidate against its original intent. |
-| Review lead | Reproduce findings, remove duplicates, and record disagreements. |
-| On-call agent | Investigate an incident and hand evidence to its owner. |
-| Inspector | Assess whether the factory's code, checks, and instructions still serve the project. |
-| Improvement agent | Propose a change based on an accepted inspection finding. |
-| Human owner | Set priorities, resolve disputed judgments, and authorize delivery. |
+## The files
 
-These are roles you author with agents and workflows, not built-in Marbles
-roles. One person may cover several jobs. Give each agent a specific task,
-the relevant context, and a stopping condition.
+The factory is one discovered module and five helpers, about 370 lines in
+all:
 
-## Shared records
+```text
+.foundry/marbles/
+  factory.ts          intake step, factory-change, and the dispatcher
+  _factory/work.ts    input schemas, the branch name, and the task brief
+  _factory/build.ts   plan and build in a worktree
+  _factory/verify.ts  tests and review in parallel, then a verdict
+  _factory/deliver.ts approval, push, and pull request
+  _factory/revise.ts  send work back, and flag failed runs
+```
 
-The [work log](/marbles/use-cases/software-factory/development/work-log)
-preserves the request, implementation history, findings, and decisions. A
-reviewer needs the original intent as well as the diff. An inspector needs
-both accepted and rejected findings to assess review quality.
+Names starting with `_` are left out of discovery, so the helpers load only
+through `factory.ts`. Each stage is still a named step or workflow you can
+launch with `marbles run` while you debug it.
 
-Keep separate records for an issue, a PR review, and an evaluation trial.
-Link them by issue number, commit SHA, and artifact version ID. A run ID
-identifies one execution; it is not the identity of the work itself.
+## Before you start
 
-[Workflows](https://github.com/Francois-Esquire/foundry/blob/main/packages/workflows/README.md)
-orders the steps, [Agents](https://github.com/Francois-Esquire/foundry/blob/main/packages/agents/README.md)
-performs model work, and [Artifacts](https://github.com/Francois-Esquire/foundry/blob/main/packages/artifacts/README.md)
-retains evidence. Human approvals name the exact candidate they authorize.
+Complete [the outer loop](/marbles/get-started/outer-loop). The factory
+needs:
 
-## Start locally
+- A Git repository with at least one commit and an `origin` remote.
+- An authenticated [GitHub CLI](https://cli.github.com/) (`gh auth status`).
+- An authenticated agent CLI: Claude Code, Codex, or Pi, with its
+  [provider adapter](/marbles/get-started/installation#install-a-provider-adapter) installed alongside Marbles.
+- Bun and a `bun test` suite. Change the commands in `verify.ts` for
+  another toolchain.
+- `zod@4.4.3` in the project, and the current source checkout of Marbles
+  for `.enqueue()` with a key, nested workflows, and `runs`.
 
-### Prerequisites
+Work in a repository you can afford to experiment in. The factory pushes
+branches and opens pull requests only after you approve in the dashboard.
 
-Complete [the quickstart](/marbles/get-started/quickstart). Development needs a
-local Git repository, an authenticated GitHub CLI and agent CLI, and the
-project's test commands. The [development setup](/marbles/use-cases/software-factory/development/intake#before-you-start)
-lists the dependencies. Maintenance chapters state which helpers they reuse;
-improvement needs recorded runs or review findings to inspect.
+A hosted workspace runs up to four runs at once, so four tasks can be on
+the floor together, each with its own agent session. Each build holds an
+agent for up to 30 minutes. To keep fewer going, set the workspace's queue
+once, in any one module:
 
-Choose a category above. Development contains the complete issue walkthrough.
-Maintenance has separate examples for on-call work, monitoring, and reports.
-Improvement guides an inspection through a reviewed change.
+```ts
+import { queue } from "@foundry.sh/marbles";
 
-Start with manual launches. Add schedules after the workflow produces useful
-results and ownership is clear. These examples use local state and do not
-coordinate independent machines.
+export default defineConfig({ pools: { default: 2 } });
+```
 
-[Evaluations](/marbles/use-cases/evaluations) supplies reusable methods for
-comparing models and skills. [Design](/marbles/use-cases/design) covers product
-decisions and the implementation handoff.
+A delivery suspended on its approval does not hold a place in the queue. See
+[how many runs at once](/marbles/concepts/durability#how-many-runs-at-once).
+
+## Where to grow it
+
+The factory is a starting point. Add a [docs drift
+watcher](/marbles/use-cases/docs-drift) or a [release
+patrol](/marbles/use-cases/release-patrol) that tags its tasks `factory`.
+Run [evaluations](/marbles/use-cases/evaluations) before changing the
+builder's or reviewer's prompts and skills. Keep separate records for an
+issue, a review, and an evaluation trial, and link them by task id, commit,
+and artifact version.
+
+Start with [taking work in](/marbles/use-cases/software-factory/intake).

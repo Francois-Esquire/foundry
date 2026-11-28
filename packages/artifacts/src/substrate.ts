@@ -5,15 +5,15 @@ import type {
   FileRepresentation,
   StorageNode,
 } from "@foundry/core/storage";
-
+import type { ArtifactId, BlobId, ContentId } from "./ids";
 import type { ArtifactCursor } from "./listing";
-import type { ArtifactId, BlobId, ContentId } from "./ref";
 import type {
   Artifact,
   Content,
   ContentMetadata,
   ContentState,
 } from "./schema";
+import type { ArtifactStoreDurability } from "./store";
 
 export type { Artifact, Content } from "./schema";
 
@@ -41,6 +41,13 @@ export type FileInput = { readonly type?: "file" } & (
       readonly mime?: string | null;
     }
   | {
+      readonly digest: string;
+      readonly bytes: number;
+      readonly mime?: string | null;
+      readonly path?: undefined;
+    }
+  | {
+      readonly path: string;
       readonly digest: string;
       readonly bytes: number;
       readonly mime?: string | null;
@@ -190,8 +197,9 @@ export type ArtifactObserver = (
   cause: ArtifactChangeCause
 ) => void;
 
-export interface Artifacts extends ArtifactOperations {
+export interface ArtifactSubstrate extends ArtifactOperations {
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
+  readonly durability?: ArtifactStoreDurability;
   observe(changed: ArtifactObserver): () => void;
   recover(): Promise<void>;
   transaction<T>(

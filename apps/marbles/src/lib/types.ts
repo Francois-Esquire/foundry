@@ -25,22 +25,23 @@ import type {
   FileInput,
   FileResolved,
 } from "@foundry/artifacts";
-import type { ContainerSandboxConstraints } from "@foundry/sandbox/container/constraints";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Authorization, GrantId } from "@foundry/authorization";
 import type {
+  Container,
+  ContainerSpecInput,
   SandboxCommand,
   SandboxExecOptions,
   SandboxExecResult,
-} from "@foundry/sandbox/types";
+} from "@foundry/sandbox";
 import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
-import type { Git } from "@foundry/workspaces/git";
+import type { Git } from "@foundry/workspaces/node/git";
 import type {
   InferGenerateOutput,
   Output,
   StreamTextResult,
   ToolSet,
 } from "ai";
-import type { Exec } from "~/lib/command";
+import type { Exec } from "~/lib/command-error";
 import type { AGENT_PROMPT } from "~/lib/handles";
 import type { Log } from "~/lib/log";
 
@@ -87,18 +88,17 @@ export interface WorkspaceDefinition {
   readonly path: string;
 }
 
-export type SandboxResources = NonNullable<
-  ContainerSandboxConstraints["resources"]
->;
+export type SandboxResources = NonNullable<ContainerSpecInput["resources"]>;
 
 interface SandboxOptions
   extends Pick<
-    ContainerSandboxConstraints,
-    | "detached"
+    ContainerSpecInput,
+    | "expose"
     | "labels"
+    | "lifetime"
     | "network"
-    | "ports"
     | "publicEnvironment"
+    | "secrets"
     | "workdir"
   > {
   readonly resources?: SandboxResources;
@@ -107,7 +107,7 @@ interface SandboxOptions
 export interface ImageSandbox extends SandboxOptions {
   readonly executable?: boolean;
   readonly image: string;
-  readonly mount?: "." | WorkspaceDefinition;
+  readonly mount?: "none" | "." | WorkspaceDefinition;
   readonly target?: string;
 }
 
@@ -148,6 +148,7 @@ interface SharedSessionOptions {
 interface HostSessionOptions extends SharedSessionOptions {
   readonly apiKey?: never;
   readonly authority?: never;
+  readonly authorization?: Authorization;
   readonly cwd?: string;
   readonly maxTurns?: number;
   readonly oauthToken?: never;
@@ -159,7 +160,10 @@ interface HostSessionOptions extends SharedSessionOptions {
 export interface SandboxAgentOptions extends SharedSessionOptions {
   readonly apiKey?: string;
   readonly authority?: Partial<
-    Pick<HarnessAuthoritySettings, "policy" | "approve" | "onApprovalRequest">
+    Pick<
+      HarnessAuthoritySettings,
+      "approve" | "authorization" | "onApprovalRequest" | "principalAttributes"
+    >
   >;
   readonly cwd?: never;
   readonly maxTurns?: never;
@@ -293,7 +297,7 @@ export type WorkspaceHandle = Pick<
 export type LoadedWorkspace = WorkspaceHandle &
   Pick<PackageWorkspace, "id" | "source">;
 
-export interface Workspaces {
+export interface ScopedWorkspaces {
   readonly current: WorkspaceHandle;
   load(
     ref: WorkspaceDefinition | { readonly path: string }
@@ -341,7 +345,7 @@ export interface LatestArtifact {
   readonly version: ArtifactVersion;
 }
 
-export interface Artifacts {
+export interface ScopedArtifacts {
   create(
     input: Pick<
       CreateArtifactInput,
@@ -372,12 +376,14 @@ export interface Question {
 
 export interface ApprovalRequest {
   readonly body?: string;
+  readonly grantId?: GrantId;
   readonly key?: string;
   readonly title: string;
 }
 
 export interface Approval {
   readonly approved: boolean;
+  readonly grantId?: GrantId;
   readonly note?: string;
 }
 
@@ -419,7 +425,7 @@ export interface Run {
 
 export interface Context<I = Record<string, never>> {
   readonly agents: Agents;
-  readonly artifacts: Artifacts;
+  readonly artifacts: ScopedArtifacts;
   readonly ask: Ask;
   readonly exec: Exec;
   readonly input: I;
@@ -429,7 +435,7 @@ export interface Context<I = Record<string, never>> {
   readonly sandboxes: Sandboxes;
   readonly signal: AbortSignal;
   readonly stream: Stream;
-  readonly workspaces: Workspaces;
+  readonly workspaces: ScopedWorkspaces;
 }
 
 export interface SetupContext<I> {

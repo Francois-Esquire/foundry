@@ -1,0 +1,287 @@
+import type { Authorization } from "@foundry/authorization";
+import type {
+  AgentModel,
+  AgentSpec as CoreAgentSpec,
+  ObserveTurn,
+} from "@foundry/core/agents";
+import type { ToolSet } from "ai";
+import type { AgentHarnessSettings } from "../harness/agent-harness";
+import { AgentHarness } from "../harness/agent-harness";
+import { composeTools } from "../harness/compose-tools";
+import type {
+  CompactionSettings,
+  SessionHarnessSettings,
+} from "../harness/session-harness";
+import { SessionHarness } from "../harness/session-harness";
+import { createModelSummarizer } from "../session/compactor";
+import type { Skill } from "../skills/registry";
+import { createSkillRegistry } from "../skills/registry";
+import type { SessionStore } from "../store";
+
+type AgentSettings = Omit<
+  AgentHarnessSettings,
+  | "model"
+  | "instructions"
+  | "tools"
+  | "toolsContext"
+  | "agentId"
+  | "agentGeneration"
+  | "authorization"
+  | "sessionId"
+>;
+
+export interface AgentExecutionContext {
+  readonly runId: string;
+  readonly signal: AbortSignal;
+}
+
+export interface AgentPresetContext {
+  agentGeneration?: number;
+  authorization?: Authorization;
+  execution?: AgentExecutionContext;
+  instructions?: string;
+  model?: AgentModel;
+  sessionId?: string;
+  settings?: AgentSettings;
+  surfaceContext?: Readonly<Record<string, unknown>>;
+  tools?: ToolSet;
+  toolsContext?: Record<string, unknown>;
+}
+
+export interface AgentSessionContext extends AgentPresetContext {
+  compaction?: false | CompactionSettings;
+  sessionStore?: SessionStore;
+}
+
+export interface ResolveAgentContext {
+  model?: AgentModel;
+  sessionId?: string;
+}
+
+export interface AgentPreset {
+  createAgent(context: AgentPresetContext): Promise<AgentHarness>;
+  createSession(context: AgentSessionContext): Promise<SessionHarness>;
+  spec: AgentSpec;
+}
+
+export interface AgentSurface {
+  authorization?: Authorization;
+  mcp?: (ids: string[]) => Promise<ToolSet>;
+  model: (selection: {
+    readonly model?: string;
+    readonly provider?: string;
+  }) => AgentModel;
+  observe?: ObserveTurn;
+  skills?: (names: string[]) => Promise<Skill[]>;
+  store?: SessionStore;
+  tools?: (names: string[], context: AgentPresetContext) => Promise<ToolSet>;
+  toolsContext?: Record<string, unknown>;
+}
+
+export type AgentConfigurationFactory = (
+  context: AgentPresetContext,
+  spec: AgentSpec
+) => SessionHarnessSettings | Promise<SessionHarnessSettings>;
+
+type SessionSettings = Omit<SessionHarnessSettings, keyof AgentHarnessSettings>;
+
+interface Configuration {
+  agent: AgentHarnessSettings;
+  session: SessionSettings;
+}
+
+function splitSettings(settings: SessionHarnessSettings): Configuration {
+  const { store, compaction, ...agent } = settings;
+  return { agent, session: { compaction, store } };
+}
+
+async function resolveTools(
+  spec: AgentSpec,
+  surface: AgentSurface,
+  context: AgentPresetContext
+): Promise<ToolSet | undefined> {
+  if (!spec.tools?.length) {
+    return undefined;
+  }
+  if (!surface.tools) {
+    throw new Error(`Agent "${spec.id}" has no tool resolver`);
+  }
+  const resolved = await surface.tools(spec.tools, context);
+  const tools: ToolSet = {};
+  for (const name of spec.tools) {
+    const binding = resolved[name];
+    if (!binding) {
+      throw new Error(`Agent "${spec.id}" has no binding for tool "${name}"`);
+    }
+    if (Object.hasOwn(tools, name)) {
+      throw new Error(`Duplicate tool binding: ${name}`);
+    }
+    tools[name] = binding;
+  }
+  return tools;
+}
+
+async function provisionSkills(spec: AgentSpec, surface: AgentSurface) {
+  const resolved =
+    spec.skills?.length && surface.skills
+      ? await surface.skills(spec.skills)
+      : undefined;
+  for (const name of spec.skills ?? []) {
+    if (!resolved?.some((skill) => skill.name === name)) {
+      throw new Error(`Agent "${spec.id}" has no skill "${name}"`);
+    }
+  }
+  return resolved ? createSkillRegistry(resolved) : undefined;
+}
+
+async function provisionSpec(
+  spec: AgentSpec,
+  surface: AgentSurface,
+  context: AgentPresetContext
+): Promise<AgentHarnessSettings> {
+  const model =
+    context.model ??
+    surface.model({
+      ...(spec.model === undefined ? {} : { model: spec.model }),
+      ...(spec.provider === undefined ? {} : { provider: spec.provider }),
+    });
+  if (spec.skills?.length && !surface.skills) {
+    throw new Error(`Agent "${spec.id}" has no skill resolver`);
+  }
+  if (spec.mcp?.length && !surface.mcp) {
+    throw new Error(`Agent "${spec.id}" has no MCP resolver`);
+  }
+  const skills = await provisionSkills(spec, surface);
+  const mcpTools =
+    spec.mcp?.length && surface.mcp ? await surface.mcp(spec.mcp) : undefined;
+  const domainTools = await resolveTools(spec, surface, context);
+  return {
+    authorization: surface.authorization,
+    instructions: [context.instructions ?? spec.prompt, skills?.instructions]
+      .filter(Boolean)
+      .join("\n\n"),
+    model,
+    observe: surface.observe,
+    tools: composeTools(skills?.tools, mcpTools, domainTools),
+    toolsContext: surface.toolsContext,
+  };
+}
+
+function configureAgent(
+  spec: AgentSpec,
+  defaults: AgentHarnessSettings,
+  context: AgentPresetContext
+): AgentHarnessSettings {
+  const sessionId =
+    context.sessionId || defaults.sessionId || crypto.randomUUID();
+  return {
+    ...defaults,
+    ...spec.settings,
+    ...context.settings,
+    agentGeneration: context.agentGeneration ?? defaults.agentGeneration,
+    agentId: spec.id,
+    authorization: context.authorization ?? defaults.authorization,
+    instructions: defaults.instructions ?? context.instructions ?? spec.prompt,
+    model: context.model ?? defaults.model,
+    sessionId,
+    tools: composeTools(defaults.tools, context.tools),
+    toolsContext: {
+      ...defaults.toolsContext,
+      ...context.toolsContext,
+      sessionId,
+      ...(context.execution ? { execution: context.execution } : {}),
+    },
+  };
+}
+
+function resolveCompaction(
+  spec: AgentSpec,
+  agent: AgentHarnessSettings,
+  defaults: SessionSettings,
+  context: AgentSessionContext
+): CompactionSettings | undefined {
+  if (context.compaction !== undefined) {
+    return context.compaction || undefined;
+  }
+  const configured = spec.session?.compaction;
+  if (configured === false) {
+    return undefined;
+  }
+  if (!configured) {
+    return defaults.compaction;
+  }
+  return {
+    summarizer:
+      defaults.compaction?.summarizer ??
+      createModelSummarizer({ model: agent.model }),
+    ...defaults.compaction,
+    ...configured,
+  };
+}
+
+function configureSession(
+  spec: AgentSpec,
+  { agent, session }: Configuration,
+  context: AgentSessionContext
+): SessionHarnessSettings {
+  return {
+    ...agent,
+    ...session,
+    compaction: resolveCompaction(spec, agent, session, context),
+    store: context.sessionStore ?? session.store,
+  };
+}
+
+export function createAgentPreset(
+  spec: AgentSpec,
+  source: AgentSurface | AgentConfigurationFactory
+): AgentPreset {
+  async function configure(
+    context: AgentPresetContext
+  ): Promise<Configuration> {
+    const { tools: _tools, ...overrides } = context;
+    const bindingContext = {
+      ...overrides,
+      instructions: context.instructions ?? spec.prompt,
+    };
+    const defaults =
+      typeof source === "function"
+        ? splitSettings(await source(bindingContext, spec))
+        : {
+            agent: await provisionSpec(spec, source, context),
+            session: { store: source.store },
+          };
+    return {
+      agent: configureAgent(spec, defaults.agent, context),
+      session: defaults.session,
+    };
+  }
+
+  return {
+    async createAgent(context = {}) {
+      const { agent } = await configure(context);
+      return new AgentHarness(agent);
+    },
+    async createSession(context = {}) {
+      return new SessionHarness(
+        configureSession(spec, await configure(context), context)
+      );
+    },
+    spec,
+  };
+}
+
+export async function resolveAgent(
+  spec: AgentSpec,
+  surface: AgentSurface,
+  context: ResolveAgentContext = {}
+): Promise<SessionHarness> {
+  return createAgentPreset(spec, surface).createSession(context);
+}
+
+export type { AgentSource } from "@foundry/core/agents";
+
+export type AgentSpec = CoreAgentSpec<
+  AgentSettings,
+  Pick<CompactionSettings, "keepTokens" | "window">
+>;

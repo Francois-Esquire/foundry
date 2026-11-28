@@ -1,15 +1,14 @@
+import type { HarnessTurnDriver } from "@foundry/core/agents";
 import { NoObjectGeneratedError, Output, simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-
-import { createInMemoryAgentAuthorizer } from "../../authorization/authorization";
+import { createMemoryAuthorization } from "../../authorization/authorization";
 import { createDriverSession } from "../../harness/driver-session";
 import { SessionHarness } from "../../harness/session-harness";
 import type { StreamPart } from "../../harness/stream-transform";
 import { transformStream } from "../../harness/stream-transform";
-import type { HarnessTurnDriver } from "../../harness/turn-driver";
-import { InMemorySessionStore } from "../../store/memory";
+import { MemorySessionStore } from "../../store/memory";
 import type { StreamResult } from "../helpers/mock-language-model";
 import { routed } from "../helpers/mock-language-model";
 import { finish, textDelta, toolCall, usage } from "../helpers/stream-parts";
@@ -50,7 +49,7 @@ function harnessAnswering(...texts: string[]) {
       return Promise.resolve(deltas(...texts));
     },
   });
-  const store = new InMemorySessionStore();
+  const store = new MemorySessionStore();
   const harness = new SessionHarness(
     {
       instructions: "x",
@@ -147,8 +146,8 @@ describe("structured output", () => {
     const session = createDriverSession(
       {
         agentId: "coder",
+        authorization: createMemoryAuthorization(),
         model: { harness: "native", id: "model" },
-        policy: createInMemoryAgentAuthorizer().authorizer,
         profile: {
           allowedTools: [],
           disallowedTools: [],
@@ -157,7 +156,7 @@ describe("structured output", () => {
           unresolved: "deny",
         },
         sessionId: "d",
-        store: new InMemorySessionStore(),
+        store: new MemorySessionStore(),
       },
       driver
     );

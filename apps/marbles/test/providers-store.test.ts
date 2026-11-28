@@ -4,13 +4,22 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MarblesDatabase } from "~/database/open";
-import { initializeDatabase, readDatabase } from "~/database/open";
+import {
+  initializeDatabase,
+  providerStoreForState,
+  readDatabase,
+} from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { marblesProviderConfigurations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { ProviderStore, ProvidersFile } from "~/lib/providers/store";
-import { MemoryProviderStore, readOnlyProviders } from "~/lib/providers/store";
+import {
+  identityKeyFrom,
+  MemoryProviderStore,
+  newIdentityKey,
+} from "~/lib/providers/store";
 
+const IDENTITY_KEY = /^[0-9a-f]{64}$/;
 const dirs: string[] = [];
 const handles: MarblesDatabase[] = [];
 
@@ -97,8 +106,8 @@ function describeProviderStore(
       expect(idsOf((await store.read()).machine)).toEqual(["a"]);
     });
 
-    it("re-reads before each edit, so overlapping edits keep each other's, also through the read-only view a dry run edits", async () => {
-      for (const store of [await open(), readOnlyProviders(await open())]) {
+    it("re-reads before each edit, so overlapping edits keep each other's", async () => {
+      for (const store of [await open()]) {
         await Promise.all(
           ["a", "b", "c"].map((id) =>
             store.update(undefined, (current) => ({
@@ -135,7 +144,7 @@ describeProviderStore("the database provider store", async () => {
 });
 describeProviderStore(
   "the provider store a process without a handle uses",
-  () => Promise.resolve(DatabaseProviderStore.forState(scratch()))
+  () => Promise.resolve(providerStoreForState(scratch()))
 );
 
 describe("provider configuration in the Marbles database", () => {
@@ -204,23 +213,20 @@ describe("provider configuration in the Marbles database", () => {
     expect(String(refusal)).not.toContain("sk-secret-value");
     expect((refusal as Error).cause).toBeUndefined();
   });
+});
 
-  it("keeps a dry run's edits to itself, and makes no identity key for it", async () => {
-    const opened = await database();
-    const real = new DatabaseProviderStore({ database: opened.database });
-    await real.update(undefined, () => ({ machine: file("a") }));
-    const dry = readOnlyProviders(real);
-    const before = await dry.revision();
-    await dry.update("ws", () => ({
-      machine: file("a", "b"),
-      workspace: file("c"),
-    }));
-    expect(idsOf((await dry.read()).machine)).toEqual(["a", "b"]);
-    expect(idsOf((await dry.read()).workspace("ws"))).toEqual(["c"]);
-    expect(await dry.revision()).toBeGreaterThan(before);
-    expect(idsOf((await real.read()).machine)).toEqual(["a"]);
-    expect((await real.read()).workspaces).toEqual([]);
-    expect(await dry.identityKey(true)).toBeUndefined();
-    expect(await real.identityKey(false)).toBeUndefined();
-  });
+it("keeps identity keys as 32 bytes encoded in lowercase hex", () => {
+  const encoded = `00010a0f10ff${"00".repeat(26)}`;
+  expect([...identityKeyFrom(encoded)]).toEqual([
+    0,
+    1,
+    10,
+    15,
+    16,
+    255,
+    ...new Array(26).fill(0),
+  ]);
+  const generated = newIdentityKey();
+  expect(generated).toMatch(IDENTITY_KEY);
+  expect(identityKeyFrom(generated)).toHaveLength(32);
 });

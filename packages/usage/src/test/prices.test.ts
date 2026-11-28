@@ -2,7 +2,7 @@ import { join } from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
-import { tempHome, writeJsonl } from "./helpers/machine";
+import { tempHome, writeJsonl } from "./helpers/home";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -23,7 +23,7 @@ it("reads history at once while models.dev hangs, unpriced, and prices it once a
   const { holdModelsDev } = await import(
     "@foundry/models/catalog/models-dev-source"
   );
-  const { createAnthropic } = await import("../providers/anthropic/provider");
+  const { createAnthropic } = await import("../providers/anthropic");
   const home = await tempHome();
   await writeJsonl(join(home, ".claude", "projects", "-repo", "s1.jsonl"), [
     {

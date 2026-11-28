@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ArtifactManager } from "../manager";
+import { Artifacts } from "../artifacts";
+import { artifactIdSchema } from "../ids";
 import { blobFiles, JsonArtifactStore } from "../node";
-import { artifactIdSchema } from "../ref";
 import type { ArtifactStore } from "../store";
-import { InMemoryArtifactStore } from "../store/memory";
+import { MemoryArtifactStore } from "../store/memory";
 import { SqliteArtifactStore } from "../store/sqlite";
 import type { CommitInterceptor } from "../testing";
 import { interceptCommits } from "../testing";
@@ -37,9 +37,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-vi.mock("@foundry/lib/atomic-file", async (importOriginal) => {
+vi.mock("@foundry/lib/node/atomic-file", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@foundry/lib/atomic-file")>();
+    await importOriginal<typeof import("@foundry/lib/node/atomic-file")>();
   return {
     ...actual,
     writeFileAtomic: async (
@@ -79,7 +79,7 @@ async function harness(open: (root: string) => ArtifactStore) {
   const root = await mkdtemp(join(tmpdir(), "artifact-commit-failure-"));
   roots.push(root);
   const blobs = join(root, "blobs");
-  const artifacts = new ArtifactManager({
+  const artifacts = new Artifacts({
     files: blobFiles(blobs),
     store: open(root),
   });
@@ -125,7 +125,7 @@ function bound(store: ArtifactStore): ArtifactStore {
   };
 }
 
-class FailsAfterLanding extends InMemoryArtifactStore {
+class FailsAfterLanding extends MemoryArtifactStore {
   #failed: boolean;
 
   constructor() {
@@ -157,7 +157,7 @@ class FailsAfterLanding extends InMemoryArtifactStore {
 describe("A commit that fails", () => {
   it("before its write lands removes the files it published", async () => {
     const { artifacts, create, files, id } = await harness(() =>
-      interceptCommits(new InMemoryArtifactStore(), refuse)
+      interceptCommits(new MemoryArtifactStore(), refuse)
     );
     await expect(create()).rejects.toThrow("commit refused");
     expect(await artifacts.get(id)).toBeNull();

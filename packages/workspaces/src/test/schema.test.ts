@@ -15,13 +15,13 @@ import {
 } from "../schema";
 import { MemoryWorkspaceStore } from "../store/memory";
 import {
-  artifactWorkspace,
   directoryRecord,
   fileRecord,
   hostWorkspace,
   newRoot,
+  otherSourceWorkspace,
 } from "../testing/records";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { makeRoot } from "./helpers/temp-roots";
 
 async function cataloged() {
@@ -31,7 +31,7 @@ async function cataloged() {
   });
   await symlink("README.md", join(root, "readme-link"));
   const store = new MemoryWorkspaceStore();
-  const workspace = await directorySystem({ store }).load({ path: root });
+  const workspace = await directoryWorkspaces({ store }).load({ path: root });
   const registration = await workspace.registration();
   return { registration, root, store, workspace };
 }
@@ -97,7 +97,7 @@ describe("record schemas", () => {
   });
 
   it("describe the records the store conformance suite commits", () => {
-    const workspace = artifactWorkspace("artifact-1", newRoot("alpha"));
+    const workspace = otherSourceWorkspace("artifact-1", newRoot("alpha"));
     expect(workspaceRegistrationSchema.parse(workspace)).toEqual(workspace);
     for (const entry of [
       directoryRecord(workspace.id, "docs"),

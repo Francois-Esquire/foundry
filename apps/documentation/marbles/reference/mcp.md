@@ -9,8 +9,9 @@ process, never attaches a workspace, and runs no source or trigger itself.
 This holds under `--dry-run` too.
 External agents can list workspaces, read or change the workspace's tasks,
 and, while the Marbles process hosts the workspace, inspect its loaded
-configuration, dispatch work, read its status, and cancel it. Both workflow
-and agent launches return a `runId` without waiting for completion.
+configuration, enqueue workflows, dispatch agents, read run status, and
+cancel work. Both workflow and agent dispatches return a run `id` without
+waiting for completion.
 
 ## Start the server
 
@@ -46,14 +47,17 @@ tools that need a host name the missing source. What each tool needs:
   The Marbles process, when it hosts the workspace, answers them; otherwise the server
   opens the stored tasks for that one call and gives them up, the same as
   `marbles tasks`. Calls sent together take turns.
-- `list_workspaces` lists what the Marbles process hosts. Without one, it
+- `list` (`resource: "workspaces"`) lists what the Marbles process hosts. Without one, it
   lists the workspaces kept under the state root, each `stopped`. The
-  server's own workspace is always listed.
-- `list_config`, `dispatch_workflow`, `dispatch_agent`, `get_run`, and
-  `cancel_run` need a running Marbles process that hosts the workspace and
-  has it `ready`. Without one they return a tool error that says
-  `marbles attach` hosts it. Host the workspace with `marbles attach`,
-  `marbles run`, or `marbles roll` first.
+  server's own workspace is always listed. `get` (`resource: "workspace"`) degrades
+  to the offline summary when the workspace is not hosted or not ready, unless
+  config fields were explicitly requested.
+- `list` (`definitions`, `runs`), `get` (`definition`, `run`),
+  `enqueue_workflow`, `dispatch_agent`, and `cancel_run` need a running Marbles
+  process that hosts the workspace and has it `ready`. Without one they return
+  a structured `{ error: { code, message } }` refusal that says
+  `marbles daemon attach` hosts it. Host the workspace with `marbles daemon attach`,
+  `marbles`, `marbles run <name>`, or `marbles enqueue <name>` first.
 
 The server joins the Marbles process on each call and leaves it after, so
 a process started or stopped while the server runs is seen by the next
@@ -62,7 +66,7 @@ starts the next generation, which takes over once it has loaded. The
 workspace's schedules and monitors run in the current generation, never in
 the server.
 
-The server also accepts `--dry-run`, and keeps everything under the Foundry home `FOUNDRY_HOME` names, as the [CLI](/marbles/reference/cli#flags) does.
+The server also accepts `--dry-run`, and keeps everything under the Foundry home `FOUNDRY_ROOT` names, as the [CLI](/marbles/reference/cli#flags) does.
 Diagnostics go to stderr; stdout carries MCP messages only. The server
 runs in a child process whose stdout is stderr, so whatever it and the
 processes it starts print to stdout goes to stderr too.
@@ -70,54 +74,52 @@ processes it starts print to stdout goes to stderr too.
 Under `--dry-run` the server still hosts nothing and loads no source. It
 joins no Marbles process, even one that hosts the workspace, and writes
 nothing. [Tools](#tools) says what each tool does then. A dry run of a
-workflow goes through `marbles roll --dry-run`.
+workflow goes through `marbles run <name> --dry-run`.
 
 ## Tools
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `list_workspaces` | None | Every workspace the Marbles process hosts, or without one the workspaces kept under the state root: `id`, `root`, `config`, and `state` (`starting`, `ready`, `reloading`, `failed` with an `error`, or `stopped`). |
-| `list_config` | optional `workspace` | Source path, workspace root, named definitions with input schemas, agent IDs/model routes, and declared schedules and monitors. |
-| `dispatch_workflow` | `name`, optional `input`, optional `workspace` | Starts a named workflow or step and returns its `runId`, `kind`, `name`, and `status`. |
-| `dispatch_agent` | `prompt`, optional agent and execution options below, optional `workspace` | Starts agent work and returns the same run fields plus its `session` reference. |
-| `get_run` | `runId`, optional `workspace` | Current status, final `output`, agent `text`/`session` when applicable, or an `error`. |
-| `cancel_run` | `runId`, optional `workspace` | Requests cancellation and returns the current run status. |
-| `list_tasks` | optional `status`, `parentId` (null for root tasks), `tags`, `depth`, `limit`, `cursor`, `workspace` | A page of the workspace's tasks, oldest first, with `nextCursor`. |
-| `ready_tasks` | optional `tags`, `limit`, `cursor`, `workspace` | A page of open tasks nothing holds back. |
-| `get_task` | `id`, optional `depth`, `workspace` | One task with `depth` levels of subtasks. |
-| `task_dependencies` | `id`, optional `workspace` | The tasks it depends on and the tasks that depend on it. |
+| `list` | `resource` (`"workspaces"`, `"definitions"`, `"tasks"`, `"runs"`), optional `filter`, `fields`, `cursor`, `limit`, `workspace` | A paginated `{ items, total, nextCursor? }` list of the requested resource. Use `resource: "tasks"` with `filter: { ready: true }` for open tasks nothing holds back. |
+| `get` | `resource` (`"workspace"`, `"definition"`, `"task"`, `"run"`), `id`, optional `fields`, `depth` (tasks), `workspace` | `{ item }` for one resource. Request `fields: ["dependsOn", "dependents"]` on a task for its relations in a single snapshot; `resource: "workspace"` includes source path, definitions, agents, schedules, monitors, and observers when hosted and ready. |
+| `enqueue_workflow` | `name`, optional `input`, optional `key` (non-blank idempotency key), optional `workspace` | Enqueues a named workflow or step and returns `{ id, kind, name, status }`. |
+| `dispatch_agent` | `prompt`, optional agent and execution options below, optional `workspace` | Starts agent work and returns `{ id, kind, name, status, session }`. |
+| `cancel_run` | `id`, optional `workspace` | Requests cancellation and returns the current run item shape. |
 | `change_tasks` | `operations`, optional `workspace` | Applies one atomic batch of task operations, the same as `marbles tasks change`. |
 
-Every tool but `list_workspaces` takes an optional `workspace`: an id from
-`list_workspaces`, defaulting to the server's own workspace. The task
-tools reach any workspace recorded under the state root, even one whose
-checkout is gone; an id with no record is a tool error. A symlink under
+Every tool except `list` (`resource: "workspaces"`) takes an optional `workspace`:
+an id from `list` (`resource: "workspaces"`), defaulting to the server's own
+workspace. The task tools (`list`/`get` with `resource: "tasks"`/`"task"`, and
+`change_tasks`) reach any workspace recorded under the state root, even one whose
+checkout is gone; an id with no record is a refusal. A symlink under
 the state root is not a record, and the server's own workspace is refused
-when its state directory is a symlink. The other tools reach a workspace only through the
-Marbles process that hosts it: an id that is not hosted is a tool error, and a call
-to a workspace that is not `ready` fails with its state.
+when its state directory is a symlink. The hosted tools reach a workspace only
+through the Marbles process that hosts it: an id that is not hosted returns
+`{ error: { code: "not_hosted", message } }`, and a workspace that is not `ready`
+returns `{ error: { code: "not_ready", message } }`.
 
-Under `--dry-run`, `list_workspaces` names only the server's own workspace,
-as `stopped`. The task tools answer from memory for that workspace and
-refuse any other id. `list_config`, `dispatch_workflow`, `dispatch_agent`,
-`get_run`, and `cancel_run` return an error that names
-`marbles roll --dry-run`.
+Under `--dry-run`, `list` (`resource: "workspaces"`) names only the server's own
+workspace, as `stopped`. The task tools answer from memory for that workspace and
+refuse any other id. `list` (`definitions`, `runs`), `get` (`definition`, `run`),
+`enqueue_workflow`, `dispatch_agent`, and `cancel_run` return a refusal that names
+`marbles run <name> --dry-run`.
 
 Dispatch responses are acknowledgements, even if their status is already
-`completed`. They contain no final `output`, `text`, or `error`; call `get_run`
-for those fields. Dispatch never waits for result finalization.
+`completed`. They contain no final `output`, `text`, or `error`; call `get`
+(`resource: "run"`) for those fields. Dispatch never waits for result finalization.
 
 Tool results contain JSON in an MCP text content block. Unknown targets and
-rejected arguments return tool errors. An accepted run can still fail during
-execution; inspect it with `get_run` or watch it to its end.
+rejected arguments return `{ error: { code, message } }` refusals. An accepted
+run can still fail during execution; inspect it with `get` (`resource: "run"`)
+or watch it to its end.
 
-`dispatch_workflow` addresses definition names, not schedule or monitor
-keys. Use `list_config` for the available names and input schemas. It does
-not tick a schedule, poll a monitor, or start a trigger loop.
+`enqueue_workflow` addresses definition names, not schedule or monitor
+keys. Use `list` (`resource: "definitions"`) for the available names and input
+schemas. It does not tick a schedule, poll a monitor, or start a trigger loop.
 
-## Dispatch and watch a workflow
+## Enqueue and watch a workflow
 
-Call `dispatch_workflow` with the name and input matching your source:
+Call `enqueue_workflow` with the name and input matching your source:
 
 ```json
 {
@@ -126,7 +128,7 @@ Call `dispatch_workflow` with the name and input matching your source:
 }
 ```
 
-The response includes a `runId`. Both launch tools use the engine's run ID;
+The response includes an `id`. Both dispatch tools use the engine's run ID;
 an agent's session ID identifies its conversation and is separate.
 
 Wait for either kind of run in a single command:
@@ -142,9 +144,10 @@ bun --no-env-file apps/marbles/src/cli.ts watch <runId>
 ```
 
 The watcher replays earlier output, follows new output, prints the result
-and terminal status, then exits. It needs no source path and can run from
-another working directory. If you set `FOUNDRY_HOME` for the MCP server,
-set the same for the watcher. See [watching runs](/marbles/reference/cli#watch-a-background-run)
+and terminal status, then exits. A run still waiting in its pool has no
+output yet; the watcher says so and waits for it to start. It needs no source path and can run from
+another working directory. If you set `FOUNDRY_ROOT` for the MCP server,
+set the same for the watcher. See [watching runs](/marbles/reference/cli#enqueue-and-watch-a-background-run)
 for exit codes and interruption behavior.
 
 ## Agent options
@@ -154,7 +157,7 @@ for exit codes and interruption behavior.
 | Field | Meaning |
 | --- | --- |
 | `prompt` | Required task text. |
-| `agent` | Optional declared agent ID from `list_config`. Omit it for an ad hoc agent. |
+| `agent` | Optional declared agent ID from `get` (`resource: "workspace"`). Omit it for an ad hoc agent. |
 | `instructions` | Instructions for an ad hoc agent, or instructions appended to a declared agent's prompt. Without either, an ad hoc agent uses a short task-completion prompt. |
 | `model`, `provider` | Override the agent's configured model route. Otherwise use its route or the engine default. |
 | `cwd` | Working directory, resolved relative to the loaded workspace root. After following links it must be a directory inside the workspace root or inside one of the workspace's worktrees that Marbles created; any other path is refused. |
@@ -183,10 +186,14 @@ Concurrent dispatches cannot use the same active session in one engine generatio
 
 ## Status, cancellation, and lifetime
 
-Pass the returned run ID to `get_run` or `cancel_run`:
+Pass the returned run ID to `get` (`resource: "run"`) or `cancel_run`:
 
 ```json
-{ "runId": "the-returned-run-id" }
+{ "resource": "run", "id": "the-returned-run-id" }
+```
+
+```json
+{ "id": "the-returned-run-id" }
 ```
 
 Statuses follow the engine: `queued`, `running`, `suspended`, `completed`,
@@ -201,12 +208,13 @@ A dispatched run belongs to its workspace's engine. Closing stdin, ending the
 SIGTERM, or a failed write of a response ends the server and nothing else. Shutdown takes a few seconds at
 most; a task call that does not finish in time is cut off. The Marbles process keeps hosting the workspace, its triggers
 keep running, and runs already dispatched run to completion. Several MCP
-clients can run at once against one process. `get_run` and `cancel_run`
-go to the generation that owns the run. The returned run ID still works
-after queued or parked work moves to a new generation. A queued agent
+clients can run at once against one process. `get` (`resource: "run"`) and
+`cancel_run` go to the generation that owns the run. The returned run ID still works
+after queued or suspended work moves to a new generation. A queued agent
 dispatch reopens the same saved session when the new engine starts the
 turn. The lookup also accepts other workflow run IDs the engine knows,
-including runs started by a schedule or by `launch`. Host task runs use
+including runs started by a schedule, by `engine.launch`, or by an
+`enqueue`. Host task runs use
 their separate task controls. The
 [output journal](/marbles/reference/state#run-output) stays on disk, and
 its files have no automatic retention policy yet.
@@ -214,6 +222,6 @@ its files have no automatic retention policy yet.
 Under `--dry-run` the server runs nothing. Its in-memory tasks end with
 the connection.
 
-`marbles stop` ends the process and every workspace it hosts; `marbles
+`marbles daemon stop` ends the process and every workspace it hosts; `marbles
 status` shows the process and which workspaces are hosted. Custom artifact
 tools, sandbox tools, and remote transport are outside this iteration.

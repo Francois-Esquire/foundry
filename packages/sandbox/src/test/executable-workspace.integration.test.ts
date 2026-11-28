@@ -2,8 +2,8 @@ import { chmod, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { createContainers } from "../container/containers";
-import { createMicrosandboxRuntime } from "../container/microsandbox-runtime";
+import { createContainers } from "../containers/containers";
+import { createMicrosandboxDriver } from "../providers/microsandbox";
 import { MemoryContainerStore } from "../store/memory";
 
 it("executes workspace tools while preserving nosuid/nodev and config noexec", async () => {
@@ -13,23 +13,26 @@ it("executes workspace tools while preserving nosuid/nodev and config noexec", a
   await writeFile(join(source, "tool"), "#!/bin/sh\nprintf 'workspace-tool'\n");
   await chmod(join(source, "tool"), 0o755);
   const containers = createContainers({
-    allowedMountRoots: [source],
+    driver: createMicrosandboxDriver({ allowedMountRoots: [source] }),
     instanceLabel: `exec-test-${crypto.randomUUID()}`,
-    runtime: createMicrosandboxRuntime(),
     store: new MemoryContainerStore(),
   });
   try {
     const container = await containers.start({
-      format: "foundry.sandbox.container/1",
       mounts: [
         {
           access: "read-write",
           executable: true,
           id: "workspace",
-          source,
+          source: { kind: "host-directory", path: source },
           target: "/mounts/workspace",
         },
-        { access: "read-only", id: "config", source, target: "/mounts/config" },
+        {
+          access: "read-only",
+          id: "config",
+          source: { kind: "host-directory", path: source },
+          target: "/mounts/config",
+        },
       ],
     });
     expect(

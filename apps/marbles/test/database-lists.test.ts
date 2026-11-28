@@ -1,12 +1,12 @@
 import { basename } from "node:path";
+import type { RunId } from "@foundry/queue";
 import { Tasks } from "@foundry/tasks";
-import { ExecutionCoordinator } from "@foundry/workflows";
-import type { RunRecord } from "@foundry/workflows/schema";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DatabaseRunStore, unheldParkedRuns } from "~/database/runs";
+import { DatabaseRunStore } from "~/database/runs";
 import { marblesWorkflowRuns } from "~/database/tables";
+import { readRun, runStoreEffect } from "~/lib/workflow-runs";
+import { putRun } from "./helpers/queue-runs";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -22,10 +22,10 @@ afterAll(() => {
   machine.close();
 });
 
-function strangers(count: number): string[] {
+function strangers(count: number): RunId[] {
   return Array.from(
     { length: count },
-    (_, index) => `rn-none-${String(index)}`
+    (_, index): RunId => `rn-none-${String(index)}`
   );
 }
 
@@ -34,12 +34,12 @@ describe("lists past what one statement binds", () => {
     const scope = basename(machine.workspace());
     const { database } = machine.database;
     const runs = new DatabaseRunStore({ database, scope });
-    const store = await runs.open(() => undefined);
-    const run = await new ExecutionCoordinator({ store }).createRun({
-      input: null,
-      queueId: "q",
-      step: "s",
-    });
+    const store = await runs.open(() => ({
+      ledger: {},
+      session: { id: "run-session" },
+    }));
+    const run = { id: "rn-listed" } as const;
+    await putRun(store, run.id, undefined, { step: "s" });
     const row = () =>
       database
         .select({ runId: marblesWorkflowRuns.runId })
@@ -52,37 +52,15 @@ describe("lists past what one statement binds", () => {
         );
     expect(await row()).toHaveLength(1);
 
-    await store.commit({
-      deleteRuns: [...strangers(PAST_THE_LIMIT), run.id],
-    });
-
-    expect(await store.getRun(run.id)).toBeNull();
-    expect(await row()).toEqual([]);
-    await runs.close();
-  }, 120_000);
-
-  it("the parked Runs no engine holds are read, however many a workspace has", async () => {
-    const scope = basename(machine.workspace());
-    const { database } = machine.database;
-    const store = new SqliteWorkflowStore({ database, scope });
-    const template = await new ExecutionCoordinator({ store }).createRun({
-      input: null,
-      queueId: "q",
-      step: "s",
-    });
-    const parked: RunRecord[] = Array.from(
-      { length: PAST_THE_LIMIT },
-      (_, index) => ({
-        ...template,
-        id: `rn-parked-${String(index)}`,
-        status: "suspended",
+    await runStoreEffect(
+      store.commit({
+        deleteRuns: [...strangers(PAST_THE_LIMIT), run.id],
       })
     );
-    await store.commit({ putRuns: parked });
 
-    const unheld = await unheldParkedRuns(database, scope);
-    expect(unheld).toHaveLength(PAST_THE_LIMIT);
-    expect(new Set(unheld)).toEqual(new Set(parked.map((run) => run.id)));
+    expect(await readRun(store, run.id)).toBeNull();
+    expect(await row()).toEqual([]);
+    await runs.close();
   }, 120_000);
 
   it("an observer's read names that many types and finds the facts of one of them", async () => {

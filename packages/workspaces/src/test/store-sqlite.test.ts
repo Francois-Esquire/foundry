@@ -5,6 +5,14 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vitest";
 import type { z } from "zod";
 import { WorkspaceCatalog } from "../catalog";
+import type {
+  WorkspaceEntry,
+  WorkspaceEntryId,
+  WorkspaceEvent,
+  WorkspaceFile,
+  WorkspaceId,
+  WorkspaceRegistration,
+} from "../schema";
 import { workspaceEntrySchema, workspaceRegistrationSchema } from "../schema";
 import type { WorkspaceStoreWrite } from "../store";
 import type { WorkspaceDatabase } from "../store/sqlite";
@@ -22,15 +30,7 @@ import type {
   ScopedWorkspaceStores,
 } from "../testing/store";
 import { describeWorkspaceStore } from "../testing/store";
-import type {
-  WorkspaceEntry,
-  WorkspaceEntryId,
-  WorkspaceEvent,
-  WorkspaceFile,
-  WorkspaceId,
-  WorkspaceRegistration,
-} from "../types";
-import { directorySystem } from "./helpers/directory-system";
+import { directoryWorkspaces } from "./helpers/directory-workspaces";
 import { libsqlDatabases } from "./helpers/sqlite";
 import { makeRoot } from "./helpers/temp-roots";
 
@@ -635,14 +635,14 @@ describe("WorkspaceCatalog over SqliteWorkspaceStore", () => {
     expect(removals[0]?.events?.[0]?.id).not.toBe(removals[1]?.events?.[0]?.id);
   }, 60_000);
 
-  test("a WorkspaceSystem loads a real directory into SQLite and reads it back", async () => {
+  test("Workspaces loads a real directory into SQLite and reads it back", async () => {
     const root = await makeRoot({
       "docs/guide.md": "# Guide",
       "README.md": "hello",
     });
     await symlink("README.md", join(root, "readme-link"));
     const store = await storeOnMemory();
-    const workspace = await directorySystem({ store }).load({ path: root });
+    const workspace = await directoryWorkspaces({ store }).load({ path: root });
     const registration = await workspace.registration();
     const entries = await workspace.entries();
 
@@ -716,7 +716,27 @@ describe("SqliteWorkspaceStore query plans", () => {
     [
       "listEntries",
       (store: SqliteWorkspaceStore) => store.listEntries(workspaceId),
-      ["sqlite_autoindex_workspace_entries_1"],
+      [null],
+    ],
+    [
+      "listEntriesPage",
+      (store: SqliteWorkspaceStore) => store.listEntriesPage(workspaceId),
+      [null, "workspace_entries_scope_workspace_path"],
+    ],
+    [
+      "listEntriesPage by type",
+      (store: SqliteWorkspaceStore) =>
+        store.listEntriesPage(workspaceId, { type: "file" }),
+      [
+        "workspace_entries_scope_workspace_type_path",
+        "workspace_entries_scope_workspace_type_path",
+      ],
+    ],
+    [
+      "countEntries by type",
+      (store: SqliteWorkspaceStore) =>
+        store.countEntries(workspaceId, { type: "file" }),
+      ["workspace_entries_scope_workspace_type_path"],
     ],
   ] as const)(
     "%s searches its index, with no scan and no sort",
@@ -739,7 +759,7 @@ describe("SqliteWorkspaceStore query plans", () => {
 });
 
 const DELETES_ENTRIES_BY_KEY =
-  /^SEARCH workspace_entries USING (COVERING )?INDEX sqlite_autoindex_workspace_entries_1 \(scope=\? AND workspace_id=\?\)$/;
+  /^SEARCH workspace_entries USING (COVERING )?INDEX \S+ \(scope=\? AND workspace_id=\?\)$/;
 const DELETES_REGISTRATION_BY_KEY =
   /^SEARCH workspaces USING (COVERING )?INDEX sqlite_autoindex_workspaces_1 \(scope=\? AND id=\?\)$/;
 

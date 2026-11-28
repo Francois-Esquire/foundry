@@ -22,8 +22,8 @@ import {
   lockOwner,
   tryFileLock,
   withFileLock,
-} from "../file-lock";
-import { processAlive, thisProcess } from "../process-identity";
+} from "../node/file-lock";
+import { processAlive, thisProcess } from "../node/process-identity";
 import { anotherStart } from "../testing/process-identity";
 
 let directory: string;

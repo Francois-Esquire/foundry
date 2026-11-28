@@ -3,18 +3,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ReentrantCallError } from "@foundry/lib/turns";
 import { Tasks } from "@foundry/tasks";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { DatabaseBusyError } from "~/database/client";
+import { DatabaseBusyError } from "~/database/busy";
 import { TaskStorageError } from "~/database/tasks";
-import { registerTaskTools } from "~/mcp/tasks";
 import { hostTasks } from "~/workspace/open";
 import { runTaskCommand } from "~/workspace/tasks";
 import { testEngine } from "./helpers/engine";
+import {
+  connectMcp,
+  refused,
+  type ToolResult,
+  textOf,
+} from "./helpers/mcp-client";
 
 vi.mock("bun", () => ({ plugin: vi.fn() }));
 
@@ -30,53 +33,32 @@ afterEach(async () => {
 });
 
 async function connect(tasks = new Tasks({ clock })) {
-  const server = new McpServer({ name: "tasks-test", version: "1.0.0" });
   const addressed: (string | undefined)[] = [];
-  registerTaskTools(
-    server,
-    (command, workspace) => {
+  const connected = await connectMcp({
+    tasks: (command, workspace) => {
       addressed.push(workspace);
       return runTaskCommand(tasks, command);
     },
-    z.string().min(1).optional()
-  );
-  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "tasks-client", version: "1.0.0" });
-  await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
-  open.push(async () => {
-    await client.close();
-    await server.close();
   });
-  return { addressed, client, tasks };
+  open.push(() => connected.close());
+  return { addressed, client: connected.client, connected, tasks };
 }
 
 async function call(
   client: Client,
   name: string,
   args: Record<string, unknown> = {}
-) {
+): Promise<ToolResult> {
   return CallToolResultSchema.parse(
     await client.callTool({ arguments: args, name })
   );
 }
 
-const refusal = z.object({
-  error: z.object({ code: z.string(), message: z.string() }),
+const tasksIn = (filter?: Record<string, unknown>, rest = {}) => ({
+  resource: "tasks",
+  ...(filter === undefined ? {} : { filter }),
+  ...rest,
 });
-
-function textOf(result: z.infer<typeof CallToolResultSchema>): string {
-  const [block] = result.content;
-  if (block?.type !== "text") {
-    throw new Error("the result carried no text");
-  }
-  return block.text;
-}
-
-function refused(result: z.infer<typeof CallToolResultSchema>) {
-  expect(result.isError).toBe(true);
-  expect(result.structuredContent).toBeUndefined();
-  return refusal.parse(JSON.parse(textOf(result))).error;
-}
 
 const taskShape = z.object({ id: z.string(), title: z.string() }).loose();
 const changed = z.object({
@@ -89,40 +71,20 @@ const page = z.object({
   total: z.number(),
 });
 
-it("lists the task tools with input and output schemas", async () => {
+it("serves tasks through list, get and change_tasks, addressed to this server's workspace by default", async () => {
   const { addressed, client } = await connect();
   const { tools } = await client.listTools();
-  expect(tools.map(({ name }) => name)).toEqual([
-    "list_tasks",
-    "ready_tasks",
-    "get_task",
-    "task_dependencies",
-    "change_tasks",
-  ]);
-  for (const tool of tools) {
-    expect(tool.inputSchema.type, tool.name).toBe("object");
-    expect(tool.outputSchema?.type, tool.name).toBe("object");
-    expect(tool.inputSchema.properties, tool.name).toHaveProperty("workspace");
-  }
   const change = tools.find(({ name }) => name === "change_tasks");
   expect(change?.inputSchema.required).toEqual(["operations"]);
+  expect(change?.outputSchema?.type).toBe("object");
   expect(change?.annotations?.readOnlyHint).toBe(false);
-  const list = tools.find(({ name }) => name === "list_tasks");
+  const list = tools.find(({ name }) => name === "list");
   expect(list?.annotations?.readOnlyHint).toBe(true);
-  expect(Object.keys(list?.inputSchema.properties ?? {}).sort()).toEqual([
-    "cursor",
-    "depth",
-    "limit",
-    "parentId",
-    "status",
-    "tags",
-    "workspace",
-  ]);
-  await call(client, "list_tasks", { workspace: "elsewhere" });
+  await call(client, "list", tasksIn(undefined, { workspace: "elsewhere" }));
   await call(client, "change_tasks", {
     operations: [{ input: { title: "Here" }, key: "a", kind: "task.create" }],
   });
-  expect(addressed).toEqual(["elsewhere", undefined]);
+  expect(addressed).toEqual(["elsewhere", "own"]);
 });
 
 it("commits, returns, and filters tags over a workspace's own records", async () => {
@@ -156,18 +118,16 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
   ).tasks;
   expect(tagged).toMatchObject({ tags: ["review", "api"] });
 
-  const titles = async (name: string, args: Record<string, unknown>) => {
-    const result = await call(client, name, args);
+  const titles = async (filter: Record<string, unknown>) => {
+    const result = await call(client, "list", tasksIn(filter));
     expect(result.isError, textOf(result)).not.toBe(true);
     return page.parse(result.structuredContent).items.map(({ title }) => title);
   };
-  expect(await titles("list_tasks", { tags: { all: ["review"] } })).toEqual([
-    "Tagged",
-  ]);
+  expect(await titles({ tags: { all: ["review"] } })).toEqual(["Tagged"]);
   expect(
-    await titles("ready_tasks", { tags: { any: ["missing", "api"] } })
+    await titles({ ready: true, tags: { any: ["missing", "api"] } })
   ).toEqual(["Tagged"]);
-  expect(await titles("list_tasks", { tags: {} })).toEqual(["Plain", "Tagged"]);
+  expect(await titles({ tags: {} })).toEqual(["Plain", "Tagged"]);
 
   const retagged = await call(client, "change_tasks", {
     operations: [
@@ -180,9 +140,9 @@ it("commits, returns, and filters tags over a workspace's own records", async ()
     ],
   });
   expect(retagged.isError, textOf(retagged)).not.toBe(true);
-  const read = await call(client, "get_task", { id: tagged?.id });
-  expect(read.structuredContent).toMatchObject({ task: { tags: [] } });
-  expect(await titles("list_tasks", { tags: { all: ["review"] } })).toEqual([]);
+  const read = await call(client, "get", { id: tagged?.id, resource: "task" });
+  expect(read.structuredContent).toMatchObject({ item: { tags: [] } });
+  expect(await titles({ tags: { all: ["review"] } })).toEqual([]);
   expect((await tasks.list()).total).toBe(2);
   const other = new Tasks({ store: engine.taskStore });
   expect((await other.get(tagged?.id ?? ""))?.tags).toEqual([]);
@@ -249,25 +209,40 @@ it("creates, reads, and changes tasks through the shared command language", asyn
   ]);
   expect((await tasks.get(build.id))?.metadata).toEqual({ size: "m" });
 
-  const tree = await call(client, "get_task", { depth: 1, id: epic.id });
+  const tree = await call(client, "get", {
+    depth: 1,
+    id: epic.id,
+    resource: "task",
+  });
   expect(tree.structuredContent).toMatchObject({
-    task: {
+    item: {
       id: epic.id,
       subtasks: [{ id: design.id }, { id: build.id }],
     },
   });
   const roots = page.parse(
-    (await call(client, "list_tasks", { parentId: null })).structuredContent
+    (await call(client, "list", tasksIn({ parentId: null }))).structuredContent
   );
   expect(roots.items.map(({ id }) => id)).toEqual([epic.id]);
   const ready = page.parse(
-    (await call(client, "ready_tasks")).structuredContent
+    (await call(client, "list", tasksIn({ ready: true }))).structuredContent
   );
   expect(ready.items.map(({ id }) => id)).toEqual([epic.id, design.id]);
   expect(
-    (await call(client, "task_dependencies", { id: build.id }))
-      .structuredContent
-  ).toMatchObject({ dependents: [], dependsOn: [{ id: design.id }] });
+    (
+      await call(client, "get", {
+        fields: ["dependsOn", "dependents"],
+        id: build.id,
+        resource: "task",
+      })
+    ).structuredContent
+  ).toEqual({
+    item: {
+      dependents: [],
+      dependsOn: [expect.objectContaining({ id: design.id })],
+      id: build.id,
+    },
+  });
 
   const done = await call(client, "change_tasks", {
     operations: [
@@ -281,7 +256,7 @@ it("creates, reads, and changes tasks through the shared command language", asyn
   });
   expect(done.isError).not.toBe(true);
   const nowReady = page.parse(
-    (await call(client, "ready_tasks")).structuredContent
+    (await call(client, "list", tasksIn({ ready: true }))).structuredContent
   );
   expect(nowReady.items.map(({ id }) => id)).toEqual([epic.id, build.id]);
 });
@@ -358,19 +333,14 @@ it("refuses a stale token or an invalid batch and leaves the backlog unchanged",
 
 it("validates input before running anything, and answers refusals with a code", async () => {
   const { client, tasks } = await connect();
-  const invalid: [string, Record<string, unknown>][] = [
-    ["list_tasks", { labels: ["review"] }],
-    ["list_tasks", { tags: ["review"] }],
-    ["list_tasks", { tags: { none: ["review"] } }],
-    ["ready_tasks", { tags: { all: [1] } }],
-    ["list_tasks", { status: "done" }],
-    ["list_tasks", { limit: 0 }],
-    ["list_tasks", { cursor: -1 }],
-    ["list_tasks", { depth: 1.5 }],
-    ["ready_tasks", { status: "open" }],
-    ["get_task", {}],
-    ["get_task", { id: "" }],
-    ["task_dependencies", {}],
+  const malformed: [string, Record<string, unknown>][] = [
+    ["list", tasksIn({ tags: ["review"] })],
+    ["list", tasksIn({ ready: true, tags: { all: [1] } })],
+    ["list", tasksIn(undefined, { limit: 0 })],
+    ["list", tasksIn(undefined, { cursor: -1 })],
+    ["list", tasksIn(undefined, { depth: 1.5 })],
+    ["list", { resource: "task" }],
+    ["get", { id: "", resource: "task" }],
     ["change_tasks", {}],
     ["change_tasks", { operations: [] }],
     [
@@ -397,19 +367,47 @@ it("validates input before running anything, and answers refusals with a code", 
       },
     ],
   ];
-  for (const [name, args] of invalid) {
+  for (const [name, args] of malformed) {
     const result = await call(client, name, args);
     expect(result.isError, `${name} ${JSON.stringify(args)}`).toBe(true);
     expect(textOf(result)).toContain("Input validation error");
   }
+  const refusedBefore: [Record<string, unknown>, string, string][] = [
+    [tasksIn({ labels: ["review"] }), "invalid_filter", '"labels"'],
+    [tasksIn({ tags: { none: ["review"] } }), "invalid_filter", "none"],
+    [tasksIn({ status: "done" }), "invalid_filter", "status"],
+    [tasksIn({ status: ["open"] }), "invalid_filter", "status"],
+    [tasksIn({ ready: false }), "invalid_filter", "only true"],
+    [tasksIn({ ready: true, status: "open" }), "invalid_filter", '"status"'],
+    [tasksIn({ parentId: null, ready: true }), "invalid_filter", '"parentId"'],
+    [tasksIn({ ready: true }, { depth: 1 }), "invalid_argument", "depth"],
+    [tasksIn(undefined, { fields: ["owner"] }), "invalid_fields", '"owner"'],
+  ];
+  for (const [args, code, mentions] of refusedBefore) {
+    const answer = refused(await call(client, "list", args));
+    expect(answer.code, JSON.stringify(args)).toBe(code);
+    expect(answer.message, JSON.stringify(args)).toContain(mentions);
+  }
+  expect(refused(await call(client, "get", { resource: "task" }))).toEqual({
+    code: "invalid_argument",
+    message: "get task needs an id: the task's id",
+  });
   expect((await tasks.list()).total).toBe(0);
 
-  expect(refused(await call(client, "get_task", { id: "nope" }))).toEqual({
+  expect(
+    refused(await call(client, "get", { id: "nope", resource: "task" }))
+  ).toEqual({
     code: "not_found",
     message: "[tasks] Task nope not found",
   });
   expect(
-    refused(await call(client, "task_dependencies", { id: "nope" })).code
+    refused(
+      await call(client, "get", {
+        fields: ["dependsOn"],
+        id: "nope",
+        resource: "task",
+      })
+    ).code
   ).toBe("not_found");
 });
 
@@ -430,26 +428,37 @@ it("pages through the backlog with a bounded limit", async () => {
     })),
   });
   const capped = page.parse(
-    (await call(client, "list_tasks", { limit: 10_000 })).structuredContent
+    (await call(client, "list", tasksIn(undefined, { limit: 10_000 })))
+      .structuredContent
   );
   expect(capped.items).toHaveLength(MAX_PAGE);
   expect(capped.total).toBe(205);
   expect(capped.nextCursor).toBe(MAX_PAGE);
   const rest = page.parse(
-    (await call(client, "list_tasks", { cursor: capped.nextCursor }))
-      .structuredContent
+    (
+      await call(
+        client,
+        "list",
+        tasksIn(undefined, { cursor: capped.nextCursor })
+      )
+    ).structuredContent
   );
   expect(rest.items).toHaveLength(5);
   expect(rest.nextCursor).toBeUndefined();
   const small = page.parse(
-    (await call(client, "ready_tasks", { cursor: 3, limit: 2 }))
-      .structuredContent
+    (
+      await call(
+        client,
+        "list",
+        tasksIn({ ready: true }, { cursor: 3, limit: 2 })
+      )
+    ).structuredContent
   );
   expect(small.items.map(({ title }) => title)).toEqual(["Task 3", "Task 4"]);
   expect(small.nextCursor).toBe(5);
 });
 
-it("answers a storage refusal or a re-entrant call with a tool error carrying its message alone", async () => {
+it("answers a storage refusal or a re-entrant call with a coded tool error carrying its message", async () => {
   const refusals = [
     new ReentrantCallError(
       "SqliteTaskStore was called from inside its own transaction or onCommit hook; use the view passed to the transaction's work, or the transaction passed to onCommit, instead"
@@ -460,21 +469,11 @@ it("answers a storage refusal or a re-entrant call with a tool error carrying it
     new DatabaseBusyError("the Marbles database is busy"),
   ];
   for (const thrown of refusals) {
-    const server = new McpServer({ name: "tasks-test", version: "1.0.0" });
-    registerTaskTools(
-      server,
-      () => Promise.reject(thrown),
-      z.string().min(1).optional()
-    );
-    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-    const client = new Client({ name: "tasks-client", version: "1.0.0" });
-    await Promise.all([server.connect(serverSide), client.connect(clientSide)]);
-    open.push(async () => {
-      await client.close();
-      await server.close();
-    });
+    const connected = await connectMcp({ tasks: () => Promise.reject(thrown) });
+    open.push(() => connected.close());
     for (const [name, args] of [
-      ["list_tasks", {}],
+      ["list", tasksIn()],
+      ["get", { id: "x", resource: "task" }],
       [
         "change_tasks",
         {
@@ -484,9 +483,10 @@ it("answers a storage refusal or a re-entrant call with a tool error carrying it
         },
       ],
     ] as const) {
-      const result = await call(client, name, args);
-      expect(result.isError).toBe(true);
-      expect(textOf(result)).toBe(thrown.message);
+      expect(refused(await connected.call(name, args))).toEqual({
+        code: "failed",
+        message: thrown.message,
+      });
     }
   }
 });

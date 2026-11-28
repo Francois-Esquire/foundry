@@ -2,81 +2,54 @@
   "name": "@foundry/models",
   "version": "0.1.0",
   "private": true,
-  "description": "Unified model registry: remote providers, CLI harnesses, on-device models, and their catalogs behind one ModelManager.",
+  "description": "One catalog-checked Models registry over gateway, Vercel and CLI harness providers, with their catalogs and costs.",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
-      "import": "./src/index.ts"
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
-    "./fal": {
-      "types": "./dist/src/fal/provider.d.ts",
-      "import": "./src/fal/provider.ts"
+    "./providers/claude-code": {
+      "types": "./dist/src/providers/claude-code.d.ts",
+      "import": "./src/providers/claude-code.ts",
+      "default": "./src/providers/claude-code.ts"
     },
-    "./live": {
-      "types": "./dist/src/live/index.d.ts",
-      "import": "./src/live/index.ts"
+    "./providers/codex": {
+      "types": "./dist/src/providers/codex.d.ts",
+      "import": "./src/providers/codex.ts",
+      "default": "./src/providers/codex.ts"
     },
-    "./live/node": {
-      "types": "./dist/src/live/node/index.d.ts",
-      "import": "./src/live/node/index.ts"
+    "./providers/pi": {
+      "types": "./dist/src/providers/pi.d.ts",
+      "import": "./src/providers/pi.ts",
+      "default": "./src/providers/pi.ts"
     },
-    "./airplane": {
-      "types": "./dist/src/airplane.d.ts",
-      "import": "./src/airplane.ts"
+    "./providers/gateway": {
+      "types": "./dist/src/providers/gateway.d.ts",
+      "import": "./src/providers/gateway.ts",
+      "default": "./src/providers/gateway.ts"
     },
-    "./claude-code": {
-      "types": "./dist/src/claude-code.d.ts",
-      "import": "./src/claude-code.ts"
-    },
-    "./codex": {
-      "types": "./dist/src/codex.d.ts",
-      "import": "./src/codex.ts"
-    },
-    "./pi": {
-      "types": "./dist/src/pi.d.ts",
-      "import": "./src/pi.ts"
-    },
-    "./local": {
-      "types": "./dist/src/local/provider.d.ts",
-      "import": "./src/local/provider.ts"
-    },
-    "./local/remote": {
-      "types": "./dist/src/local/remote/transport.d.ts",
-      "import": "./src/local/remote/transport.ts"
-    },
-    "./local/remote/provider": {
-      "types": "./dist/src/local/remote/provider.d.ts",
-      "import": "./src/local/remote/provider.ts"
-    },
-    "./gateway": {
-      "types": "./dist/src/gateway.d.ts",
-      "import": "./src/gateway.ts"
-    },
-    "./vercel": {
-      "types": "./dist/src/vercel.d.ts",
-      "import": "./src/vercel.ts"
-    },
-    "./replicate": {
-      "types": "./dist/src/replicate.d.ts",
-      "import": "./src/replicate.ts"
-    },
-    "./model-option": {
-      "types": "./dist/src/model-option.d.ts",
-      "import": "./src/model-option.ts"
+    "./providers/vercel": {
+      "types": "./dist/src/providers/vercel.d.ts",
+      "import": "./src/providers/vercel.ts",
+      "default": "./src/providers/vercel.ts"
     },
     "./cost": {
       "types": "./dist/src/cost.d.ts",
-      "import": "./src/cost.ts"
+      "import": "./src/cost.ts",
+      "default": "./src/cost.ts"
     },
-    "./catalog/*": {
-      "types": "./dist/src/catalog/*.d.ts",
-      "import": "./src/catalog/*.ts"
+    "./catalog/models-dev": {
+      "types": "./dist/src/catalog/models-dev.d.ts",
+      "import": "./src/catalog/models-dev.ts",
+      "default": "./src/catalog/models-dev.ts"
     },
-    "./embeddings/*": {
-      "types": "./dist/src/embeddings/*.d.ts",
-      "import": "./src/embeddings/*.ts"
+    "./catalog/models-dev-source": {
+      "types": "./dist/src/catalog/models-dev-source.d.ts",
+      "import": "./src/catalog/models-dev-source.ts",
+      "default": "./src/catalog/models-dev-source.ts"
     }
   },
   "files": [
@@ -84,45 +57,48 @@
     "./src/**/*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
     "test": "vitest run --project unit",
     "test:coverage": "vitest run --project unit --coverage",
-    "test:integration": "vitest run --project integration",
     "test:pi": "vitest run --project pi",
     "test:watch": "vitest --project unit",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/fal": "3.0.26",
-    "@ai-sdk/openai-compatible": "3.0.27",
-    "@ai-sdk/provider": "4.0.7",
-    "@ai-sdk/provider-utils": "5.0.25",
-    "@ai-sdk/replicate": "3.0.26",
-    "@browser-ai/transformers-js": "3.0.0",
-    "@chonkiejs/core": "^0.0.11",
-    "@fal-ai/client": "1.11.0-alpha.2",
-    "@foundry/agents": "workspace:*",
+    "@ai-sdk/openai-compatible": "3.0.94",
+    "@ai-sdk/provider": "4.0.39",
+    "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
-    "@huggingface/transformers": "^4.2.0",
-    "@kreuzberg/tree-sitter-language-pack": "^1.10.9",
-    "ai": "7.0.58",
-    "evlog": "^2.25.0",
-    "werift": "0.24.4",
-    "zod": "^4.4.3"
+    "ai": "7.0.179",
+    "evlog": "^2.36.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",
-    "@types/bun": "1.3.14",
-    "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^4.1.9",
-    "happy-dom": "^20.11.2",
+    "@types/bun": "1.4.5",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^4.1.12",
+    "ai-sdk-provider-claude-code": "4.4.1",
+    "ai-sdk-provider-codex-cli": "2.4.0",
+    "ai-sdk-provider-pi": "0.1.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.12"
   },
-  "optionalDependencies": {
-    "ai-sdk-provider-claude-code": "4.0.1",
-    "ai-sdk-provider-codex-cli": "2.1.2",
+  "peerDependencies": {
+    "ai-sdk-provider-claude-code": "4.4.1",
+    "ai-sdk-provider-codex-cli": "2.4.0",
     "ai-sdk-provider-pi": "0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "ai-sdk-provider-claude-code": {
+      "optional": true
+    },
+    "ai-sdk-provider-codex-cli": {
+      "optional": true
+    },
+    "ai-sdk-provider-pi": {
+      "optional": true
+    }
   }
 }

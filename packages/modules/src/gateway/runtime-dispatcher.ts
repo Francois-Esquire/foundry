@@ -1,8 +1,15 @@
+import type { Authorization, GrantId, Permit } from "@foundry/authorization";
 import { withAbort } from "@foundry/lib/abort";
-import { isGranted, resolveCapabilityDigest } from "../grants";
+import {
+  grantToInstallationGrant,
+  MODULE_CAPABILITY_ACTION,
+  moduleCapabilityAccessRequest,
+  moduleInstallationPrincipal,
+  resolveCapabilityDigest,
+} from "../grants";
 import type { ModuleCapabilityRequest } from "../manifest";
 import { capabilityIdentity } from "../manifest";
-import type { ModuleCommands, ModuleGatewayContext } from "../registry";
+import type { ModuleCommands, ModuleGatewayContext } from "../modules";
 import { ModuleGatewayContractError } from "./catalog";
 import { admitRuntimeContext } from "./runtime-context";
 import type {
@@ -20,6 +27,7 @@ import type {
 import { ModuleGatewayError } from "./types";
 
 export interface CreateModuleGatewayRuntimeDispatcherOptions {
+  readonly authorization?: Authorization;
   readonly now?: () => Date;
   readonly observe?: (record: ModuleGatewayInvocationRecord) => void;
   readonly providers: readonly ModuleCapabilityProvider[];
@@ -29,8 +37,13 @@ export interface CreateModuleGatewayRuntimeDispatcherOptions {
 export function createModuleGatewayRuntimeDispatcher(
   options: CreateModuleGatewayRuntimeDispatcherOptions
 ): ModuleGatewayRuntimeDispatcher {
+  const authorization = options.authorization ?? options.store.authorization;
   const providers = providerIndex(options.providers);
-  const active = new Set<ActiveInvocation>();
+  const admissions = new Set<{
+    readonly capability: string;
+    readonly controller: AbortController;
+    readonly installationId: string;
+  }>();
   const observe = invocationObserver(options.observe);
   const now = () => (options.now?.() ?? new Date()).toISOString();
   return Object.freeze({
@@ -41,19 +54,10 @@ export function createModuleGatewayRuntimeDispatcher(
       const selection = input.capabilities.find(
         (capability) => capability.alias === request.alias
       );
-      const cancellation = trackInvocation({
-        active,
-        callerSignal: input.signal,
-        capability: selection?.capability,
-        installationId: runtime.installationId,
-      });
-      let context: ModuleGatewayContext;
-      try {
-        context = await admitRuntimeContext(options.store, runtime);
-      } catch (error) {
-        cancellation.cleanup();
-        throw error;
-      }
+      const context: ModuleGatewayContext = await admitRuntimeContext(
+        options.store,
+        runtime
+      );
       const principal: ModulePrincipal = Object.freeze({
         contentId: runtime.contentId,
         generation: runtime.generation,
@@ -78,27 +82,29 @@ export function createModuleGatewayRuntimeDispatcher(
       };
       const settle = (error?: unknown) =>
         observe({ ...record, ...outcome(error, now()) });
-      let result: ModuleGatewayDispatchResult;
+      let dispatched: DispatchedInvocation;
       try {
-        result = await dispatchAdmitted(input, {
-          cancellation,
+        dispatched = await dispatchAdmitted(input, {
           invocationId,
           principal,
           selection,
         });
       } catch (error) {
-        cancellation.cleanup();
         settle(error);
         throw error;
       }
-      if (result.mode === "unary") {
+      if (dispatched.result.mode === "unary") {
         settle();
-        return result;
+        return dispatched.result;
       }
       observe({ ...record, status: "running" });
       return {
-        ...result,
-        events: observedStream(result.events, cancellation, settle),
+        ...dispatched.result,
+        events: observedStream(
+          dispatched.result.events,
+          dispatched.permit,
+          settle
+        ),
       };
     },
     revoke: ({
@@ -106,12 +112,12 @@ export function createModuleGatewayRuntimeDispatcher(
       capability,
       reason,
     }: Parameters<ModuleGatewayRuntimeDispatcher["revoke"]>[0]) => {
-      for (const invocation of active) {
+      for (const pending of admissions) {
         if (
-          invocation.installationId === installationId &&
-          invocation.capability === capability
+          pending.installationId === installationId &&
+          pending.capability === capability
         ) {
-          invocation.controller.abort(reason);
+          pending.controller.abort(reason ?? "Grant revoked");
         }
       }
     },
@@ -120,14 +126,13 @@ export function createModuleGatewayRuntimeDispatcher(
   async function dispatchAdmitted(
     input: Parameters<ModuleGatewayRuntimeDispatcher["dispatch"]>[0],
     admitted: {
-      readonly cancellation: TrackedInvocation;
       readonly invocationId: string;
       readonly principal: ModulePrincipal;
       readonly selection: (typeof input.capabilities)[number] | undefined;
     }
-  ): Promise<ModuleGatewayDispatchResult> {
+  ): Promise<DispatchedInvocation> {
     const { request } = input;
-    const { cancellation, invocationId, principal, selection } = admitted;
+    const { invocationId, principal, selection } = admitted;
     if (selection === undefined) {
       throw failure(
         "unknown-alias",
@@ -153,37 +158,50 @@ export function createModuleGatewayRuntimeDispatcher(
         cause,
       });
     }
-    await withAbort(
-      authorizeInvocation({
-        principal,
-        provider,
-        runtime: input.runtime,
-        selection,
-        store: options.store,
-      }),
-      cancellation.signal,
-      () => failure("cancelled", "Gateway request was cancelled")
-    );
-    assertNotCancelled(cancellation.signal);
+
+    const permit = await authorizeInvocation({
+      admissions,
+      authorization,
+      callerSignal: input.signal,
+      invocationId,
+      principal,
+      provider,
+      runtime: input.runtime,
+      selection,
+      store: options.store,
+    });
 
     const invocation: ModuleCapabilityInvocationContext = {
       constraints: selection.constraints ?? null,
       invocationId,
       principal,
-      signal: cancellation.signal,
+      signal: permit.signal,
     };
     if (registration.mode === "unary") {
       try {
-        return await dispatchUnary(registration, parsedInput, invocation);
+        const result = await dispatchUnary(
+          registration,
+          parsedInput,
+          invocation
+        );
+        return { permit, result };
       } finally {
-        cancellation.cleanup();
+        permit.release();
       }
     }
     return {
-      events: dispatchStream(registration, parsedInput, invocation),
-      mode: "stream" as const,
+      permit,
+      result: {
+        events: dispatchStream(registration, parsedInput, invocation),
+        mode: "stream" as const,
+      },
     };
   }
+}
+
+interface DispatchedInvocation {
+  readonly permit: Permit;
+  readonly result: ModuleGatewayDispatchResult;
 }
 
 function invocationObserver(
@@ -217,7 +235,7 @@ function outcome(error: unknown, endedAt: string): ModuleGatewayInvocationEnd {
 
 function observedStream(
   events: AsyncIterable<unknown>,
-  cancellation: TrackedInvocation,
+  permit: Permit,
   settle: (error?: unknown) => void
 ): AsyncIterable<unknown> {
   let finished = false;
@@ -227,8 +245,8 @@ function observedStream(
       return;
     }
     finished = true;
-    cancellation.signal.removeEventListener("abort", cancelUnread);
-    cancellation.cleanup();
+    permit.signal.removeEventListener("abort", cancelUnread);
+    permit.release();
     settle(error);
   }
   function cancelUnread() {
@@ -236,10 +254,10 @@ function observedStream(
       finish(failure("cancelled", "Gateway request was cancelled"));
     }
   }
-  if (cancellation.signal.aborted) {
+  if (permit.signal.aborted) {
     cancelUnread();
   } else {
-    cancellation.signal.addEventListener("abort", cancelUnread, {
+    permit.signal.addEventListener("abort", cancelUnread, {
       once: true,
     });
   }
@@ -262,77 +280,113 @@ function observedStream(
   })();
 }
 
-interface ActiveInvocation {
-  readonly capability: string | undefined;
-  readonly controller: AbortController;
-  readonly installationId: ModulePrincipal["installationId"];
-}
-
-interface TrackedInvocation {
-  readonly cleanup: () => void;
-  readonly signal: AbortSignal;
-}
-
-function trackInvocation(input: {
-  readonly active: Set<ActiveInvocation>;
-  readonly installationId: ModulePrincipal["installationId"];
-  readonly capability: string | undefined;
-  readonly callerSignal: AbortSignal;
-}): TrackedInvocation {
-  const controller = new AbortController();
-  const invocation: ActiveInvocation = {
-    capability: input.capability,
-    controller,
-    installationId: input.installationId,
-  };
-  const relayCallerAbort = () => {
-    controller.abort(input.callerSignal.reason);
-  };
-  if (input.callerSignal.aborted) {
-    relayCallerAbort();
-  } else {
-    input.callerSignal.addEventListener("abort", relayCallerAbort, {
-      once: true,
-    });
-  }
-  input.active.add(invocation);
-  return {
-    cleanup: () => {
-      input.active.delete(invocation);
-      input.callerSignal.removeEventListener("abort", relayCallerAbort);
-    },
-    signal: controller.signal,
-  };
-}
-
 async function authorizeInvocation(input: {
+  readonly admissions: Set<{
+    readonly capability: string;
+    readonly controller: AbortController;
+    readonly installationId: string;
+  }>;
+  readonly authorization: Authorization;
+  readonly callerSignal: AbortSignal;
+  readonly invocationId: string;
   readonly store: ModuleCommands;
   readonly runtime: ModuleRuntimeIdentity;
   readonly provider: ModuleCapabilityProvider;
   readonly selection: ModuleCapabilityRequest;
   readonly principal: ModulePrincipal;
-}): Promise<void> {
-  const { selection } = input;
+}): Promise<Permit> {
+  const { admissions, authorization, callerSignal, selection } = input;
+  assertNotCancelled(callerSignal);
+
+  const candidateGrants = await authorization.listGrants({
+    action: MODULE_CAPABILITY_ACTION,
+    principal: moduleInstallationPrincipal(input.principal.installationId),
+    state: "active",
+  });
+  const candidateGrantIds = new Set<GrantId>(
+    candidateGrants
+      .filter(
+        (grant) =>
+          grantToInstallationGrant(grant)?.capability === selection.capability
+      )
+      .map((grant) => grant.id)
+  );
+
+  const admission = new AbortController();
+  const admissionEntry = {
+    capability: selection.capability,
+    controller: admission,
+    installationId: input.principal.installationId,
+  };
+  admissions.add(admissionEntry);
+  const relayCallerAbort = () => admission.abort(callerSignal.reason);
+  if (callerSignal.aborted) {
+    relayCallerAbort();
+  } else {
+    callerSignal.addEventListener("abort", relayCallerAbort, { once: true });
+  }
+  const unwatch = authorization.watch((event) => {
+    if (
+      event.type === "grant.revoked" &&
+      event.grantIds.some((id) => candidateGrantIds.has(id))
+    ) {
+      admission.abort(event.reason ?? "Grant revoked");
+    }
+  });
+
   let constraintsDigest: string;
   try {
-    constraintsDigest = await resolveCapabilityDigest(
-      input.provider,
-      input.principal,
+    constraintsDigest = await withAbort(
+      resolveConstraints(input.provider, input.principal, selection),
+      admission.signal,
+      () => failure("cancelled", "Gateway request was cancelled")
+    );
+    assertNotCancelled(admission.signal);
+  } finally {
+    admissions.delete(admissionEntry);
+    unwatch();
+    callerSignal.removeEventListener("abort", relayCallerAbort);
+  }
+
+  await admitRuntimeContext(input.store, input.runtime);
+  assertNotCancelled(callerSignal);
+
+  const decision = await authorization.authorize(
+    moduleCapabilityAccessRequest({
+      capability: selection.capability,
+      constraintsDigest,
+      installationId: input.principal.installationId,
+      version: selection.version,
+    }),
+    input.invocationId,
+    { openPending: false, signal: callerSignal }
+  );
+  if (decision.kind !== "permitted") {
+    assertNotCancelled(callerSignal);
+    throw failure("unauthorized", "Gateway capability is not granted");
+  }
+  if (decision.permit.signal.aborted) {
+    decision.permit.release();
+    throw failure("cancelled", "Gateway request was cancelled");
+  }
+  return decision.permit;
+}
+
+async function resolveConstraints(
+  provider: ModuleCapabilityProvider,
+  principal: ModulePrincipal,
+  selection: ModuleCapabilityRequest
+): Promise<string> {
+  try {
+    return await resolveCapabilityDigest(
+      provider,
+      principal,
       selection.constraints
     );
   } catch (cause) {
     throw failure("unauthorized", "Gateway capability constraints are denied", {
       cause,
     });
-  }
-  const current = await admitRuntimeContext(input.store, input.runtime);
-  const granted = isGranted(current.grants, {
-    capability: selection.capability,
-    constraintsDigest,
-    version: selection.version,
-  });
-  if (!granted) {
-    throw failure("unauthorized", "Gateway capability is not granted");
   }
 }
 

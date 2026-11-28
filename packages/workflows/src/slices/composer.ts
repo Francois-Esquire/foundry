@@ -1,0 +1,296 @@
+import { Effect } from "effect";
+import { errorToShape, runEffectPromise } from "../effect-interop";
+import type { Step } from "../step";
+import type { Bail } from "../types";
+import { isBail, StepBailError } from "../types";
+import type { Channels } from "./channels";
+import {
+  type Executable,
+  type ExecutableConfig,
+  isSuspendSignal,
+  type Witness,
+} from "./executable";
+
+export interface BaseScope {
+  readonly channels: Channels;
+}
+
+export interface ParallelEntry<I = unknown, O = unknown> {
+  readonly input: I;
+  readonly step: Step<I, O>;
+}
+
+export type ParallelOut<Specs extends Record<string, ParallelEntry>> = {
+  [K in keyof Specs]: Specs[K] extends ParallelEntry<unknown, infer O>
+    ? O
+    : never;
+};
+
+export type RaceOut<Specs extends Record<string, ParallelEntry>> = {
+  [K in keyof Specs]: Specs[K] extends ParallelEntry<unknown, infer O>
+    ? { winner: K; value: O }
+    : never;
+}[keyof Specs];
+
+export class Composer<S extends BaseScope = BaseScope> {
+  readonly name: string;
+  readonly path: readonly string[];
+  readonly scope: S;
+  readonly executable: Executable;
+
+  protected constructor(args: {
+    name: string;
+    scope: S;
+    path: readonly string[];
+    executable: Executable;
+  }) {
+    this.name = args.name;
+    this.scope = args.scope;
+    this.path = args.path;
+    this.executable = args.executable;
+  }
+
+  static root<ScopeType extends BaseScope>(
+    scope: ScopeType,
+    executable: Executable
+  ): Composer<ScopeType> {
+    return new Composer({
+      executable,
+      name: executable.name,
+      path: executable.path,
+      scope,
+    });
+  }
+
+  fork(
+    name: string,
+    input?: unknown,
+    config?: Partial<ExecutableConfig>
+  ): Composer<S>;
+  fork(
+    name: string,
+    ...inputAndConfig:
+      | []
+      | [input: unknown]
+      | [input: unknown, config?: Partial<ExecutableConfig>]
+  ): Composer<S> {
+    const [input, config] = inputAndConfig;
+    const childExec =
+      inputAndConfig.length > 0
+        ? this.executable.fork({ config, input, name })
+        : this.executable.fork({ config, name });
+    return new Composer({
+      executable: childExec,
+      name,
+      path: [...this.path, name],
+      scope: this.scope,
+    });
+  }
+
+  mount(attempt = 1): this {
+    this.scope.channels.started(this.path, this.name, attempt);
+    return this;
+  }
+
+  complete(value: unknown, attempt = 1): void {
+    this.scope.channels.complete(this.path, this.name, attempt, value);
+  }
+
+  fail(error: Error, attempt = 1): void {
+    this.scope.channels.failed(
+      this.path,
+      this.name,
+      attempt,
+      errorToShape(error)
+    );
+  }
+
+  #invoke<CI, CO>(
+    step: Step<CI, CO>,
+    input: CI,
+    as?: string
+  ): Effect.Effect<CO | Bail<unknown>, Error> {
+    const child = this.fork(as ?? step.name, input);
+    return child.executable.drive(child.#witness(), step as Step<unknown, CO>);
+  }
+
+  #parallel<Specs extends Record<string, ParallelEntry>>(
+    specs: Specs,
+    name = "parallel"
+  ): Effect.Effect<ParallelOut<Specs>, Error> {
+    return this.#wrap(name, (wrapper) =>
+      Effect.gen(function* () {
+        const entries = Object.entries(specs);
+        const tasks = entries.map(([k, spec]) => {
+          const child = wrapper.fork(k, spec.input);
+          return child.executable
+            .drive(child.#witness(), spec.step)
+            .pipe(Effect.map((v) => [k, v] as const));
+        });
+        const out = yield* Effect.all(tasks, { concurrency: "unbounded" });
+        return Object.fromEntries(out) as ParallelOut<Specs>;
+      })
+    );
+  }
+
+  #race<Specs extends Record<string, ParallelEntry>>(
+    specs: Specs,
+    name = "race"
+  ): Effect.Effect<RaceOut<Specs>, Error> {
+    return this.#wrap(name, (wrapper) =>
+      Effect.gen(function* () {
+        const entries = Object.entries(specs) as [
+          keyof Specs & string,
+          ParallelEntry,
+        ][];
+        const arms = entries.map(([k, spec]) => {
+          const child = wrapper.fork(k, spec.input);
+          return child.executable
+            .drive(child.#witness(), spec.step)
+            .pipe(
+              Effect.map((value) => ({ value, winner: k }) as RaceOut<Specs>)
+            );
+        });
+        const [first, ...rest] = arms;
+        if (!first) {
+          return yield* Effect.fail(new Error(`race "${name}" empty`));
+        }
+        return yield* rest.reduce((acc, next) => Effect.race(acc, next), first);
+      })
+    );
+  }
+
+  #branch<CO>(
+    predicate: (input: unknown) => boolean | Promise<boolean>,
+    ifTrue: Step<unknown, CO>,
+    ifFalse: Step<unknown, CO>,
+    input: unknown,
+    name = "branch"
+  ): Effect.Effect<CO | Bail<unknown>, Error> {
+    return this.#wrap(name, (wrapper) =>
+      Effect.gen(function* () {
+        const cond = yield* Effect.promise(() =>
+          Promise.resolve(predicate(input))
+        );
+        const armKey = cond ? "ifTrue" : "ifFalse";
+        const arm = cond ? ifTrue : ifFalse;
+        const child = wrapper.fork(armKey, input);
+        return yield* child.executable.drive(child.#witness(), arm);
+      })
+    );
+  }
+
+  #sequence<O>(
+    steps: readonly Step[],
+    initialInput: unknown,
+    name = "sequence"
+  ): Effect.Effect<O, Error> {
+    return this.#wrap(name, (wrapper) =>
+      Effect.gen(function* () {
+        let value: unknown = initialInput;
+        for (const step of steps) {
+          const child = wrapper.fork(step.name, value);
+          const result = yield* child.executable.drive(child.#witness(), step);
+          if (isBail(result)) {
+            return yield* Effect.fail(
+              new Error(
+                `Sequence "${name}" bailed at "${step.name}": ${JSON.stringify(
+                  result.error
+                )}`
+              )
+            );
+          }
+          value = result;
+        }
+        return value as O;
+      })
+    );
+  }
+
+  invoke<CI, CO>(step: Step<CI, CO>, input: CI, as?: string): Promise<CO> {
+    return runEffectPromise(
+      this.#invoke<CI, CO>(step, input, as).pipe(
+        Effect.flatMap((result) =>
+          isBail(result)
+            ? Effect.fail(new StepBailError(step.name, result))
+            : Effect.succeed(result)
+        )
+      )
+    );
+  }
+
+  parallel<Specs extends Record<string, ParallelEntry>>(
+    specs: Specs,
+    name = "parallel"
+  ): Promise<ParallelOut<Specs>> {
+    return runEffectPromise(this.#parallel<Specs>(specs, name));
+  }
+
+  race<Specs extends Record<string, ParallelEntry>>(
+    specs: Specs,
+    name = "race"
+  ): Promise<RaceOut<Specs>> {
+    return runEffectPromise(this.#race<Specs>(specs, name));
+  }
+
+  branch<CO>(
+    predicate: (input: unknown) => boolean | Promise<boolean>,
+    ifTrue: Step<unknown, CO>,
+    ifFalse: Step<unknown, CO>,
+    input: unknown,
+    name = "branch"
+  ): Promise<CO> {
+    return runEffectPromise(
+      this.#branch<CO>(predicate, ifTrue, ifFalse, input, name).pipe(
+        Effect.flatMap((result) =>
+          isBail(result)
+            ? Effect.fail(new StepBailError(name, result))
+            : Effect.succeed(result)
+        )
+      )
+    );
+  }
+
+  sequence<O>(
+    steps: readonly Step[],
+    initialInput: unknown,
+    name = "sequence"
+  ): Promise<O> {
+    return runEffectPromise(this.#sequence<O>(steps, initialInput, name));
+  }
+
+  #witness(): Witness {
+    return { channels: this.scope.channels, composer: this };
+  }
+
+  #wrap<A>(
+    name: string,
+    body: (wrapper: Composer<S>) => Effect.Effect<A, Error>
+  ): Effect.Effect<A, Error> {
+    const wrapper = this.fork(name);
+    return Effect.gen(function* () {
+      const seeded = wrapper.scope.channels.snapshot.consumeSeeded(
+        wrapper.path.join(".")
+      );
+      if (seeded.found) {
+        return seeded.output as A;
+      }
+      wrapper.mount();
+      return yield* body(wrapper).pipe(
+        Effect.tap((value) =>
+          Effect.sync(() => {
+            wrapper.complete(value);
+          })
+        ),
+        Effect.tapError((err) =>
+          Effect.sync(() => {
+            if (isSuspendSignal(err)) {
+              return;
+            }
+            wrapper.fail(err instanceof Error ? err : new Error(String(err)));
+          })
+        )
+      );
+    });
+  }
+}

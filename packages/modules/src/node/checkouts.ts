@@ -11,13 +11,11 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import type { Artifacts, ContentId } from "@foundry/artifacts";
+import type { ArtifactSubstrate, ContentId } from "@foundry/artifacts";
 import type { StorageTree } from "@foundry/core/storage";
-
+import { KeyedQueue } from "@foundry/lib/keyed-queue";
 import type { ModuleVersion } from "../domain";
 import type { ModuleCheckouts } from "../platform/files";
-
-import { KeyedTurns } from "../platform/turns";
 
 export type { ModuleCheckouts } from "../platform/files";
 
@@ -33,10 +31,10 @@ export class ModuleCheckoutError extends Error {
 
 export function createModuleCheckouts(options: {
   readonly root: string;
-  readonly artifacts: Pick<Artifacts, "getContent" | "readFile">;
+  readonly artifacts: Pick<ArtifactSubstrate, "getContent" | "readFile">;
 }): ModuleCheckouts {
   const root = path.resolve(options.root);
-  const turns = new KeyedTurns<string>();
+  const turns = new KeyedQueue<string>();
   const checkouts: ModuleCheckouts = {
     ensure: ({ version, signal }) =>
       turns.run(directoryName(version.digest), () => ensure(version, signal)),

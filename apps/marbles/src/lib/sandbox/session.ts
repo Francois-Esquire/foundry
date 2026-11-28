@@ -1,4 +1,4 @@
-import type { ObserveTurn } from "@foundry/agents/agents/model";
+import type { ObserveTurn } from "@foundry/agents";
 import type {
   AgentModel,
   HarnessActivityEvent,
@@ -13,7 +13,7 @@ import {
   createHarnessQuestionTool,
 } from "@foundry/agents/harness";
 import type { SessionStore } from "@foundry/agents/store";
-import type { Container } from "@foundry/sandbox/container/containers";
+import type { Container } from "@foundry/sandbox";
 import type { Tool, ToolSet } from "ai";
 import { type CliHarness, isCliHarness } from "~/lib/cli-harnesses";
 import type { RecordObservation } from "~/lib/observations";
@@ -46,7 +46,7 @@ const BUILTIN_SCHEDULED_PROFILE: HarnessPermissionProfile = {
 
 export type SandboxAuthority = Pick<
   HarnessAuthoritySettings,
-  "approve" | "onApprovalRequest" | "policy"
+  "approve" | "authorization" | "onApprovalRequest" | "principalAttributes"
 >;
 
 export interface SandboxSessionOptions extends SandboxAgentOptions {
@@ -55,6 +55,7 @@ export interface SandboxSessionOptions extends SandboxAgentOptions {
 
 export interface SandboxSessionSettings {
   agentId: string;
+  authoritySessionId?: string;
   container: Container;
   delegation?: DelegationScope;
   execution?: Execution;
@@ -74,7 +75,6 @@ export interface SandboxSessionSettings {
   parentActivityId?: string;
   provider: string;
   record?: RecordObservation;
-  registerChildSession?: (sessionId: string) => Promise<void>;
   sessionId: string;
   signal: AbortSignal;
   store: SessionStore;
@@ -133,17 +133,27 @@ function builtinSession(
     );
   }
   const profile = options.profile ?? BUILTIN_SCHEDULED_PROFILE;
-  const { policy } = options.authority;
+  const { authorization, principalAttributes } = options.authority;
+  const delegated = (settings.delegation?.depth ?? 0) > 0;
   const permission = createHarnessPermission({
     agentId: settings.agentId,
-    policy,
+    ...(settings.authoritySessionId === undefined
+      ? {}
+      : { authoritySessionId: settings.authoritySessionId }),
+    authorization,
+    ...(principalAttributes === undefined ? {} : { principalAttributes }),
     profile,
+    ...(delegated ? { skipProfileGrants: true } : {}),
     store: settings.store,
     ...approvals,
   });
   return createBuiltinCodingHarness(
     {
       agentId: settings.agentId,
+      ...(settings.authoritySessionId === undefined
+        ? {}
+        : { authoritySessionId: settings.authoritySessionId }),
+      authorization,
       compaction: resolveCompaction(options.compaction ?? true, model),
       instructions: settings.instructions,
       maxSteps: profile.maxSteps,
@@ -154,7 +164,6 @@ function builtinSession(
           ...request,
           activityId: request.activityId ?? settings.parentActivityId,
         }),
-      policy,
       sessionId: settings.sessionId,
       store: settings.store,
       tools: {
@@ -207,18 +216,26 @@ async function cliSession(
     guest,
     settings: { ...settings, modelId },
   });
+  const delegated = (settings.delegation?.depth ?? 0) > 0;
   return createDriverSession(
     {
       agentId: settings.agentId,
+      ...(settings.authoritySessionId === undefined
+        ? {}
+        : { authoritySessionId: settings.authoritySessionId }),
+      authorization: options.authority.authorization,
       model: {
         harness,
         id: settings.modelId,
         provider: settings.provider,
       },
       parentActivityId: settings.parentActivityId,
-      policy: options.authority.policy,
+      ...(options.authority.principalAttributes === undefined
+        ? {}
+        : { principalAttributes: options.authority.principalAttributes }),
       profile,
       sessionId: settings.sessionId,
+      ...(delegated ? { skipProfileGrants: true } : {}),
       store: settings.store,
       ...approvals,
       onActivity: async (event) => {

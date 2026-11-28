@@ -6,12 +6,61 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./*": {
-      "types": "./dist/*.d.ts",
-      "import": "./src/*.ts",
-      "default": "./src/*.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
     },
-    "./package.json": "./package.json"
+    "./gateway": {
+      "types": "./dist/gateway/index.d.ts",
+      "import": "./src/gateway/index.ts",
+      "default": "./src/gateway/index.ts"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./src/node/index.ts",
+      "default": "./src/node/index.ts"
+    },
+    "./platform": {
+      "types": "./dist/platform/index.d.ts",
+      "import": "./src/platform/index.ts",
+      "default": "./src/platform/index.ts"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./src/sdk/index.ts",
+      "default": "./src/sdk/index.ts"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./src/store/index.ts",
+      "default": "./src/store/index.ts"
+    },
+    "./store/memory": {
+      "types": "./dist/store/memory.d.ts",
+      "import": "./src/store/memory.ts",
+      "default": "./src/store/memory.ts"
+    },
+    "./store/sqlite": {
+      "types": "./dist/store/sqlite.d.ts",
+      "import": "./src/store/sqlite.ts",
+      "default": "./src/store/sqlite.ts"
+    },
+    "./store/tables": {
+      "types": "./dist/store/tables.d.ts",
+      "import": "./src/store/tables.ts",
+      "default": "./src/store/tables.ts"
+    },
+    "./template": {
+      "types": "./dist/template/index.d.ts",
+      "import": "./src/template/index.ts",
+      "default": "./src/template/index.ts"
+    },
+    "./testing/store": {
+      "types": "./dist/testing/store.d.ts",
+      "import": "./src/testing/store.ts",
+      "default": "./src/testing/store.ts"
+    }
   },
   "files": [
     "./dist/**/*",
@@ -20,10 +69,10 @@
     "!**/*.test.*"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist .cache .turbo coverage",
-    "emit-manifest-schema": "bun src/manifest-schema-emit.ts && biome format --write schema/foundry.module.schema.json",
-    "emit-sdk": "bun src/sdk/emit.ts && biome format --write src/sdk/emitted.ts src/sdk/generator-source.ts",
+    "emit-manifest-schema": "bun scripts/emit-manifest-schema.ts && biome format --write schema/foundry.module.schema.json",
+    "emit-sdk": "bun scripts/emit-sdk.ts",
     "test": "vitest run --project unit",
     "test:coverage": "vitest run --project unit --coverage",
     "test:integration": "vitest run --project integration",
@@ -32,19 +81,20 @@
   },
   "dependencies": {
     "@foundry/artifacts": "workspace:*",
+    "@foundry/authorization": "workspace:*",
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
     "@foundry/sandbox": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@foundry/tsconfig": "workspace:*",
     "@libsql/client": "^0.18.0",
-    "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^4.1.12",
     "drizzle-orm": "^0.45.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.12"
   },
   "peerDependencies": {
     "drizzle-orm": "^0.45.4"

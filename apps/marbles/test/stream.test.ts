@@ -1,16 +1,11 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
-import { step } from "@foundry.sh/marbles";
-import { afterEach, describe, expect, it } from "vitest";
-import { catalog } from "~/authoring/catalog";
+import { Catalog, step } from "@foundry.sh/marbles";
+import { describe, expect, it } from "vitest";
 import { createEngine } from "~/create";
-
-afterEach(() => {
-  catalog.reset();
-});
 
 describe("stream", () => {
   it("streams text and data from a step body to run subscribers", async () => {
-    step("counting").do(async ({ stream: output }) => {
+    const counting = step("counting").do(async ({ stream: output }) => {
       output.write("one ");
       await output.pipe(
         (async function* () {
@@ -21,8 +16,7 @@ describe("stream", () => {
       return "counted";
     });
     const engine = createEngine({
-      catalog,
-      dry: true,
+      catalog: Catalog.collect([counting]),
       print: () => undefined,
       root: process.cwd(),
       workspaceId: "ws",

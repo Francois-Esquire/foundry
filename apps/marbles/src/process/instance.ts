@@ -1,8 +1,8 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { lockOwner } from "@foundry/lib/file-lock";
-import { isGone } from "@foundry/lib/process-identity";
+import { lockOwner } from "@foundry/lib/node/file-lock";
+import { isGone } from "@foundry/lib/node/process-identity";
 
 import { isRecord, readJson, writeJson } from "~/lib/state/json";
 import { acquireLock, PROCESS_LOCK as LOCK } from "~/lib/state/locks";
@@ -47,7 +47,7 @@ export class ProcessHeldError extends Error {
       info?.alive && info.startedAt !== null ? ` since ${info.startedAt}` : "";
     const host = info?.alive && info.host !== null ? ` (${info.host})` : "";
     super(
-      `a Marbles process already runs here: ${holder}${host}${since}. Stop it first, or set FOUNDRY_HOME to another Foundry home (state: ${dir}).`
+      `a Marbles process already runs here: ${holder}${host}${since}. Stop it first, or set FOUNDRY_ROOT to another Foundry home (state: ${dir}).`
     );
     this.holder = holder;
   }

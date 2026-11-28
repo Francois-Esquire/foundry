@@ -11,12 +11,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { step, workflow } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import { agent } from "~/authoring/resources";
-import { filterLogs, operatingLogs } from "~/cli/state/operating-model";
-import { costCell, costLabel, tokensLabel } from "~/cli/state/usage-format";
 import type { Engine } from "~/lib/engine";
 import type { DirectUsageFact, RunUsageFact, UsageCost } from "~/lib/usage";
+import { filterLogs, operatingLogs } from "~/tui/state/operating-model";
+import { costCell, costLabel, tokensLabel } from "~/tui/state/usage-format";
 import { Diagnostics, hostOutput } from "~/workspace/diagnostics";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { stepUsages, totalOf, workspaceUsage } from "~/workspace/usage";
@@ -28,11 +27,11 @@ const engines: Engine[] = [];
 
 afterEach(async () => {
   await Promise.all(engines.splice(0).map((engine) => engine.dispose()));
-  catalog.reset();
 });
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const LOCAL_SOURCE = /^dashboard-usage\.test\.ts:\d+$/;
+const THIS_FILE = fileURLToPath(import.meta.url);
+const HERE = dirname(THIS_FILE);
+const LOCAL_SOURCE = /^dashboard-usage\.test\.ts$/;
 
 function fact(
   turnId: string,
@@ -226,18 +225,20 @@ it("projects recorded turns onto real runs and steps, and catalog origins onto t
     const session = await agents.session(reviewer);
     return (await session.generate("nested turn")).text;
   });
-  step("outer").do(async ({ agents }) => {
+  const outer = step("outer").do(async ({ agents }) => {
     const session = await agents.session(reviewer);
     await session.generate("first");
     return await nested.run();
   });
-  const engine = await startEngine({ print: () => undefined });
+  const engine = await startEngine({
+    collect: { declarations: [reviewer, nested, outer], source: THIS_FILE },
+    print: () => undefined,
+  });
   engines.push(engine);
   const launched = await engine.launch("outer", {});
   await launched.result;
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: engine.definitions(),
-    lastFinish: new Map(),
     monitors: engine.monitors(),
     root: HERE,
     schedules: await engine.schedules(),
@@ -275,12 +276,16 @@ it("a step's log line shows once in Logs, attributed to its run and step, even w
   const diagnostics = new Diagnostics();
   const statuses: string[] = [];
   const output = hostOutput(diagnostics, (line) => statuses.push(line));
-  step("hear").do(({ log }) => {
+  const hear = step("hear").do(({ log }) => {
     log("heard");
     log("[worker] hello");
     return 1;
   });
-  const engine = await startEngine({ log: output.log, print: output.print });
+  const engine = await startEngine({
+    collect: [hear],
+    log: output.log,
+    print: output.print,
+  });
   engines.push(engine);
   const launched = await engine.launch("hear", {});
   await launched.result;
@@ -288,7 +293,6 @@ it("a step's log line shows once in Logs, attributed to its run and step, even w
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: [],
     diagnostics: diagnostics.entries,
-    lastFinish: new Map(),
     monitors: new Map(),
     root: HERE,
     schedules: [],
@@ -339,7 +343,6 @@ it("a definition declared through a symlinked path is still local to the canonic
           origin: "/nowhere/prebuilt.js:9",
         },
       ],
-      lastFinish: new Map(),
       monitors: new Map(),
       root,
       schedules: [],
@@ -364,12 +367,13 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
   const state = mkdtempSync(join(tmpdir(), "marbles-unreadable-"));
   try {
     const reviewer = agent({ name: "reviewer", prompt: "Review." });
-    step("priced").do(async ({ agents }) => {
+    const priced = step("priced").do(async ({ agents }) => {
       const session = await agents.session(reviewer);
       await session.generate("one");
     });
-    step("other").do(() => "no agents here");
-    const durable = () => ({
+    const otherStep = step("other").do(() => "no agents here");
+    const durable = (collect = [reviewer, priced, otherStep]) => ({
+      collect,
       print: () => undefined,
       sessions: durableSessions(state),
       state,
@@ -404,17 +408,18 @@ it("after a restart, a malformed leaf in a run's document makes that run's, its 
       value: { ...reported, cost: { amount: "bad" }, turnId: "broken" },
     });
 
-    catalog.reset();
-    step("priced").do(() => undefined);
-    step("other").do(() => undefined);
-    const second = await startEngine(durable());
+    const second = await startEngine(
+      durable([
+        step("priced").do(() => undefined),
+        step("other").do(() => undefined),
+      ])
+    );
     engines.push(second);
     const records = await second.readUsage();
     expect(records.unreadable).toBe(1);
     expect(records.unreadableAt.runs.get(launched.id)).toBe(1);
     const snapshot = dashboardSnapshot(await second.runs(), {
       definitions: second.definitions(),
-      lastFinish: new Map(),
       monitors: second.monitors(),
       root: state,
       schedules: [],
@@ -603,19 +608,22 @@ it("a workflow's setup lines stay in Logs with their run and no step; body lines
     log("[worker] body");
     return 1;
   });
-  workflow("flow").do(({ log }) => {
+  const flow = workflow("flow").do(({ log }) => {
     log("plain setup");
     log("[worker] setup");
     return body({});
   });
-  const engine = await startEngine({ log: output.log, print: output.print });
+  const engine = await startEngine({
+    collect: [body, flow],
+    log: output.log,
+    print: output.print,
+  });
   engines.push(engine);
   const launched = await engine.launch("flow", {});
   await launched.result;
   const snapshot = dashboardSnapshot(await engine.runs(), {
     definitions: [],
     diagnostics: diagnostics.entries,
-    lastFinish: new Map(),
     monitors: new Map(),
     root: HERE,
     schedules: [],

@@ -1,7 +1,7 @@
-import { createInMemoryAgentAuthorizer } from "@foundry/agents/authorization";
+import { createMemoryAuthorization } from "@foundry/agents/authorization";
 import type { HarnessTurnDriver } from "@foundry/agents/harness";
-import { InMemorySessionStore } from "@foundry/agents/store/memory";
-import type { Container } from "@foundry/sandbox/container/containers";
+import { MemorySessionStore } from "@foundry/agents/store/memory";
+import type { Container } from "@foundry/sandbox";
 import { beforeEach, expect, it, vi } from "vitest";
 import { codex as codexPlugin } from "~/lib/providers/codex";
 import type { Execution } from "~/lib/providers/plugins";
@@ -23,8 +23,8 @@ vi.mock("@foundry/agents/harness", async (importOriginal) => ({
     return { sessionId: "session" };
   },
 }));
-vi.mock("@foundry/models/codex", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@foundry/models/codex")>()),
+vi.mock("@foundry/models/providers/codex", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@foundry/models/providers/codex")>()),
   createCodexDriver: (options: unknown) => {
     seen.codex.push(options);
     return { first: "party" };
@@ -47,7 +47,10 @@ vi.mock("~/lib/sandbox/session-state", () => ({
   assertGuestSessionState: async () => undefined,
 }));
 
-const container = { row: { nativeId: "guest-1" } } as unknown as Container;
+const container = {
+  processes: { spawn: vi.fn() },
+  row: { nativeId: "guest-1" },
+} as unknown as Container;
 
 function open(execution?: Execution, wireModelId?: string) {
   return createSandboxSession({
@@ -59,13 +62,13 @@ function open(execution?: Execution, wireModelId?: string) {
     instructions: "inspect",
     modelId: wireModelId === undefined ? "gpt-5.5" : "sol",
     options: {
-      authority: { policy: createInMemoryAgentAuthorizer().authorizer },
+      authority: { authorization: createMemoryAuthorization() },
       sandbox: {} as SandboxHandle,
     },
     provider: "work-codex",
     sessionId: "session",
     signal: new AbortController().signal,
-    store: new InMemorySessionStore(),
+    store: new MemorySessionStore(),
     ...(wireModelId === undefined ? {} : { wireModelId }),
     write: () => undefined,
   });

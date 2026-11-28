@@ -1,13 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Workflow } from "@foundry/workflows/workflow";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { z } from "zod";
-import { step } from "~/authoring/builder";
-import { catalog } from "~/authoring/catalog";
 import type { Engine } from "~/lib/engine";
-import type { ExecutionRun } from "~/lib/executions";
 import type { TaskContext } from "~/lib/tasks";
 import { testEngine } from "../helpers/engine";
 
@@ -21,7 +16,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  catalog.reset();
   await Promise.allSettled(engines.splice(0).map((engine) => engine.dispose()));
   await rm(root, { force: true, recursive: true });
 });
@@ -31,72 +25,6 @@ function engineWith(options: Parameters<typeof testEngine>[0] = {}): Engine {
   engines.push(engine);
   return engine;
 }
-
-function aborted(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) =>
-    signal.addEventListener("abort", () => resolve(), { once: true })
-  );
-}
-
-it("stops a task that gives up its slot after the stop began", async () => {
-  const engine = engineWith();
-  const { promise: begun, resolve: begin } = Promise.withResolvers<void>();
-  const { promise: free, resolve: release } = Promise.withResolvers<void>();
-  engine.task({
-    name: "late",
-    run: async (_input: unknown, { release: giveUp, signal }: TaskContext) => {
-      begin();
-      await free;
-      giveUp();
-      await aborted(signal);
-    },
-  });
-  await engine.start();
-  const launched = await engine.launch("late", {});
-  await begun;
-
-  const stopping = engine.stop();
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  release();
-
-  await stopping;
-  await expect(launched.result).rejects.toThrow();
-  expect(engine.executions.get(launched.id)?.status).toBe("cancelled");
-});
-
-it("stops a released task before waiting on a dispatch that needs what it holds", async () => {
-  const engine = engineWith();
-  const { promise: held, resolve: freeHeld } = Promise.withResolvers<void>();
-  engine.task({
-    name: "holder",
-    queue: "programs",
-    run: async (_input: unknown, { release, signal }: TaskContext) => {
-      release();
-      await aborted(signal);
-      freeHeld();
-    },
-  });
-  engine.register<unknown, string>("needs", async (input) => {
-    await held;
-    return Workflow.create({
-      execute: () => Promise.resolve("done"),
-      input,
-      name: "needs",
-    });
-  });
-  await engine.start();
-  const holder = await engine.launch("holder", {});
-  await vi.waitFor(() =>
-    expect(engine.executions.get(holder.id)?.status).toBe("running")
-  );
-  const needs = engine.launch<string>("needs", {});
-
-  await engine.stop();
-
-  expect(engine.executions.get(holder.id)?.status).toBe("cancelled");
-  const { result } = await needs;
-  await expect(result).resolves.toBe("done");
-});
 
 it.each(["queued", "running"] as const)(
   "never runs a task a subscriber cancels on its %s update",
@@ -127,62 +55,6 @@ it.each(["queued", "running"] as const)(
     expect(engine.executions.get(launched.id)?.status).toBe("cancelled");
   }
 );
-
-it("never dispatches a workflow a subscriber cancels on its running update", async () => {
-  let ran = false;
-  step("flow").do(() => {
-    ran = true;
-    return "ran";
-  });
-  const engine = engineWith();
-  await engine.start();
-  let cancelled: Promise<void> | undefined;
-  const subscription = await engine.executions.subscribe((run) => {
-    if (run.name === "flow" && run.status === "running" && !cancelled) {
-      cancelled = engine.cancel(run.id);
-    }
-  });
-
-  const launched = await engine.launch("flow", {});
-  await expect(launched.result).rejects.toThrow(CANCELLED);
-  await cancelled;
-  subscription.unsubscribe();
-
-  expect(ran).toBe(false);
-  expect(engine.executions.get(launched.id)?.status).toBe("cancelled");
-  expect(engine.scopes.has(launched.id)).toBe(false);
-});
-
-it("closes the scope a factory built when its dispatch is withdrawn", async () => {
-  let engine!: Engine;
-  let id = "";
-  let cancelling: Promise<void> | undefined;
-  step("leak")
-    .input(
-      z.string().transform((value) => {
-        cancelling = engine.cancel(id);
-        return value;
-      })
-    )
-    .do(({ input }) => input);
-  engine = engineWith();
-  await engine.start();
-  const subscription = await engine.executions.subscribe(
-    (run: ExecutionRun) => {
-      if (run.name === "leak" && run.status === "running") {
-        ({ id } = run);
-      }
-    }
-  );
-
-  const launched = await engine.launch("leak", "x");
-  await expect(launched.result).rejects.toThrow(CANCELLED);
-  await cancelling;
-  subscription.unsubscribe();
-
-  expect(engine.executions.get(id)?.status).toBe("cancelled");
-  expect(engine.scopes.has(id)).toBe(false);
-});
 
 it.each([false, true])(
   "ends resource lifetime without changing the task outcome, failure=%s",

@@ -2,19 +2,19 @@ import { basename, join } from "node:path";
 import { Sessions } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
 import { SqliteSessionStore } from "@foundry/agents/store/sqlite";
-import { ArtifactManager } from "@foundry/artifacts";
+import { Artifacts } from "@foundry/artifacts";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import { SqliteArtifactStore } from "@foundry/artifacts/store/sqlite";
-import { createContainers } from "@foundry/sandbox/container/containers";
+import type { QueueEvent, Run } from "@foundry/queue";
+import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
+import { makeSqliteQueueStore } from "@foundry/queue/store/sqlite";
+import { createContainers } from "@foundry/sandbox/node";
 import type { ContainerStore } from "@foundry/sandbox/store";
 import { SqliteContainerStore } from "@foundry/sandbox/store/sqlite";
-import { createFakeContainerRuntime } from "@foundry/sandbox/testing";
+import { createFakeDriver } from "@foundry/sandbox/testing";
 import type { TaskStore } from "@foundry/tasks";
 import { Tasks } from "@foundry/tasks";
 import { SqliteTaskStore } from "@foundry/tasks/store/sqlite";
-import { ExecutionCoordinator } from "@foundry/workflows";
-import type { WorkflowStore } from "@foundry/workflows/store";
-import { SqliteWorkflowStore } from "@foundry/workflows/store/sqlite";
 import type { WorkspaceId } from "@foundry/workspaces";
 import { WorkspaceCatalog } from "@foundry/workspaces";
 import type { WorkspaceStore } from "@foundry/workspaces/store";
@@ -36,7 +36,9 @@ import {
   WORKSPACES,
 } from "~/lib/events/source";
 import { current } from "~/lib/run-scope";
+import { readRun, runStoreEffect } from "~/lib/workflow-runs";
 import { testEngine } from "./helpers/engine";
+import { putRun } from "./helpers/queue-runs";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 
@@ -49,6 +51,35 @@ beforeAll(async () => {
 afterAll(() => {
   machine.close();
 });
+
+const PROBED: Run = {
+  attempt: 1,
+  id: "rn-probed",
+  jobId: "jb-probed",
+  pool: "marbles",
+  revision: 0,
+  state: { availableAt: 0, kind: "queued", queuedAt: 0 },
+};
+
+function probedRuns(write: { readonly events: readonly Fact[] }): QueueWrite {
+  return {
+    events: write.events.map(
+      (fact): QueueEvent => ({
+        at: Date.parse(fact.at),
+        id: fact.id,
+        run: PROBED,
+        type: "run.queued",
+      })
+    ),
+  };
+}
+
+function promised(store: QueueStoreService) {
+  return {
+    commit: (write: QueueWrite) => runStoreEffect(store.commit(write)),
+    store,
+  };
+}
 
 const SOURCES: readonly (readonly [string, Source])[] = [
   ["artifacts", ARTIFACTS],
@@ -90,33 +121,31 @@ describe("observing every source", () => {
     await delivery.start();
 
     await new Tasks({ store: records.taskStore }).create({ title: "Task" });
-    const artifacts = new ArtifactManager({ store: stores.artifacts });
+    const artifacts = new Artifacts({ store: stores.artifacts });
     await artifacts.create({
       entries: { "a.md": { bytes: "# A" } },
       name: "Notes",
       type: "text/markdown",
     });
     const containers = createContainers({
+      driver: createFakeDriver() as never,
       instanceLabel: "marbles-test",
-      runtime: createFakeContainerRuntime() as never,
       store: stores.containers,
     });
     const sandbox = await containers.start({
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1",
     });
     await sandbox.close();
     await containers.shutdown();
     await new Sessions({ store: sessionStore }).createSession({ id: "s1" });
-    const coordinator = new ExecutionCoordinator({
-      store: await runStore.open(() => undefined),
-    });
-    const run = await coordinator.createRun({
-      input: null,
-      queueId: "q",
-      step: "s",
-    });
-    await coordinator.updateRun(run.id, { status: "running" });
+    await putRun(
+      await runStore.open(() => undefined),
+      "rn-observed",
+      "running",
+      {
+        step: "s",
+      }
+    );
     const now = new Date();
     await new WorkspaceCatalog(stores.workspaces, () => undefined).create({
       entries: [],
@@ -178,7 +207,6 @@ describe("an engine that does not record a source", () => {
     const engine = createEngine({
       artifacts: machine.root,
       catalog,
-      dry: true,
       print: (line) => lines.push(line),
       providers: [],
       root: machine.root,
@@ -227,7 +255,9 @@ describe("the run a fact is recorded as made by", () => {
       [
         "runs",
         async (write) =>
-          (await runStore.open(() => undefined)).commit(write as never),
+          runStoreEffect(
+            (await runStore.open(() => undefined)).commit(probedRuns(write))
+          ),
       ],
     ];
     const reads = new Map<string, number>();
@@ -271,9 +301,8 @@ describe("the run a fact is recorded as made by", () => {
 describe("a write the recorder hands a store", () => {
   it("carries every field the store reads, own or inherited, each read once, as the store alone would read it", async () => {
     const { database } = machine.database;
-    const runtime = createFakeContainerRuntime() as never;
+    const runtime = createFakeDriver() as never;
     const SPEC = {
-      format: "foundry.sandbox.container/1",
       image: "docker.io/oven/bun:1",
     } as const;
     const now = new Date();
@@ -317,7 +346,7 @@ describe("a write the recorder hands a store", () => {
           Promise.resolve(workspaceStores(database, scope).artifacts),
         seed: async (store: ArtifactStore) =>
           (
-            await new ArtifactManager({ store }).create({
+            await new Artifacts({ store }).create({
               entries: { "a.md": { bytes: "# A" } },
               name: "Notes",
               type: "text/markdown",
@@ -335,8 +364,8 @@ describe("a write the recorder hands a store", () => {
           Promise.resolve(workspaceStores(database, scope).containers),
         seed: async (store: ContainerStore) => {
           const containers = createContainers({
+            driver: runtime,
             instanceLabel: "marbles-test",
-            runtime,
             store,
           });
           const started = await containers.start(SPEC);
@@ -388,19 +417,19 @@ describe("a write the recorder hands a store", () => {
       {
         field: "deleteRuns",
         name: "runs",
-        plain: (scope) => new SqliteWorkflowStore({ database, scope }),
-        present: async (store: WorkflowStore, id) =>
-          (await store.getRun(id)) !== null,
-        recorded: (scope) =>
-          new DatabaseRunStore({ database, scope }).open(() => undefined),
-        seed: async (store: WorkflowStore) =>
-          (
-            await new ExecutionCoordinator({ store }).createRun({
-              input: null,
-              queueId: "q",
-              step: "s",
-            })
-          ).id,
+        plain: (scope) => promised(makeSqliteQueueStore({ database, scope })),
+        present: async ({ store }: ReturnType<typeof promised>, id) =>
+          (await readRun(store, id)) !== null,
+        recorded: async (scope) =>
+          promised(
+            await new DatabaseRunStore({ database, scope }).open(
+              () => undefined
+            )
+          ),
+        seed: async ({ store }: ReturnType<typeof promised>) => {
+          await putRun(store, "rn-variant", undefined, { step: "s" });
+          return "rn-variant";
+        },
         value: (id) => [id],
       },
     ];
@@ -439,29 +468,27 @@ describe("a write the recorder hands a store", () => {
   }, 60_000);
 });
 
-describe("a Run commit the owner check refuses", () => {
-  it("records no fact: a RunMovedError rolls the facts back with the change", async () => {
+describe("a Run commit its recording refuses", () => {
+  it("records no fact: the refusal rolls the facts back with the change", async () => {
     const state = machine.workspace();
     const scope = basename(state);
     const { database } = machine.database;
     const owner = new DatabaseRunStore({ database, scope });
     const other = new DatabaseRunStore({ database, scope });
-    const owned = new ExecutionCoordinator({
-      store: await owner.open(() => undefined),
-    });
-    const run = await owned.createRun({ input: null, queueId: "q", step: "s" });
+    const owned = await owner.open(() => undefined);
+    const run = { id: "rn-refused" } as const;
+    await putRun(owned, run.id, undefined, { step: "s" });
     const before = await machine.changes(state);
     expect(before.map((change) => change.type)).toEqual(["run.queued"]);
 
-    const elsewhere = new ExecutionCoordinator({
-      store: await other.open(() => undefined),
-    });
-    await expect(
-      elsewhere.updateRun(run.id, { status: "running" })
-    ).rejects.toThrow("is not held by this engine any more");
+    const elsewhere = await other.open(() => ({
+      ledger: { cost: Number.NaN },
+      session: { id: "run-session" },
+    }));
+    await expect(putRun(elsewhere, run.id, "running")).rejects.toThrow();
 
     expect(await machine.changes(state)).toEqual(before);
-    expect((await owned.getRun(run.id))?.status).toBe("queued");
+    expect((await readRun(owned, run.id))?.status).toBe("queued");
     await owner.close();
     await other.close();
   });
@@ -475,7 +502,7 @@ describe("a commit carrying more facts than one statement can bind", () => {
     const { artifacts } = workspaceStores(machine.database.database, scope, {
       changes: records.changes,
     });
-    const manager = new ArtifactManager({ store: artifacts });
+    const manager = new Artifacts({ store: artifacts });
     const { id } = await manager.create({
       entries: { "a.md": { bytes: "# A" } },
       name: "Renamed",

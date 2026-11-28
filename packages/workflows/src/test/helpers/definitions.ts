@@ -1,6 +1,6 @@
-import { materializeDefinition } from "../../definition-plan";
+import { materializeDefinition } from "../../definition/plan";
 import type { DefinitionBinding } from "../../definitions";
-import type { BaseContext } from "../../executable";
+import type { BaseContext } from "../../slices/executable";
 import type { Step } from "../../step";
 import { Workflow } from "../../workflow";
 

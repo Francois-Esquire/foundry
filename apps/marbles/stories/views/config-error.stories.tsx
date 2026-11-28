@@ -1,5 +1,5 @@
 import { defineStories, story } from "textbook-sh";
-import { ConfigErrorView } from "~/cli/views/config-error";
+import { ConfigErrorView } from "~/tui/views/config-error";
 import { ignore } from "../frame";
 import { renderReactStory } from "../render-react-story";
 

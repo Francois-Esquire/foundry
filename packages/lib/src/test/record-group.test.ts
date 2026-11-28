@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -11,21 +12,20 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
   groupMembers,
+  nodeStartedAt,
   type SeenProcess,
-  startedAt,
   thisProcess,
-} from "../process-identity";
+} from "../node/process-identity";
 import {
   type GroupStopResult,
-  type GroupSystem,
+  type ProcessGroupOps,
   recordGroup,
   recordPath,
-  SPAWN_RECOVERY_ENV,
   type SpawnRecord,
   writePrivate,
-} from "../spawn-record";
-import { signalOwn, stopLeftover } from "./helpers/leftovers";
+} from "../node/spawn-record";
 import { pidWritten } from "./helpers/pid-file";
+import { signalOwn, stopLeftover } from "./helpers/process-cleanup";
 
 const made: string[] = [];
 const leftovers: { pid: number; started: string }[] = [];
@@ -57,7 +57,7 @@ async function group(
   );
   const stop = record(child, dir);
   const sleep = await pidWritten(join(dir, "pid"));
-  const started = startedAt(sleep);
+  const started = nodeStartedAt(sleep);
   if (typeof started === "string") {
     leftovers.push({ pid: sleep, started });
   }
@@ -65,7 +65,7 @@ async function group(
 }
 
 function records(dir: string): string[] {
-  const at = join(dir, "records");
+  const at = join(dir, "processes");
   return existsSync(at)
     ? readdirSync(at).filter((name) => name.endsWith(".json"))
     : [];
@@ -73,7 +73,7 @@ function records(dir: string): string[] {
 
 async function goneSoon(pid: number): Promise<boolean> {
   for (let i = 0; i < 200; i += 1) {
-    if (startedAt(pid) === null) {
+    if (nodeStartedAt(pid) === null) {
       return true;
     }
     await new Promise((done) => setTimeout(done, 20));
@@ -85,7 +85,7 @@ it("stops the whole group when its call aborts, and forgets it once it is empty"
   const control = new AbortController();
   const { child, dir, sleep, stop } = await group("wait", (spawned, at) =>
     recordGroup(spawned, {
-      env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
+      env: { FOUNDRY_ROOT: at },
       signal: control.signal,
     })
   );
@@ -99,7 +99,7 @@ it("stops the whole group when its call aborts, and forgets it once it is empty"
 it("stops what the leader left in its group when it exits on its own", async () => {
   const { child, dir, sleep, stop } = await group("exit 0", (spawned, at) =>
     recordGroup(spawned, {
-      env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
+      env: { FOUNDRY_ROOT: at },
     })
   );
   if (child.exitCode === null) {
@@ -115,7 +115,7 @@ it("keeps the record of a group that would not empty, its members written before
   let recordedAtTerm: SpawnRecord | undefined;
   const { child, dir, sleep, stop } = await group("wait", (spawned, at) =>
     recordGroup(spawned, {
-      env: { [SPAWN_RECOVERY_ENV]: join(at, "records") },
+      env: { FOUNDRY_ROOT: at },
       graceMs: 30,
       killMs: 30,
       system: {
@@ -124,7 +124,7 @@ it("keeps the record of a group that would not empty, its members written before
           if (signal === "SIGTERM") {
             recordedAtTerm = JSON.parse(
               readFileSync(
-                recordPath(join(at, "records"), spawned.pid ?? 0),
+                recordPath(join(at, "processes"), spawned.pid ?? 0),
                 "utf8"
               )
             ) as SpawnRecord;
@@ -138,15 +138,15 @@ it("keeps the record of a group that would not empty, its members written before
   expect((await stop()).emptied).toBe(false);
   expect(recordedAtTerm?.members).toEqual(
     expect.arrayContaining([
-      { pid: child.pid, started: startedAt(child.pid ?? 0) },
-      { pid: sleep, started: startedAt(sleep) },
+      { pid: child.pid, started: nodeStartedAt(child.pid ?? 0) },
+      { pid: sleep, started: nodeStartedAt(sleep) },
     ])
   );
   expect(recordedAtTerm?.owner).toEqual(thisProcess());
   expect(signalled).toContain("SIGTERM");
   expect(signalled).toContain("SIGKILL");
   expect(records(dir)).toEqual([`${String(child.pid)}.json`]);
-  expect(existsSync(recordPath(join(dir, "records"), child.pid ?? 0))).toBe(
+  expect(existsSync(recordPath(join(dir, "processes"), child.pid ?? 0))).toBe(
     true
   );
   signalOwn(-(child.pid ?? 0), "SIGKILL");
@@ -187,7 +187,7 @@ it("sends no SIGKILL to a group id that went to another group during the grace p
     [4_200_041, { pgid, started: MADE_UP }],
   ]);
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
       if (signal === "SIGTERM") {
@@ -209,7 +209,7 @@ it("takes a group left only with exited, unreaped members (zombies) for empty", 
   const pgid = 4_200_050;
   const { child, exit } = madeUpChild(pgid);
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
       throw Object.assign(new Error("EPERM"), { code: "EPERM" });
@@ -228,7 +228,7 @@ it("sends nothing to a group id another process leads once the leader is reaped:
   const pgid = 4_200_060;
   const { child, exit } = madeUpChild(pgid);
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
     },
@@ -246,11 +246,13 @@ it("sends nothing to a group id another process leads once the leader is reaped:
 });
 
 function recordedIn(pgid: number): {
-  readonly dir: string;
   readonly path: string;
+  readonly root: string;
 } {
-  const dir = mkdtempSync(join(tmpdir(), "record-group-"));
-  made.push(dir);
+  const root = mkdtempSync(join(tmpdir(), "record-group-"));
+  made.push(root);
+  const dir = join(root, "processes");
+  mkdirSync(dir, { mode: 0o700 });
   const path = recordPath(dir, pgid);
   writePrivate(
     path,
@@ -261,12 +263,12 @@ function recordedIn(pgid: number): {
       started: MADE_UP,
     })
   );
-  return { dir, path };
+  return { path, root };
 }
 
 it("tries writing the members again once, and saves them when the second write goes through", async () => {
   const pgid = 4_200_070;
-  const { dir, path } = recordedIn(pgid);
+  const { path, root } = recordedIn(pgid);
   const { child, exit } = madeUpChild(pgid);
   const writes: string[] = [];
   const reports: string[] = [];
@@ -274,7 +276,7 @@ it("tries writing the members again once, and saves them when the second write g
     [4_200_071, { pgid, started: MADE_UP }],
   ]);
   const read: (readonly unknown[] | undefined)[] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(_target, signal) {
       if (signal === 0 && members.size === 0) {
         throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
@@ -298,7 +300,7 @@ it("tries writing the members again once, and saves them when the second write g
     },
   };
   const stop = recordGroup(child, {
-    env: { [SPAWN_RECOVERY_ENV]: dir },
+    env: { FOUNDRY_ROOT: root },
     graceMs: 0,
     killMs: 0,
     system,
@@ -312,7 +314,7 @@ it("tries writing the members again once, and saves them when the second write g
 
 it("reports members it could not save, says so, and stops its group all the same", async () => {
   const pgid = 4_200_080;
-  const { dir, path } = recordedIn(pgid);
+  const { path, root } = recordedIn(pgid);
   const { child, exit } = madeUpChild(pgid);
   const reports: string[] = [];
   const sent: [number, NodeJS.Signals | 0][] = [];
@@ -320,7 +322,7 @@ it("reports members it could not save, says so, and stops its group all the same
     [4_200_081, { pgid, started: MADE_UP }],
   ]);
   let writes = 0;
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       if (signal === 0 && members.size === 0) {
         throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
@@ -339,7 +341,7 @@ it("reports members it could not save, says so, and stops its group all the same
     },
   };
   const stop = recordGroup(child, {
-    env: { [SPAWN_RECOVERY_ENV]: dir },
+    env: { FOUNDRY_ROOT: root },
     graceMs: 0,
     killMs: 0,
     system,
@@ -360,11 +362,11 @@ it("reports members it could not save, says so, and stops its group all the same
 
 it("keeps the record of a group the listing shows empty while a signal still reaches it, once its leader is reaped, and reports it", async () => {
   const pgid = 4_200_180;
-  const { dir, path } = recordedIn(pgid);
+  const { path, root } = recordedIn(pgid);
   const { child, exit } = madeUpChild(pgid);
   const reports: string[] = [];
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill(target, signal) {
       sent.push([target, signal]);
     },
@@ -373,7 +375,7 @@ it("keeps the record of a group the listing shows empty while a signal still rea
     sleep: () => Promise.resolve(),
   };
   const stop = recordGroup(child, {
-    env: { [SPAWN_RECOVERY_ENV]: dir },
+    env: { FOUNDRY_ROOT: root },
     graceMs: 0,
     killMs: 0,
     system,
@@ -391,7 +393,7 @@ it("stops its own unreaped leader's group even when the group cannot be listed, 
   const pgid = 4_200_630;
   const reports: string[] = [];
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill: (target, signal) => {
       sent.push([target, signal]);
     },
@@ -432,7 +434,7 @@ it("does not take a leader whose exit has already happened for its own unreaped 
   const pgid = 4_200_710;
   const reports: string[] = [];
   const sent: [number, NodeJS.Signals | 0][] = [];
-  const system: GroupSystem = {
+  const system: ProcessGroupOps = {
     kill: (target, signal) => {
       sent.push([target, signal]);
     },
