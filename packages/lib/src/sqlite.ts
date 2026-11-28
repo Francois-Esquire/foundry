@@ -8,13 +8,26 @@ import type {
 import { customType } from "drizzle-orm/sqlite-core";
 
 export type SqliteDatabase = BaseSQLiteDatabase<
-  "async" | "sync",
+  "async",
   unknown,
   Record<string, unknown>
 >;
 
 export type SqliteTransaction = SQLiteTransaction<
-  "async" | "sync",
+  "async",
+  unknown,
+  Record<string, unknown>,
+  ExtractTablesWithRelations<Record<string, unknown>>
+>;
+
+export type SqliteSyncDatabase = BaseSQLiteDatabase<
+  "sync",
+  unknown,
+  Record<string, unknown>
+>;
+
+export type SqliteSyncTransaction = SQLiteTransaction<
+  "sync",
   unknown,
   Record<string, unknown>,
   ExtractTablesWithRelations<Record<string, unknown>>
@@ -130,11 +143,13 @@ export function maxBatchRows(
       "reservedParameters must be a non-negative safe integer"
     );
   }
-  const budget = Math.max(
-    1,
-    resolveMaxParameters(maxParameters) - reservedParameters
-  );
-  return Math.max(1, Math.floor(budget / columnCount));
+  const limit = resolveMaxParameters(maxParameters);
+  if (columnCount + reservedParameters > limit) {
+    throw new RangeError(
+      `a single row (${String(columnCount)} columns + ${String(reservedParameters)} reserved parameters) exceeds maxParameters (${String(limit)})`
+    );
+  }
+  return Math.floor((limit - reservedParameters) / columnCount);
 }
 
 export function rowBatches<T>(

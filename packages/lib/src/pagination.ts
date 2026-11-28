@@ -119,6 +119,7 @@ export async function collectPages<T, Cursor>(
       );
     }
     const page = await read(cursor);
+    options.signal?.throwIfAborted();
     pages += 1;
     if (
       options.maxItems !== undefined &&

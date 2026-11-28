@@ -154,7 +154,11 @@ describe("batches", () => {
 
     expect(maxBatchRows(6, SQLITE_D1_MAX_PARAMETERS)).toBe(16);
     expect(maxBatchRows(1, SQLITE_D1_MAX_PARAMETERS, 1)).toBe(99);
-    expect(maxBatchRows(200, SQLITE_D1_MAX_PARAMETERS)).toBe(1);
+    expect(maxBatchRows(5, 10, 5)).toBe(1);
+    expect(() => maxBatchRows(200, SQLITE_D1_MAX_PARAMETERS)).toThrow(
+      RangeError
+    );
+    expect(() => maxBatchRows(5, 10, 6)).toThrow(RangeError);
     expect(() => maxBatchRows(0, 100)).toThrow(RangeError);
     expect(() => maxBatchRows(1, 100, -1)).toThrow(RangeError);
 

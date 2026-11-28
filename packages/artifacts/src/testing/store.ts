@@ -239,7 +239,7 @@ export function describeArtifactStore(
     }
   };
   if (mode.hooked) {
-    describeRecordedEvents(name, mode.recording);
+    describeRecordedEvents(name, mode.recording, transactions);
   }
   const fresh = async () => (await open())("conformance");
   const everyArtifact = async (store: ArtifactStore) =>
@@ -1610,7 +1610,8 @@ export function describeArtifactStore(
 
 function describeRecordedEvents(
   name: string,
-  recording: () => Promise<RecordingArtifactStores>
+  recording: () => Promise<RecordingArtifactStores>,
+  transactions: boolean
 ): void {
   const recorder = async () => {
     const opened = await recording();
@@ -1699,42 +1700,45 @@ function describeRecordedEvents(
       expect(await recorded()).toStrictEqual([kept]);
     });
 
-    it("records a transaction's events only when it is kept", async () => {
-      const { recorded, store } = await recorder();
-      const transaction = requireTransaction(store);
-      const dropped = artifact();
-      const owner = artifact();
-      const version = content(owner.id);
-      const kept = [
-        created(owner),
-        event({
-          artifactId: owner.id,
-          contentId: version.id,
-          type: "artifact.written",
-        }),
-      ];
+    it.runIf(transactions)(
+      "records a transaction's events only when it is kept",
+      async () => {
+        const { recorded, store } = await recorder();
+        const transaction = requireTransaction(store);
+        const dropped = artifact();
+        const owner = artifact();
+        const version = content(owner.id);
+        const kept = [
+          created(owner),
+          event({
+            artifactId: owner.id,
+            contentId: version.id,
+            type: "artifact.written",
+          }),
+        ];
 
-      await expect(
-        transaction(async (view) => {
+        await expect(
+          transaction(async (view) => {
+            await view.commit({
+              events: [created(dropped)],
+              putArtifacts: [dropped],
+            });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
+        await transaction(async (view) => {
           await view.commit({
-            events: [created(dropped)],
-            putArtifacts: [dropped],
+            events: [kept[0] as ArtifactEvent],
+            putArtifacts: [owner],
           });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-      await transaction(async (view) => {
-        await view.commit({
-          events: [kept[0] as ArtifactEvent],
-          putArtifacts: [owner],
+          await view.commit({
+            events: [kept[1] as ArtifactEvent],
+            putContents: [version],
+          });
         });
-        await view.commit({
-          events: [kept[1] as ArtifactEvent],
-          putContents: [version],
-        });
-      });
 
-      expect(await recorded()).toStrictEqual(kept);
-    });
+        expect(await recorded()).toStrictEqual(kept);
+      }
+    );
   });
 }

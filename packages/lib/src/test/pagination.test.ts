@@ -51,6 +51,21 @@ describe("pagination", () => {
         { signal: controller.signal }
       )
     ).rejects.toBe(reason);
+
+    const finalController = new AbortController();
+    const finalReason = new Error("abort-final-page");
+    await expect(
+      collectPages(
+        async (cursor: number | undefined) => {
+          const page = await read(cursor);
+          if (page.nextCursor === undefined) {
+            finalController.abort(finalReason);
+          }
+          return page;
+        },
+        { signal: finalController.signal }
+      )
+    ).rejects.toBe(finalReason);
   });
   it("defaults and caps limits; rejects invalid requests", () => {
     expect(pageLimit(undefined)).toBe(50);

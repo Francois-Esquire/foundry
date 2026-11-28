@@ -68,21 +68,26 @@ export function describeSessionStore(
       await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
     });
 
-    it("reads each of a write's events once through a transaction's view", async () => {
-      const store = await fresh();
-      if (store.transaction === undefined) {
-        return;
+    it.runIf(transactions)(
+      "reads each of a write's events once through a transaction's view",
+      async () => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          return;
+        }
+
+        await store.transaction((view) =>
+          view.commit({
+            events: [readableOnce(created("s"))],
+            putSessions: [session("s")],
+          })
+        );
+
+        await expect(store.getSession("s")).resolves.toStrictEqual(
+          session("s")
+        );
       }
-
-      await store.transaction((view) =>
-        view.commit({
-          events: [readableOnce(created("s"))],
-          putSessions: [session("s")],
-        })
-      );
-
-      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
-    });
+    );
 
     it.each(UNPLAIN_EVENTS)(
       "refuses whole, with a TypeError, a write whose events are %s",
@@ -96,30 +101,32 @@ export function describeSessionStore(
       }
     );
 
-    it.each(UNPLAIN_EVENTS)(
-      "refuses through a transaction's view a write whose events are %s",
-      async (_kind, events) => {
-        const store = await fresh();
-        if (store.transaction === undefined) {
-          return;
-        }
+    if (transactions) {
+      it.each(UNPLAIN_EVENTS)(
+        "refuses through a transaction's view a write whose events are %s",
+        async (_kind, events) => {
+          const store = await fresh();
+          if (store.transaction === undefined) {
+            return;
+          }
 
-        await store.transaction(async (view) => {
-          await expect(
-            view.commit({ events: events(), putSessions: [session("s")] })
-          ).rejects.toThrow(TypeError);
-          await view.commit({ putSessions: [session("kept")] });
-        });
-        await expect(store.getSession("s")).resolves.toBeNull();
-        await expect(store.getSession("kept")).resolves.toStrictEqual(
-          session("kept")
-        );
-      }
-    );
+          await store.transaction(async (view) => {
+            await expect(
+              view.commit({ events: events(), putSessions: [session("s")] })
+            ).rejects.toThrow(TypeError);
+            await view.commit({ putSessions: [session("kept")] });
+          });
+          await expect(store.getSession("s")).resolves.toBeNull();
+          await expect(store.getSession("kept")).resolves.toStrictEqual(
+            session("kept")
+          );
+        }
+      );
+    }
   });
 
   if (mode.hooked) {
-    describeRecordedEvents(name, mode.recording);
+    describeRecordedEvents(name, mode.recording, transactions);
   }
 
   describe(`${name} (SessionStore)`, () => {
@@ -525,31 +532,34 @@ export function describeSessionStore(
       );
     });
 
-    it("keeps a commit queued behind a transaction as it was when called", async (context) => {
-      const store = await fresh();
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
+    it.runIf(transactions)(
+      "keeps a commit queued behind a transaction as it was when called",
+      async (context) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+        await store.commit({ putSessions: [session("s")] });
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const running = store.transaction(async () => {
+          entered.resolve();
+          await release.promise;
+        });
+        await entered.promise;
+        const written = message("m1", "s", 1);
+
+        const queued = store.commit({ putMessages: [written] });
+        (written.parts[0] as { text: string }).text = "after";
+        release.resolve();
+        await Promise.all([running, queued]);
+
+        await expect(store.getMessage("m1")).resolves.toStrictEqual(
+          message("m1", "s", 1)
+        );
       }
-      await store.commit({ putSessions: [session("s")] });
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      const running = store.transaction(async () => {
-        entered.resolve();
-        await release.promise;
-      });
-      await entered.promise;
-      const written = message("m1", "s", 1);
-
-      const queued = store.commit({ putMessages: [written] });
-      (written.parts[0] as { text: string }).text = "after";
-      release.resolve();
-      await Promise.all([running, queued]);
-
-      await expect(store.getMessage("m1")).resolves.toStrictEqual(
-        message("m1", "s", 1)
-      );
-    });
+    );
 
     it("hands out values that do not change what it holds", async () => {
       const store = await fresh();
@@ -594,177 +604,201 @@ export function describeSessionStore(
       );
     });
 
-    it("runs a transaction's reads and commits through its view, which sees its own commits", async (context) => {
-      const store = await fresh();
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
-      await store.commit({ putSessions: [session("a")] });
+    it.runIf(transactions)(
+      "runs a transaction's reads and commits through its view, which sees its own commits",
+      async (context) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+        await store.commit({ putSessions: [session("a")] });
 
-      const seen = await store.transaction(async (view) => {
-        const current = await view.getSession("a");
-        await view.commit({
-          putMessages: [message("a1", "a", 1)],
-          putSessions: [{ ...session("a"), title: current?.title ?? "none" }],
+        const seen = await store.transaction(async (view) => {
+          const current = await view.getSession("a");
+          await view.commit({
+            putMessages: [message("a1", "a", 1)],
+            putSessions: [{ ...session("a"), title: current?.title ?? "none" }],
+          });
+          await view.commit({
+            putMessages: [message("b1", "b", 1)],
+            putSessions: [session("b")],
+          });
+          await view.commit({
+            putMessages: [{ ...message("a1", "a", 1), status: "error" }],
+          });
+          return {
+            a: await view.getSession("a"),
+            a1: await view.getMessage("a1"),
+            b: await view.listMessages("b"),
+          };
         });
-        await view.commit({
+
+        expect(seen).toStrictEqual({
+          a: session("a", { title: "none" }),
+          a1: message("a1", "a", 1, { status: "error" }),
+          b: [message("b1", "b", 1)],
+        });
+        await expect(store.getSession("a")).resolves.toStrictEqual(
+          session("a", { title: "none" })
+        );
+        await expect(ids(store, "a")).resolves.toEqual(["a1"]);
+        await expect(store.getMessage("a1")).resolves.toMatchObject({
+          status: "error",
+        });
+        await expect(ids(store, "b")).resolves.toEqual(["b1"]);
+      }
+    );
+
+    it.runIf(transactions)(
+      "runs a transaction that touches nothing",
+      async (context) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+
+        await expect(store.transaction(() => Promise.resolve(7))).resolves.toBe(
+          7
+        );
+      }
+    );
+
+    it.runIf(transactions)(
+      "keeps none of a transaction's commit when work throws after it",
+      async (context) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+        await store.commit({ putSessions: [session("s")] });
+
+        await expect(
+          store.transaction(async (view) => {
+            await view.commit({
+              putSessions: [session("s", { title: "changed" })],
+            });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
+
+        await expect(store.getSession("s")).resolves.toStrictEqual(
+          session("s")
+        );
+      }
+    );
+
+    it.runIf(transactions)(
+      "keeps none of a transaction's commits across sessions when work throws",
+      async (context) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+        await store.commit({
+          putMessages: [message("a1", "a", 1)],
+          putSessions: [session("a")],
+        });
+        await store.commit({
           putMessages: [message("b1", "b", 1)],
           putSessions: [session("b")],
         });
-        await view.commit({
-          putMessages: [{ ...message("a1", "a", 1), status: "error" }],
-        });
-        return {
-          a: await view.getSession("a"),
-          a1: await view.getMessage("a1"),
-          b: await view.listMessages("b"),
-        };
-      });
 
-      expect(seen).toStrictEqual({
-        a: session("a", { title: "none" }),
-        a1: message("a1", "a", 1, { status: "error" }),
-        b: [message("b1", "b", 1)],
-      });
-      await expect(store.getSession("a")).resolves.toStrictEqual(
-        session("a", { title: "none" })
-      );
-      await expect(ids(store, "a")).resolves.toEqual(["a1"]);
-      await expect(store.getMessage("a1")).resolves.toMatchObject({
-        status: "error",
-      });
-      await expect(ids(store, "b")).resolves.toEqual(["b1"]);
-    });
-
-    it("runs a transaction that touches nothing", async (context) => {
-      const store = await fresh();
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
-
-      await expect(store.transaction(() => Promise.resolve(7))).resolves.toBe(
-        7
-      );
-    });
-
-    it("keeps none of a transaction's commit when work throws after it", async (context) => {
-      const store = await fresh();
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
-      await store.commit({ putSessions: [session("s")] });
-
-      await expect(
-        store.transaction(async (view) => {
-          await view.commit({
-            putSessions: [session("s", { title: "changed" })],
-          });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-
-      await expect(store.getSession("s")).resolves.toStrictEqual(session("s"));
-    });
-
-    it("keeps none of a transaction's commits across sessions when work throws", async (context) => {
-      const store = await fresh();
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
-      await store.commit({
-        putMessages: [message("a1", "a", 1)],
-        putSessions: [session("a")],
-      });
-      await store.commit({
-        putMessages: [message("b1", "b", 1)],
-        putSessions: [session("b")],
-      });
-
-      await expect(
-        store.transaction(async (view) => {
-          await view.commit({
-            putMessages: [
-              { ...message("a1", "a", 1), summarized: true },
-              message("a2", "a", 2),
-            ],
-            putSessions: [session("a", { title: "changed" })],
-          });
-          await view.commit({
-            putMessages: [message("b2", "b", 2)],
-            putSessions: [session("b", { status: "archived" })],
-          });
-          await view.commit({
-            putMessages: [message("c1", "c", 1)],
-            putSessions: [session("c")],
-          });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-
-      await expect(store.getSession("a")).resolves.toStrictEqual(session("a"));
-      await expect(store.listMessages("a")).resolves.toStrictEqual([
-        message("a1", "a", 1),
-      ]);
-      await expect(store.getSession("b")).resolves.toStrictEqual(session("b"));
-      await expect(store.listMessages("b")).resolves.toStrictEqual([
-        message("b1", "b", 1),
-      ]);
-      await expect(store.getSession("c")).resolves.toBeNull();
-      await expect(store.getMessage("a2")).resolves.toBeNull();
-      await expect(store.getMessage("b2")).resolves.toBeNull();
-      await expect(store.getMessage("c1")).resolves.toBeNull();
-    });
-
-    it("keeps both of two overlapping commits through one view", async (context) => {
-      const storage = await open();
-      const store = storage("a");
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
-      await store.commit({ putSessions: [session("s")] });
-
-      const seen = await store.transaction(async (view) => {
-        await Promise.all([
-          view.commit({ putMessages: [message("m1", "s", 1)] }),
-          view.commit({ putMessages: [message("m2", "s", 2)] }),
-        ]);
-        return ids(view, "s");
-      });
-
-      expect(seen).toEqual(["m1", "m2"]);
-      await expect(ids(store, "s")).resolves.toEqual(["m1", "m2"]);
-      await expect(ids(storage("a"), "s")).resolves.toEqual(["m1", "m2"]);
-    });
-
-    it("takes a view's commit after one it refused", async (context) => {
-      const store = await fresh();
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
-      await store.commit({ putSessions: [session("s")] });
-      const unstorable = message("m1", "s", 1);
-      Object.defineProperty(unstorable.parts[0], "text", {
-        enumerable: true,
-        get: () => {
-          throw new Error("unstorable");
-        },
-      });
-
-      await store.transaction(async (view) => {
         await expect(
-          view.commit({ putMessages: [unstorable] })
-        ).rejects.toThrow("unstorable");
-        await view.commit({ putMessages: [message("m2", "s", 2)] });
-      });
+          store.transaction(async (view) => {
+            await view.commit({
+              putMessages: [
+                { ...message("a1", "a", 1), summarized: true },
+                message("a2", "a", 2),
+              ],
+              putSessions: [session("a", { title: "changed" })],
+            });
+            await view.commit({
+              putMessages: [message("b2", "b", 2)],
+              putSessions: [session("b", { status: "archived" })],
+            });
+            await view.commit({
+              putMessages: [message("c1", "c", 1)],
+              putSessions: [session("c")],
+            });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
 
-      await expect(ids(store, "s")).resolves.toEqual(["m2"]);
-    });
+        await expect(store.getSession("a")).resolves.toStrictEqual(
+          session("a")
+        );
+        await expect(store.listMessages("a")).resolves.toStrictEqual([
+          message("a1", "a", 1),
+        ]);
+        await expect(store.getSession("b")).resolves.toStrictEqual(
+          session("b")
+        );
+        await expect(store.listMessages("b")).resolves.toStrictEqual([
+          message("b1", "b", 1),
+        ]);
+        await expect(store.getSession("c")).resolves.toBeNull();
+        await expect(store.getMessage("a2")).resolves.toBeNull();
+        await expect(store.getMessage("b2")).resolves.toBeNull();
+        await expect(store.getMessage("c1")).resolves.toBeNull();
+      }
+    );
+
+    it.runIf(transactions)(
+      "keeps both of two overlapping commits through one view",
+      async (context) => {
+        const storage = await open();
+        const store = storage("a");
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+        await store.commit({ putSessions: [session("s")] });
+
+        const seen = await store.transaction(async (view) => {
+          await Promise.all([
+            view.commit({ putMessages: [message("m1", "s", 1)] }),
+            view.commit({ putMessages: [message("m2", "s", 2)] }),
+          ]);
+          return ids(view, "s");
+        });
+
+        expect(seen).toEqual(["m1", "m2"]);
+        await expect(ids(store, "s")).resolves.toEqual(["m1", "m2"]);
+        await expect(ids(storage("a"), "s")).resolves.toEqual(["m1", "m2"]);
+      }
+    );
+
+    it.runIf(transactions)(
+      "takes a view's commit after one it refused",
+      async (context) => {
+        const store = await fresh();
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+        await store.commit({ putSessions: [session("s")] });
+        const unstorable = message("m1", "s", 1);
+        Object.defineProperty(unstorable.parts[0], "text", {
+          enumerable: true,
+          get: () => {
+            throw new Error("unstorable");
+          },
+        });
+
+        await store.transaction(async (view) => {
+          await expect(
+            view.commit({ putMessages: [unstorable] })
+          ).rejects.toThrow("unstorable");
+          await view.commit({ putMessages: [message("m2", "s", 2)] });
+        });
+
+        await expect(ids(store, "s")).resolves.toEqual(["m2"]);
+      }
+    );
 
     it.runIf(transactions && reentrancyGuard)(
       "refuses at once a call to the store from inside its own transaction",
@@ -1010,7 +1044,8 @@ const EVERY_PART: SessionPart[] = [
 
 function describeRecordedEvents(
   name: string,
-  recording: () => Promise<RecordingSessionStorage>
+  recording: () => Promise<RecordingSessionStorage>,
+  transactions: boolean
 ): void {
   const recorder = async () => {
     const opened = await recording();
@@ -1106,38 +1141,41 @@ function describeRecordedEvents(
       await expect(recorded()).resolves.toStrictEqual([created("s")]);
     });
 
-    it("records a transaction's events only when it is kept", async (context) => {
-      const { recorded, store } = await recorder();
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
+    it.runIf(transactions)(
+      "records a transaction's events only when it is kept",
+      async (context) => {
+        const { recorded, store } = await recorder();
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
 
-      await expect(
-        store.transaction(async (view) => {
+        await expect(
+          store.transaction(async (view) => {
+            await view.commit({
+              events: [created("dropped")],
+              putSessions: [session("dropped")],
+            });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
+        await store.transaction(async (view) => {
           await view.commit({
-            events: [created("dropped")],
-            putSessions: [session("dropped")],
+            events: [created("s")],
+            putSessions: [session("s")],
           });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-      await store.transaction(async (view) => {
-        await view.commit({
-          events: [created("s")],
-          putSessions: [session("s")],
+          await view.commit({
+            events: [appended("s", ["m1"])],
+            putMessages: [message("m1", "s", 1)],
+          });
         });
-        await view.commit({
-          events: [appended("s", ["m1"])],
-          putMessages: [message("m1", "s", 1)],
-        });
-      });
 
-      await expect(recorded()).resolves.toStrictEqual([
-        created("s"),
-        appended("s", ["m1"]),
-      ]);
-    });
+        await expect(recorded()).resolves.toStrictEqual([
+          created("s"),
+          appended("s", ["m1"]),
+        ]);
+      }
+    );
   });
 }
 

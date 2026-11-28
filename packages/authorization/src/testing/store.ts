@@ -56,7 +56,14 @@ export function describeAuthorizationStore(
 
       expect(await target.getGrant(first.id)).toEqual(first);
       expect(await target.getGrant(second.id)).toEqual(second);
-      expect(await target.listGrants()).toEqual([first, second]);
+      const listedGrants = await target.listGrants();
+      if (insertionOrder) {
+        expect(listedGrants).toEqual([first, second]);
+      } else {
+        expect(
+          [...listedGrants].sort((a, b) => a.id.localeCompare(b.id))
+        ).toEqual([first, second]);
+      }
       expect(await target.getRestriction(guardrail.id)).toEqual(guardrail);
       expect(await target.listRestrictions()).toEqual([guardrail]);
       expect(await target.getClaim(claim.invocationId)).toEqual(claim);

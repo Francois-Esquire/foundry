@@ -98,11 +98,17 @@ export function describeModuleStore(
       expect(read?.installation.createdAt).toBeInstanceOf(Date);
       expect(read?.installation.updatedAt.getTime()).toBe(8.64e15);
       expect(await target.getInstallation(idle.installation.id)).toEqual(idle);
-      expect(await held(target)).toEqual({
+      const actualHeld = await held(target);
+      const expectedHeld: Held = {
         installations: [running, idle],
         manifests: [retained],
         modules: [tasks],
-      });
+      };
+      if (insertionOrder) {
+        expect(actualHeld).toEqual(expectedHeld);
+      } else {
+        expect(sortHeld(actualHeld)).toEqual(sortHeld(expectedHeld));
+      }
     });
 
     test.runIf(insertionOrder)(
@@ -543,7 +549,7 @@ export function describeModuleStore(
       }
     );
 
-    test("list reads page in put order, and filter by exact values", async () => {
+    test("list reads page consistently, and filter by exact values", async () => {
       const target = await store();
       const owners = ["a", "b", "c", "d", "e"].map((id) =>
         module(id, id < "c" ? "shared" : `artifact-${id}`)
@@ -558,24 +564,49 @@ export function describeModuleStore(
       });
 
       const first = await target.listModules({ limit: 2 });
-      expect(first.items).toEqual(owners.slice(0, 2));
       expect(first.next).toBeDefined();
       const second = await target.listModules({
         after: first.next as number,
         limit: 2,
       });
-      expect(second.items).toEqual(owners.slice(2, 4));
+      expect(second.next).toBeDefined();
       const third = await target.listModules({
         after: second.next as number,
         limit: 2,
       });
-      expect(third).toEqual({ items: owners.slice(4) });
-      expect(await target.listModules({ limit: 5 })).toEqual({
-        items: owners,
+      const allFive = await target.listModules({ limit: 5 });
+      const shared = await target.listModules({
+        artifactId: artifactId("shared"),
+        limit: 5,
       });
-      expect(
-        await target.listModules({ artifactId: artifactId("shared"), limit: 5 })
-      ).toEqual({ items: owners.slice(0, 2) });
+
+      if (insertionOrder) {
+        expect(first.items).toEqual(owners.slice(0, 2));
+        expect(second.items).toEqual(owners.slice(2, 4));
+        expect(third).toEqual({ items: owners.slice(4) });
+        expect(allFive).toEqual({ items: owners });
+        expect(shared).toEqual({ items: owners.slice(0, 2) });
+      } else {
+        expect(first.items).toHaveLength(2);
+        expect(second.items).toHaveLength(2);
+        expect(third.items).toHaveLength(1);
+        expect(third.next).toBeUndefined();
+        expect(
+          sortByKey(
+            [...first.items, ...second.items, ...third.items],
+            (item) => item.id
+          )
+        ).toEqual(sortByKey(owners, (item) => item.id));
+        expect(allFive.next).toBeUndefined();
+        expect(sortByKey(allFive.items, (item) => item.id)).toEqual(
+          sortByKey(owners, (item) => item.id)
+        );
+        expect(shared.next).toBeUndefined();
+        expect(sortByKey(shared.items, (item) => item.id)).toEqual(
+          sortByKey(owners.slice(0, 2), (item) => item.id)
+        );
+      }
+
       expect(
         await target.listModules({ artifactId: artifactId("none"), limit: 5 })
       ).toEqual({ items: [] });
@@ -584,21 +615,43 @@ export function describeModuleStore(
         limit: 1,
         moduleId: moduleId("c"),
       });
-      expect(ofC.items).toEqual([installation("c-1", module("c"))]);
-      expect(
-        await target.listInstallations({
-          after: ofC.next as number,
-          limit: 1,
-          moduleId: moduleId("c"),
-        })
-      ).toEqual({
-        items: [installation("c-2", module("c"))],
+      expect(ofC.next).toBeDefined();
+      const ofCNext = await target.listInstallations({
+        after: ofC.next as number,
+        limit: 1,
+        moduleId: moduleId("c"),
       });
-      expect(
-        (await all((page) => target.listInstallations(page))).map(
-          (stored) => stored.installation.id
-        )
-      ).toEqual(owners.flatMap((owner) => [`${owner.id}-1`, `${owner.id}-2`]));
+      const allInstallationIds = (
+        await all((page) => target.listInstallations(page))
+      ).map((stored) => stored.installation.id);
+      const expectedInstallationIds = owners.flatMap((owner) => [
+        `${owner.id}-1`,
+        `${owner.id}-2`,
+      ]);
+
+      if (insertionOrder) {
+        expect(ofC.items).toEqual([installation("c-1", module("c"))]);
+        expect(ofCNext).toEqual({
+          items: [installation("c-2", module("c"))],
+        });
+        expect(allInstallationIds).toEqual(expectedInstallationIds);
+      } else {
+        expect(ofC.items).toHaveLength(1);
+        expect(ofCNext.items).toHaveLength(1);
+        expect(ofCNext.next).toBeUndefined();
+        expect(
+          sortByKey(
+            [...ofC.items, ...ofCNext.items],
+            (item) => item.installation.id
+          )
+        ).toEqual([
+          installation("c-1", module("c")),
+          installation("c-2", module("c")),
+        ]);
+        expect([...allInstallationIds].sort()).toEqual(
+          [...expectedInstallationIds].sort()
+        );
+      }
 
       expect(await target.listManifests({ moduleId: moduleId("d") })).toEqual([
         manifest("d", owners[3] as Module),
@@ -843,9 +896,14 @@ export function describeModuleStore(
           expect(outcome).toMatch(REFUSAL);
         }
         await later;
-        expect(
-          (await target.listModules({ limit: 10 })).items.map(({ id }) => id)
-        ).toEqual(["b", "a"]);
+        const listedIds = (await target.listModules({ limit: 10 })).items.map(
+          ({ id }) => id
+        );
+        if (insertionOrder) {
+          expect(listedIds).toEqual(["b", "a"]);
+        } else {
+          expect([...listedIds].sort()).toEqual(["a", "b"]);
+        }
       }
     );
   });
@@ -914,6 +972,21 @@ async function held(store: ModuleStore): Promise<Held> {
     installations: await all((page) => store.listInstallations(page)),
     manifests: await store.listManifests(),
     modules: await all((page) => store.listModules(page)),
+  };
+}
+
+function sortByKey<T>(items: readonly T[], key: (item: T) => string): T[] {
+  return [...items].sort((a, b) => key(a).localeCompare(key(b)));
+}
+
+function sortHeld(value: Held): Held {
+  return {
+    installations: sortByKey(
+      value.installations,
+      (item) => item.installation.id
+    ),
+    manifests: sortByKey(value.manifests, (item) => item.contentId),
+    modules: sortByKey(value.modules, (item) => item.id),
   };
 }
 
