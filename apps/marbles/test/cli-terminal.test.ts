@@ -103,6 +103,7 @@ function openTestCli(
 test("first-run provider setup precedes workspace setup and can be skipped", async () => {
   const dir = mkdtempSync("/tmp/mb-providers-");
   const home = testHome({ providers: false });
+  home.env.PATH = "/usr/bin:/bin";
   const config = join(dir, ".foundry", "marbles");
   const { state } = home.layout;
   const machine = async () =>
@@ -118,6 +119,23 @@ test("first-run provider setup precedes workspace setup and can be skipped", asy
     expect(await machine()).toBeUndefined();
   } finally {
     await live.dispose();
+  }
+  const reopened = openTestCli(home, config, [], dir);
+  try {
+    await reopened.see("Configure your first step");
+    expect(await reopened.emitted("Set up model providers")).toBe(false);
+  } finally {
+    await reopened.dispose();
+  }
+  const claude = join(dirname(config), "test-bin", "claude");
+  writeFileSync(claude, "#!/bin/sh\nexit 1\n");
+  chmodSync(claude, 0o755);
+  const newlyDetected = openTestCli(home, config, [], dir);
+  try {
+    await newlyDetected.see("Set up model providers");
+    await newlyDetected.see("Claude Code");
+  } finally {
+    await newlyDetected.dispose();
   }
   await writeAsHost(state, (database) =>
     database

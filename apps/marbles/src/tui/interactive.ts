@@ -121,11 +121,15 @@ async function onboardingFor(args: GlobalFlags, local: LocalState) {
   const [recorded, providers] = await Promise.all([
     recordedWorkspace(args, workspace.id),
     discoverProviderSetup({
+      recheck: true,
       state: args.state,
       workspace,
     }),
   ]);
-  const firstSetup = !(providers.configured || settings.providerSetupComplete);
+  const firstSetup =
+    providers.offered.some(
+      ({ id }) => !settings.dismissedProviderOffers?.includes(id)
+    ) || !(providers.configured || settings.providerSetupComplete);
   const failedSettingsWithoutOffers =
     problem !== undefined &&
     recorded !== undefined &&
@@ -138,9 +142,17 @@ async function onboardingFor(args: GlobalFlags, local: LocalState) {
         if (result.conflict) {
           throw new Error(result.message);
         }
-      } else if (!(providers.configured || settings.providerSetupComplete)) {
+      } else {
         try {
-          saveSettings(path, { providerSetupComplete: true });
+          saveSettings(path, {
+            dismissedProviderOffers: [
+              ...new Set([
+                ...(settings.dismissedProviderOffers ?? []),
+                ...providers.offered.map(({ id }) => id),
+              ]),
+            ],
+            providerSetupComplete: true,
+          });
         } catch (error) {
           local.report(
             `[settings] could not record provider setup: ${String(error)}`,

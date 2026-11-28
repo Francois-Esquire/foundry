@@ -14,7 +14,7 @@ import {
   type GrantId,
   matchesPrincipal,
 } from "@foundry/authorization";
-import { tool } from "ai";
+import { type Tool, tool } from "ai";
 import { z } from "zod";
 import type { SandboxSessionSettings } from "./session";
 import { observedSession, wrapSession } from "./wrapped-session";
@@ -129,7 +129,7 @@ async function closeAndRevokeChild(
 export function delegationTool(
   settings: SandboxSessionSettings,
   open: (settings: SandboxSessionSettings) => Promise<HarnessSession>
-) {
+): Tool<{ task: string; title: string }, { sessionId: string; text: string }> {
   const { question } = settings.options;
   const scope = settings.delegation ?? {
     budget: { active: 0, started: 0 },
@@ -138,7 +138,10 @@ export function delegationTool(
   return tool({
     description:
       "Delegate a bounded task to a child agent using this harness, model, workspace, and permissions. Waits for its result. At most 2 concurrent children, 8 total launches, and 3 nested levels per open parent session.",
-    async execute({ title, task }, context) {
+    async execute(
+      { title, task },
+      context
+    ): Promise<{ sessionId: string; text: string }> {
       if (
         scope.depth >= 3 ||
         scope.budget.started >= 8 ||

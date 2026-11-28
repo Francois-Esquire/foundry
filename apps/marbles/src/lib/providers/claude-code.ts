@@ -5,6 +5,7 @@ import {
 import { DEFAULT_PROVIDER } from "~/lib/handles";
 import type { Bin } from "~/lib/providers/cli";
 import { BIN, guestOf, scopedCli } from "~/lib/providers/cli";
+import { providerInstalled } from "~/lib/providers/installed";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 
 export const claudeCode: ProviderPlugin<Bin> = Object.defineProperty(
@@ -35,7 +36,10 @@ export const claudeCode: ProviderPlugin<Bin> = Object.defineProperty(
         execution: guestOf("claude-code", env, path),
         provider: claudeCodeProvider({
           config: {
-            available: path !== null && models.length > 0,
+            available:
+              path !== null &&
+              models.length > 0 &&
+              providerInstalled("ai-sdk-provider-claude-code"),
             ...(path
               ? {
                   defaultSettings: {
@@ -51,12 +55,17 @@ export const claudeCode: ProviderPlugin<Bin> = Object.defineProperty(
         }),
       };
     },
-    detect: ({ env }) => (scopedCli("claude", {}, env) === null ? null : {}),
+    detect: ({ env }) =>
+      providerInstalled("ai-sdk-provider-claude-code") &&
+      scopedCli("claude", {}, env) !== null
+        ? {}
+        : null,
     id: "claude-code",
     label: "Claude Code",
     list: async ({ env, settings, signal }) => {
       const binPath = scopedCli("claude", settings, env);
-      return binPath === null
+      return binPath === null ||
+        !providerInstalled("ai-sdk-provider-claude-code")
         ? []
         : await claudeCodeModels({ binPath, env, signal });
     },

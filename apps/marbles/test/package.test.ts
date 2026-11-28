@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -186,7 +187,6 @@ const PROVIDER_ENTRIES = [
 
 const OPT_IN_MODELS: Record<string, string> = {
   "providers/gateway": "function gatewayModels(",
-  "providers/pi": "function piProvider(",
   "providers/vercel": "function vercelModels(",
 };
 
@@ -194,7 +194,6 @@ const MODEL_FACTORY_ENTRIES = new Set(["engine", "lib"]);
 
 const OPT_IN_MARKERS: Record<string, string> = {
   "providers/gateway": "OpenAI-compatible gateway",
-  "providers/pi": "OPENCODE_API_KEY",
   "providers/vercel": "Vercel AI Gateway",
 };
 
@@ -289,6 +288,57 @@ function run(
     throw error;
   }
 }
+
+test("consumer peer repairs omit development tooling and preserve the dashboard", async () => {
+  const consumer = mkdtempSync(join(tmpdir(), "marbles-repaired-peers-"));
+  try {
+    const archive =
+      process.env.PACKAGE_TARBALL ?? join(consumer, "package.tgz");
+    if (!process.env.PACKAGE_TARBALL) {
+      run(
+        "bun",
+        ["pm", "pack", "--ignore-scripts", "--filename", archive],
+        PACKAGE_ROOT
+      );
+    }
+    const { packageExtensions } = JSON.parse(
+      readFileSync(resolve(PACKAGE_ROOT, "../../package.json"), "utf8")
+    );
+    writeFileSync(
+      join(consumer, "package.json"),
+      JSON.stringify({
+        dependencies: { "@foundry.sh/marbles": `file:${archive}` },
+        name: "marbles-repaired-peer-consumer",
+        packageExtensions,
+        private: true,
+        type: "module",
+      })
+    );
+    run("bun", ["install", "--ignore-scripts"], consumer);
+    for (const dependency of ["react-devtools-core", "typescript"]) {
+      expect(existsSync(join(consumer, "node_modules", dependency))).toBe(
+        false
+      );
+    }
+    expect(existsSync(join(consumer, "node_modules/web-tree-sitter"))).toBe(
+      true
+    );
+    writeFileSync(
+      join(consumer, "marbles.config.ts"),
+      'import { step } from "@foundry.sh/marbles"; export const repaired = step("repaired").do(() => "ready");'
+    );
+    const cli = join(consumer, "node_modules/.bin/marbles");
+    const home = testHome();
+    const env = { ...home.env, DEV: "false" };
+    expect(run(cli, ["list"], consumer, env)).toContain("[step] repaired");
+    const terminal = await inspectDashboard(cli, consumer, [], env);
+    expect(terminal.code).toBe(0);
+    expect(terminal.output).toContain("Triggers");
+    expect(terminal.output).toContain("Runs");
+  } finally {
+    rmSync(consumer, { force: true, recursive: true });
+  }
+}, 120_000);
 
 test("the tarball installs and shares the library registry with the CLI", async () => {
   const consumer = mkdtempSync(join(tmpdir(), "marbles-package-"));
@@ -545,7 +595,10 @@ console.log("host sessions", (await sessions.listMessages("host")).length, typeo
     );
     for (const sdk of OPTIONAL_PROVIDER_SDKS) {
       expect(manifest.dependencies).not.toHaveProperty(sdk);
-      expect(manifest.optionalDependencies).toHaveProperty(sdk);
+      expect(manifest.optionalDependencies ?? {}).not.toHaveProperty(sdk);
+      expect(manifest.peerDependencies).toHaveProperty(sdk);
+      expect(manifest.peerDependenciesMeta[sdk]).toEqual({ optional: true });
+      expect(existsSync(join(consumer, "node_modules", sdk))).toBe(false);
     }
     const entries = [
       "cli",

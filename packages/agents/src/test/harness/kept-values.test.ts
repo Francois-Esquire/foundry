@@ -11,7 +11,11 @@ import {
   toolCallStreamResult,
 } from "../helpers/mock-language-model";
 
-async function harnessWithTool(output: unknown) {
+async function harnessWithTool(
+  output: unknown,
+  streaming = false,
+  preliminary: readonly unknown[] = []
+) {
   const store = new MemorySessionStore();
   const harness = new SessionHarness(
     {
@@ -26,7 +30,12 @@ async function harnessWithTool(output: unknown) {
       store,
       tools: {
         probe: tool({
-          execute: () => output,
+          execute: streaming
+            ? async function* () {
+                yield* preliminary;
+                yield output;
+              }
+            : () => output,
           inputSchema: z.object({}),
         }),
       },
@@ -43,6 +52,23 @@ function toolResults(messages: { parts: { type: string }[] }[]) {
 }
 
 describe("what a session keeps of a turn's values", () => {
+  it("keeps only the final streaming tool output, allowing non-JSON progress", async () => {
+    const { harness, store } = await harnessWithTool({ count: 1 }, true, [
+      { count: 1n },
+    ]);
+    const onToolResult = vi.fn();
+
+    const reply = await harness.generate("go", { onToolResult });
+
+    expect(reply.status).toBe("complete");
+    expect(onToolResult).toHaveBeenCalledWith(
+      expect.objectContaining({ output: { count: 1n }, preliminary: true })
+    );
+    expect(toolResults(await store.listMessages("s"))).toEqual([
+      { output: { count: 1 }, toolCallId: "call-1", type: "tool_result" },
+    ]);
+  });
+
   it("keeps a tool's output in its JSON form, which any store can copy", async () => {
     const { harness, store } = await harnessWithTool({
       at: new Date(0),
@@ -65,33 +91,44 @@ describe("what a session keeps of a turn's values", () => {
     ]);
   });
 
-  it("fails the turn loudly, keeping an error result that names the tool, when its output has no JSON form", async () => {
-    const { harness, store } = await harnessWithTool({ count: 1n });
-    const onError = vi.fn();
-    const onToolResult = vi.fn();
+  it.each([false, true])(
+    "fails the turn loudly when its tool output has no JSON form, streaming=%s",
+    async (streaming) => {
+      const { harness, store } = await harnessWithTool(
+        { count: 1n },
+        streaming
+      );
+      const onError = vi.fn();
+      const onToolResult = vi.fn();
 
-    const reply = await harness.generate("go", { onError, onToolResult });
+      const reply = await harness.generate("go", { onError, onToolResult });
 
-    const why = expect.stringContaining(
-      'Tool "probe" (call call-1) returned a value with no JSON form'
-    );
-    expect(reply.status).toBe("error");
-    expect(reply.parts).toContainEqual({ message: why, type: "error" });
-    expect(onError).toHaveBeenCalledWith(
-      expect.objectContaining({ message: why })
-    );
-    const history = await store.listMessages("s");
-    expect(history.map((m) => [m.role, m.status])).toEqual([
-      ["user", "complete"],
-      ["assistant", "error"],
-    ]);
-    expect(toolResults(history)).toEqual([
-      { isError: true, output: why, toolCallId: "call-1", type: "tool_result" },
-    ]);
-    expect(onToolResult).toHaveBeenCalledWith(
-      expect.objectContaining({ isError: true, output: why })
-    );
-  });
+      const why = expect.stringContaining(
+        'Tool "probe" (call call-1) returned a value with no JSON form'
+      );
+      expect(reply.status).toBe("error");
+      expect(reply.parts).toContainEqual({ message: why, type: "error" });
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({ message: why })
+      );
+      const history = await store.listMessages("s");
+      expect(history.map((m) => [m.role, m.status])).toEqual([
+        ["user", "complete"],
+        ["assistant", "error"],
+      ]);
+      expect(toolResults(history)).toEqual([
+        {
+          isError: true,
+          output: why,
+          toolCallId: "call-1",
+          type: "tool_result",
+        },
+      ]);
+      expect(onToolResult).toHaveBeenCalledWith(
+        expect.objectContaining({ isError: true, output: why })
+      );
+    }
+  );
 
   it("keeps a structured output in its JSON form", async () => {
     const store = new MemorySessionStore();

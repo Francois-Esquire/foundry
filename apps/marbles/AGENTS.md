@@ -10,14 +10,26 @@ third-party runtime dependencies in this package's `dependencies`, even when
 Marbles source does not import them directly or a build tree-shakes a path.
 Optional features may use an explicitly declared optional peer dependency.
 
+The root `packageExtensions` repairs OpenTUI's omitted optional DevTools
+metadata and makes bun-ffi-structs' TypeScript peer optional. Keep these
+repairs version-scoped. Bun applies them only at the installing project's
+root; they do not propagate through the published Marbles manifest. The
+package test covers a consumer with the repairs, including a working
+dashboard without DevTools or TypeScript. Keep Tree-sitter available for
+Markdown rendering and highlighting.
+
 Knip cannot trace those bundled imports back to this manifest. Keep its
 `apps/marbles` dependency exceptions limited to this packaging case. Before
 removing one, inspect the build and run
 `bun run test:package` from this directory; the package test installs the
 tarball in an isolated consumer and exercises the CLI.
 
-The CLI provider adapters and Anthropic SDKs are optional dependencies.
-Provider discovery and execution load their adapters on demand. Keep
+The CLI provider adapters and Anthropic SDKs are optional peer dependencies,
+with development dependencies for builds and tests. Never put them in
+`optionalDependencies`: package managers install those by default.
+Users install adapters alongside Marbles. Discovery checks adapter resolution
+and the CLI before offering Claude Code, Codex or Pi; execution loads SDKs
+on demand. Keep
 `@anthropic-ai/sdk` pinned when it is installed to satisfy the Claude Agent
 SDK peer requirement. Pi also depends on an older SDK, so relying on peer
 hoisting can select an incompatible version in a fresh standalone install.
@@ -31,7 +43,8 @@ The `@ai-sdk/mcp` exception covers the bundled agents MCP client, which
 connects the MCP servers an agent's definition names; its version follows
 `packages/agents`.
 The bundled Usage package loads `@anthropic-ai/claude-agent-sdk` when reading
-Claude login limits. Keep its version aligned with `@foundry/usage`.
+Claude login limits. Keep its version aligned with `@foundry/usage` and the
+Claude Code adapter's dependency to avoid duplicate native binaries.
 The `@ai-sdk/provider` exception covers model types referenced by the published
 declarations; those generated imports are absent in a fresh checkout.
 The `@foundry/core` development dependency supplies transitive pagination types

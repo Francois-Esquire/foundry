@@ -14,7 +14,6 @@ export default defineConfig({
   },
   deployment: {
     base: "/foundry",
-    output: "static",
     site: "https://francois-esquire.github.io",
   },
   description: "Documentation for Foundry's local developer tools.",

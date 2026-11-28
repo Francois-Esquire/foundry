@@ -80,7 +80,7 @@ optional: omit it for the provider's default, or set an id the provider
 serves. Without `provider`, `model` picks it: `"provider/model"` selects
 that provider, and a bare id selects the first available provider that
 lists it. An id no provider lists is refused. `skills` takes a skill set.
-`"pi"` needs [`defineProvider(pi)`](#providers) in the workspace's source.
+CLI providers need their [optional adapters](/marbles/get-started/installation#install-a-provider-adapter) installed alongside Marbles.
 
 Tool grants and agent-created triggers are stored under the agent's ID: `name`
 when given, else the top-level `const` it is assigned to, else `agent-`
@@ -980,7 +980,9 @@ Use `.run()` for inline awaiting or launch work in a separate pool.
 
 ## Providers
 
-A workspace has Claude Code and Codex. Every other provider is available
+A workspace detects Claude Code, Codex and Pi when their optional adapters
+are installed alongside Marbles and their CLIs are on `PATH`.
+Every other provider is available
 only to a workspace whose source asks for it: import the provider from its
 own entry and pass it to `defineProvider`, exported from
 `@foundry.sh/marbles/providers` and from nowhere else.
@@ -996,20 +998,21 @@ defineProvider(vercel);
 | --- | --- | --- |
 | `@foundry.sh/marbles/providers/claude-code` | `claudeCode` | Claude Code. A workspace has it without a call. |
 | `@foundry.sh/marbles/providers/codex` | `codex` | Codex. A workspace has it without a call. |
-| `@foundry.sh/marbles/providers/pi` | `pi` | Pi. |
+| `@foundry.sh/marbles/providers/pi` | `pi` | Pi. Detected without a call when installed. |
 | `@foundry.sh/marbles/providers/vercel` | `vercel` | Vercel AI Gateway. |
 | `@foundry.sh/marbles/providers/gateway` | `gateway` | An OpenAI-compatible gateway. |
 
-Nothing loads a provider's module, or the SDK behind it, unless something
-imports it. `defineProvider(provider)` makes the provider available to the
+CLI SDKs load on demand, after discovery has checked their installation.
+Other providers load when the workspace imports them.
+`defineProvider(provider)` makes the provider available to the
 workspace whose source is loading, the way `step()` registers a step with
 it, and returns the provider it was given. Another workspace in the same
 process does not get it, and a reload reads the source as it is now: remove
 the call, and the provider is gone. A second definition under an id the
 source already defined, the same provider or another, fails the load with
 both places named, as a second step under a taken name does. Passing
-`claudeCode` or `codex` changes nothing, however often; another provider
-under `claude-code` or `codex` fails the load. Call it at the top level of the source: once the workspace's engine is
+`claudeCode`, `codex` or `pi` changes nothing, however often; another provider
+under `claude-code`, `codex` or `pi` fails the load. Call it at the top level of the source: once the workspace's engine is
 built its providers are fixed, and a call in a step is refused. In a script
 no host loads, a call reaches the engine Marbles builds for that script, if
 it comes before the first definition runs.

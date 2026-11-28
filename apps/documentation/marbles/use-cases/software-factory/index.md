@@ -73,8 +73,8 @@ needs:
 
 - A Git repository with at least one commit and an `origin` remote.
 - An authenticated [GitHub CLI](https://cli.github.com/) (`gh auth status`).
-- An authenticated agent CLI: Claude Code, Codex, or Pi. Pi also needs
-  [`defineProvider(pi)`](/marbles/reference/api#providers) in the workspace's source.
+- An authenticated agent CLI: Claude Code, Codex, or Pi, with its
+  [provider adapter](/marbles/get-started/installation#install-a-provider-adapter) installed alongside Marbles.
 - Bun and a `bun test` suite. Change the commands in `verify.ts` for
   another toolchain.
 - `zod@4.4.3` in the project, and the current source checkout of Marbles
