@@ -74,18 +74,20 @@ test("Tab and Shift+Tab move through the panel's tabs", async () => {
 });
 
 test("PgUp and PgDn scroll the conversation", async () => {
-  const { ui } = await asked(threads.done, { height: 16, width: 120 });
+  const { ui } = await asked(threads.done, { height: 12, width: 120 });
   const top = "│ You ";
   const bottom = await frameWith(ui, "bun run start");
 
   expect(bottom).not.toContain(top);
-  await press(ui, PAGE_UP);
-  await press(ui, PAGE_UP);
+  for (let page = 0; page < 6; page += 1) {
+    await press(ui, PAGE_UP);
+  }
   const scrolled = await frameWith(ui, top);
   expect(scrolled).toContain(top);
   expect(scrolled).not.toContain("bun run start");
-  await press(ui, PAGE_DOWN);
-  await press(ui, PAGE_DOWN);
+  for (let page = 0; page < 6; page += 1) {
+    await press(ui, PAGE_DOWN);
+  }
   const back = await frameWith(ui, "bun run start");
   expect(back).toContain("bun run start");
   expect(back).not.toContain(top);

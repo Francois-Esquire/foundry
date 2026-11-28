@@ -1,4 +1,10 @@
-import type { BoxRenderable } from "@opentui/core";
+import {
+  type BaseRenderable,
+  type BoxRenderable,
+  isRenderable,
+  NativeError,
+  NativeStatus,
+} from "@opentui/core";
 import { useRenderer } from "@opentui/react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { cellWidth } from "./cells";
@@ -62,8 +68,29 @@ export function InputRow({
     }
   }, []);
   useLayoutEffect(() => {
-    renderer.root.calculateLayout();
-    resize(Math.floor(row.current?.getLayoutNode().getComputedWidth() ?? 0));
+    const inputRow: BoxRenderable | null = row.current;
+    if (inputRow === null) {
+      return;
+    }
+    let root: BaseRenderable = inputRow;
+    while (root.parent && root.parent !== renderer.root) {
+      root = root.parent;
+    }
+    if (root !== renderer.root && isRenderable(root)) {
+      try {
+        renderer.nativeScene.measureSnapshot(root);
+      } catch (error) {
+        if (
+          error instanceof NativeError &&
+          error.status === NativeStatus.OutputBusy
+        ) {
+          // The next native frame supplies the width through onSizeChange.
+          return;
+        }
+        throw error;
+      }
+    }
+    resize(Math.floor(inputRow.getLayout().width));
   }, [renderer, resize]);
   const measure = useCallback(
     function measureRow(this: BoxRenderable) {

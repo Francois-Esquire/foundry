@@ -4,6 +4,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useLayoutEffect } from "react";
 import { afterEach, expect, test } from "vitest";
 import { ArgumentForm } from "../src/components/blocks/argument-form";
+import { SetupFlow } from "../src/components/layouts/setup-flow";
 import {
   type InputField,
   type InputValues,
@@ -56,6 +57,19 @@ const empty: DashboardSnapshot = {
   workspace: "test",
 };
 const noop = () => undefined;
+
+test("setup keeps its title visible above overflowing content", async () => {
+  ui = await testRender(
+    <SetupFlow title="Set up model providers">
+      <box height={100}>
+        <text>Providers</text>
+      </box>
+    </SetupFlow>,
+    { height: 40, width: 100 }
+  );
+  await flush();
+  expect(ui.captureCharFrame()).toContain("marbles · Set up model providers");
+});
 
 function PressEnterOnLayout({ children }: { readonly children: ReactNode }) {
   const { keyInput } = useRenderer();
@@ -374,5 +388,6 @@ test("short setup forms scroll keyboard focus to their submit action", async () 
   expect(submit).toBeDefined();
   expect(submit?.y).toBeLessThan(17);
   await key("enter");
-  expect(ui.captureCharFrame()).toContain('step("hello")');
+  expect(ui.captureCharFrame()).toContain("Review and create module");
+  expect(ui.captureCharFrame()).toContain('name: "hello"');
 });

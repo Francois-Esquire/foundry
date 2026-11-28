@@ -58,7 +58,7 @@ first step needs only Marbles; each later example states what it adds.
 
 ## Avoid development-only peers
 
-OpenTUI 0.5.11's published metadata makes React DevTools a required peer,
+OpenTUI 0.9.7's published metadata makes React DevTools a required peer,
 although its runtime loads it only with `DEV=true`. Its FFI dependency also
 declares TypeScript 5 as a required peer without importing it at runtime.
 Neither is needed to run Marbles' dashboard normally.
@@ -69,7 +69,7 @@ root `package.json`, then run `bun install`:
 ```json
 {
   "packageExtensions": {
-    "@opentui/react@0.5.11": {
+    "@opentui/react@0.9.7": {
       "peerDependenciesMeta": {
         "react-devtools-core": { "optional": true },
         "ws": { "optional": true }

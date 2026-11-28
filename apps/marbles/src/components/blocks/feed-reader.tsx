@@ -1,4 +1,5 @@
-import { SyntaxStyle } from "@opentui/core";
+import { type CliRenderer, SyntaxStyle } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 import { useEffect, useMemo } from "react";
 import { FeedMetaLine } from "~/components/blocks/feed-meta";
 import { Action } from "~/components/ui/action";
@@ -62,29 +63,35 @@ const IMAGE_HEIGHT = 14;
 const IMAGE_WIDTH = 56;
 const MEDIA_ICON = { audio: "♪", file: "□", image: "▣", video: "▶" } as const;
 
-function markdownStyle(colors: Palette["colors"]): SyntaxStyle {
-  return SyntaxStyle.fromStyles({
-    comment: { fg: colors.mutedForeground, italic: true },
-    conceal: { fg: colors.mutedForeground },
-    default: { fg: colors.foreground },
-    function: { fg: colors.info },
-    keyword: { fg: colors.secondary },
-    "markup.heading": { bold: true, fg: colors.primary },
-    "markup.heading.1": { bold: true, fg: colors.primary, underline: true },
-    "markup.italic": { italic: true },
-    "markup.link": { fg: colors.info, underline: true },
-    "markup.link.label": { fg: colors.info },
-    "markup.link.url": { fg: colors.info, underline: true },
-    "markup.list": { fg: colors.accent },
-    "markup.quote": { fg: colors.mutedForeground, italic: true },
-    "markup.raw": { fg: colors.accent },
-    "markup.raw.block": { fg: colors.foreground },
-    "markup.strikethrough": { dim: true },
-    "markup.strong": { bold: true },
-    number: { fg: colors.warning },
-    string: { fg: colors.success },
-    type: { fg: colors.info },
-  });
+function markdownStyle(
+  colors: Palette["colors"],
+  renderer: CliRenderer
+): SyntaxStyle {
+  return SyntaxStyle.fromStyles(
+    {
+      comment: { fg: colors.mutedForeground, italic: true },
+      conceal: { fg: colors.mutedForeground },
+      default: { fg: colors.foreground },
+      function: { fg: colors.info },
+      keyword: { fg: colors.secondary },
+      "markup.heading": { bold: true, fg: colors.primary },
+      "markup.heading.1": { bold: true, fg: colors.primary, underline: true },
+      "markup.italic": { italic: true },
+      "markup.link": { fg: colors.info, underline: true },
+      "markup.link.label": { fg: colors.info },
+      "markup.link.url": { fg: colors.info, underline: true },
+      "markup.list": { fg: colors.accent },
+      "markup.quote": { fg: colors.mutedForeground, italic: true },
+      "markup.raw": { fg: colors.accent },
+      "markup.raw.block": { fg: colors.foreground },
+      "markup.strikethrough": { dim: true },
+      "markup.strong": { bold: true },
+      number: { fg: colors.warning },
+      string: { fg: colors.success },
+      type: { fg: colors.info },
+    },
+    renderer.nativeScene
+  );
 }
 
 function MediaItem({ media }: { readonly media: FeedMediaSnapshot }) {
@@ -221,9 +228,10 @@ export function FeedReader({
   readonly active: boolean;
 }) {
   const palette = JSON.stringify(theme.colors);
+  const renderer = useRenderer();
   const style = useMemo(
-    () => markdownStyle(JSON.parse(palette) as Palette["colors"]),
-    [palette]
+    () => markdownStyle(JSON.parse(palette) as Palette["colors"], renderer),
+    [palette, renderer]
   );
   useEffect(() => () => style.destroy(), [style]);
   if (!selected) {

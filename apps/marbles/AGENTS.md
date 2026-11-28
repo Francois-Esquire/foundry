@@ -18,6 +18,11 @@ package test covers a consumer with the repairs, including a working
 dashboard without DevTools or TypeScript. Keep Tree-sitter available for
 Markdown rendering and highlighting.
 
+Textbook 0.2.0 still declares OpenTUI 0.5.x. The root override aligns only
+Textbook's Core dependency with our OpenTUI 0.9.7 renderer so story renderables
+share one native scene and one set of types. Keep the story rendering tests
+passing when changing or removing this override.
+
 Knip cannot trace those bundled imports back to this manifest. Keep its
 `apps/marbles` dependency exceptions limited to this packaging case. Before
 removing one, inspect the build and run

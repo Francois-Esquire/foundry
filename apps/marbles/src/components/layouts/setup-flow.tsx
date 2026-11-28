@@ -40,7 +40,7 @@ export function SetupFlow({
         paddingX={1}
         width={Math.min(80, Math.max(1, dimensions.width - 2))}
       >
-        <text fg={theme.colors.primary}>
+        <text fg={theme.colors.primary} flexShrink={0}>
           <strong>marbles · {title}</strong>
         </text>
         <scrollbox

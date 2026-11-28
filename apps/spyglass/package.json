@@ -40,7 +40,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@opentui/core": "0.5.11",
+    "@opentui/core": "0.9.7",
     "dependency-cruiser": "^18.8.0",
     "ignore": "^7.0.16",
     "picocolors": "^1.1.1",
