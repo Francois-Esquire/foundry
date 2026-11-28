@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { Artifacts } from "@foundry/artifacts";
@@ -27,11 +28,15 @@ export function openFeed(
         });
   return {
     artifacts,
-    publisher: feedPublisher(artifacts, {
-      id: workspace.id,
-      name: basename(workspace.root),
-      root: workspace.root,
-    }),
+    publisher: feedPublisher(
+      artifacts,
+      {
+        id: workspace.id,
+        name: basename(workspace.root),
+        root: workspace.root,
+      },
+      { readMedia: (path) => readFile(path) }
+    ),
     read: feedReader(artifacts),
   };
 }

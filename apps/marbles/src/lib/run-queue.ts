@@ -34,8 +34,8 @@ import {
 } from "@foundry/workflows/workflow";
 import { Layer } from "effect";
 import { isTask } from "~/lib/execution-record";
+import { storableJson } from "~/lib/json-data";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
-import { storableJson } from "~/lib/state/json";
 import { isRunId, surfaced } from "~/lib/workflow-runs";
 
 export interface RunExecution {

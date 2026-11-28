@@ -1,16 +1,15 @@
-import { isAbsolute } from "node:path";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { type ToolSet, tool } from "ai";
 import { z } from "zod";
 import type { StepFn } from "~/lib/definition";
 import { sha256HexSync } from "~/lib/hash";
+import { jsonData } from "~/lib/json-data";
 import type { Detection, Fetch, MonitorInput } from "~/lib/monitor";
 import { detector, monitorSpecSchema } from "~/lib/monitor";
 import type { Registry } from "~/lib/registry";
 import { AUTOMATION_MONITOR } from "~/lib/registry";
 import { parseAt } from "~/lib/schedule";
 import { validate } from "~/lib/schema";
-import { jsonData } from "~/lib/state/json";
 import type { Schedule } from "~/lib/triggers";
 import { WEEKDAYS } from "~/lib/triggers";
 import type {
@@ -20,6 +19,13 @@ import type {
 } from "./store";
 
 const PATH_SEGMENTS = /[\\/]/;
+const WINDOWS_ABSOLUTE = /^[a-zA-Z]:[\\/]/;
+
+function isAbsolutePath(path: string): boolean {
+  return (
+    path.startsWith("/") || path.startsWith("\\") || WINDOWS_ABSOLUTE.test(path)
+  );
+}
 const weekday = z.enum(WEEKDAYS);
 const cadence = z
   .union([
@@ -202,7 +208,7 @@ export class AutomationService {
   #checkSource(spec: AutomationSpec): void {
     if (
       spec.source?.kind === "files" &&
-      (isAbsolute(spec.source.glob) ||
+      (isAbsolutePath(spec.source.glob) ||
         spec.source.glob.split(PATH_SEGMENTS).includes(".."))
     ) {
       throw new Error(

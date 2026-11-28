@@ -1,7 +1,7 @@
 import type { SessionMessage } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
 
-import { isRecord } from "~/lib/state/json";
+import { isRecord } from "~/lib/json-data";
 import type {
   Reconciled,
   RecordedUsageFact,

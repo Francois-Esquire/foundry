@@ -1,5 +1,5 @@
-import { AsyncResource } from "node:async_hooks";
 import type { WorkflowResult } from "@foundry/workflows/workflow";
+import { ambient, type ContextSnapshot } from "~/lib/async-context";
 import type { Executions } from "~/lib/executions";
 import type { FeedRouter } from "~/lib/feed/route";
 import type { DispatchedRun } from "~/lib/launcher";
@@ -33,7 +33,7 @@ interface Opened {
 }
 
 interface Followed {
-  readonly context: AsyncResource;
+  readonly context: ContextSnapshot;
   ended?: WorkflowResult<unknown>;
   finalized?: Promise<unknown>;
   idle: boolean;
@@ -93,7 +93,7 @@ export class FollowedRuns {
       throw new Error(`Run ${runId} already exists`);
     }
     const followed: Followed = {
-      context: new AsyncResource("marbles.run"),
+      context: ambient.snapshot(),
       idle: false,
       name,
       observing: new Set(),
@@ -124,7 +124,7 @@ export class FollowedRuns {
     followed.idle = false;
     followed.last = workflow;
     const controller = new AbortController();
-    const done = followed.context.runInAsyncScope(() =>
+    const done = followed.context(() =>
       this.#observe(followed, workflow, controller.signal)
     );
     const observation = { controller, done };

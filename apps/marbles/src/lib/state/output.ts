@@ -70,7 +70,7 @@ const START_RECORD_WAIT_MS = 2000;
 
 export type ChunkOrigin = Omit<ChannelChunk, "payload">;
 
-export function removeRunOutput(state: string, runId: string): void {
+function removeRunOutput(state: string, runId: string): void {
   rmSync(outputPath(state, runId), { force: true });
 }
 

@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Authorization } from "@foundry/authorization";
@@ -9,9 +8,8 @@ import type { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
 import { MemoryAutomationStore } from "~/lib/automation/store";
 import type { Bindings, HostBindings } from "~/lib/bindings";
-import { commandRunner } from "~/lib/command";
+import type { Exec } from "~/lib/command-error";
 import type { EngineOptions } from "~/lib/engine";
-import { environmentSnapshot } from "~/lib/environment";
 import type { ExecutionContext } from "~/lib/execution-context";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { MemoryExecutionStore } from "~/lib/execution-store";
@@ -24,7 +22,6 @@ import type { ArtifactsManager } from "~/lib/managers/artifacts";
 import type { RunsSource } from "~/lib/managers/runs";
 import { engineRuns, scopedRuns } from "~/lib/managers/runs";
 import type { SandboxesManager } from "~/lib/managers/sandboxes";
-import { skillResolver } from "~/lib/managers/skills";
 import type { WorkspacesManager } from "~/lib/managers/workspaces";
 import type { ReadonlyRunScopes, RecordedScope } from "~/lib/run-scope";
 import { workingDirectory } from "~/lib/run-scope";
@@ -50,7 +47,7 @@ export function contextOf(
   return {
     ...(agentIdOf === undefined ? {} : { agentIdOf }),
     cwd: options.cwd ?? options.root,
-    environment: options.environment ?? environmentSnapshot(),
+    environment: options.environment ?? {},
     get models() {
       return currentModels();
     },
@@ -159,7 +156,7 @@ export function agentsOf(
     readonly usage: UsageLedger;
   }
 ): AgentsManager {
-  const { models, providers, root, sessions, workspaceId } = options;
+  const { models, providers, sessions, workspaceId } = options;
   const print = options.print ?? (() => undefined);
   return new AgentsManager({
     activities: parts.activities,
@@ -189,10 +186,11 @@ export function agentsOf(
     observe: (runId, observation) =>
       parts.executions.observe(runId, observation),
     requireProviders: () => providers?.require(),
+    ...(options.sandboxGuest === undefined
+      ? {}
+      : { sandboxGuest: options.sandboxGuest }),
     sessions,
-    skills:
-      options.skills ??
-      skillResolver({ home: options.home ?? homedir(), workspace: root }),
+    skills: options.skills ?? (() => Promise.resolve([])),
     undefinedProvider: (id) => providers?.undefinedProvider(id),
     usage: { ledger: parts.usage, workspaceId },
     warn: (message) => print(`[agents] ${message}`),
@@ -204,7 +202,7 @@ export function bindingsOf(
   parts: {
     readonly agents: AgentsManager;
     readonly artifacts: ArtifactsManager;
-    readonly catalogue: NonNullable<HostBindings["catalogue"]>;
+    readonly catalogue?: HostBindings["catalogue"];
     readonly context: ExecutionContext;
     readonly print: (line: string) => void;
     readonly runs: RunsSource;
@@ -218,8 +216,16 @@ export function bindingsOf(
     agents: (args) => parts.agents.scoped(args),
     artifacts: (args) => parts.artifacts.scoped(args),
     context,
-    exec: ({ frame, scope, write }) =>
-      (options.commandRunner ?? commandRunner)({
+    exec: ({ frame, scope, write }) => {
+      if (options.commandRunner === undefined) {
+        const unavailable: Exec = () => {
+          throw new Error(
+            "ctx.exec is not available: no commandRunner was configured on the engine"
+          );
+        };
+        return unavailable;
+      }
+      return options.commandRunner({
         cwd: () => workingDirectory(scope.cwd),
         environment: context.environment,
         print,
@@ -227,8 +233,12 @@ export function bindingsOf(
         signal: () => frame.signal,
         work: frame.work,
         write,
-      }),
-    host: { catalogue: parts.catalogue, triggers: parts.triggers },
+      });
+    },
+    host: {
+      ...(parts.catalogue === undefined ? {} : { catalogue: parts.catalogue }),
+      triggers: parts.triggers,
+    },
     log: createLog((level, message) =>
       options.log
         ? options.log(level, message, { kind: "step" })

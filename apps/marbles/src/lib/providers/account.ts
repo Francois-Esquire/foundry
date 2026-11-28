@@ -39,11 +39,16 @@ export function identityMaterial(instance: {
   ];
 }
 
+export type LiveEnvironment = () => Readonly<
+  Record<string, string | undefined>
+>;
+
 export function ambientProblem(
   patterns: readonly string[],
-  env: Environment
+  env: Environment,
+  liveEnv?: LiveEnvironment
 ): string | undefined {
-  const live = liveDifference(patterns, env);
+  const live = liveDifference(patterns, env, liveEnv);
   if (live.length > 0) {
     return `reads the process environment, which holds another account in ${live.join(", ")} than the one supplied`;
   }
@@ -53,10 +58,11 @@ export function ambientProblem(
 export function refusingWhenChanged(
   provider: Provider,
   patterns: readonly string[],
-  env: Environment
+  env: Environment,
+  liveEnv?: LiveEnvironment
 ): Provider {
   const admit = () => {
-    const differing = liveDifference(patterns, env);
+    const differing = liveDifference(patterns, env, liveEnv);
     if (differing.length > 0) {
       throw new ConfigurationError(
         "PROVIDER_ENVIRONMENT_CHANGED",
@@ -119,12 +125,17 @@ function isAccountName(patterns: readonly string[], name: string): boolean {
 
 function liveDifference(
   patterns: readonly string[],
-  env: Environment
+  env: Environment,
+  liveEnv?: LiveEnvironment
 ): string[] {
-  const names = new Set([...Object.keys(env), ...Object.keys(process.env)]);
+  if (liveEnv === undefined) {
+    return [];
+  }
+  const current = liveEnv();
+  const names = new Set([...Object.keys(env), ...Object.keys(current)]);
   return [...names]
     .filter(
-      (name) => isAccountName(patterns, name) && process.env[name] !== env[name]
+      (name) => isAccountName(patterns, name) && current[name] !== env[name]
     )
     .sort();
 }

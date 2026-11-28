@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createNodeMcpClient } from "@foundry/agents/node";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { stopOrphans } from "@foundry/lib/node/orphans";
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeDriver } from "@foundry/sandbox/testing";
@@ -12,11 +15,18 @@ import { Catalog, type CollectInput } from "~/authoring/catalog";
 import { declareCatalog } from "~/create";
 import { Engine as DatabaseEngine } from "~/entries/engine";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
+import { commandRunner } from "~/lib/command";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
+import { environmentSnapshot } from "~/lib/environment";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
+import { skillResolver } from "~/lib/managers/skills";
 import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { Registry } from "~/lib/registry";
+import { guestAuth } from "~/lib/sandbox/credentials";
+import { FIRST_PARTY_DRIVERS } from "~/lib/sandbox/drivers";
+import { prepareGuest } from "~/lib/sandbox/prepare";
+import { FileRunOutputSink } from "~/lib/state/output";
 import type { MockOptions, Reply } from "./echo";
 import { CLAUDE_CODE, CODEX } from "./harnesses";
 import { mockModels } from "./mock";
@@ -85,11 +95,27 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
   } = options;
   const root = given.root ?? process.cwd();
   const workspaceId = given.workspaceId ?? "test";
+  const home = given.home ?? NO_HOME;
   const engineOptions: EngineOptions = {
-    home: NO_HOME,
+    commandRunner,
+    createMcpClient: createNodeMcpClient,
+    environment: environmentSnapshot(),
+    home,
     liveness: NODE_OWNER_LIVENESS,
+    ...(given.state === undefined
+      ? {}
+      : { outputSink: new FileRunOutputSink(given.state) }),
+    readFeedMedia: (path) => readFile(path),
     root,
+    sandboxGuest: {
+      drivers: FIRST_PARTY_DRIVERS,
+      guestAuth,
+      prepareGuest,
+    },
+    skills: skillResolver({ home, workspace: root }),
+    stopOrphans,
     workspaceId,
+    worktrees: DatabaseEngine.worktreesFor(given.state),
     ...given,
     ...testInstances(options),
   };

@@ -5,6 +5,9 @@ import type { Container } from "@foundry/sandbox";
 import { beforeEach, expect, it, vi } from "vitest";
 import { codex as codexPlugin } from "~/lib/providers/codex";
 import type { Execution } from "~/lib/providers/plugins";
+import { guestAuth } from "~/lib/sandbox/credentials";
+import { FIRST_PARTY_DRIVERS } from "~/lib/sandbox/drivers";
+import { prepareGuest } from "~/lib/sandbox/prepare";
 import { createSandboxSession } from "~/lib/sandbox/session";
 import type { SandboxHandle } from "~/lib/types";
 
@@ -56,7 +59,9 @@ function open(execution?: Execution, wireModelId?: string) {
   return createSandboxSession({
     agentId: "coder",
     container,
+    drivers: FIRST_PARTY_DRIVERS,
     ...(execution ? { execution } : {}),
+    guestAuth,
     harness: "codex",
     hostCwd: process.cwd(),
     instructions: "inspect",
@@ -65,6 +70,7 @@ function open(execution?: Execution, wireModelId?: string) {
       authority: { authorization: createMemoryAuthorization() },
       sandbox: {} as SandboxHandle,
     },
+    prepareGuest,
     provider: "work-codex",
     sessionId: "session",
     signal: new AbortController().signal,

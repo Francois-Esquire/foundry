@@ -1,17 +1,17 @@
-import { AsyncResource } from "node:async_hooks";
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { sameProcess } from "@foundry/lib/process-identity";
 import type { Job, RecoverySummary, RunOutcome } from "@foundry/queue";
 import type { QueueHandlerContext } from "@foundry/queue/client";
 import type { Container } from "@foundry/sandbox";
+import { ambient, type ContextSnapshot } from "~/lib/async-context";
 import { asRun, callingRun } from "~/lib/calling-run";
 import type { ExecutionRun } from "~/lib/execution-record";
 import { DEFAULT_POOL, isTask, linksOf } from "~/lib/execution-record";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
 import type { Executions } from "~/lib/executions";
+import { storableJson } from "~/lib/json-data";
 import { errorCode } from "~/lib/observations";
 import type { RunQueue, SubmitOptions } from "~/lib/run-queue";
-import { storableJson } from "~/lib/state/json";
 import type { TaskContext, TaskDefinition } from "~/lib/tasks";
 import type { Agents, SandboxHandle } from "~/lib/types";
 import type { ExecutionContext } from "./execution-context";
@@ -142,7 +142,7 @@ export class Launcher {
   readonly #registered = new Map<string, Promise<void>>();
   readonly #owed = new Map<string, Owed>();
   readonly #inputs = new Map<string, unknown>();
-  readonly #contexts = new Map<string, AsyncResource>();
+  readonly #contexts = new Map<string, ContextSnapshot>();
   readonly #endings = new Map<string, TaskEnding>();
   readonly #reasons = new Map<string, string>();
   readonly #settlingTasks = new Set<string>();
@@ -287,7 +287,7 @@ export class Launcher {
     if (task) {
       await this.#registered.get(name);
       this.#inputs.set(runId, input);
-      this.#contexts.set(runId, new AsyncResource("marbles.task"));
+      this.#contexts.set(runId, ambient.snapshot());
       return await queue.submit(
         name,
         storableJson(`the input of run ${runId}`, input ?? null),
@@ -708,9 +708,7 @@ export class Launcher {
     const done =
       launched === undefined
         ? this.#run(task, id, input, context.signal)
-        : launched.runInAsyncScope(() =>
-            this.#run(task, id, input, context.signal)
-          );
+        : launched(() => this.#run(task, id, input, context.signal));
     const live = done.then(
       () => undefined,
       () => undefined

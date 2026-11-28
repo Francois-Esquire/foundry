@@ -1,16 +1,10 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { parseSuspensionOccurrenceKey } from "@foundry/workflows/executable";
 import type { Step } from "@foundry/workflows/step";
+import { ambient, type ContextVariable } from "./async-context";
 import type { Bindings, HostBindings } from "./bindings";
 import type { AnyDefinition } from "./definition";
 import { Ledger } from "./ledger";
-import {
-  CURRENT_RUN_KEY,
-  registerAsyncStorageFactory,
-  SETUP_COUNTERS_KEY,
-  scopeStorageFor,
-} from "./scope-bridge";
 import type { LiveWork, StepInput } from "./step-work";
 import { StepInputError, StepWork } from "./step-work";
 import type { SessionRef } from "./types";
@@ -48,22 +42,17 @@ export interface Current {
   readonly write: (value: unknown) => void;
 }
 
-registerAsyncStorageFactory(() => new AsyncLocalStorage());
-
-function scoped<T>(key: symbol) {
+function scoped<T>(variable: ContextVariable<T>) {
   return {
-    exit: <R>(work: () => R): R =>
-      scopeStorageFor<T | undefined>(key).run(undefined, work),
-    getStore: (): T | undefined =>
-      scopeStorageFor<T | undefined>(key).getStore(),
-    run: <R>(value: T, work: () => R): R =>
-      scopeStorageFor<T | undefined>(key).run(value, work),
+    exit: <R>(work: () => R): R => variable.exit(work),
+    getStore: (): T | undefined => variable.get(),
+    run: <R>(value: T, work: () => R): R => variable.run(value, work),
   };
 }
 
-export const current = scoped<Current>(CURRENT_RUN_KEY);
+export const current = scoped(ambient.currentRun);
 
-export const setupCounters = scoped<Map<string, number>>(SETUP_COUNTERS_KEY);
+export const setupCounters = scoped(ambient.setupCounters);
 
 export function workingDirectory(fallback: string): string {
   return current.getStore()?.cwd ?? fallback;

@@ -186,6 +186,7 @@ function configuration(
   const models = new Models();
   const config = new ProviderConfiguration({
     environment,
+    liveEnv: () => process.env,
     models,
     plugins: PLUGINS,
     store,

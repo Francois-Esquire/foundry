@@ -15,18 +15,48 @@ import {
 import type { SessionStore } from "@foundry/agents/store";
 import type { Container } from "@foundry/sandbox";
 import type { Tool, ToolSet } from "ai";
-import { type CliHarness, isCliHarness } from "~/lib/cli-harnesses";
+import {
+  type CliHarness,
+  type GuestAuth,
+  isCliHarness,
+} from "~/lib/cli-harnesses";
 import type { RecordObservation } from "~/lib/observations";
 import type { Execution } from "~/lib/providers/plugins";
 import type { SandboxAgentOptions } from "~/lib/types";
 import { resolveCompaction } from "../managers/session-options";
 import { createCodingTools } from "./coding-tools";
-import { guestAuth } from "./credentials";
 import { type DelegationScope, delegationTool } from "./delegate";
-import { FIRST_PARTY_DRIVERS } from "./drivers";
-import { prepareGuest } from "./prepare";
+import type { GuestDriver } from "./drivers";
+import type { PreparedGuest } from "./prepare";
 import { assertGuestSessionState } from "./session-state";
 import { observedSession } from "./wrapped-session";
+
+type SandboxGuestAuth = <H extends CliHarness>(
+  harness: H,
+  options: {
+    readonly apiKey?: string;
+    readonly bin?: string;
+    readonly env?: Readonly<Record<string, string>>;
+    readonly modelId?: string;
+    readonly oauthToken?: string;
+  }
+) => Promise<GuestAuth<H>>;
+
+type SandboxPrepareGuest = (
+  container: Container,
+  options: {
+    readonly auth: GuestAuth;
+    readonly harness: CliHarness;
+    readonly sessionId: string;
+    readonly signal: AbortSignal;
+  }
+) => Promise<PreparedGuest>;
+
+export interface SandboxGuestSetup {
+  readonly drivers?: Partial<Readonly<Record<CliHarness, GuestDriver>>>;
+  readonly guestAuth?: SandboxGuestAuth;
+  readonly prepareGuest?: SandboxPrepareGuest;
+}
 
 const SCHEDULED_PROFILE: HarnessPermissionProfile = {
   allowedTools: ["Read", "Glob", "Grep"],
@@ -58,7 +88,9 @@ export interface SandboxSessionSettings {
   authoritySessionId?: string;
   container: Container;
   delegation?: DelegationScope;
+  drivers?: Partial<Readonly<Record<CliHarness, GuestDriver>>>;
   execution?: Execution;
+  guestAuth?: SandboxGuestAuth;
   harness: string;
   hostCwd: string;
   hostToolsForSession?: (sessionId: string) => ToolSet;
@@ -73,6 +105,7 @@ export interface SandboxSessionSettings {
   ) => HarnessSession;
   options: SandboxSessionOptions;
   parentActivityId?: string;
+  prepareGuest?: SandboxPrepareGuest;
   provider: string;
   record?: RecordObservation;
   sessionId: string;
@@ -199,19 +232,37 @@ async function cliSession(
     nativeId
   );
   const modelId = settings.wireModelId ?? settings.modelId;
-  const auth = await guestAuth(harness, {
+  const resolveAuth = settings.guestAuth;
+  if (resolveAuth === undefined) {
+    throw new Error(
+      `CLI harness "${harness}" requires guestAuth to be configured.`
+    );
+  }
+  const prepare = settings.prepareGuest;
+  if (prepare === undefined) {
+    throw new Error(
+      `CLI harness "${harness}" requires prepareGuest to be configured.`
+    );
+  }
+  const createDriver = execution?.driver ?? settings.drivers?.[harness];
+  if (createDriver === undefined) {
+    throw new Error(
+      `CLI harness "${harness}" requires a guest driver to be configured.`
+    );
+  }
+  const auth = await resolveAuth(harness, {
     ...options,
     ...(execution ? { env: execution.env } : {}),
     ...(execution?.bin ? { bin: execution.bin } : {}),
     modelId,
   });
-  const guest = await prepareGuest(container, {
+  const guest = await prepare(container, {
     auth,
     harness,
     sessionId: settings.sessionId,
     signal: settings.signal,
   });
-  const driver = await (execution?.driver ?? FIRST_PARTY_DRIVERS[harness])({
+  const driver = await createDriver({
     auth,
     guest,
     settings: { ...settings, modelId },

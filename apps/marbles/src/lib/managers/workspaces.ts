@@ -35,7 +35,7 @@ export function localWorkspaces(
 }
 
 export interface WorkspacesDeps {
-  readonly catalogue: LocalWorkspaces;
+  readonly catalogue?: LocalWorkspaces;
   readonly context?: ExecutionContext;
   readonly gitOptions?: GitOptions;
   readonly root: string;
@@ -151,6 +151,11 @@ export class WorkspacesManager implements ScopedWorkspaces {
   }
 
   get system(): LocalWorkspaces {
+    if (this.#deps.catalogue === undefined) {
+      throw new Error(
+        "workspaces catalogue is not configured; provide options.workspaces"
+      );
+    }
     return this.#deps.catalogue;
   }
 
@@ -159,7 +164,7 @@ export class WorkspacesManager implements ScopedWorkspaces {
   }
 
   #load(path: string): Promise<Loaded> {
-    return this.#deps.catalogue.load({ path: resolve(this.#deps.root, path) });
+    return this.system.load({ path: resolve(this.#deps.root, path) });
   }
 
   async load(
@@ -183,6 +188,6 @@ export class WorkspacesManager implements ScopedWorkspaces {
   }
 
   async close(): Promise<void> {
-    await this.#deps.catalogue.closeAll();
+    await this.#deps.catalogue?.closeAll();
   }
 }

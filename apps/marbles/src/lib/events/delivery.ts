@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+import { ambient } from "~/lib/async-context";
 import type { LoggedChange, MoveOutcome, ObserverKey } from "~/lib/events/log";
 import { CHANGE_BATCH } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
@@ -114,7 +114,7 @@ export class Delivery {
   #compacting: Promise<void> | undefined;
   #compactionProblem: string | undefined;
   #problem: string | undefined;
-  readonly #built = AsyncLocalStorage.snapshot();
+  readonly #built = ambient.snapshot();
 
   constructor(options: DeliveryOptions) {
     this.#records = options.records;
@@ -465,7 +465,7 @@ export class Delivery {
           this.#compactionProblem = undefined;
           return;
         }
-        await new Promise<void>((resume) => setImmediate(resume));
+        await new Promise<void>((resume) => setTimeout(resume, 0));
       }
     } catch (error) {
       const line = `[observe] compaction: ${String(error)}`;

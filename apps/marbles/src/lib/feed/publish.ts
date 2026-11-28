@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { basename } from "node:path";
 import type {
   ArtifactCursor,
   ArtifactId,
@@ -26,8 +24,21 @@ import {
   type InputStatus,
 } from "~/lib/feed/entry";
 import { sha256HexSync } from "~/lib/hash";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
+import {
+  type OwnerLiveness,
+  PORTABLE_OWNER_LIVENESS,
+} from "~/lib/owner-liveness";
+
+const TRAILING_SEPARATORS = /[\\/]+$/;
+
+function pathBasename(path: string): string {
+  const trimmed = path.replace(TRAILING_SEPARATORS, "");
+  if (trimmed === "") {
+    return "";
+  }
+  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return slash === -1 ? trimmed : trimmed.slice(slash + 1);
+}
 
 const PAGE_SIZE = 100;
 
@@ -132,9 +143,9 @@ export function feedPublisher(
   const owner =
     options.owner ??
     options.liveness?.identity() ??
-    NODE_OWNER_LIVENESS.identity();
+    PORTABLE_OWNER_LIVENESS.identity();
   const gone =
-    options.gone ?? options.liveness?.isGone ?? NODE_OWNER_LIVENESS.isGone;
+    options.gone ?? options.liveness?.isGone ?? PORTABLE_OWNER_LIVENESS.isGone;
   let queue: Promise<unknown> = Promise.resolve();
   function serialized<T>(write: () => Promise<T>): Promise<T> {
     const next = queue.then(write);
@@ -146,13 +157,21 @@ export function feedPublisher(
     source: FeedSource
   ): Promise<ArtifactId> {
     const id = entryId(workspace.id, source, post.id);
+    const { readMedia } = options;
+    if (post.media.length > 0 && readMedia === undefined) {
+      throw new Error(
+        "Feed media requires readMedia to be configured on the feed publisher"
+      );
+    }
     const media = await Promise.all(
       post.media.map(async (path) => {
-        const name = basename(path);
+        const name = pathBasename(path);
         return [
           `${FEED_MEDIA_DIR}/${name}`,
           {
-            bytes: await (options.readMedia ?? readFile)(path),
+            bytes: await (readMedia as (path: string) => Promise<Uint8Array>)(
+              path
+            ),
             mime: classifyFile(name).mime,
           },
         ] as const;
