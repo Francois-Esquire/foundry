@@ -24,7 +24,9 @@ export function LivePortrait({
   const [seen, setSeen] = useState(struckAt);
   if (seen !== struckAt) {
     setSeen(struckAt);
-    hit();
+    if (struckAt !== null) {
+      hit();
+    }
   }
   const image = usePortrait({ avatar, frame, health, hurtAt, seed });
   return <Portrait image={image} size={size} />;

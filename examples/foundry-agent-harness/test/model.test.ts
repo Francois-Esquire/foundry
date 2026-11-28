@@ -49,7 +49,9 @@ function widthOf({ after, before, steps }: ReturnType<typeof fitSteps>) {
       (step.label === "" ? 0 : step.label.length + 1),
     0
   );
-  const more = (before > 0 ? 3 : 0) + (after > 0 ? 3 : 0);
+  const more =
+    (before > 0 ? 2 + String(before).length : 0) +
+    (after > 0 ? 2 + String(after).length : 0);
   return chips + Math.max(steps.length - 1, 0) * 2 + more;
 }
 
@@ -63,6 +65,19 @@ describe("steps", () => {
       expect(row.before + row.steps.length + row.after).toBe(8);
     }
   );
+
+  test.each([
+    [12, 11, 30],
+    [12, 0, 30],
+    [12, 5, 24],
+    [120, 60, 40],
+    [120, 119, 20],
+  ])("%i steps running step %i fit %i columns", (count, running, width) => {
+    const row = fitSteps(todos(count, running), width);
+    expect(widthOf(row)).toBeLessThanOrEqual(width);
+    expect(row.steps.map((step) => step.number)).toContain(running + 1);
+    expect(row.before + row.steps.length + row.after).toBe(count);
+  });
 
   test("the running step keeps its title first", () => {
     const row = fitSteps(todos(8, 3), 80);

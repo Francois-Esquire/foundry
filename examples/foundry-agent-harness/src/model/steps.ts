@@ -16,15 +16,25 @@ export interface StepRow {
 
 const CHIP = 4;
 const LINK = 2;
-const MORE = 3;
+const MARKER = 2;
 const SHORTEST_LABEL = 6;
 
 function digits(count: number): number {
   return String(count).length;
 }
 
-function bare(count: number): number {
-  return count * (CHIP + digits(count)) + Math.max(count - 1, 0) * LINK;
+function bare(from: number, to: number): number {
+  let width = Math.max(to - from - 1, 0) * LINK;
+  for (let number = from + 1; number <= to; number += 1) {
+    width += CHIP + digits(number);
+  }
+  return width;
+}
+
+function markers(from: number, to: number, total: number): number {
+  const before = from > 0 ? MARKER + digits(from) : 0;
+  const after = to < total ? MARKER + digits(total - to) : 0;
+  return before + after;
 }
 
 function shortened(title: string, room: number): string {
@@ -47,24 +57,24 @@ function windowOf(todos: readonly Todo[], width: number) {
   let from = 0;
   let to = todos.length;
   const focus = focusOf(todos);
-  while (to - from > 1 && bare(to - from) + MORE * 2 > width) {
+  while (
+    to - from > 1 &&
+    bare(from, to) + markers(from, to, todos.length) > width
+  ) {
     if (focus - from > to - 1 - focus) {
       from += 1;
     } else {
       to -= 1;
     }
   }
-  return bare(todos.length) <= width
-    ? { from: 0, to: todos.length }
-    : { from, to };
+  return { from, to };
 }
 
 export function fitSteps(todos: readonly Todo[], width: number): StepRow {
   const { from, to } = windowOf(todos, width);
   const shown = todos.slice(from, to);
   const focus = focusOf(todos) - from;
-  const hidden = (from > 0 ? MORE : 0) + (to < todos.length ? MORE : 0);
-  let room = width - bare(shown.length) - hidden;
+  let room = width - bare(from, to) - markers(from, to, todos.length);
   const labels = shown.map(() => "");
   const order = [focus, ...shown.map((_, index) => index)].filter(
     (index, at, all) => index >= 0 && all.indexOf(index) === at
