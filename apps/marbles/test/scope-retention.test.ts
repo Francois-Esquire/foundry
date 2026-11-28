@@ -12,7 +12,7 @@ async function collect(): Promise<void> {
   }
 }
 
-it("keeps a definition made in a run answerable to its workspace without keeping the run", async () => {
+function definitionsInRuns() {
   const frames: WeakRef<object>[] = [];
   const definitions: ReturnType<ReturnType<typeof step>["do"]>[] = [];
   for (let i = 0; i < 200; i += 1) {
@@ -28,7 +28,11 @@ it("keeps a definition made in a run answerable to its workspace without keeping
       current.run(store, () => step(`made-${String(i)}`).do(() => i))
     );
   }
-  const collected = Catalog.collect(definitions);
+  return { collected: Catalog.collect(definitions), frames };
+}
+
+it("keeps a definition made in a run answerable to its workspace without keeping the run", async () => {
+  const { collected, frames } = definitionsInRuns();
   await collect();
   expect(collected.definitions.size).toBe(200);
   expect(frames.filter((frame) => frame.deref() !== undefined)).toHaveLength(0);
