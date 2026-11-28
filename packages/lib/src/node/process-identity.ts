@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import {
   compareStarts,
+  type OwnerLiveness,
   type ProcessIdentity,
   type ProcessLookup,
   type ProcessState,
@@ -13,6 +14,8 @@ import {
 } from "../process-identity";
 
 export type {
+  OwnerLiveness,
+  PortableProcessOptions,
   ProcessIdentity,
   ProcessLookup,
   ProcessState,
@@ -21,10 +24,13 @@ export type {
 // biome-ignore lint/performance/noBarrelFile: Declared Node adapter entry point re-exporting pure process-identity helpers alongside OS adapters.
 export {
   compareStarts,
+  createPortableProcess,
   groupIdTaken,
   groupState,
   isProcessIdentity,
   ownerOf,
+  ownerStateOf,
+  PORTABLE_OWNER_LIVENESS,
   procListing,
   procStat,
   psLine,
@@ -230,6 +236,12 @@ export function isGone(
 ): boolean {
   return processState(owner, lookup) === "gone";
 }
+
+export const NODE_OWNER_LIVENESS: OwnerLiveness = {
+  identity: thisProcess,
+  isGone,
+  stateOf: processState,
+};
 
 const recent = new Map<number, { at: number; started: string }>();
 

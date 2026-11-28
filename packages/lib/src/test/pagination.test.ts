@@ -20,6 +20,38 @@ describe("pagination", () => {
     expect(items).toEqual([1, 2, 3, 4, 5]);
     expect(cursors).toEqual([undefined, 2, 4]);
   });
+
+  it("enforces maxPages, maxItems, and AbortSignal in collectPages", async () => {
+    const read = (cursor: number | undefined) =>
+      Promise.resolve(sliceRanked([1, 2, 3, 4, 5], 2, cursor ?? 0));
+
+    await expect(collectPages(read, { maxPages: 3 })).resolves.toEqual([
+      1, 2, 3, 4, 5,
+    ]);
+    await expect(collectPages(read, { maxPages: 2 })).rejects.toThrow(
+      RangeError
+    );
+    await expect(collectPages(read, { maxItems: 5 })).resolves.toEqual([
+      1, 2, 3, 4, 5,
+    ]);
+    await expect(collectPages(read, { maxItems: 4 })).rejects.toThrow(
+      RangeError
+    );
+
+    const controller = new AbortController();
+    const reason = new Error("stop-paging");
+    await expect(
+      collectPages(
+        (cursor: number | undefined) => {
+          if (cursor === 2) {
+            controller.abort(reason);
+          }
+          return read(cursor);
+        },
+        { signal: controller.signal }
+      )
+    ).rejects.toBe(reason);
+  });
   it("defaults and caps limits; rejects invalid requests", () => {
     expect(pageLimit(undefined)).toBe(50);
     expect(pageLimit(500)).toBe(200);

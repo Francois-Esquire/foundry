@@ -58,4 +58,20 @@ describe("withAbort", () => {
       expect(removed).toHaveBeenCalledWith("abort", expect.any(Function))
     );
   });
+
+  it("rejects cleanly if the custom reason callback throws", async () => {
+    const controller = new AbortController();
+    const boom = new Error("reason-failed");
+    const racing = withAbort(
+      new Promise<never>(() => undefined),
+      controller.signal,
+      () => {
+        throw boom;
+      }
+    );
+
+    controller.abort();
+
+    await expect(racing).rejects.toBe(boom);
+  });
 });
