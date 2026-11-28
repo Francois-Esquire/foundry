@@ -1,5 +1,4 @@
 import type { ArtifactSubstrate } from "@foundry/artifacts";
-import { stopOrphans } from "@foundry/lib/node/orphans";
 import type { Containers } from "@foundry/sandbox";
 import { defaultRemovalHint } from "@foundry/sandbox";
 import type { ContainerRow, ContainerStore } from "@foundry/sandbox/store";
@@ -83,7 +82,7 @@ export class CrashRecovery {
   }
 
   async #processes(): Promise<Outcome> {
-    const { spawned } = this.#options;
+    const { spawned, stopOrphans } = this.#options;
     if (spawned === undefined) {
       return {
         acted: false,
@@ -91,9 +90,14 @@ export class CrashRecovery {
         outcome: "skipped",
       };
     }
-    const { problems, stopped } = await (
-      this.#options.stopOrphans ?? stopOrphans
-    )(spawned);
+    if (stopOrphans === undefined) {
+      return {
+        acted: false,
+        detail: "no orphan process handler configured",
+        outcome: "skipped",
+      };
+    }
+    const { problems, stopped } = await stopOrphans(spawned);
     const count = `${String(stopped.length)} process(es) stopped`;
     const acted = stopped.length > 0;
     return problems.length === 0

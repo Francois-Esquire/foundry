@@ -6,7 +6,6 @@ import type {
   TurnOptions,
 } from "@foundry/agents/harness";
 import type { McpClient } from "@foundry/agents/mcp";
-import { createNodeMcpClient } from "@foundry/agents/node";
 import type {
   SessionInput,
   SessionMessage,
@@ -34,7 +33,10 @@ import { composeObservers, runTurnObserver } from "~/lib/observations";
 import type { Execution } from "~/lib/providers/plugins";
 import type { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
-import type { SandboxSessionOptions } from "~/lib/sandbox/session";
+import type {
+  SandboxGuestSetup,
+  SandboxSessionOptions,
+} from "~/lib/sandbox/session";
 import { createSandboxSession } from "~/lib/sandbox/session";
 import type {
   CostMeter,
@@ -56,6 +58,7 @@ import { workingDirectory } from "../run-scope";
 import type {
   AgentDefinition,
   AgentLike,
+  AgentMcpServer,
   AgentRoute,
   Agents,
   SandboxAgentOptions,
@@ -89,7 +92,9 @@ export interface AgentsDeps {
   readonly automations: AutomationService;
   readonly containerOf: (sandbox: SandboxHandle) => Container;
   readonly context?: ExecutionContext;
-  readonly createMcpClient?: typeof createNodeMcpClient;
+  readonly createMcpClient?: (
+    server: AgentMcpServer & { readonly enabled: boolean }
+  ) => McpClient;
   readonly cwd: string;
   readonly defaultExecutor: () => TurnExecutorRef;
   readonly executionOf?: (provider: string) => Execution | null | undefined;
@@ -99,6 +104,7 @@ export interface AgentsDeps {
   readonly models: Models;
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
   readonly requireProviders?: () => void;
+  readonly sandboxGuest?: SandboxGuestSetup;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
   readonly undefinedProvider?: (id: string) => string | undefined;
@@ -536,8 +542,17 @@ async function connectServers(
       `agent "${definition.id}" names one MCP server id more than once`
     );
   }
+  if (servers.length === 0) {
+    return [];
+  }
+  const { createMcpClient } = deps;
+  if (createMcpClient === undefined) {
+    throw new Error(
+      `agent "${definition.id}" names MCP servers, but no MCP client factory was configured`
+    );
+  }
   const clients = servers.map((server) =>
-    (deps.createMcpClient ?? createNodeMcpClient)({ ...server, enabled: true })
+    createMcpClient({ ...server, enabled: true })
   );
   for (const client of clients) {
     site.retain(client);
@@ -850,7 +865,13 @@ async function openSandboxSession(
   const harness = await createSandboxSession({
     agentId: definition.id,
     container: deps.containerOf(sandbox),
+    ...(deps.sandboxGuest?.drivers
+      ? { drivers: deps.sandboxGuest.drivers }
+      : {}),
     ...(execution ? { execution } : {}),
+    ...(deps.sandboxGuest?.guestAuth
+      ? { guestAuth: deps.sandboxGuest.guestAuth }
+      : {}),
     harness: executor.harness,
     hostCwd: workingDirectory(site.cwd),
     hostToolsForSession: (sessionId) =>
@@ -861,6 +882,9 @@ async function openSandboxSession(
     onActivity: (event) => deps.activities.record(event, source),
     onChildSession: (sessionId, session) =>
       deps.activities.attach(sessionId, session, { delegated: true }),
+    ...(deps.sandboxGuest?.prepareGuest
+      ? { prepareGuest: deps.sandboxGuest.prepareGuest }
+      : {}),
     provider: executor.provider,
     ...(guest ? {} : { model: heldText(resolution, site) }),
     instructions: [prompt, ...skills.map((skill) => skill.instructions ?? "")]

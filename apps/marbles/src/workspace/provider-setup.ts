@@ -28,6 +28,7 @@ export async function discoverProviderSetup(options: DiscoveryOptions) {
   const configure = () =>
     new ProviderConfiguration({
       environment: environmentSnapshot(),
+      liveEnv: () => process.env,
       models: new Models(),
       plugins,
       store,

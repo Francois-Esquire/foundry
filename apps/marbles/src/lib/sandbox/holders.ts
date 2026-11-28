@@ -4,11 +4,14 @@ import {
   type ProcessState,
 } from "@foundry/lib/process-identity";
 import type { ContainerRow } from "@foundry/sandbox/store";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import { type OwnerLiveness, ownerStateOf } from "~/lib/owner-liveness";
+import {
+  type OwnerLiveness,
+  ownerStateOf,
+  PORTABLE_OWNER_LIVENESS,
+} from "~/lib/owner-liveness";
 
 export function containerHolder(
-  liveness: OwnerLiveness = NODE_OWNER_LIVENESS
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
 ): string {
   const { pid, started } = liveness.identity();
   return JSON.stringify({ pid, registry: crypto.randomUUID(), started });
@@ -28,7 +31,7 @@ function isPortableHolder(holder: unknown): holder is ProcessIdentity {
 
 export function holderState(
   row: ContainerRow,
-  liveness?: OwnerLiveness
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
 ): ProcessState {
   if (row.holder === undefined) {
     return "unknown";
@@ -40,13 +43,9 @@ export function holderState(
     return "unknown";
   }
   if (isProcessIdentity(holder)) {
-    return ownerStateOf(liveness ?? NODE_OWNER_LIVENESS, holder);
+    return ownerStateOf(liveness, holder);
   }
-  if (
-    liveness !== undefined &&
-    liveness !== NODE_OWNER_LIVENESS &&
-    isPortableHolder(holder)
-  ) {
+  if (isPortableHolder(holder) && liveness.identity().pid === 0) {
     return ownerStateOf(liveness, holder);
   }
   return "unknown";
@@ -54,7 +53,7 @@ export function holderState(
 
 export function leftBehind(
   row: ContainerRow,
-  liveness?: OwnerLiveness
+  liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
 ): boolean {
   return holderState(row, liveness) === "gone";
 }

@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { McpClient } from "@foundry/agents/mcp";
+import { createNodeMcpClient } from "@foundry/agents/node";
 import { defineSkill } from "@foundry/agents/skills";
 import { usage } from "@foundry/usage/node";
 import { defineProvider, window } from "@foundry/usage/provider";
@@ -141,6 +142,7 @@ function managerDeps(): AgentsDeps {
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
+    createMcpClient: createNodeMcpClient,
     cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
     interactions: host.interactions,

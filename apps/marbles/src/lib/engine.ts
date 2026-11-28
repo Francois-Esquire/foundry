@@ -1,5 +1,3 @@
-import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
 import type { Skill } from "@foundry/agents/skills";
 import type { SessionStore } from "@foundry/agents/store";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
@@ -72,7 +70,7 @@ import {
   type WorkspaceMaterialization,
 } from "~/lib/managers/sandboxes";
 import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
-import { localWorkspaces, WorkspacesManager } from "~/lib/managers/workspaces";
+import { WorkspacesManager } from "~/lib/managers/workspaces";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
 import { QueuedWorkflows } from "~/lib/queued-workflows";
@@ -89,7 +87,8 @@ import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
-import { type RunOutputSink, removeRunOutput } from "~/lib/state/output";
+import type { SandboxGuestSetup } from "~/lib/sandbox/session";
+import type { RunOutputSink } from "~/lib/state/output";
 import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
 import type { TriggerStore } from "~/lib/trigger-store";
@@ -140,6 +139,7 @@ export interface EngineOptions {
   readonly recoveryLog?: RecoveryLog;
   readonly root: string;
   readonly runs?: RunStore;
+  readonly sandboxGuest?: SandboxGuestSetup;
   readonly sessions: SessionStore;
   readonly skills?: (set?: SkillSet) => Promise<Skill[]>;
   readonly spawned?: string;
@@ -230,8 +230,8 @@ export class Engine {
   readonly #unwatchRecords: () => void;
   readonly #prices: ModelsDevHold;
 
-  static worktreesFor(state: string | undefined): string {
-    return join(state ?? join(tmpdir(), "marbles"), "worktrees");
+  static worktreesFor(state: string): string {
+    return joinPath(state, "worktrees");
   }
 
   static persistence(options: Pick<EngineOptions, "spawned" | "state">): {
@@ -292,7 +292,9 @@ export class Engine {
       () => (this.disposed ? undefined : models),
       resolveAgentId
     );
-    this.worktrees = options.worktrees ?? Engine.worktreesFor(state);
+    this.worktrees =
+      options.worktrees ??
+      (state === undefined ? "" : Engine.worktreesFor(state));
     this.#createQueueClient = options.createQueueClient;
     this.#leaseTtlMs = options.leaseTtlMs;
     this.#liveness = options.liveness;
@@ -331,14 +333,14 @@ export class Engine {
     });
     this.#unwatchRecords = this.#records.watch(() => this.#delivery.wake());
     this.taskStore = this.#records.taskStore;
-    const catalogue = options.workspaces ?? localWorkspaces(options.git ?? {});
+    const catalogue = options.workspaces;
     this.#askable = askable;
     this.#print = print;
     this.#publisher = feedPublisher(
       options.artifacts,
       {
         id: workspaceId,
-        name: basename(root),
+        name: pathBasename(root),
         root,
       },
       {
@@ -396,16 +398,16 @@ export class Engine {
       workspaceId,
     });
     this.workspaces = new WorkspacesManager({
-      catalogue,
+      ...(catalogue === undefined ? {} : { catalogue }),
       context: this.context,
       gitOptions: options.git ?? {},
       root,
-      worktreeHome: this.worktrees,
+      ...(this.worktrees === "" ? {} : { worktreeHome: this.worktrees }),
     });
     this.bindings = bindingsOf(options, {
       agents: this.agents,
       artifacts: this.artifacts,
-      catalogue,
+      ...(catalogue === undefined ? {} : { catalogue }),
       context: this.context,
       print,
       runs: this.#runsSource,
@@ -419,11 +421,7 @@ export class Engine {
     if (run.kind !== "workflow") {
       return;
     }
-    if (this.#outputSink !== undefined) {
-      this.#outputSink.remove(run.id);
-    } else if (this.state !== undefined) {
-      removeRunOutput(this.state, run.id);
-    }
+    this.#outputSink?.remove(run.id);
     this.#running?.unlisted(run.id);
   }
 
@@ -955,4 +953,20 @@ export class Engine {
       throw new AggregateError(errors, "Failed to dispose the engine");
     }
   }
+}
+
+const TRAILING_SEPARATORS = /[\\/]+$/;
+
+function joinPath(base: string, segment: string): string {
+  const trimmed = base.replace(TRAILING_SEPARATORS, "");
+  return trimmed === "" ? `/${segment}` : `${trimmed}/${segment}`;
+}
+
+function pathBasename(path: string): string {
+  const trimmed = path.replace(TRAILING_SEPARATORS, "");
+  if (trimmed === "") {
+    return "";
+  }
+  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return slash === -1 ? trimmed : trimmed.slice(slash + 1);
 }

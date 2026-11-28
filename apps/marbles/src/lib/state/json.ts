@@ -8,12 +8,7 @@ import {
 import { dirname } from "node:path";
 
 // biome-ignore lint/performance/noBarrelFile: Re-export portable json helpers for existing callers.
-export {
-  isRecord,
-  jsonData,
-  NotStorableError,
-  storableJson,
-} from "~/lib/json-data";
+export { isRecord, jsonData, NotStorableError } from "~/lib/json-data";
 
 export function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });

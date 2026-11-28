@@ -9,9 +9,7 @@ import {
 import { createLog } from "~/lib/log";
 
 import type { Bindings } from "./bindings";
-import { commandRunner } from "./command";
 import type { Frame, RunScope } from "./run-scope";
-import { workingDirectory } from "./run-scope";
 import type {
   Approval,
   ApprovalRequest,
@@ -236,18 +234,10 @@ export function buildContext<I>({
     ask: buildAsk(askArgs),
     exec:
       bindings.exec?.(managerArgs) ??
-      commandRunner({
-        cwd: () => workingDirectory(scope.cwd),
-        ...(bindings.context === undefined
-          ? {}
-          : { environment: bindings.context.environment }),
-        print: (line) => bindings.log.info(line),
-        signal: () => frame.signal,
-        work: frame.work,
-        ...(bindings.context?.spawned === undefined
-          ? {}
-          : { spawned: bindings.context.spawned }),
-        write,
+      (() => {
+        throw new Error(
+          "ctx.exec is not available: no commandRunner was configured on the engine"
+        );
       }),
     input,
     log,

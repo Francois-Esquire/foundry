@@ -1,14 +1,17 @@
-import { createHmac, randomBytes } from "node:crypto";
 import type {
   ModelKind,
   Models,
   Provider,
   ProviderModelDefinition,
 } from "@foundry/models";
+import { hmac } from "@noble/hashes/hmac.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import {
   accountPatterns,
   ambientProblem,
   identityMaterial,
+  type LiveEnvironment,
   refusingWhenChanged,
 } from "~/lib/providers/account";
 import type { Drafts } from "~/lib/providers/instances";
@@ -71,6 +74,7 @@ export type Proposal = ScopedRecord & { readonly taken?: string };
 export interface ProviderConfigurationOptions {
   readonly environment: Readonly<Record<string, string>>;
   readonly fixed?: readonly Provider[];
+  readonly liveEnv?: LiveEnvironment;
   readonly models: Models;
   readonly plugins: readonly ProviderPlugin[];
   readonly store?: ProviderStore;
@@ -974,7 +978,9 @@ export class ProviderConfiguration {
     const settings = plugin.settings.parse(entry.settings ?? {});
     const env = this.#options.environment;
     const patterns = accountPatterns(plugin, settings);
-    const ambient = plugin.ambient ? ambientProblem(patterns, env) : undefined;
+    const ambient = plugin.ambient
+      ? ambientProblem(patterns, env, this.#options.liveEnv)
+      : undefined;
     if (ambient) {
       return report("unavailable", ambient);
     }
@@ -1046,7 +1052,12 @@ export class ProviderConfiguration {
       return `"${entry.plugin}" built an instance named "${created.provider.id}"`;
     }
     const served = plugin.ambient
-      ? refusingWhenChanged(created.provider, patterns, env)
+      ? refusingWhenChanged(
+          created.provider,
+          patterns,
+          env,
+          this.#options.liveEnv
+        )
       : created.provider;
     return { ...created, provider: served };
   }
@@ -1089,12 +1100,15 @@ export class ProviderConfiguration {
           "an instance identity was asked for before the stored identity key was read"
         );
       }
-      this.#key = randomBytes(32);
+      this.#key = crypto.getRandomValues(new Uint8Array(32));
     }
-    return createHmac("sha256", this.#key)
-      .update(JSON.stringify(material))
-      .digest("hex")
-      .slice(0, 32);
+    return bytesToHex(
+      hmac(
+        sha256,
+        this.#key,
+        new TextEncoder().encode(JSON.stringify(material))
+      )
+    ).slice(0, 32);
   }
 
   #listingOf(plugin: ProviderPlugin, settings: unknown): Listing | undefined {
