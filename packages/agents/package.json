@@ -85,7 +85,7 @@
     "@foundry/authorization": "workspace:*",
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
-    "ai": "7.0.178",
+    "ai": "7.0.179",
     "zod": "^4.6.7"
   },
   "devDependencies": {

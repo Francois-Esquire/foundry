@@ -70,7 +70,7 @@
     "@ai-sdk/provider": "4.0.39",
     "@foundry/core": "workspace:*",
     "@foundry/lib": "workspace:*",
-    "ai": "7.0.178",
+    "ai": "7.0.179",
     "evlog": "^2.36.0",
     "zod": "^4.6.7"
   },

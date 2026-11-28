@@ -46,12 +46,12 @@
     "@ai-sdk/provider": "4.0.39",
     "@foundry/tsconfig": "workspace:*",
     "@types/bun": "1.4.5",
-    "ai": "7.0.178",
+    "ai": "7.0.179",
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
     "@ai-sdk/provider": "4.0.39",
-    "ai": "7.0.178"
+    "ai": "7.0.179"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/provider": {

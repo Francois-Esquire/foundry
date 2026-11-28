@@ -102,7 +102,7 @@
     "@opentui/react": "0.5.11",
     "@standard-schema/spec": "1.1.0",
     "@types/node": "^26.6.6",
-    "ai": "7.0.178",
+    "ai": "7.0.179",
     "croner": "^11.0.1",
     "drizzle-orm": "^0.45.4",
     "effect": "^3.22.5",
@@ -137,7 +137,7 @@
     "ai-sdk-provider-pi": "0.1.0",
     "drizzle-kit": "^0.31.11",
     "textbook-sh": "0.2.0",
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.12"
   },
