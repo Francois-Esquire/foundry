@@ -12,9 +12,9 @@ import { describeTaskStore } from "@foundry/tasks/testing/store";
 import { afterAll, describe, expect, it } from "vitest";
 import { openWorkspaceRecords } from "~/database/managed";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 

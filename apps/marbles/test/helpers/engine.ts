@@ -1,8 +1,10 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createNodeMcpClient } from "@foundry/agents/node";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { Artifacts } from "@foundry/artifacts";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
+import { stopOrphans } from "@foundry/lib/node/orphans";
 import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeDriver } from "@foundry/sandbox/testing";
@@ -11,12 +13,21 @@ import { type GitRun, git } from "@foundry/workspaces/node/git";
 import { Catalog, type CollectInput } from "~/authoring/catalog";
 import { declareCatalog } from "~/create";
 import { Engine as DatabaseEngine } from "~/entries/engine";
-import type { TurnExecutorRef } from "~/lib/cli-harnesses";
+import { commandRunner } from "~/host/command";
+import { environmentSnapshot } from "~/host/environment";
+import { readFeedMedia, resolveFeedMedia } from "~/host/feed-media";
+import { guestAuth } from "~/host/guest/credentials";
+import { FIRST_PARTY_DRIVERS } from "~/host/guest/drivers";
+import { prepareGuest } from "~/host/guest/prepare";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
+import { skillResolver } from "~/host/skills";
+import { ensureWorktreeDir, nodeGitAt } from "~/host/workspaces";
+import { Registry } from "~/lib/definitions/registry";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import { Registry } from "~/lib/registry";
+import type { TurnExecutorRef } from "~/lib/managers/cli-harnesses";
+import { FileRunOutputSink } from "~/state/output";
 import type { MockOptions, Reply } from "./echo";
 import { CLAUDE_CODE, CODEX } from "./harnesses";
 import { mockModels } from "./mock";
@@ -85,13 +96,33 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
   } = options;
   const root = given.root ?? process.cwd();
   const workspaceId = given.workspaceId ?? "test";
+  const home = given.home ?? NO_HOME;
+  const instances = testInstances(options);
   const engineOptions: EngineOptions = {
-    home: NO_HOME,
+    commandRunner,
+    createMcpClient: createNodeMcpClient,
+    ensureWorktreeDir,
+    environment: environmentSnapshot(),
+    gitAt: nodeGitAt(instances.git),
+    home,
     liveness: NODE_OWNER_LIVENESS,
+    ...(given.state === undefined
+      ? {}
+      : { outputSink: new FileRunOutputSink(given.state) }),
+    readFeedMedia,
+    resolveFeedMedia,
     root,
+    sandboxGuest: {
+      drivers: FIRST_PARTY_DRIVERS,
+      guestAuth,
+      prepareGuest,
+    },
+    skills: skillResolver({ home, workspace: root }),
+    stopOrphans,
     workspaceId,
+    worktrees: DatabaseEngine.worktreesFor(given.state),
     ...given,
-    ...testInstances(options),
+    ...instances,
   };
   const { state } = engineOptions;
   const engine =

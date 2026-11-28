@@ -9,7 +9,7 @@ import {
   PROVIDER_DECLARATION,
   SANDBOX_HANDLE,
   SCHEDULE_META,
-} from "~/lib/handles";
+} from "~/lib/definitions/handles";
 
 export type PoolConfig = number | { readonly limit: number };
 export interface MarblesConfig {

@@ -49,25 +49,10 @@ export type {
 export { bail } from "@foundry/workflows/types";
 export { Output } from "ai";
 export { dispose } from "~/authoring/runtime";
-export type { CommandResult, Exec, ExecOptions } from "~/lib/command-error";
-export { CommandError } from "~/lib/command-error";
-export type { LockedNode, StepConfig } from "~/lib/definition";
-export type { Log, LogLevel } from "~/lib/log";
-export type { RunQuery, RunView } from "~/lib/managers/runs";
-export type {
-  Change,
-  FileChange,
-  HttpChange,
-  MonitorContext,
-  MonitorHandler,
-} from "~/lib/monitor";
-export type { MonitorRecord } from "~/lib/registry";
-export type {
-  CalendarSlot,
-  Schedule,
-  Trigger,
-  Weekday,
-} from "~/lib/triggers";
+export type { CommandResult, Exec, ExecOptions } from "~/lib/commands";
+export { CommandError } from "~/lib/commands";
+export type { LockedNode, StepConfig } from "~/lib/definitions";
+export type { MonitorRecord } from "~/lib/definitions/registry";
 export type {
   Agent,
   AgentDefinition,
@@ -108,7 +93,22 @@ export type {
   WorkspaceDefinition,
   WorkspaceHandle,
   WorkspaceInstance,
-} from "~/lib/types";
+} from "~/lib/definitions/types";
+export type { RunQuery, RunView } from "~/lib/managers/runs";
+export type {
+  Change,
+  FileChange,
+  HttpChange,
+  MonitorContext,
+  MonitorHandler,
+} from "~/lib/schedule/monitor";
+export type {
+  CalendarSlot,
+  Schedule,
+  Trigger,
+  Weekday,
+} from "~/lib/schedule/triggers";
+export type { Log, LogLevel } from "~/lib/shared/log";
 export { step, workflow } from "./builder";
 export type {
   CollectInput,

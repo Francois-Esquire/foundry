@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { isGone } from "@foundry/lib/node/process-identity";
 import { expect, it, vi } from "vitest";
 import { watchRun } from "~/cli/watch";
-import { RunOutput } from "~/lib/state/output";
+import { RunOutput } from "~/state/output";
 
 vi.mock("@foundry/lib/node/process-identity", async (actual) => ({
   ...(await actual<typeof import("@foundry/lib/node/process-identity")>()),

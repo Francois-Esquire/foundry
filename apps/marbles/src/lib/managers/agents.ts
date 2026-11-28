@@ -6,7 +6,6 @@ import type {
   TurnOptions,
 } from "@foundry/agents/harness";
 import type { McpClient } from "@foundry/agents/mcp";
-import { createNodeMcpClient } from "@foundry/agents/node";
 import type {
   SessionInput,
   SessionMessage,
@@ -23,39 +22,18 @@ import { observeAgentTurn } from "@foundry/models";
 import type { Container } from "@foundry/sandbox";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
 import type { Output } from "ai";
-import type { AutomationService } from "~/lib/automation/service";
-import type { TurnExecutorRef } from "~/lib/cli-harnesses";
-import { DIRECT_HARNESS, harnessOf, isCliHarness } from "~/lib/cli-harnesses";
-import type { ExecutionContext } from "~/lib/execution-context";
-import { withinContext } from "~/lib/execution-context";
-import type { ExecutionObservation } from "~/lib/executions";
-import type { RecordObservation } from "~/lib/observations";
-import { composeObservers, runTurnObserver } from "~/lib/observations";
-import type { Execution } from "~/lib/providers/plugins";
-import type { HarnessActivities } from "~/lib/sandbox/activities";
-import type { HarnessInteractions } from "~/lib/sandbox/interactions";
-import type { SandboxSessionOptions } from "~/lib/sandbox/session";
-import { createSandboxSession } from "~/lib/sandbox/session";
-import type {
-  CostMeter,
-  RecordedUsageFact,
-  ReportedCost,
-  TurnSource,
-  UsageLedger,
-} from "~/lib/usage";
-import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
-import type { ManagerArgs } from "../bindings";
+import type { AutomationService } from "~/lib/automation";
+import type { ManagerArgs } from "~/lib/definitions/bindings";
 import {
   AGENT_DEFINITION,
   AGENT_META,
   AGENT_PROMPT,
   SANDBOX_HANDLE,
-} from "../handles";
-import { inputSnapshot } from "../json-data";
-import { workingDirectory } from "../run-scope";
+} from "~/lib/definitions/handles";
 import type {
   AgentDefinition,
   AgentLike,
+  AgentMcpServer,
   AgentRoute,
   Agents,
   SandboxAgentOptions,
@@ -66,15 +44,44 @@ import type {
   SessionRef,
   SessionReply,
   SkillSet,
-} from "../types";
+} from "~/lib/definitions/types";
+import type { ExecutionObservation } from "~/lib/executions";
+import type { RecordObservation } from "~/lib/executions/observations";
 import {
-  deferredStream,
+  composeObservers,
+  runTurnObserver,
+} from "~/lib/executions/observations";
+import type { TurnExecutorRef } from "~/lib/managers/cli-harnesses";
+import {
+  DIRECT_HARNESS,
+  harnessOf,
+  isCliHarness,
+} from "~/lib/managers/cli-harnesses";
+import type { Execution } from "~/lib/providers/plugins";
+import type { ExecutionContext } from "~/lib/runs/context";
+import { withinContext } from "~/lib/runs/context";
+import { workingDirectory } from "~/lib/runs/scope";
+import type { SandboxGuestSetup, SandboxSessionOptions } from "~/lib/sandbox";
+import { createSandboxSession } from "~/lib/sandbox";
+import type { HarnessActivities } from "~/lib/sandbox/activities";
+import type { HarnessInteractions } from "~/lib/sandbox/interactions";
+import { inputSnapshot } from "~/lib/shared/json-data";
+import type {
+  CostMeter,
+  RecordedUsageFact,
+  ReportedCost,
+  TurnSource,
+  UsageLedger,
+} from "~/lib/usage";
+import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
+import {
   type LiveSession,
   replayedStream,
   replyOf,
   type SessionTurnSite,
   wrapAgentSession,
 } from "./agent-turns";
+import { deferredStream } from "./deferred-stream";
 import {
   resolveCompaction,
   resolveTurnLimit,
@@ -89,7 +96,9 @@ export interface AgentsDeps {
   readonly automations: AutomationService;
   readonly containerOf: (sandbox: SandboxHandle) => Container;
   readonly context?: ExecutionContext;
-  readonly createMcpClient?: typeof createNodeMcpClient;
+  readonly createMcpClient?: (
+    server: AgentMcpServer & { readonly enabled: boolean }
+  ) => McpClient;
   readonly cwd: string;
   readonly defaultExecutor: () => TurnExecutorRef;
   readonly executionOf?: (provider: string) => Execution | null | undefined;
@@ -99,6 +108,7 @@ export interface AgentsDeps {
   readonly models: Models;
   readonly observe?: (runId: string, observation: ExecutionObservation) => void;
   readonly requireProviders?: () => void;
+  readonly sandboxGuest?: SandboxGuestSetup;
   readonly sessions: SessionStore;
   readonly skills: (set?: SkillSet) => Promise<Skill[]>;
   readonly undefinedProvider?: (id: string) => string | undefined;
@@ -536,8 +546,17 @@ async function connectServers(
       `agent "${definition.id}" names one MCP server id more than once`
     );
   }
+  if (servers.length === 0) {
+    return [];
+  }
+  const { createMcpClient } = deps;
+  if (createMcpClient === undefined) {
+    throw new Error(
+      `agent "${definition.id}" names MCP servers, but no MCP client factory was configured`
+    );
+  }
   const clients = servers.map((server) =>
-    (deps.createMcpClient ?? createNodeMcpClient)({ ...server, enabled: true })
+    createMcpClient({ ...server, enabled: true })
   );
   for (const client of clients) {
     site.retain(client);
@@ -850,7 +869,13 @@ async function openSandboxSession(
   const harness = await createSandboxSession({
     agentId: definition.id,
     container: deps.containerOf(sandbox),
+    ...(deps.sandboxGuest?.drivers
+      ? { drivers: deps.sandboxGuest.drivers }
+      : {}),
     ...(execution ? { execution } : {}),
+    ...(deps.sandboxGuest?.guestAuth
+      ? { guestAuth: deps.sandboxGuest.guestAuth }
+      : {}),
     harness: executor.harness,
     hostCwd: workingDirectory(site.cwd),
     hostToolsForSession: (sessionId) =>
@@ -861,6 +886,9 @@ async function openSandboxSession(
     onActivity: (event) => deps.activities.record(event, source),
     onChildSession: (sessionId, session) =>
       deps.activities.attach(sessionId, session, { delegated: true }),
+    ...(deps.sandboxGuest?.prepareGuest
+      ? { prepareGuest: deps.sandboxGuest.prepareGuest }
+      : {}),
     provider: executor.provider,
     ...(guest ? {} : { model: heldText(resolution, site) }),
     instructions: [prompt, ...skills.map((skill) => skill.instructions ?? "")]

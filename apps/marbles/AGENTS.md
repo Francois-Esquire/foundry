@@ -62,20 +62,30 @@ to the declaration bundler through the explicit mappings in `tsup.config.ts`.
 
 Source responsibilities and dependency boundaries:
 
-- `src/lib/` is the engine and imports nothing outside `src/lib/`: no
-  authoring words, no views, no CLI. The `Engine` constructor takes the
+- `src/lib/` is the 100% runtime-agnostic (Web-standard) engine and imports
+  nothing outside `src/lib/` (no `node:*`, no `bun:*`, no `@foundry/*/node`,
+  no unguarded Node/Bun globals, no authoring words, no views, no CLI;
+  enforced by `test/lib-boundary.test.ts` and `test/v8-isolate-smoke.test.ts`).
+  It is organized into domain folders (`async-context/`, `automation/`,
+  `commands/`, `definitions/`, `engine/`, `events/`, `executions/`, `feed/`,
+  `managers/`, `providers/`, `recovery/`, `runs/`, `sandbox/`, `schedule/`,
+  `shared/`, `usage/`), with each folder's primary module as `index.ts`.
+  The `Engine` constructor (`lib/engine/index.ts`) takes the
   packages' own instances (models, session store, containers, artifact
-  system, all required; a workspace system, which it builds from its `git`
-  option when omitted; and a store for each thing it keeps, each in
+  system, all required; a workspace system, which defaults to an empty
+  `Workspaces` when omitted; and a store for each thing it keeps, each in
   memory without one: `RunStore`, `ExecutionStore`, `TriggerStore`,
   `AutomationStore` and `UsageStore`) and builds the managers and everything that
   connects them itself. It owns its run scopes and its trigger state; no
   module global holds either. The workspace's tasks reach it through
   `records` (`lib/events/records.ts`): the host hands in the database's
   (`database/tasks.ts`), and without one the `lib/` class keeps them in
-  memory, whatever `state` is. The class the package publishes is
-  `entries/engine.ts`, a tier above `lib/` and `database/`: given `state`
-  (`Engine.persistence`, the one rule for where any engine persists), it keeps every store it is
+  memory, whatever `state` is. The Node class the package publishes on
+  `@foundry.sh/marbles/engine` is `entries/engine.ts`, a tier above `lib/`,
+  `host/`, `state/`, and `database/`: it wires Node defaults (filesystem
+  workspaces, command runner, skills loader, `FileRunOutputSink`,
+  `NODE_OWNER_LIVENESS`) and, given `state`
+  (`Engine.persistence`, the one rule for where any engine persists), keeps every store it is
   not handed in the database, over one handle
   (`withWorkspaceDatabase` in `database/managed.ts`). Each manager has the plain operation as a
   method, usable on the engine directly, and `scoped(frame)` for the view a
@@ -86,19 +96,19 @@ Source responsibilities and dependency boundaries:
   ledger by its place and definition, so a body that runs again gets the
   same run back. The engine owns its registry
   and is told what can run through `define`, `schedule`, `monitor`, and `task`. Every launch goes through
-  `lib/launcher.ts`, which submits it to the engine's one run queue at
+  `lib/runs/index.ts`, which submits it to the engine's one run queue at
   once, registers each host task as a queue handler, and pays each caller
   its run's result. Concurrency is the queue's: each Marbles pool is a
   `@foundry/queue` pool (`configurePool`, `pools`), so a queued run is queued
-  in `@foundry/queue` from its launch. `lib/executions.ts` (`Executions`)
+  in `@foundry/queue` from its launch. `lib/executions/index.ts` (`Executions`)
   projects the queue's Jobs and Runs into Execution Runs
-  (`executionOf` in `lib/execution-record.ts`), kept current from the
+  (`executionOf` in `lib/executions/record.ts`), kept current from the
   queue's events, and keeps only what Marbles adds to a run, its
   observations, progress and retention gaps, in an `ExecutionStore`
-  (`lib/execution-store.ts`), each write in the order it was made.
+  (`lib/executions/store.ts`), each write in the order it was made.
   Agent-created triggers are
   kept in an `AutomationStore` (`lib/automation/store.ts`) and usage facts
-  in a `UsageStore` (`lib/usage-store.ts`). Agent grants, restrictions, and
+  in a `UsageStore` (`lib/usage/store.ts`). Agent grants, restrictions, and
   pending approvals live in `@foundry/authorization` (`SqliteAuthorizationStore`
   in `database/stores.ts`), and harness activities in an `ActivityStore`
   (`lib/sandbox/activities.ts`), each in memory without one. Which engine delivers a workspace's
@@ -110,7 +120,7 @@ Source responsibilities and dependency boundaries:
   are kept in a `ProviderStore` (`lib/providers/store.ts`); the
   configuration reads it when the engine starts (`refresh`), not when it
   is built.
-  `lib/run-queue.ts` (`RunQueue`) is the engine's one `@foundry/queue`,
+  `lib/runs/queue.ts` (`RunQueue`) is the engine's one `@foundry/queue`,
   with its pools and host task handlers; it runs workflow Runs through
   `@foundry/workflows/queue-handler`. It materializes a fresh workflow for
   every attempt, from the run's checkpoint and the resolutions of its
@@ -124,20 +134,20 @@ Source responsibilities and dependency boundaries:
   pause is a suspension named by how many of its step's pauses were
   answered before it; the prompt it is resumed with is that suspension's
   resolution, handed to the step's next session turn once (the count
-  taken is kept in the run's ledger). `lib/queued-workflows.ts` is an
+  taken is kept in the run's ledger). `lib/engine/queued.ts` is an
   engine's workflow Runs while it runs: the queue, the Feed router, the
   followed runs and their listing, built once the engine's run store is
-  open; `lib/engine-definitions.ts` is what the engine can run and how each
-  is registered on that queue, and `lib/engine-setup.ts` builds the
+  open; `lib/engine/definitions.ts` is what the engine can run and how each
+  is registered on that queue, and `lib/engine/setup.ts` builds the
   engine's stores, context, agents manager and bindings.
-  `lib/workflow-runs.ts` projects the queue's Jobs and Runs into
+  `lib/runs/records.ts` projects the queue's Jobs and Runs into
   `RunRecord`s and its events into `RUNS` facts.
-  `lib/schedule-loop.ts` runs `@foundry/scheduling`'s scheduler over the
+  `lib/schedule/loop.ts` runs `@foundry/scheduling`'s scheduler over the
   trigger store's schedule store while a host runs (`run`), registering
   every declared and agent-created schedule (`registration` in
-  `lib/schedule.ts`: an interval is a fixed delay after its run settles, a
+  `lib/schedule/index.ts`: an interval is a fixed delay after its run settles, a
   calendar slot a calendar cadence, each with overlap skip and misfire
-  run-once) and removing what is no longer declared; `lib/schedule-dispatch.ts`
+  run-once) and removing what is no longer declared; `lib/schedule/dispatch.ts`
   is its `ScheduleDispatch`, which launches each occurrence through the
   engine under the occurrence's id as the queue's idempotency key, so a
   restarted dispatcher gets the same run back, reads its end from the
@@ -146,15 +156,15 @@ Source responsibilities and dependency boundaries:
   until the launch its detector asked for is started. A roll
   (`rollSchedule`) launches and awaits a schedule's target directly and
   records no occurrence.
-  `lib/followed-runs.ts` follows workflow runs to their end: it observes each
+  `lib/runs/followed.ts` follows workflow runs to their end: it observes each
   attempt that runs here, and settles a run when its Job settles,
   whichever engine ran its last attempt. An engine whose queue starts a
-  resumed run it does not follow follows it from then. `lib/run-store.ts`
+  resumed run it does not follow follows it from then. `lib/runs/store.ts`
   is where their Runs are kept (`RunStore`, in memory by default); what a
   gone process left is the queue's to recover (`recover`): a run it left
   running is interrupted, one it left queued is adopted. A suspended run needs no owner: any engine may answer it, and its
   questions are open in the Feed from the engine that asked them, or from
-  an askable engine that starts while the run is suspended. `lib/crash-recovery.ts` is the one entry point that puts
+  an askable engine that starts while the run is suspended. `lib/recovery/index.ts` is the one entry point that puts
   right what a crash left, run once per start before the host schedules
   anything; each part's rule is its own package's or module's, and it
   only orders the calls (orphaned children, container rows, Runs,
@@ -168,32 +178,42 @@ Source responsibilities and dependency boundaries:
   transaction, only checks it is still that owner (`claimJudged` in
   `database/owner.ts`, which maps a claim row's owner columns to and from
   a `ProcessIdentity`).
-  Each engine has an execution context (`lib/execution-context.ts`): its
+  Each engine has an execution context (`lib/engine/context.ts`, backed by
+  `lib/async-context/`): its
   workspace id, where its work starts (`cwd`, the root by default) and the
   environment its commands inherit. Every place the engine calls code an
   author wrote runs it as that context (`withinContext`, which leaves a
   run scope inherited from another engine's run): a step's whole
-  execution, schemas and body (`tree.ts`, `materialize`), its retry
+  execution, schemas and body (`lib/definitions/tree.ts`, `materialize`), its retry
   decision, a launch's input schema and a workflow's setup (`factoryFor`),
-  a host task's body (`launcher.ts`), each observer (`Delivery`), every
+  a host task's body (`lib/runs/index.ts`), each observer (`Delivery`), every
   session the agents manager opens, whichever entry opens it
   (`openSession`: an agent's own function, and each turn's output
   schema, stop conditions and harness authority, approval and question
   callbacks), and a worktree callback outside a run
-  (`managers/workspaces.ts`); whatever that code starts inherits it. Nothing in `lib/` reads
+  (`lib/managers/workspaces.ts`); whatever that code starts inherits it. Nothing in `lib/` reads
   `process.cwd()` or `process.env` for it.
-  `lib/cli-harnesses.ts` describes each CLI harness once (ids in
+  `lib/managers/cli-harnesses.ts` describes each CLI harness once (ids in
   preference order, executor, guest artifact and environment). Provider
-  plugins (the `ProviderPlugin` shape in `lib/providers/plugins.ts`, one
-  module per provider beside it, none importing another) build instances
-  from configuration (`lib/providers/configuration.ts`), and the sandbox
-  reads their execution facets. A workspace's plugins are the defaults and
-  what its source passes to `defineProvider`, collected in its catalog;
-  `createEngine` merges them.
-  Host seams in `lib/` include `owner-liveness.ts` and
-  `node-host-liveness.ts`, `RunOutputSink` with `MemoryRunOutputSink` and
-  `FileRunOutputSink`, injectable queue and scheduler client factories with
+  plugins (the `ProviderPlugin` shape in `lib/providers/plugins.ts`) build instances
+  from configuration (`lib/providers/index.ts`), and the sandbox
+  reads their execution facets.
+  Host seams in `lib/` include `lib/recovery/liveness.ts` (`OwnerLiveness`,
+  `PORTABLE_OWNER_LIVENESS`), `lib/runs/output.ts` (`RunOutputSink`,
+  `MemoryRunOutputSink`), injectable queue and scheduler client factories with
   `leaseTtlMs` and `claimTtlMs`, and injectable host adapters on `EngineOptions`.
+- `src/host/` holds Node/OS runtime adapters that implement the host seams in
+  `src/lib/`: `async-context.ts` (`installNodeContextRuntime`), `command.ts`,
+  `environment.ts`, `feed-media.ts`, `liveness.ts` (`NODE_OWNER_LIVENESS`),
+  `mounts.ts`, `skills.ts`, `which.ts`, `workspaces.ts`, and
+  `guest/{credentials,drivers,prepare}.ts`.
+- `src/state/` holds file-backed state helpers: `json.ts`, `locks.ts`,
+  `output.ts` (`FileRunOutputSink`), and `workspace.ts`.
+- `src/providers/` holds the built-in provider plugins (`claude-code.ts`,
+  `codex.ts`, `gateway.ts`, `pi.ts`, `vercel.ts`, none importing another),
+  shared CLI helpers (`cli.ts`), and the default plugin list (`defaults.ts`).
+  A workspace's plugins are the defaults and what its source passes to
+  `defineProvider`, collected in its catalog; `createEngine` merges them.
 - `src/database/` is the Marbles database: one SQLite file at the state
   root, `<state>/marbles.db`, that every process on the machine opens at
   once. `open.ts` has one way in per role: `initializeDatabase`, for
@@ -347,7 +367,7 @@ Source responsibilities and dependency boundaries:
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
-  (`loop.ts`, over `lib/schedule-loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
+  (`loop.ts`, over `lib/schedule/loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
   every workspace (`feed.ts`) and its usage
   totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), starter templates and creation, background agent
   dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
@@ -376,7 +396,7 @@ Source responsibilities and dependency boundaries:
   Bun, a minimal `Bun.plugin` maps `@foundry.sh/marbles*` and tracks local
   imports. Each engine bound to its workspace (`setHost`) is a binding, keyed
   by the execution context its runs and observers run in (`Engine.context`,
-  `lib/execution-context.ts`); pending workspaces remain in `pendingHostings`
+  `lib/runs/context.ts`); pending workspaces remain in `pendingHostings`
   between `runLoadScope` completion and `setHost` so early callbacks fail with
   `WorkspaceLoadingError` instead of falling back to script mode. Work answers
   to its own binding's engine and catalog until that engine is disposed,
@@ -519,20 +539,24 @@ and `RecordsHeldError`;
 it imports types from `lib/` and nothing else.
 
 The `@foundry.sh/marbles` surface is what authoring modules depend on; new
-engine API goes on `@foundry.sh/marbles/lib`, not there. That entry exports
-`Engine`, types, a few constants, and the package classes the constructor's
-instances are built from; do not add loose functions to it. Public entries:
-`@foundry.sh/marbles` (`authoring/index.ts`),
-`@foundry.sh/marbles/lib` (`entries/lib.ts`: `lib/index.ts` with the
-published `Engine`),
-`@foundry.sh/marbles/engine` (`entries/embedded.ts`: `lib/embedded.ts` with
-the published `Engine` from `entries/engine.ts`, which the CLI imports alone so
-it does not load the provider factories `lib/embedded.ts` re-exports),
-`@foundry.sh/marbles/statuses` (`lib/execution-statuses.ts`),
+portable engine API goes on `@foundry.sh/marbles/lib`, not there, and Node-only
+host helpers go on `@foundry.sh/marbles/engine`. Those entries export `Engine`,
+types, a few constants, and the package classes the constructor's instances are
+built from; do not add loose functions to them. Public entries:
+`@foundry.sh/marbles` (`authoring/index.ts`, portable),
+`@foundry.sh/marbles/lib` (`lib/index.ts`, portable `platform: "neutral"` entry
+with portable `Engine`, `Memory*` stores, `MemoryRunOutputSink`, and
+`PORTABLE_OWNER_LIVENESS`),
+`@foundry.sh/marbles/engine` (`entries/embedded.ts`, Node entry with the
+Node-default `Engine` from `entries/engine.ts`, `DatabaseProviderStore`,
+`FileRunOutputSink`, `blobFiles`, `JsonArtifactStore`, `directory`, `git`,
+`nodeObserver`, and CLI provider factories; the CLI imports `entries/engine.ts`
+alone so it does not load those provider factories),
+`@foundry.sh/marbles/statuses` (`lib/executions/statuses.ts`, portable),
 `@foundry.sh/marbles/providers` (`authoring/providers.ts`: `defineProvider`
-and the provider types), one entry per provider,
-`@foundry.sh/marbles/providers/<id>` (`lib/providers/<id>.ts`, one provider
-value each; Claude Code and Codex are the defaults, `lib/providers/defaults.ts`),
+and the provider types, portable), one entry per provider,
+`@foundry.sh/marbles/providers/<id>` (`providers/<id>.ts`, one provider
+value each; Claude Code and Codex are the defaults, `providers/defaults.ts`),
 `@foundry.sh/marbles/workspace`
 (`workspace/index.ts`: host one workspace programmatically), and
 `@foundry.sh/marbles/process` (`process/index.ts`: start or join the

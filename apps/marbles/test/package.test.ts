@@ -499,7 +499,8 @@ step(123);
       `
 import { packedWorkflow } from "./marbles.config";
 import { step } from "@foundry.sh/marbles";
-import { Artifacts, Engine, MemoryArtifactStore, MemorySessionStore, Models, Workspaces, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/lib";
+import { Artifacts, Engine, MemoryArtifactStore, MemorySessionStore, Models, Workspaces, directory, git, nodeObserver, piProvider } from "@foundry.sh/marbles/engine";
+import { MemoryRunOutputSink, PORTABLE_OWNER_LIVENESS } from "@foundry.sh/marbles/lib";
 import { claimProcess, readProcess } from "@foundry.sh/marbles/process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -518,6 +519,7 @@ const stateDir = mkdtempSync(join(tmpdir(), "marbles-host-"));
 const claim = claimProcess(stateDir, { config: null, host: "worker" });
 if (readProcess(stateDir)?.pid !== process.pid) throw new Error("The host must hold its workspace");
 if (instances.models.providers.find((provider) => provider.id === "pi")?.available) throw new Error("Unconfigured Pi must stay unavailable");
+if (typeof PORTABLE_OWNER_LIVENESS.identity !== "function" || !(new MemoryRunOutputSink())) throw new Error("Portable lib exports must be available");
 // @ts-expect-error An engine needs every instance.
 new Engine({ root, workspaceId: "host" });
 engine.define(packedWorkflow);

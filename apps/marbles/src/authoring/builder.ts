@@ -6,23 +6,27 @@ import {
   ownRun,
   trackCreatedDeclaration,
 } from "~/authoring/runtime";
-import { fillArgv, parseArgv, placeholdersOf } from "~/lib/argv";
-import { timeoutMs } from "~/lib/cadence";
-import type { CommandResult, ExecOptions } from "~/lib/command-error";
+import type { CommandResult, ExecOptions } from "~/lib/commands";
+import { fillArgv, parseArgv, placeholdersOf } from "~/lib/commands/argv";
 import type {
   AnyDefinition,
   LockedNode,
   SetupFn,
   StepConfig,
   StepFn,
-} from "~/lib/definition";
-import { isLockedNode } from "~/lib/definition";
+} from "~/lib/definitions";
+import { isLockedNode } from "~/lib/definitions";
+import {
+  DEFINITION_IDENTITY,
+  EXPLICIT_NAME,
+  STATIC_TREE,
+} from "~/lib/definitions/handles";
+import type { Input, Output } from "~/lib/definitions/schema";
+import { inputKeysOf } from "~/lib/definitions/schema";
+import type { Context } from "~/lib/definitions/types";
 import { observable, RUNS } from "~/lib/events/source";
-import { DEFINITION_IDENTITY, EXPLICIT_NAME, STATIC_TREE } from "~/lib/handles";
-import { sha256HexSync } from "~/lib/hash";
-import type { Input, Output } from "~/lib/schema";
-import { inputKeysOf } from "~/lib/schema";
-import type { Context } from "~/lib/types";
+import { timeoutMs } from "~/lib/schedule/cadence";
+import { sha256HexSync } from "~/lib/shared/hash";
 import { enqueueNamed } from "./instances";
 import type {
   Enqueued,

@@ -1,10 +1,9 @@
 import { Workflow } from "@foundry/workflows/workflow";
-
-import type { Bindings } from "~/lib/bindings";
-import type { AnyDefinition, NamedDefinition } from "~/lib/definition";
-import { isNamed } from "~/lib/definition";
-import { RunScopes } from "~/lib/run-scope";
-import { factoryFor } from "~/lib/tree";
+import type { AnyDefinition, NamedDefinition } from "~/lib/definitions";
+import { isNamed } from "~/lib/definitions";
+import type { Bindings } from "~/lib/definitions/bindings";
+import { RunScopes } from "~/lib/runs/scope";
+import { factoryFor } from "~/lib/runs/tree";
 
 let bound: Bindings | undefined;
 

@@ -10,7 +10,7 @@ import {
   jsonSchemaOf,
   SchemaError,
   validate,
-} from "~/lib/schema";
+} from "~/lib/definitions/schema";
 
 const TYPED_INPUT_ISSUE = /typed input: n: /;
 

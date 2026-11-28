@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StoreDatabase } from "~/database/open";
 import { marblesDeliveryClaims } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";
 

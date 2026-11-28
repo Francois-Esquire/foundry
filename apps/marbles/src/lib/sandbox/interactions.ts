@@ -12,12 +12,13 @@ import { resolveHarnessApproval } from "@foundry/agents/harness";
 import type { AgentApprovalRequest } from "@foundry/agents/session";
 import type { SessionStore } from "@foundry/agents/store";
 import type { Authorization, Grant } from "@foundry/authorization";
+import type { FeedPublisher } from "~/lib/feed";
 import {
   type FeedAnswer,
   type FeedQuestionPayload,
   readAnswer,
 } from "~/lib/feed/entry";
-import type { FeedPublisher } from "~/lib/feed/publish";
+import type { SandboxAuthority } from "~/lib/sandbox";
 import {
   approvalPrompt,
   deferredPrompt,
@@ -26,7 +27,6 @@ import {
   type PromptAnswer,
   questionPrompt,
 } from "./interaction-prompts";
-import type { SandboxAuthority } from "./session";
 
 export interface InteractionSource {
   readonly definition: string;

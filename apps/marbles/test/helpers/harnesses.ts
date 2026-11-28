@@ -1,8 +1,8 @@
 import type { ProviderModelDefinition, TurnLimit } from "@foundry/models";
 import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/providers/claude-code";
 import { PI_DEFAULT_MODELS } from "@foundry/models/providers/pi";
-import type { CliHarness, TurnExecutorRef } from "~/lib/cli-harnesses";
-import { CLI_HARNESSES } from "~/lib/cli-harnesses";
+import type { CliHarness, TurnExecutorRef } from "~/lib/managers/cli-harnesses";
+import { CLI_HARNESSES } from "~/lib/managers/cli-harnesses";
 
 export const CLAUDE_CODE: TurnExecutorRef =
   CLI_HARNESSES["claude-code"].executor;

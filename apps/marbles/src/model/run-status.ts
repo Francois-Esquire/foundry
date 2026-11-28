@@ -1,4 +1,4 @@
-import type { TerminalRunStatus } from "~/lib/run-store";
+import type { TerminalRunStatus } from "~/lib/runs/store";
 
 export type RunStatus =
   | "queued"

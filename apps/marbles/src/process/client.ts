@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { TaskError } from "@foundry/tasks";
 
 import type { Layout } from "~/layout";
-import { runOutputStream } from "~/lib/state/output";
 import type {
   DispatchInfo,
   DispatchOptions,
@@ -36,6 +35,7 @@ import {
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 import { recordSpawned } from "~/process/spawned";
+import { runOutputStream } from "~/state/output";
 import { version } from "../../package.json";
 
 export interface ConnectOptions {

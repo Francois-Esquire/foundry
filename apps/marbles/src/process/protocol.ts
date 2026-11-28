@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { LiveWork } from "~/lib/step-work";
-import { RunRecordSchema } from "~/lib/workflow-runs";
+import { RunRecordSchema } from "~/lib/runs/records";
+import type { LiveWork } from "~/lib/runs/step-work";
 import type { RunListQuery, WorkspaceState } from "~/model/connection";
 import type { LiveRun } from "~/model/dashboard";
 

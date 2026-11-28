@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { AutomationRecord } from "~/lib/automation/service";
+import type { AutomationRecord } from "~/lib/automation";
 import type { AutomationStore } from "~/lib/automation/store";
 
 export interface AutomationStoreFixture {

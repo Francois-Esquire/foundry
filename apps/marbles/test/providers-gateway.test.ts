@@ -25,9 +25,9 @@ import { DatabaseProviderStore } from "~/database/providers";
 import { marblesProviderConfigurations } from "~/database/tables";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { gateway as gatewayPlugin } from "~/lib/providers/gateway";
+import { ProviderConfiguration } from "~/lib/providers";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
+import { gateway as gatewayPlugin } from "~/providers/gateway";
 import { pluginOf } from "./helpers/plugins";
 
 const ENV = { GW_KEY: "secret" };

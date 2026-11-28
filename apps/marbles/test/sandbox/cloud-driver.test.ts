@@ -4,9 +4,9 @@ import { createCloudFakeDriver } from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import { FIRST_PARTY_DRIVERS } from "~/host/guest/drivers";
+import { prepareGuest } from "~/host/guest/prepare";
 import { createCodingTools } from "~/lib/sandbox/coding-tools";
-import { FIRST_PARTY_DRIVERS } from "~/lib/sandbox/drivers";
-import { prepareGuest } from "~/lib/sandbox/prepare";
 
 const PREBAKED_MISSING_ERROR = /Pre-baked guest CLI/;
 

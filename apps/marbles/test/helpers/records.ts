@@ -7,9 +7,9 @@ import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { marblesChanges } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import { stateDatabase } from "~/layout";
 import { causingRun } from "~/lib/events/records";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 
 export interface TestMachine {
   changes(state: string, source?: string): Promise<readonly RecordedChange[]>;

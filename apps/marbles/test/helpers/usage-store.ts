@@ -6,7 +6,7 @@ import { DatabaseUsageStore } from "~/database/usage";
 import { stateDatabase } from "~/layout";
 import type { RecordedUsageFact, UsageRecords } from "~/lib/usage";
 import { UsageLedger } from "~/lib/usage";
-import type { UsageStore } from "~/lib/usage-store";
+import type { UsageStore } from "~/lib/usage/store";
 
 export interface UsageStoreFixture {
   close(): Promise<void>;

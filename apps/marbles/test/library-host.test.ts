@@ -15,10 +15,10 @@ import { IncompatibleDatabaseError, MIGRATIONS } from "~/database/migrate";
 import { initializeDatabase, readDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
-import { insideState, workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { recordSpawned } from "~/process/spawned";
+import { acquireLock, PROCESS_LOCK } from "~/state/locks";
+import { insideState, workspaceState } from "~/state/workspace";
 import { testHome } from "./helpers/home";
 import { readWorkspace, recordWorkspace } from "./helpers/registry";
 
@@ -216,7 +216,7 @@ setInterval(() => undefined, 1000);
         script,
         `import { existsSync } from "node:fs";
 import { recordWorkspace } from ${JSON.stringify(resolve("test/helpers/registry.ts"))};
-import { workspaceState } from ${JSON.stringify(join(SRC, "lib/state/workspace.ts"))};
+import { workspaceState } from ${JSON.stringify(join(SRC, "state/workspace.ts"))};
 process.stdout.write("ready\\n");
 while (!existsSync(${JSON.stringify(go)})) {
   await new Promise((settle) => setTimeout(settle, 5));

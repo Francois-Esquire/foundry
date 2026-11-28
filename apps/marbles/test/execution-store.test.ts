@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { DatabaseExecutionStore } from "~/database/executions";
 import { initializeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import { MemoryExecutionStore } from "~/lib/execution-store";
+import { MemoryExecutionStore } from "~/lib/executions/store";
 import { describeExecutionStore } from "./helpers/execution-store";
 
 describeExecutionStore("MemoryExecutionStore", () =>

@@ -7,8 +7,8 @@ import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { Catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
+import type { Session, SessionReply } from "~/lib/definitions/types";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import type { Session, SessionReply } from "~/lib/types";
 
 for (const harness of ["builtin", "claude-code", "codex"] as const) {
   it(`${harness} asks, waits for approval, resumes turns, respects denial, and cancels through the Marbles feed in MicroSandbox`, async () => {

@@ -23,8 +23,8 @@ import { readDatabase } from "~/database/open";
 import { marblesGenerations } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { WorkspaceRegistry } from "~/database/workspaces";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import { type Layout, layout, stateDatabase } from "~/layout";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type {
   DispatchOptions,
   WorkspaceState,

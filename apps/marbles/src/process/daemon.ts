@@ -28,13 +28,8 @@ import { GenerationRecords } from "~/database/generations";
 import type { MarblesDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import type { Layout } from "~/layout";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import {
-  insideState,
-  type Workspace,
-  type WorkspaceRecord,
-} from "~/lib/state/workspace";
 import type { WorkspaceSummary } from "~/model/connection";
 import type { LiveRun } from "~/model/dashboard";
 import { Channel, socketTransport } from "~/process/channel";
@@ -80,6 +75,11 @@ import {
 } from "~/process/protocol";
 import { RUNTIME_FLAGS, runtime } from "~/process/runtime";
 import { recordSpawned } from "~/process/spawned";
+import {
+  insideState,
+  type Workspace,
+  type WorkspaceRecord,
+} from "~/state/workspace";
 import {
   DEFAULT_SOURCE,
   resolveSource,

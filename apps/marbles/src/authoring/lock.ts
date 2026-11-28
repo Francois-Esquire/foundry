@@ -6,9 +6,9 @@ import type {
   Shared,
   StepRecord,
   WorkflowRecord,
-} from "~/lib/definition";
-import { isLockedNode } from "~/lib/definition";
-import { inputKeysOf } from "~/lib/schema";
+} from "~/lib/definitions";
+import { isLockedNode } from "~/lib/definitions";
+import { inputKeysOf } from "~/lib/definitions/schema";
 
 type Children = Readonly<Record<string, LockedNode>>;
 

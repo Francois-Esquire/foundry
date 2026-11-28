@@ -1,6 +1,6 @@
 import { defineCommand, noPositionals } from "~/cli/command";
-import { describeMonitor, type MonitorSpec } from "~/lib/monitor";
 import { describeTrigger } from "~/lib/schedule";
+import { describeMonitor, type MonitorSpec } from "~/lib/schedule/monitor";
 
 export const listCommand = defineCommand({
   group: "core",

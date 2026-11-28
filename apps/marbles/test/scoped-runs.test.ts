@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { AnyDefinition } from "~/lib/definition";
-import { DEFINITION_IDENTITY } from "~/lib/handles";
+import type { AnyDefinition } from "~/lib/definitions";
+import { DEFINITION_IDENTITY } from "~/lib/definitions/handles";
 import type { RunsSource } from "~/lib/managers/runs";
 import { scopedRuns } from "~/lib/managers/runs";
-import { RunScope } from "~/lib/run-scope";
+import { RunScope } from "~/lib/runs/scope";
 
 function raw(value: string, identity?: string): AnyDefinition {
   const definition: AnyDefinition = { fn: () => value, kind: "step" };

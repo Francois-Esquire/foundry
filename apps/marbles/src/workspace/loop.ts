@@ -1,6 +1,6 @@
 import { createNodeSchedulerClient } from "@foundry/scheduling/node";
 import type { Engine } from "~/lib/engine";
-import { runScheduler } from "~/lib/schedule-loop";
+import { runScheduler } from "~/lib/schedule/loop";
 
 export interface RunLoopOptions {
   readonly cancel?: AbortSignal;

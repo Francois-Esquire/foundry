@@ -1,5 +1,5 @@
-import { claudeCode } from "~/lib/providers/claude-code";
-import { codex } from "~/lib/providers/codex";
+import { claudeCode } from "~/providers/claude-code";
+import { codex } from "~/providers/codex";
 import { echoInstance } from "./echo";
 
 for (const plugin of [claudeCode, codex]) {

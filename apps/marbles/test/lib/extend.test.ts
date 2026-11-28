@@ -4,7 +4,7 @@ import { z } from "zod";
 import { Catalog } from "~/authoring/catalog";
 import { agent, skills } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
-import type { Agent } from "~/lib/types";
+import type { Agent } from "~/lib/definitions/types";
 import { testEngine } from "../helpers/engine";
 
 const engines: { dispose(): Promise<void> }[] = [];

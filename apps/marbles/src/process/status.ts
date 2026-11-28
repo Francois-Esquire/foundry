@@ -16,14 +16,14 @@ import type { RunResource, Shown } from "~/database/resources";
 import { ResourceView } from "~/database/resources";
 import type { ScheduleSnapshot } from "~/database/triggers";
 import { stateDatabase } from "~/layout";
-import type { RecoveryReport } from "~/lib/crash-recovery";
 import type { ObserverState } from "~/lib/events/log";
-import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
-import { runSteps } from "~/lib/run-trace";
-import type { WorkspaceRecord } from "~/lib/state/workspace";
-import { insideState } from "~/lib/state/workspace";
+import type { RecoveryReport } from "~/lib/recovery";
+import { TERMINAL_RUN_STATUSES } from "~/lib/runs/store";
+import { runSteps } from "~/lib/runs/trace";
 import type { ProcessStatus } from "~/process/instance";
 import { readProcess } from "~/process/instance";
+import type { WorkspaceRecord } from "~/state/workspace";
+import { insideState } from "~/state/workspace";
 
 export interface StatusReport {
   readonly generations: readonly GenerationStatus[];

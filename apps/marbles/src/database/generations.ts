@@ -3,8 +3,8 @@ import { eq, inArray } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { marblesGenerations } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
-import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
+import type { OwnerLiveness } from "~/lib/recovery/liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/recovery/liveness";
 
 export type GenerationState = (typeof marblesGenerations.$inferSelect)["state"];
 

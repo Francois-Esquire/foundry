@@ -2,16 +2,13 @@ import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { environmentSnapshot } from "~/lib/environment";
-import { refusingWhenChanged } from "~/lib/providers/account";
-import { claudeCode as claudeCodePlugin } from "~/lib/providers/claude-code";
-import { codex as codexPlugin } from "~/lib/providers/codex";
+import { environmentSnapshot } from "~/host/environment";
 import type {
   ProviderConfigurationOptions,
   ScopedRecord,
-} from "~/lib/providers/configuration";
-import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { pi as piPlugin } from "~/lib/providers/pi";
+} from "~/lib/providers";
+import { ProviderConfiguration } from "~/lib/providers";
+import { refusingWhenChanged } from "~/lib/providers/account";
 import type { ProviderPlugin, ProviderSetup } from "~/lib/providers/plugins";
 import type {
   ProviderConfigurations,
@@ -26,6 +23,9 @@ import {
   newIdentityKey,
   writtenTexts,
 } from "~/lib/providers/store";
+import { claudeCode as claudeCodePlugin } from "~/providers/claude-code";
+import { codex as codexPlugin } from "~/providers/codex";
+import { pi as piPlugin } from "~/providers/pi";
 import { pluginOf } from "./helpers/plugins";
 
 class TestStore implements ProviderStore {
@@ -186,6 +186,7 @@ function configuration(
   const models = new Models();
   const config = new ProviderConfiguration({
     environment,
+    liveEnv: () => process.env,
     models,
     plugins: PLUGINS,
     store,

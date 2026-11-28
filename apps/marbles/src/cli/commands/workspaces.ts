@@ -3,7 +3,7 @@ import { defineCommand } from "~/cli/command";
 import { UsageError } from "~/cli/errors";
 import { statusText, workspaceLines } from "~/cli/format/status";
 import { loadSettings, settingsPath } from "~/cli/settings";
-import { ResourceNotFoundError } from "~/lib/resources";
+import { ResourceNotFoundError } from "~/lib/definitions/resources";
 import { readStatus } from "~/process/status";
 
 type WorkspacesArgs =

@@ -41,7 +41,7 @@ function exportPaths(name: string): [string, string[]][] {
 const PROVIDERS = ["claude-code", "codex", "gateway", "pi", "vercel"];
 
 const providerEntries = Object.fromEntries(
-  PROVIDERS.map((name) => [`providers/${name}`, `src/lib/providers/${name}.ts`])
+  PROVIDERS.map((name) => [`providers/${name}`, `src/providers/${name}.ts`])
 );
 
 const selfImports: Record<string, string> = {
@@ -50,7 +50,7 @@ const selfImports: Record<string, string> = {
   ...Object.fromEntries(
     PROVIDERS.map((name) => [
       `@foundry.sh/marbles/providers/${name}`,
-      `./src/lib/providers/${name}.ts`,
+      `./src/providers/${name}.ts`,
     ])
   ),
 };
@@ -77,8 +77,9 @@ export default defineConfig([
     dts: false,
     entry: {
       index: "src/authoring/index.ts",
+      lib: "src/lib/index.ts",
       providers: "src/authoring/providers.ts",
-      statuses: "src/lib/execution-statuses.ts",
+      statuses: "src/lib/executions/statuses.ts",
     },
     esbuildOptions(options) {
       options.alias = selfImports;
@@ -95,7 +96,6 @@ export default defineConfig([
       daemon: "src/process/daemon-entry.ts",
       engine: "src/entries/embedded.ts",
       generation: "src/process/generation.ts",
-      lib: "src/entries/lib.ts",
       process: "src/process/index.ts",
       ...providerEntries,
       workspace: "src/workspace/index.ts",
@@ -127,11 +127,11 @@ export default defineConfig([
       engine: "src/entries/embedded.ts",
       generation: "src/process/generation.ts",
       index: "src/authoring/index.ts",
-      lib: "src/entries/lib.ts",
+      lib: "src/lib/index.ts",
       process: "src/process/index.ts",
       providers: "src/authoring/providers.ts",
       ...providerEntries,
-      statuses: "src/lib/execution-statuses.ts",
+      statuses: "src/lib/executions/statuses.ts",
       workspace: "src/workspace/index.ts",
     },
   },

@@ -1,22 +1,22 @@
 import type { Output } from "ai";
-import type { AnyDefinition } from "~/lib/definition";
-import type { Handler, Source } from "~/lib/events/source";
+import type { AnyDefinition } from "~/lib/definitions";
 import {
   MODULE_SOURCE,
   MONITOR_META,
   OBSERVER_META,
   PROVIDER_DECLARATION,
   WORKSPACE_DECLARATION,
-} from "~/lib/handles";
-import type { ProviderPlugin } from "~/lib/providers/plugins";
-import type { MonitorRecord } from "~/lib/registry";
-import type { Schedule } from "~/lib/triggers";
+} from "~/lib/definitions/handles";
+import type { MonitorRecord } from "~/lib/definitions/registry";
 import type {
   AgentLike,
   ArtifactDefinition,
   SandboxDefinition,
   WorkspaceDefinition,
-} from "~/lib/types";
+} from "~/lib/definitions/types";
+import type { Handler, Source } from "~/lib/events/source";
+import type { ProviderPlugin } from "~/lib/providers/plugins";
+import type { Schedule } from "~/lib/schedule/triggers";
 import type { MarblesConfig } from "./config";
 import type { Observer } from "./observe";
 

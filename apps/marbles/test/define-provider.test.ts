@@ -10,9 +10,9 @@ import { dispose } from "~/authoring/runtime";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
-import { claudeCode } from "~/lib/providers/claude-code";
-import { codex } from "~/lib/providers/codex";
-import { vercel } from "~/lib/providers/vercel";
+import { claudeCode } from "~/providers/claude-code";
+import { codex } from "~/providers/codex";
+import { vercel } from "~/providers/vercel";
 import { cliArgs } from "./helpers/cli";
 import { testHome } from "./helpers/home";
 

@@ -6,9 +6,9 @@ import { expect, it } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseRunStore } from "~/database/runs";
 import { stateDatabase } from "~/layout";
-import { linksOf } from "~/lib/execution-record";
-import { MemoryRunStore } from "~/lib/run-store";
-import { runStoreEffect } from "~/lib/workflow-runs";
+import { linksOf } from "~/lib/executions/record";
+import { runStoreEffect } from "~/lib/runs/records";
+import { MemoryRunStore } from "~/lib/runs/store";
 import { testMachine } from "./helpers/records";
 import { describeRunStore } from "./helpers/run-store";
 

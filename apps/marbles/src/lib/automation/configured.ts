@@ -1,4 +1,4 @@
-import type { Registry } from "~/lib/registry";
+import type { Registry } from "~/lib/definitions/registry";
 
 export function configuredMonitorUrl(
   registry: Registry

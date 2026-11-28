@@ -38,17 +38,17 @@ import { DatabaseWorkspaceRecords } from "~/database/tasks";
 import { type ScheduleSnapshot, storedSchedules } from "~/database/triggers";
 import type { StoreDatabase } from "~/database/types";
 import { WorkspaceRegistry } from "~/database/workspaces";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import { stateDatabase } from "~/layout";
 import type { AutomationStore } from "~/lib/automation/store";
-import type { RecoveryReport } from "~/lib/crash-recovery";
 import type { ObserverState } from "~/lib/events/log";
 import { causingRun } from "~/lib/events/records";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { keptConfigurations, type ProviderStore } from "~/lib/providers/store";
-import { recoveryReportSchema } from "~/lib/recovery-report";
-import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
-import { insideState, type WorkspaceRecord } from "~/lib/state/workspace";
+import type { RecoveryReport } from "~/lib/recovery";
+import type { OwnerLiveness } from "~/lib/recovery/liveness";
+import { recoveryReportSchema } from "~/lib/recovery/report";
+import { acquireLock, PROCESS_LOCK } from "~/state/locks";
+import { insideState, type WorkspaceRecord } from "~/state/workspace";
 
 export type { StoreDatabase } from "~/database/types";
 

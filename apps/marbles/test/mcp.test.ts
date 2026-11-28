@@ -15,8 +15,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { workspaceState } from "~/lib/state/workspace";
 import { daemonAlive } from "~/process/client";
+import { workspaceState } from "~/state/workspace";
 import { version } from "../package.json";
 import { testHome } from "./helpers/home";
 import {

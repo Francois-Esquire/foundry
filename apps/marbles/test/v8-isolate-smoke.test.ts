@@ -7,6 +7,7 @@ const NODE_BUILTIN =
 
 const WORKSPACE_ROOT = resolve(import.meta.dirname, "../../..");
 const MARBLES_DIST_INDEX = resolve(import.meta.dirname, "../dist/index.js");
+const MARBLES_DIST_LIB = resolve(import.meta.dirname, "../dist/lib.js");
 const VIRTUAL_ENTRY = resolve(import.meta.dirname, "__v8-isolate-smoke__.ts");
 
 const SMOKE_ENTRY = `
@@ -41,6 +42,15 @@ import { statelessQueueDispatch } from "@foundry/scheduling/queue";
 import { makeMemoryScheduleStore } from "@foundry/scheduling/store/memory";
 import { Effect, Exit } from "effect";
 import { defineWorkspace, step, workflow } from ${JSON.stringify(MARBLES_DIST_INDEX)};
+import {
+  CommandError,
+  createPortableContextRuntime,
+  Engine as MarblesEngine,
+  installContextRuntime,
+  MemoryRunOutputSink,
+  PORTABLE_OWNER_LIVENESS,
+  parseArgv,
+} from ${JSON.stringify(MARBLES_DIST_LIB)};
 
 globalThis.__smokeResult = (async () => {
   for (const forbidden of [
@@ -154,15 +164,40 @@ globalThis.__smokeResult = (async () => {
     definitions: [marblesStep, marblesWf],
   });
 
+  installContextRuntime(createPortableContextRuntime());
+  const parsedArgv = parseArgv("echo 'hello world'");
+  const commandError = new CommandError(["echo"], { exitCode: 1, stderr: "boom", stdout: "" });
+
+  const marblesOutput = new MemoryRunOutputSink();
+  const marblesEngine = new MarblesEngine({
+    artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
+    containers: () => Promise.reject(new Error("no sandbox in isolate")),
+    liveness: PORTABLE_OWNER_LIVENESS,
+    models: new Models(),
+    outputSink: marblesOutput,
+    print: () => undefined,
+    root: "/virtual/marbles",
+    sessions: new MemorySessionStore(),
+    workspaceId: "isolate-ws",
+  });
+  marblesEngine.define(marblesStep);
+  marblesEngine.define(marblesWf);
+  await marblesEngine.start();
+  const marblesRunOutput = await marblesEngine.run("pipeline", undefined);
+  await marblesEngine.dispose();
+
   return {
     artifactId: createdArtifact.id,
+    commandErrorOk: commandError instanceof CommandError && commandError.result.exitCode === 1,
     committed,
     formattedModel,
     idPrefix: id.startsWith("iso_"),
     marblesItems: marblesWorkspace.input.definitions?.length ?? 0,
+    marblesRunOutput,
     modelsReady: Array.isArray(models.providers),
     modulesCount: listedModules.items.length,
     pageItems: page.items,
+    parsedArgvCount: parsedArgv.length,
     pathsMarbles: paths.marbles,
     promptApiType,
     queueResult,
@@ -328,13 +363,16 @@ describe("Non-Node V8 isolate smoke test", () => {
     const result = runInNodeV8Isolate(code);
 
     expect(result).toMatchObject({
+      commandErrorOk: true,
       committed: true,
       formattedModel: "openai/gpt-5",
       idPrefix: true,
       marblesItems: 2,
+      marblesRunOutput: "hi v8",
       modelsReady: true,
       modulesCount: 0,
       pageItems: ["a", "b"],
+      parsedArgvCount: 2,
       pathsMarbles: "/virtual/marbles",
       promptApiType: "function",
       queueResult: {

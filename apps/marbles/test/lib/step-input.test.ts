@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { agent } from "~/authoring/resources";
-import { commandRunner } from "~/lib/command";
+import { commandRunner } from "~/host/command";
+import type { SandboxHandle } from "~/lib/definitions/types";
 import type { Engine } from "~/lib/engine";
-import type { LiveWork } from "~/lib/step-work";
-import { StepInputError, StepWork } from "~/lib/step-work";
-import type { SandboxHandle } from "~/lib/types";
+import type { LiveWork } from "~/lib/runs/step-work";
+import { StepInputError, StepWork } from "~/lib/runs/step-work";
 import { bindMock } from "../helpers/bindings";
 import { startEngine } from "../helpers/engine";
 

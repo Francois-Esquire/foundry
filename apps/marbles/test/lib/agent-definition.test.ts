@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { McpClient } from "@foundry/agents/mcp";
+import { createNodeMcpClient } from "@foundry/agents/node";
 import { defineSkill } from "@foundry/agents/skills";
 import { usage } from "@foundry/usage/node";
 import { defineProvider, window } from "@foundry/usage/provider";
@@ -11,17 +12,17 @@ import { Catalog } from "~/authoring/catalog";
 import { prompts, ref } from "~/authoring/index";
 import { agent, skills } from "~/authoring/resources";
 import { dispose, setHost } from "~/authoring/runtime";
-import type { ManagerArgs } from "~/lib/bindings";
-import type { Engine } from "~/lib/engine";
-import type { AgentsDeps } from "~/lib/managers/agents";
-import { AgentsManager, buildDefinition } from "~/lib/managers/agents";
-import { RunScope } from "~/lib/run-scope";
+import type { ManagerArgs } from "~/lib/definitions/bindings";
 import type {
   AgentLike,
   AgentMcpServer,
   AgentRoute,
   DeferredAgent,
-} from "~/lib/types";
+} from "~/lib/definitions/types";
+import type { Engine } from "~/lib/engine";
+import type { AgentsDeps } from "~/lib/managers/agents";
+import { AgentsManager, buildDefinition } from "~/lib/managers/agents";
+import { RunScope } from "~/lib/runs/scope";
 import { BackgroundRuns } from "~/workspace/background-runs";
 import { dispatchSchema } from "~/workspace/dispatch";
 import { testEngine } from "../helpers/engine";
@@ -141,6 +142,7 @@ function managerDeps(): AgentsDeps {
     containerOf: (): never => {
       throw new Error("no sandbox in these tests");
     },
+    createMcpClient: createNodeMcpClient,
     cwd: process.cwd(),
     defaultExecutor: () => CLAUDE_CODE,
     interactions: host.interactions,

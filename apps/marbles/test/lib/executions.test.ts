@@ -10,11 +10,11 @@ import { Effect, Layer } from "effect";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { step } from "~/authoring/builder";
-import { executionOf } from "~/lib/execution-record";
-import { MemoryExecutionStore } from "~/lib/execution-store";
 import { Executions } from "~/lib/executions";
-import type { Factory } from "~/lib/run-queue";
-import type { TaskContext } from "~/lib/tasks";
+import { executionOf } from "~/lib/executions/record";
+import { MemoryExecutionStore } from "~/lib/executions/store";
+import type { Factory } from "~/lib/runs/queue";
+import type { TaskContext } from "~/lib/runs/tasks";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import {
   blockingTask,

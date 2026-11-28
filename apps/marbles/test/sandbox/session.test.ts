@@ -14,12 +14,12 @@ import type { Container } from "@foundry/sandbox";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
-import type { ExecutionObservation } from "../../src/lib/executions";
+import type { SandboxHandle } from "~/lib/definitions/types";
+import type { ExecutionObservation } from "~/lib/executions";
+import { runTurnObserver } from "~/lib/executions/observations";
+import type { SandboxSessionOptions } from "~/lib/sandbox";
+import { createSandboxSession } from "~/lib/sandbox";
 import { wrapAgentSession } from "../../src/lib/managers/agent-turns";
-import { runTurnObserver } from "../../src/lib/observations";
-import type { SandboxSessionOptions } from "../../src/lib/sandbox/session";
-import { createSandboxSession } from "../../src/lib/sandbox/session";
-import type { SandboxHandle } from "../../src/lib/types";
 
 const binding: { container: Container | undefined } = { container: undefined };
 vi.mock("@foundry/models/providers/claude-code", () => ({

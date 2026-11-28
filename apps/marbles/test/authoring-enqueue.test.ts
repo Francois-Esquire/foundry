@@ -28,10 +28,10 @@ import {
   withLoadScope,
 } from "~/authoring/runtime";
 import { DatabaseRunStore } from "~/database/runs";
+import { DEFINITION_IDENTITY } from "~/lib/definitions/handles";
 import type { Engine } from "~/lib/engine";
-import { inContext } from "~/lib/execution-context";
-import { DEFINITION_IDENTITY } from "~/lib/handles";
-import type { RunEvent } from "~/lib/workflow-runs";
+import { inContext } from "~/lib/runs/context";
+import type { RunEvent } from "~/lib/runs/records";
 import { startEngine, testEngine } from "./helpers/engine";
 import { openFeed } from "./helpers/feed";
 import type { TestMachine } from "./helpers/records";

@@ -6,12 +6,13 @@ import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { step } from "@foundry.sh/marbles";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { localFeedPayload } from "~/host/feed-media";
 import type { Engine } from "~/lib/engine";
-import { feedPayload, feedQuestionSchema } from "~/lib/feed/entry";
-import { feedPublisher } from "~/lib/feed/publish";
+import { feedPublisher } from "~/lib/feed";
+import { feedQuestionSchema } from "~/lib/feed/entry";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
 import { feedReader, formatPosted } from "~/lib/feed/read";
-import { createLog, formatLogValues } from "~/lib/log";
+import { createLog, formatLogValues } from "~/lib/shared/log";
 import { registerSetupStep, SETUP_STEP } from "~/workspace/setup-step";
 
 import type { TestEngineOptions } from "./helpers/engine";
@@ -59,17 +60,17 @@ function engineOver(
 describe("feed posts", () => {
   it("validate where the step called them and resolve media from the workspace", async () => {
     expect(() =>
-      feedPayload({ key: "k", kind: "result", title: " " }, root)
+      localFeedPayload({ key: "k", kind: "result", title: " " }, root)
     ).toThrow(MISSING_TITLE);
     expect(() =>
-      feedPayload(
+      localFeedPayload(
         { key: "k", kind: "result", media: ["missing.png"], title: "T" },
         root
       )
     ).toThrow(UNREADABLE_MEDIA);
     await writeFile(join(root, "chart.png"), PNG);
     expect(
-      feedPayload(
+      localFeedPayload(
         { key: "k", kind: "result", media: ["chart.png"], title: "T" },
         root
       ).media

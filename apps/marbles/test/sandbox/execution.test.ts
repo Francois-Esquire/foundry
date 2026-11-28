@@ -3,10 +3,13 @@ import type { HarnessTurnDriver } from "@foundry/agents/harness";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { Container } from "@foundry/sandbox";
 import { beforeEach, expect, it, vi } from "vitest";
-import { codex as codexPlugin } from "~/lib/providers/codex";
+import { guestAuth } from "~/host/guest/credentials";
+import { FIRST_PARTY_DRIVERS } from "~/host/guest/drivers";
+import { prepareGuest } from "~/host/guest/prepare";
+import type { SandboxHandle } from "~/lib/definitions/types";
 import type { Execution } from "~/lib/providers/plugins";
-import { createSandboxSession } from "~/lib/sandbox/session";
-import type { SandboxHandle } from "~/lib/types";
+import { createSandboxSession } from "~/lib/sandbox";
+import { codex as codexPlugin } from "~/providers/codex";
 
 const seen = vi.hoisted(() => ({
   auth: [] as unknown[],
@@ -30,14 +33,14 @@ vi.mock("@foundry/models/providers/codex", async (importOriginal) => ({
     return { first: "party" };
   },
 }));
-vi.mock("~/lib/sandbox/credentials", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("~/lib/sandbox/credentials")>()),
+vi.mock("~/host/guest/credentials", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/host/guest/credentials")>()),
   guestAuth: (_harness: string, options: unknown) => {
     seen.auth.push(options);
     return { apiKey: "key", kind: "apiKey" };
   },
 }));
-vi.mock("~/lib/sandbox/prepare", () => ({
+vi.mock("~/host/guest/prepare", () => ({
   prepareGuest: async () => ({
     environment: { HOME: "/guest" },
     executable: "/opt/foundry/bin/codex",
@@ -56,7 +59,9 @@ function open(execution?: Execution, wireModelId?: string) {
   return createSandboxSession({
     agentId: "coder",
     container,
+    drivers: FIRST_PARTY_DRIVERS,
     ...(execution ? { execution } : {}),
+    guestAuth,
     harness: "codex",
     hostCwd: process.cwd(),
     instructions: "inspect",
@@ -65,6 +70,7 @@ function open(execution?: Execution, wireModelId?: string) {
       authority: { authorization: createMemoryAuthorization() },
       sandbox: {} as SandboxHandle,
     },
+    prepareGuest,
     provider: "work-codex",
     sessionId: "session",
     signal: new AbortController().signal,

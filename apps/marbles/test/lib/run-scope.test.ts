@@ -1,8 +1,8 @@
 import { Step } from "@foundry/workflows/step";
 import { describe, expect, it } from "vitest";
 
-import { Ledger } from "~/lib/ledger";
-import { RunScope, RunScopes, raceAbort } from "~/lib/run-scope";
+import { Ledger } from "~/lib/runs/ledger";
+import { RunScope, RunScopes, raceAbort } from "~/lib/runs/scope";
 
 const idle = () =>
   Promise.resolve(

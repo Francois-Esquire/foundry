@@ -1,14 +1,14 @@
 import { Models } from "@foundry/models";
 import { providerStoreForState } from "~/database/open";
-import { environmentSnapshot } from "~/lib/environment";
-import type { Proposal } from "~/lib/providers/configuration";
-import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
+import { environmentSnapshot } from "~/host/environment";
+import type { Proposal } from "~/lib/providers";
+import { ProviderConfiguration } from "~/lib/providers";
 import type {
   ProviderPlugin,
   ProviderWorkspace,
 } from "~/lib/providers/plugins";
 import { ConfigurationError } from "~/lib/providers/store";
+import { DEFAULT_PROVIDERS } from "~/providers/defaults";
 
 interface DiscoveryOptions {
   readonly plugins?: readonly ProviderPlugin[];
@@ -28,6 +28,7 @@ export async function discoverProviderSetup(options: DiscoveryOptions) {
   const configure = () =>
     new ProviderConfiguration({
       environment: environmentSnapshot(),
+      liveEnv: () => process.env,
       models: new Models(),
       plugins,
       store,

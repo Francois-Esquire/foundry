@@ -14,10 +14,10 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defaultWorkspaceTriggers } from "~/database/managed";
-import type { AnyDefinition } from "~/lib/definition";
+import type { LocalWorkspaces } from "~/host/workspaces";
+import type { AnyDefinition } from "~/lib/definitions";
 import type { EngineOptions } from "~/lib/engine";
-import { createLog } from "~/lib/log";
-import type { LocalWorkspaces } from "~/lib/managers/workspaces";
+import { registration, rollSchedule } from "~/lib/schedule";
 import type {
   Change,
   DetectorOptions,
@@ -26,12 +26,12 @@ import type {
   MonitorHandler,
   MonitorHost,
   MonitorSpec,
-} from "~/lib/monitor";
-import { detector, handlerResponse } from "~/lib/monitor";
-import { registration, rollSchedule } from "~/lib/schedule";
-import { isRecord, NotStorableError } from "~/lib/state/json";
-import type { TriggerStore } from "~/lib/trigger-store";
-import { MemoryTriggerStore } from "~/lib/trigger-store";
+} from "~/lib/schedule/monitor";
+import { detector, handlerResponse } from "~/lib/schedule/monitor";
+import type { TriggerStore } from "~/lib/schedule/store";
+import { MemoryTriggerStore } from "~/lib/schedule/store";
+import { createLog } from "~/lib/shared/log";
+import { isRecord, NotStorableError } from "~/state/json";
 
 import { declared, startEngine, testEngine } from "./helpers/engine";
 import { bindLaunch, launch } from "./helpers/launch";

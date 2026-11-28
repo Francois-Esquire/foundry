@@ -15,7 +15,7 @@ import { batches } from "~/database/lists";
 import { marblesSessionRevisions } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
 import { SESSIONS, sourceKey } from "~/lib/events/source";
-import type { ListedSessionStore, SessionStamp } from "~/lib/usage-evidence";
+import type { ListedSessionStore, SessionStamp } from "~/lib/usage/evidence";
 
 export interface DatabaseSessionStoreOptions {
   readonly changes?: ChangeRecorder;

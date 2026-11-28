@@ -5,7 +5,7 @@ import {
   placeholdersOf,
   shellQuote,
   showArgv,
-} from "~/lib/argv";
+} from "~/lib/commands/argv";
 
 const fill = (template: string, values: Record<string, unknown> = {}) =>
   fillArgv(parseArgv(template), values);

@@ -1,7 +1,7 @@
 import type { Occurrence } from "@foundry/scheduling";
+import { runStoreEffect } from "~/lib/runs/records";
 import type { ScheduledEngine } from "~/lib/schedule";
-import { runScheduler } from "~/lib/schedule-loop";
-import { runStoreEffect } from "~/lib/workflow-runs";
+import { runScheduler } from "~/lib/schedule/loop";
 
 export interface RunningScheduler {
   readonly done: Promise<void>;

@@ -8,7 +8,8 @@ import { afterEach, expect, it } from "vitest";
 import { readLastRecovery } from "~/database/open";
 import { DatabaseRecoveryLog } from "~/database/recoveries";
 import { workspaceStores } from "~/database/stores";
-import { CrashRecovery } from "~/lib/crash-recovery";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
+import { CrashRecovery } from "~/lib/recovery";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { containerHolder, leftBehind } from "~/lib/sandbox/holders";
 import { startedAt } from "~/process/spawned";
@@ -56,7 +57,7 @@ async function fixture() {
   const ours = () =>
     createContainers({
       driver: runtime,
-      holder: containerHolder(),
+      holder: containerHolder(NODE_OWNER_LIVENESS),
       instanceLabel: "marbles-ws",
       store: stores.containers,
     });
@@ -67,6 +68,7 @@ async function fixture() {
       containerRows: stores.containers,
       containers: () => Promise.resolve(registry),
       executions: () => [],
+      liveness: NODE_OWNER_LIVENESS,
       print: (line) => lines.push(line),
     });
   return { ours, recovery, runtime, stores, theirs };
@@ -77,12 +79,18 @@ it("takes back the rows a gone process held, with their VMs, and keeps those a l
   const left = await theirs.start(SPEC);
   const mine = ours();
   const held = await mine.start(SPEC);
-  expect(leftBehind((await stores.containers.get(left.id)) as never)).toBe(
-    true
-  );
-  expect(leftBehind((await stores.containers.get(held.id)) as never)).toBe(
-    false
-  );
+  expect(
+    leftBehind(
+      (await stores.containers.get(left.id)) as never,
+      NODE_OWNER_LIVENESS
+    )
+  ).toBe(true);
+  expect(
+    leftBehind(
+      (await stores.containers.get(held.id)) as never,
+      NODE_OWNER_LIVENESS
+    )
+  ).toBe(false);
 
   const next = ours();
   const lines: string[] = [];
@@ -256,7 +264,7 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
       store: workspaceStores(machine.database.database, scope).containers,
     });
   const gone = await goneProcess();
-  const alphaLive = registry("alpha", containerHolder());
+  const alphaLive = registry("alpha", containerHolder(NODE_OWNER_LIVENESS));
   const alphaHeld = await alphaLive.start(SPEC);
   const alphaLeft = await registry(
     "alpha",
@@ -268,7 +276,7 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
   ).start(SPEC);
 
   const beta = workspaceStores(machine.database.database, "beta");
-  const betaNext = registry("beta", containerHolder());
+  const betaNext = registry("beta", containerHolder(NODE_OWNER_LIVENESS));
   const lines: string[] = [];
   await new CrashRecovery({
     activities: new HarnessActivities(),
@@ -276,6 +284,7 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
     containerRows: beta.containers,
     containers: () => Promise.resolve(betaNext),
     executions: () => [],
+    liveness: NODE_OWNER_LIVENESS,
     print: (line) => lines.push(line),
   }).recover(RUNS);
 
@@ -319,6 +328,7 @@ it("keeps the names of passed-over VMs in the report as the database keeps it an
     containerRows: stores.containers,
     containers: () => Promise.resolve(ours()),
     executions: () => [],
+    liveness: NODE_OWNER_LIVENESS,
     print: () => undefined,
   });
   const { report } = await recovered.recover(RUNS);

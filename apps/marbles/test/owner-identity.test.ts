@@ -8,7 +8,7 @@ import { anotherStart } from "@foundry/lib/testing/process-identity";
 import { afterEach, describe, expect, it } from "vitest";
 import { marblesDeliveryClaims } from "~/database/tables";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import { testHome } from "./helpers/home";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";

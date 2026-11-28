@@ -2,8 +2,8 @@ import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider";
 import type { LanguageModelV4, Provider } from "@foundry/models";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
-import type { TurnExecutorRef } from "~/lib/cli-harnesses";
-import { harnessOf } from "~/lib/cli-harnesses";
+import type { TurnExecutorRef } from "~/lib/managers/cli-harnesses";
+import { harnessOf } from "~/lib/managers/cli-harnesses";
 
 export type Print = (line: string) => void;
 

@@ -1,6 +1,6 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { describe, expect, it, vi } from "vitest";
-import type { LiveWork } from "~/lib/step-work";
+import type { LiveWork } from "~/lib/runs/step-work";
 import type { WorkspaceConnection } from "~/model/connection";
 import type { StepSnapshot } from "~/model/dashboard";
 import { Channel } from "~/process/channel";

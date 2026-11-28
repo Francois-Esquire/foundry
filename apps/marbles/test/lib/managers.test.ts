@@ -14,17 +14,22 @@ import { git } from "@foundry/workspaces/node/git";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { skills } from "~/authoring/resources";
 import { workspaceStores } from "~/database/stores";
-import type { Bindings, ManagerArgs } from "~/lib/bindings";
+import { allowedMountRoots } from "~/host/mounts";
+import { skillResolver } from "~/host/skills";
+import {
+  ensureWorktreeDir,
+  nodeGitAt,
+  repositoryRoot,
+} from "~/host/workspaces";
+import type { Bindings, ManagerArgs } from "~/lib/definitions/bindings";
 import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
 import {
-  allowedMountRoots,
   constraintsFor,
   guestFiles,
   SandboxesManager,
 } from "~/lib/managers/sandboxes";
-import { skillResolver } from "~/lib/managers/skills";
-import { repositoryRoot, WorkspacesManager } from "~/lib/managers/workspaces";
-import { current, RunScope } from "~/lib/run-scope";
+import { WorkspacesManager } from "~/lib/managers/workspaces";
+import { current, RunScope } from "~/lib/runs/scope";
 import { echoGit } from "../helpers/engine";
 import { testMachine } from "./../helpers/records";
 import { seedRepository } from "./../helpers/repository";
@@ -235,7 +240,12 @@ describe("workspaces", () => {
     const repo = await seedRepository();
     const catalogue = createWorkspaces().extend(git());
     try {
-      const manager = new WorkspacesManager({ catalogue, root: repo });
+      const manager = new WorkspacesManager({
+        catalogue,
+        ensureDir: ensureWorktreeDir,
+        gitAt: nodeGitAt(),
+        root: repo,
+      });
       const a = args(repo);
       const workspaces = manager.scoped(a);
       expect(workspaces.current.root).toBe(repo);
@@ -274,6 +284,8 @@ describe("workspaces", () => {
     try {
       const workspaces = new WorkspacesManager({
         catalogue,
+        ensureDir: ensureWorktreeDir,
+        gitAt: nodeGitAt(),
         root: repo,
         worktreeHome,
       }).scoped(args(repo));
@@ -309,7 +321,8 @@ describe("workspaces", () => {
     try {
       const workspaces = new WorkspacesManager({
         catalogue,
-        gitOptions,
+        ensureDir: ensureWorktreeDir,
+        gitAt: nodeGitAt(gitOptions),
         root: repo,
       }).scoped(args(repo));
       expect(await workspaces.current.git.hasBranch("main")).toBe(true);
@@ -323,9 +336,11 @@ describe("workspaces", () => {
 
   it("refuses git outside a repository with a clear message", () => {
     const catalogue = createWorkspaces().extend(git());
-    const workspaces = new WorkspacesManager({ catalogue, root: tmp }).scoped(
-      args()
-    );
+    const workspaces = new WorkspacesManager({
+      catalogue,
+      gitAt: nodeGitAt(),
+      root: tmp,
+    }).scoped(args());
     expect(() => workspaces.current.git).toThrow(NOT_A_REPOSITORY);
   });
 });

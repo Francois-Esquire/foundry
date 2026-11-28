@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { step as publishedStep } from "@foundry.sh/marbles";
 import { Engine as PublishedEngine } from "@foundry.sh/marbles/engine";
-import { DatabaseProviderStore as PublishedProviderStore } from "@foundry.sh/marbles/lib";
+import { Engine as PublishedLibEngine } from "@foundry.sh/marbles/lib";
 import { startDaemon as publishedStartDaemon } from "@foundry.sh/marbles/process";
 import { defineProvider as publishedDefineProvider } from "@foundry.sh/marbles/providers";
 import { claudeCode as publishedClaudeCode } from "@foundry.sh/marbles/providers/claude-code";
@@ -18,20 +18,20 @@ import { describe, expect, it } from "vitest";
 import { step } from "~/authoring/index";
 import { defineProvider } from "~/authoring/providers";
 import { Engine } from "~/entries/engine";
-import { DatabaseProviderStore } from "~/entries/lib";
-import { EXECUTION_STATUSES } from "~/lib/execution-statuses";
-import { claudeCode } from "~/lib/providers/claude-code";
-import { codex } from "~/lib/providers/codex";
-import { gateway } from "~/lib/providers/gateway";
-import { pi } from "~/lib/providers/pi";
-import { vercel } from "~/lib/providers/vercel";
+import { EXECUTION_STATUSES } from "~/lib/executions/statuses";
+import { Engine as PortableEngine } from "~/lib/index";
 import { startDaemon } from "~/process/index";
+import { claudeCode } from "~/providers/claude-code";
+import { codex } from "~/providers/codex";
+import { gateway } from "~/providers/gateway";
+import { pi } from "~/providers/pi";
+import { vercel } from "~/providers/vercel";
 import { createStarter } from "~/workspace/index";
 
 const subpaths: [string, unknown, unknown][] = [
   [".", publishedStep, step],
   ["./engine", PublishedEngine, Engine],
-  ["./lib", PublishedProviderStore, DatabaseProviderStore],
+  ["./lib", PublishedLibEngine, PortableEngine],
   ["./process", publishedStartDaemon, startDaemon],
   ["./providers", publishedDefineProvider, defineProvider],
   ["./providers/claude-code", publishedClaudeCode, claudeCode],

@@ -1,8 +1,8 @@
 import type { SessionStore } from "@foundry/agents/store";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import type { ReadonlyRunScopes } from "~/lib/run-scope";
-import type { LiveWork } from "~/lib/step-work";
-import type { RunRecord } from "~/lib/workflow-runs";
+import type { RunRecord } from "~/lib/runs/records";
+import type { ReadonlyRunScopes } from "~/lib/runs/scope";
+import type { LiveWork } from "~/lib/runs/step-work";
 import type { LiveRun } from "~/model/dashboard";
 
 const MAX_DELEGATION_DEPTH = 8;

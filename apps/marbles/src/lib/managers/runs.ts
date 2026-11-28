@@ -1,11 +1,11 @@
-import { current } from "~/lib/run-scope";
-import type { RunRecord } from "~/lib/workflow-runs";
-import type { ManagerArgs } from "../bindings";
-import type { AnyDefinition } from "../definition";
-import type { ExecutionRun } from "../execution-record";
-import type { ExecutionStatus } from "../execution-statuses";
-import { DEFINITION_IDENTITY } from "../handles";
-import type { DefinitionLaunch, Launched } from "../launcher";
+import type { AnyDefinition } from "~/lib/definitions";
+import type { ManagerArgs } from "~/lib/definitions/bindings";
+import { DEFINITION_IDENTITY } from "~/lib/definitions/handles";
+import type { ExecutionRun } from "~/lib/executions/record";
+import type { ExecutionStatus } from "~/lib/executions/statuses";
+import type { DefinitionLaunch, Launched } from "~/lib/runs";
+import type { RunRecord } from "~/lib/runs/records";
+import { current } from "~/lib/runs/scope";
 
 export interface RunView {
   readonly endedAt?: string;

@@ -15,9 +15,9 @@ import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase, readDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import { linksOf } from "~/lib/execution-record";
-import type { ExecutionStatus } from "~/lib/execution-statuses";
 import type { ExecutionRun } from "~/lib/executions";
+import { linksOf } from "~/lib/executions/record";
+import type { ExecutionStatus } from "~/lib/executions/statuses";
 import { testEngine } from "./engine";
 export function executionFixture() {
   let root: string;

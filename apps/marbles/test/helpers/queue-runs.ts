@@ -12,8 +12,8 @@ import type {
 } from "@foundry/queue";
 import type { QueueStoreService, QueueWrite } from "@foundry/queue/store";
 import { Effect } from "effect";
-import type { RunStatus } from "~/lib/workflow-runs";
-import { isRunId, runStoreEffect } from "~/lib/workflow-runs";
+import type { RunStatus } from "~/lib/runs/records";
+import { isRunId, runStoreEffect } from "~/lib/runs/records";
 
 export interface PutRunOptions {
   readonly at?: number;

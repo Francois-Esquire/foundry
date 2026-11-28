@@ -3,7 +3,7 @@ import { thisProcess } from "@foundry/lib/node/process-identity";
 
 import { layout } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import type { QueuedAdoption } from "~/lib/launcher";
+import type { QueuedAdoption } from "~/lib/runs";
 import { Channel, socketTransport } from "~/process/channel";
 import type {
   LoadResult,

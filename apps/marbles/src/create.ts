@@ -1,6 +1,7 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { createNodeMcpClient } from "@foundry/agents/node";
 import type { SessionStore } from "@foundry/agents/store";
 import { MemorySessionStore } from "@foundry/agents/store/memory";
 import type { ArtifactSubstrate } from "@foundry/artifacts";
@@ -9,6 +10,7 @@ import { blobFiles } from "@foundry/artifacts/node";
 import type { ArtifactStore } from "@foundry/artifacts/store";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import type { AuthorizationStore } from "@foundry/authorization/store";
+import { stopOrphans } from "@foundry/lib/node/orphans";
 import type { Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { DEFAULT_POOL } from "@foundry/queue";
@@ -34,41 +36,53 @@ import { DatabaseProviderStore } from "~/database/providers";
 import type { WorkspaceStores } from "~/database/stores";
 import { assembleSqliteWorkspaceStores } from "~/database/stores";
 import { Engine as PublishedEngine } from "~/entries/engine";
+import { installNodeContextRuntime } from "~/host/async-context";
+import { commandRunner } from "~/host/command";
+import { environmentSnapshot } from "~/host/environment";
+import { readFeedMedia, resolveFeedMedia } from "~/host/feed-media";
+import { guestAuth } from "~/host/guest/credentials";
+import { FIRST_PARTY_DRIVERS } from "~/host/guest/drivers";
+import { prepareGuest } from "~/host/guest/prepare";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
+import { allowedMountRoots } from "~/host/mounts";
+import { skillResolver } from "~/host/skills";
+import {
+  ensureWorktreeDir,
+  localWorkspaces,
+  nodeGitAt,
+} from "~/host/workspaces";
 import { layout } from "~/layout";
+import { AutomationService } from "~/lib/automation";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
-import { AutomationService } from "~/lib/automation/service";
 import type { AutomationStore } from "~/lib/automation/store";
+import { Registry } from "~/lib/definitions/registry";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine } from "~/lib/engine";
-import { environmentSnapshot } from "~/lib/environment";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { causingRun } from "~/lib/events/records";
 import { sourceKey } from "~/lib/events/source";
-import type { PoolConfig } from "~/lib/execution-record";
-import type { ExecutionStore } from "~/lib/execution-store";
-import { inTurn } from "~/lib/in-turn";
-import type { LogLevel, LogOrigin } from "~/lib/log";
-import {
-  allowedMountRoots,
-  type WorkspaceMaterialization,
-} from "~/lib/managers/sandboxes";
-import { localWorkspaces } from "~/lib/managers/workspaces";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
-import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { DEFAULT_PROVIDERS } from "~/lib/providers/defaults";
+import type { PoolConfig } from "~/lib/executions/record";
+import type { ExecutionStore } from "~/lib/executions/store";
+import type { WorkspaceMaterialization } from "~/lib/managers/sandboxes";
+import { ProviderConfiguration } from "~/lib/providers";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 import type { ProviderStore } from "~/lib/providers/store";
 import { MemoryProviderStore } from "~/lib/providers/store";
-import { Registry } from "~/lib/registry";
-import type { RunQueueOptions } from "~/lib/run-queue";
-import type { RunStore } from "~/lib/run-store";
+import type { OwnerLiveness } from "~/lib/recovery/liveness";
+import type { RunOutputSink } from "~/lib/runs/output";
+import type { RunQueueOptions } from "~/lib/runs/queue";
+import type { RunStore } from "~/lib/runs/store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
 import { containerHolder } from "~/lib/sandbox/holders";
-import type { RunOutputSink } from "~/lib/state/output";
-import type { TriggerStore } from "~/lib/trigger-store";
-import type { UsageStore } from "~/lib/usage-store";
+import type { TriggerStore } from "~/lib/schedule/store";
+import { inTurn } from "~/lib/shared/in-turn";
+import type { LogLevel, LogOrigin } from "~/lib/shared/log";
+import type { UsageStore } from "~/lib/usage/store";
+import { DEFAULT_PROVIDERS } from "~/providers/defaults";
+import { FileRunOutputSink } from "~/state/output";
 import { initializeUsage } from "~/workspace/node-usage";
+
+installNodeContextRuntime();
 
 export const DEFAULT_HOSTED_POOL_LIMIT = 4;
 
@@ -265,6 +279,7 @@ function modelsFor(
   const providers = new ProviderConfiguration({
     environment: options.environment ?? environmentSnapshot(),
     ...(fixed ? { fixed } : {}),
+    liveEnv: () => process.env,
     models,
     plugins: pluginsFor(options),
     store: providerStoreFor(options, fallback),
@@ -423,7 +438,7 @@ function containersFor(
   return async () =>
     createContainers({
       driver: await resolveDriver(),
-      holder: containerHolder(liveness),
+      holder: containerHolder(liveness ?? NODE_OWNER_LIVENESS),
       instanceLabel: `marbles-${workspaceId}`,
       report: (line) => print(`[sandbox] ${line}`),
       store: store ?? new MemoryContainerStore(),
@@ -468,7 +483,7 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(options.spawned === undefined ? {} : { spawned: options.spawned }),
     ...(options.stateDir === undefined ? {} : { state: options.stateDir }),
   });
-  const worktrees = Engine.worktreesFor(state);
+  const worktrees = PublishedEngine.worktreesFor(state);
   const { database, stores: injected } = options;
   const assembled = databaseStoresFor(options, database);
   const { own, ...kept } = recordsFor(state, injected, options, assembled);
@@ -483,6 +498,9 @@ export function createEngine(options: CreateEngineOptions): Engine {
   const containerStore = injected?.containers ?? dbStores?.containers;
   const workspaceStore = injected?.workspaces ?? dbStores?.workspaces;
   const artifacts = artifactsFor(dbStores, injected?.artifacts, options);
+  const outputSink =
+    options.outputSink ??
+    (state === undefined ? undefined : new FileRunOutputSink(state));
   const engineOptions: EngineOptions = {
     pools: {
       [DEFAULT_POOL]: DEFAULT_HOSTED_POOL_LIMIT,
@@ -492,28 +510,38 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...artifacts,
     askable: options.askable,
     catalog,
+    commandRunner,
     ...(containerStore === undefined ? {} : { containerRows: containerStore }),
     containers: containersFor(options, worktrees, containerStore),
+    createMcpClient: createNodeMcpClient,
+    ensureWorktreeDir,
+    gitAt: nodeGitAt(),
     home,
     ...hostRuntimeOptions(options),
+    ...(outputSink === undefined ? {} : { outputSink }),
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options, assembled?.providers),
     print,
+    readFeedMedia,
+    resolveFeedMedia,
     ...kept,
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    ...(options.environment === undefined
-      ? {}
-      : { environment: options.environment }),
+    environment: options.environment ?? environmentSnapshot(),
     root,
+    sandboxGuest: {
+      drivers: FIRST_PARTY_DRIVERS,
+      guestAuth,
+      prepareGuest,
+    },
+    skills: skillResolver({ home, workspace: root }),
     ...(spawned === undefined ? {} : { spawned }),
     state,
+    stopOrphans,
     workspaceId,
     ...(options.workspaceMaterialization === undefined
       ? {}
       : { workspaceMaterialization: options.workspaceMaterialization }),
-    ...(workspaceStore === undefined
-      ? {}
-      : { workspaces: localWorkspaces({}, workspaceStore) }),
+    workspaces: localWorkspaces({}, workspaceStore),
     worktrees,
   };
   const engine = engineOver(

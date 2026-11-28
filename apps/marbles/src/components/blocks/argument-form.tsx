@@ -6,7 +6,7 @@ import { useFormFocus } from "~/components/ui/form-focus";
 import { Select } from "~/components/ui/select";
 import { TextInput } from "~/components/ui/text-input";
 import { theme } from "~/components/ui/theme";
-import type { InputField, InputValues } from "~/lib/inputs";
+import type { InputField, InputValues } from "~/lib/definitions/inputs";
 
 export interface ParsedInputs {
   readonly errors: Record<string, string>;
