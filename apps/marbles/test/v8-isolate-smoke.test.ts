@@ -42,7 +42,15 @@ import { statelessQueueDispatch } from "@foundry/scheduling/queue";
 import { makeMemoryScheduleStore } from "@foundry/scheduling/store/memory";
 import { Effect, Exit } from "effect";
 import { defineWorkspace, step, workflow } from ${JSON.stringify(MARBLES_DIST_INDEX)};
-import { Engine as MarblesEngine, MemoryRunOutputSink, PORTABLE_OWNER_LIVENESS } from ${JSON.stringify(MARBLES_DIST_LIB)};
+import {
+  CommandError,
+  createPortableContextRuntime,
+  Engine as MarblesEngine,
+  installContextRuntime,
+  MemoryRunOutputSink,
+  PORTABLE_OWNER_LIVENESS,
+  parseArgv,
+} from ${JSON.stringify(MARBLES_DIST_LIB)};
 
 globalThis.__smokeResult = (async () => {
   for (const forbidden of [
@@ -156,6 +164,10 @@ globalThis.__smokeResult = (async () => {
     definitions: [marblesStep, marblesWf],
   });
 
+  installContextRuntime(createPortableContextRuntime());
+  const parsedArgv = parseArgv("echo 'hello world'");
+  const commandError = new CommandError(["echo"], { exitCode: 1, stderr: "boom", stdout: "" });
+
   const marblesOutput = new MemoryRunOutputSink();
   const marblesEngine = new MarblesEngine({
     artifacts: new Artifacts({ store: new MemoryArtifactStore() }),
@@ -176,6 +188,7 @@ globalThis.__smokeResult = (async () => {
 
   return {
     artifactId: createdArtifact.id,
+    commandErrorOk: commandError instanceof CommandError && commandError.result.exitCode === 1,
     committed,
     formattedModel,
     idPrefix: id.startsWith("iso_"),
@@ -184,6 +197,7 @@ globalThis.__smokeResult = (async () => {
     modelsReady: Array.isArray(models.providers),
     modulesCount: listedModules.items.length,
     pageItems: page.items,
+    parsedArgvCount: parsedArgv.length,
     pathsMarbles: paths.marbles,
     promptApiType,
     queueResult,
@@ -349,6 +363,7 @@ describe("Non-Node V8 isolate smoke test", () => {
     const result = runInNodeV8Isolate(code);
 
     expect(result).toMatchObject({
+      commandErrorOk: true,
       committed: true,
       formattedModel: "openai/gpt-5",
       idPrefix: true,
@@ -357,6 +372,7 @@ describe("Non-Node V8 isolate smoke test", () => {
       modelsReady: true,
       modulesCount: 0,
       pageItems: ["a", "b"],
+      parsedArgvCount: 2,
       pathsMarbles: "/virtual/marbles",
       promptApiType: "function",
       queueResult: {

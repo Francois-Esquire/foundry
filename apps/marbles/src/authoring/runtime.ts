@@ -2,16 +2,12 @@ import type { Models } from "@foundry/models";
 import type { TaskStore } from "@foundry/tasks";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
+import { ambient } from "~/lib/async-context";
+import { sharedContextRuntime } from "~/lib/async-context/runtime";
 import type { AgentLike } from "~/lib/definitions/types";
 import type { Engine } from "~/lib/engine";
 import type { ExecutionContext } from "~/lib/runs/context";
 import type { Current } from "~/lib/runs/scope";
-import {
-  currentExecutionContext,
-  currentRun,
-  currentSetupCounters,
-  scopeStorageFor,
-} from "~/lib/runs/scope-bridge";
 
 export type InstanceRuntime = Pick<
   Engine,
@@ -104,7 +100,7 @@ function runtimeState(): RuntimeState {
 }
 
 function routeScope() {
-  return scopeStorageFor<Route>(ROUTE_STORAGE_KEY);
+  return sharedContextRuntime().variable<Route>(ROUTE_STORAGE_KEY);
 }
 
 function activeBunLoads(): LoadingRoute[] {
@@ -118,11 +114,11 @@ function activeBunLoads(): LoadingRoute[] {
 }
 
 function activeLoadingRoute(): LoadingRoute | undefined {
-  const scoped = routeScope().getStore();
+  const scoped = routeScope().get();
   if (scoped?.kind === "loading") {
     return scoped.finished ? undefined : scoped;
   }
-  if (scoped !== undefined || currentExecutionContext() !== undefined) {
+  if (scoped !== undefined || ambient.activeWorkspace() !== undefined) {
     return undefined;
   }
   const bunLoads = activeBunLoads();
@@ -130,11 +126,11 @@ function activeLoadingRoute(): LoadingRoute | undefined {
 }
 
 function anyActiveLoadingRoute(): LoadingRoute | undefined {
-  const scoped = routeScope().getStore();
+  const scoped = routeScope().get();
   if (scoped?.kind === "loading") {
     return scoped.finished ? undefined : scoped;
   }
-  if (scoped !== undefined || currentExecutionContext() !== undefined) {
+  if (scoped !== undefined || ambient.activeWorkspace() !== undefined) {
     return undefined;
   }
   return activeBunLoads()[0];
@@ -143,7 +139,7 @@ function anyActiveLoadingRoute(): LoadingRoute | undefined {
 export async function withBunEvaluatingLoad<T>(
   work: () => Promise<T>
 ): Promise<T> {
-  const scoped = routeScope().getStore();
+  const scoped = routeScope().get();
   const route =
     scoped?.kind === "loading" && !scoped.finished ? scoped : undefined;
   if (route === undefined) {
@@ -290,10 +286,10 @@ export type Scope = <T>(work: () => T) => T;
 
 export function captureScope(): Scope {
   const state = runtimeState();
-  const context = currentExecutionContext();
+  const context = ambient.activeWorkspace();
   let captured: Exclude<Route, LoadingRoute> | undefined;
   if (context === undefined) {
-    const currentRoute = routeScope().getStore();
+    const currentRoute = routeScope().get();
     if (currentRoute?.kind === "loading") {
       captured = { kind: "workspace", workspaceId: currentRoute.workspaceId };
     } else if (currentRoute !== undefined) {
@@ -352,14 +348,14 @@ export function releaseEngine(runtime: InstanceRuntime): void {
 
 function owner(): Route | undefined {
   const state = runtimeState();
-  const context = currentExecutionContext();
+  const context = ambient.activeWorkspace();
   if (context !== undefined) {
     const binding = state.contextBindings.get(context);
     return binding === undefined
       ? { kind: "unbound-context", workspaceId: context.workspaceId }
       : { binding, kind: "binding" };
   }
-  const scoped = routeScope().getStore();
+  const scoped = routeScope().get();
   if (scoped?.kind === "loading" && scoped.finished) {
     return { kind: "workspace", workspaceId: scoped.workspaceId };
   }
@@ -515,7 +511,7 @@ export function activeAgentId(
   agent: AgentLike<Output.Output>
 ): string | undefined {
   const state = runtimeState();
-  const context = currentExecutionContext();
+  const context = ambient.activeWorkspace();
   if (context !== undefined) {
     const fromContext = context.agentIdOf?.(agent);
     if (fromContext !== undefined) {
@@ -539,7 +535,7 @@ export function activeAgentId(
 
 export function hostModels(): Models | undefined {
   const state = runtimeState();
-  const context = currentExecutionContext();
+  const context = ambient.activeWorkspace();
   if (context !== undefined && !state.contextBindings.has(context)) {
     return context.models;
   }
@@ -566,11 +562,11 @@ export function hostTaskStore(): TaskStore | undefined {
 }
 
 export function ownRun(): Current | undefined {
-  return currentRun();
+  return ambient.currentRun.get();
 }
 
 export function activeSetupCounters(): Map<string, number> | undefined {
-  return currentSetupCounters();
+  return ambient.setupCounters.get();
 }
 
 function hostless(

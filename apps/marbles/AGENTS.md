@@ -359,7 +359,7 @@ Source responsibilities and dependency boundaries:
 - `src/workspace/` hosts one workspace in the process it runs in: source
   discovery (`source.ts`), module
   loading and the engine builder (`open.ts`), the schedule loop
-  (`loop.ts`, over `lib/schedule-loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
+  (`loop.ts`, over `lib/schedule/loop.ts`), the dashboard snapshot (`snapshot.ts`) with its feed of
   every workspace (`feed.ts`) and its usage
   totals (`usage.ts`) and the host's own lines (`diagnostics.ts`), starter templates and creation, background agent
   dispatch, the task commands the CLI and MCP share (`tasks.ts`), and
@@ -388,7 +388,7 @@ Source responsibilities and dependency boundaries:
   Bun, a minimal `Bun.plugin` maps `@foundry.sh/marbles*` and tracks local
   imports. Each engine bound to its workspace (`setHost`) is a binding, keyed
   by the execution context its runs and observers run in (`Engine.context`,
-  `lib/execution-context.ts`); pending workspaces remain in `pendingHostings`
+  `lib/runs/context.ts`); pending workspaces remain in `pendingHostings`
   between `runLoadScope` completion and `setHost` so early callbacks fail with
   `WorkspaceLoadingError` instead of falling back to script mode. Work answers
   to its own binding's engine and catalog until that engine is disposed,

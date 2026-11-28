@@ -5,8 +5,6 @@ import { z } from "zod";
 import type { ExecutionStatus } from "~/lib/executions/statuses";
 
 export type { PoolStats } from "@foundry/queue";
-// biome-ignore lint/performance/noBarrelFile: The execution API exposes the queue pool default.
-export { DEFAULT_POOL } from "@foundry/queue";
 
 import type { PoolStats } from "@foundry/queue";
 
