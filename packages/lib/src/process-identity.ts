@@ -237,34 +237,70 @@ export function ownerOf(
 
 export function isProcessIdentity(value: unknown): value is ProcessIdentity {
   const identity = value as Partial<ProcessIdentity> | null;
+  if (
+    typeof identity !== "object" ||
+    identity === null ||
+    typeof identity.pid !== "number" ||
+    !Number.isInteger(identity.pid)
+  ) {
+    return false;
+  }
+  if (identity.pid > 0) {
+    return identity.started === null || typeof identity.started === "string";
+  }
   return (
-    typeof identity === "object" &&
-    identity !== null &&
-    Number.isInteger(identity.pid) &&
-    (identity.pid ?? 0) > 0 &&
-    (identity.started === null || typeof identity.started === "string")
+    identity.pid === 0 &&
+    typeof identity.started === "string" &&
+    identity.started.length > 0
   );
+}
+
+export interface PortableProcessOptions {
+  readonly id?: () => string;
+  readonly now?: () => number;
+}
+
+export function createPortableProcess(
+  options: PortableProcessOptions = {}
+): ProcessIdentity {
+  const now = (options.now ?? Date.now)();
+  const id = (options.id ?? (() => crypto.randomUUID()))();
+  const started =
+    now > 0 ? `${new Date(now).toISOString()}:${id}` : `portable:${id}`;
+  return Object.freeze({ pid: 0, started });
 }
 
 let portable: ProcessIdentity | undefined;
 
 export function portableProcess(): ProcessIdentity {
-  portable ??= Object.freeze({
-    pid: 0,
-    started: portableStarted(),
-  });
+  portable ??= createPortableProcess();
   return portable;
-}
-
-function portableStarted(): string {
-  const now = Date.now();
-  return now > 0
-    ? `${new Date(now).toISOString()}:${crypto.randomUUID()}`
-    : `portable:${crypto.randomUUID()}`;
 }
 
 export function neverGone(_owner?: ProcessIdentity): boolean {
   return false;
+}
+
+export interface OwnerLiveness {
+  readonly identity: () => ProcessIdentity;
+  readonly isGone: (owner: ProcessIdentity) => boolean;
+  readonly stateOf?: (owner: ProcessIdentity) => ProcessState;
+}
+
+export const PORTABLE_OWNER_LIVENESS: OwnerLiveness = {
+  identity: portableProcess,
+  isGone: neverGone,
+  stateOf: () => "unknown",
+};
+
+export function ownerStateOf(
+  liveness: OwnerLiveness,
+  owner: ProcessIdentity
+): ProcessState {
+  if (liveness.stateOf !== undefined) {
+    return liveness.stateOf(owner);
+  }
+  return liveness.isGone(owner) ? "gone" : "running";
 }
 
 function kindOf(started: string): string {

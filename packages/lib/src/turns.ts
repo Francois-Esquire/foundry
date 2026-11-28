@@ -1,4 +1,5 @@
 import { type AsyncScope, asyncScope } from "@foundry/lib/async-scope";
+import { withAbort } from "./abort";
 
 export class ReentrantCallError extends Error {
   override readonly name = "ReentrantCallError";
@@ -6,6 +7,10 @@ export class ReentrantCallError extends Error {
 
 export interface Turn {
   held: boolean;
+}
+
+export interface TurnRunOptions {
+  readonly signal?: AbortSignal;
 }
 
 export class Turns {
@@ -18,19 +23,36 @@ export class Turns {
     this.#current = scope;
   }
 
-  run<T>(operation: () => Promise<T>): Promise<T> {
+  get reentrancyGuarded(): boolean {
+    return this.#current.active !== false;
+  }
+
+  run<T>(
+    operation: () => T | PromiseLike<T>,
+    options?: TurnRunOptions
+  ): Promise<T> {
     if (this.#current.get()?.held === true) {
       return Promise.reject(new ReentrantCallError(this.#reentry));
     }
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      return Promise.reject(signal.reason);
+    }
+    const previous = this.#tail;
+    const { promise: done, resolve: release } = Promise.withResolvers<void>();
+    this.#tail = previous.then(() => done);
     const turn: Turn = { held: false };
-    const result = this.#tail.then(() => {
+    const ready = signal === undefined ? previous : withAbort(previous, signal);
+    const result = ready.then(() => {
+      if (signal?.aborted) {
+        throw signal.reason;
+      }
       turn.held = true;
       return this.#current.run(turn, operation);
     });
-    const settled = result.finally(() => {
+    return result.finally(() => {
       turn.held = false;
+      release();
     });
-    this.#tail = settled.catch(() => undefined);
-    return settled;
   }
 }

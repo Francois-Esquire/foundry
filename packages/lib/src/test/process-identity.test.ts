@@ -9,8 +9,11 @@ import {
   isGone,
   isProcessIdentity,
   lookProcesses,
+  NODE_OWNER_LIVENESS,
   nodeStartedAt,
   ownerOf,
+  ownerStateOf,
+  PORTABLE_OWNER_LIVENESS,
   type ProcessLookup,
   processState,
   procListing,
@@ -22,7 +25,12 @@ import {
   sameProcess,
   thisProcess,
 } from "../node/process-identity";
-import { neverGone, portableProcess, startedAt } from "../process-identity";
+import {
+  createPortableProcess,
+  neverGone,
+  portableProcess,
+  startedAt,
+} from "../process-identity";
 import { anotherStart } from "../testing/process-identity";
 
 const LONG_AGO = anotherStart();
@@ -74,7 +82,32 @@ it("compares identities as far as each says, and reads them back from columns an
   expect(ownerOf(7, "x")).toEqual({ pid: 7, started: "x" });
   expect(isProcessIdentity({ pid: 7, started: null })).toBe(true);
   expect(isProcessIdentity({ pid: 7 })).toBe(false);
-  expect(isProcessIdentity({ pid: 0, started: "x" })).toBe(false);
+  expect(isProcessIdentity({ pid: 0, started: "x" })).toBe(true);
+  expect(isProcessIdentity(portableProcess())).toBe(true);
+  expect(isProcessIdentity({ pid: 0, started: null })).toBe(false);
+  expect(isProcessIdentity({ pid: 0, started: "" })).toBe(false);
+  expect(isProcessIdentity({ pid: -1, started: "x" })).toBe(false);
+});
+
+it("creates scoped portable process identities and exposes OwnerLiveness helpers", () => {
+  const first = createPortableProcess({
+    id: () => "id-1",
+    now: () => 1_700_000_000_000,
+  });
+  const second = createPortableProcess({ id: () => "id-2", now: () => 0 });
+  expect(first).toEqual({
+    pid: 0,
+    started: "2023-11-14T22:13:20.000Z:id-1",
+  });
+  expect(second).toEqual({ pid: 0, started: "portable:id-2" });
+  expect(isProcessIdentity(first)).toBe(true);
+  expect(isProcessIdentity(second)).toBe(true);
+  expect(ownerStateOf(PORTABLE_OWNER_LIVENESS, first)).toBe("unknown");
+  expect(PORTABLE_OWNER_LIVENESS.isGone(first)).toBe(false);
+  expect(
+    ownerStateOf({ identity: () => first, isGone: () => true }, second)
+  ).toBe("gone");
+  expect(ownerStateOf(NODE_OWNER_LIVENESS, thisProcess())).toBe("running");
 });
 
 const SRC = resolve(import.meta.dirname, "..");

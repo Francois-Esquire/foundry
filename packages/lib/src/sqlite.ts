@@ -5,6 +5,7 @@ import type {
   SQLiteColumn,
   SQLiteTransaction,
 } from "drizzle-orm/sqlite-core";
+import { customType } from "drizzle-orm/sqlite-core";
 
 export type SqliteDatabase = BaseSQLiteDatabase<
   "async",
@@ -19,8 +20,54 @@ export type SqliteTransaction = SQLiteTransaction<
   ExtractTablesWithRelations<Record<string, unknown>>
 >;
 
+export type SqliteSyncDatabase = BaseSQLiteDatabase<
+  "sync",
+  unknown,
+  Record<string, unknown>
+>;
+
+export type SqliteSyncTransaction = SQLiteTransaction<
+  "sync",
+  unknown,
+  Record<string, unknown>,
+  ExtractTablesWithRelations<Record<string, unknown>>
+>;
+
 export const SQLITE_MAX_PARAMETERS = 32_766;
 export const SQLITE_D1_MAX_PARAMETERS = 100;
+
+export type SqliteBytesDriverData = ArrayBuffer | ArrayBufferView | Uint8Array;
+
+function toPlainUint8Array(value: SqliteBytesDriverData): Uint8Array {
+  if (value instanceof Uint8Array) {
+    return value.constructor === Uint8Array
+      ? value
+      : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return new Uint8Array(value);
+}
+
+/**
+ * Web-standard SQLite BLOB column mapped to `Uint8Array` without touching Node
+ * `Buffer` (safe in browsers, Cloudflare Workers/D1/DO, and Node/Bun).
+ */
+export const sqliteBytes = customType<{
+  data: Uint8Array;
+  driverData: SqliteBytesDriverData;
+}>({
+  dataType() {
+    return "blob";
+  },
+  fromDriver(value) {
+    return toPlainUint8Array(value);
+  },
+  toDriver(value) {
+    return value;
+  },
+});
 
 export const UNSTORABLE_TEXT =
   "text holding U+0000 or a lone surrogate (not well-formed UTF-16) does not read back intact from SQLite";
@@ -72,6 +119,49 @@ export function assertScope(scope: string): void {
       "scope must be a nonempty string with no U+0000 and no lone surrogate"
     );
   }
+}
+
+export function resolveMaxParameters(
+  maxParameters = SQLITE_MAX_PARAMETERS
+): number {
+  if (!Number.isSafeInteger(maxParameters) || maxParameters <= 0) {
+    throw new RangeError("maxParameters must be a positive safe integer");
+  }
+  return maxParameters;
+}
+
+export function maxBatchRows(
+  columnCount: number,
+  maxParameters = SQLITE_MAX_PARAMETERS,
+  reservedParameters = 0
+): number {
+  if (!Number.isSafeInteger(columnCount) || columnCount <= 0) {
+    throw new RangeError("columnCount must be a positive safe integer");
+  }
+  if (!Number.isSafeInteger(reservedParameters) || reservedParameters < 0) {
+    throw new RangeError(
+      "reservedParameters must be a non-negative safe integer"
+    );
+  }
+  const limit = resolveMaxParameters(maxParameters);
+  if (columnCount + reservedParameters > limit) {
+    throw new RangeError(
+      `a single row (${String(columnCount)} columns + ${String(reservedParameters)} reserved parameters) exceeds maxParameters (${String(limit)})`
+    );
+  }
+  return Math.floor((limit - reservedParameters) / columnCount);
+}
+
+export function rowBatches<T>(
+  items: readonly T[],
+  columnCount: number,
+  maxParameters = SQLITE_MAX_PARAMETERS,
+  reservedParameters = 0
+): T[][] {
+  return batches(
+    items,
+    maxBatchRows(columnCount, maxParameters, reservedParameters)
+  );
 }
 
 export function batches<T>(

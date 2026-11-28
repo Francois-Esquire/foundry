@@ -82,4 +82,40 @@ describe("KeyedQueue", () => {
   it("resolves idle immediately when nothing is queued", async () => {
     await expect(new KeyedQueue().idle()).resolves.toBeUndefined();
   });
+
+  it("aborts queued work via AbortSignal without letting subsequent work overlap the active holder", async () => {
+    const queue = new KeyedQueue();
+    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const controller = new AbortController();
+    const reason = new Error("queued-abort");
+
+    const first = queue.run("k", async () => {
+      order.push("first-start");
+      await gate;
+      order.push("first-end");
+    });
+    const aborted = queue.run(
+      "k",
+      () => {
+        order.push("never");
+        return Promise.resolve();
+      },
+      { signal: controller.signal }
+    );
+    const third = queue.run("k", () => {
+      order.push("third");
+      return Promise.resolve();
+    });
+
+    controller.abort(reason);
+    await expect(aborted).rejects.toBe(reason);
+    await Promise.resolve();
+    expect(order).toEqual(["first-start"]);
+
+    open();
+    await Promise.all([first, third]);
+    await queue.idle();
+    expect(order).toEqual(["first-start", "first-end", "third"]);
+  });
 });

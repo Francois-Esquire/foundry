@@ -90,13 +90,45 @@ export function emptyPage<T>(): Page<T, number> {
   return { items: [], total: 0 };
 }
 
+export interface CollectPagesOptions {
+  readonly maxItems?: number;
+  readonly maxPages?: number;
+  readonly signal?: AbortSignal;
+}
+
+function assertPositiveBound(value: number | undefined, name: string): void {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
+    throw new RangeError(`${name} must be a positive safe integer`);
+  }
+}
+
 export async function collectPages<T, Cursor>(
-  read: (cursor: Cursor | undefined) => Promise<Page<T, Cursor>>
+  read: (cursor: Cursor | undefined) => Promise<Page<T, Cursor>>,
+  options: CollectPagesOptions = {}
 ): Promise<T[]> {
+  assertPositiveBound(options.maxItems, "maxItems");
+  assertPositiveBound(options.maxPages, "maxPages");
   const items: T[] = [];
   let cursor: Cursor | undefined;
+  let pages = 0;
   do {
+    options.signal?.throwIfAborted();
+    if (options.maxPages !== undefined && pages >= options.maxPages) {
+      throw new RangeError(
+        `collectPages exceeded maxPages limit (${String(options.maxPages)})`
+      );
+    }
     const page = await read(cursor);
+    options.signal?.throwIfAborted();
+    pages += 1;
+    if (
+      options.maxItems !== undefined &&
+      items.length + page.items.length > options.maxItems
+    ) {
+      throw new RangeError(
+        `collectPages exceeded maxItems limit (${String(options.maxItems)})`
+      );
+    }
     items.push(...page.items);
     cursor = page.nextCursor;
   } while (cursor !== undefined);

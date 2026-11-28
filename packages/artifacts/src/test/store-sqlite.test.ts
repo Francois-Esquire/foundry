@@ -1,3 +1,4 @@
+import { SQLITE_D1_MAX_PARAMETERS } from "@foundry/lib/sqlite";
 import { eq, getTableColumns, sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, test } from "vitest";
@@ -591,6 +592,44 @@ describe("SqliteArtifactStore", () => {
       created.content?.id ?? contentId("missing")
     );
     expect(new TextDecoder().decode(root?.blob)).toBe("hello");
+  });
+
+  test("batches multi-row writes and deletes within maxParameters (D1 100-param cap) and returns plain Uint8Array bytes", async () => {
+    const database = await memory.open();
+    const store = new SqliteArtifactStore({
+      database,
+      maxParameters: SQLITE_D1_MAX_PARAMETERS,
+      scope: "d1",
+    });
+    const records = Array.from({ length: 120 }, (_, index) =>
+      artifactRecord(`a-${String(index).padStart(3, "0")}`)
+    );
+    const blobs = Array.from({ length: 30 }, (_, index) =>
+      inlineBlob(`b-${String(index).padStart(3, "0")}`, {
+        bytes: new Uint8Array([index, index + 1]),
+      })
+    );
+
+    await store.commit({ putArtifacts: records, putBlobs: blobs });
+    const listed = await store.listArtifacts({
+      includeArchived: true,
+      limit: 200,
+    });
+    expect(listed.artifacts).toHaveLength(120);
+    const readBlob = await store.getBlob(blobId("b-005"));
+    expect(readBlob?.bytes).toBeInstanceOf(Uint8Array);
+    expect(readBlob?.bytes?.constructor).toBe(Uint8Array);
+    expect([...(readBlob?.bytes ?? [])]).toEqual([5, 6]);
+
+    await store.commit({
+      deleteArtifacts: records.map((record) => record.id),
+      deleteBlobs: blobs.map((blob) => blob.id),
+    });
+    expect(await everything(store)).toEqual({
+      artifacts: [],
+      blobs: [],
+      contents: [],
+    });
   });
 });
 

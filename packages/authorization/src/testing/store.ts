@@ -5,10 +5,20 @@ import type { AuthorizationStore } from "../store/index";
 
 export type ScopedAuthorizationStores = (scope: string) => AuthorizationStore;
 
+export interface AuthorizationStoreCapabilities {
+  readonly insertionOrder?: boolean;
+  readonly reentrancyGuard?: boolean;
+  readonly transactions?: boolean;
+}
+
 export function describeAuthorizationStore(
   name: string,
-  open: () => ScopedAuthorizationStores | Promise<ScopedAuthorizationStores>
+  open: () => ScopedAuthorizationStores | Promise<ScopedAuthorizationStores>,
+  capabilities: AuthorizationStoreCapabilities = {}
 ): void {
+  const insertionOrder = capabilities.insertionOrder ?? true;
+  const transactions = capabilities.transactions ?? true;
+  const reentrancyGuard = capabilities.reentrancyGuard ?? transactions;
   async function store(scope = "scope-a"): Promise<AuthorizationStore> {
     return (await open())(scope);
   }
@@ -46,7 +56,14 @@ export function describeAuthorizationStore(
 
       expect(await target.getGrant(first.id)).toEqual(first);
       expect(await target.getGrant(second.id)).toEqual(second);
-      expect(await target.listGrants()).toEqual([first, second]);
+      const listedGrants = await target.listGrants();
+      if (insertionOrder) {
+        expect(listedGrants).toEqual([first, second]);
+      } else {
+        expect(
+          [...listedGrants].sort((a, b) => a.id.localeCompare(b.id))
+        ).toEqual([first, second]);
+      }
       expect(await target.getRestriction(guardrail.id)).toEqual(guardrail);
       expect(await target.listRestrictions()).toEqual([guardrail]);
       expect(await target.getClaim(claim.invocationId)).toEqual(claim);
@@ -94,28 +111,31 @@ export function describeAuthorizationStore(
       ).toEqual([child]);
     });
 
-    test("reads preserve insertion order; updates keep position; restriction deletes apply before puts", async () => {
-      const target = await store();
-      const a = sampleGrant("a");
-      const b = sampleGrant("b");
-      const c = sampleGrant("c");
-      await target.commit({ putGrants: [b] });
-      await target.commit({ putGrants: [a, c] });
+    test.runIf(insertionOrder)(
+      "reads preserve insertion order; updates keep position; restriction deletes apply before puts",
+      async () => {
+        const target = await store();
+        const a = sampleGrant("a");
+        const b = sampleGrant("b");
+        const c = sampleGrant("c");
+        await target.commit({ putGrants: [b] });
+        await target.commit({ putGrants: [a, c] });
 
-      const updatedB = { ...b, reason: "updated", revision: 2 };
-      await target.commit({ putGrants: [updatedB] });
-      expect(await target.listGrants()).toEqual([updatedB, a, c]);
+        const updatedB = { ...b, reason: "updated", revision: 2 };
+        await target.commit({ putGrants: [updatedB] });
+        expect(await target.listGrants()).toEqual([updatedB, a, c]);
 
-      const r1 = sampleRestriction("r-1");
-      const r2 = sampleRestriction("r-2");
-      await target.commit({ putRestrictions: [r1, r2] });
-      const recreatedR1 = { ...r1, reason: "recreated", revision: 2 };
-      await target.commit({
-        deleteRestrictions: [r1.id],
-        putRestrictions: [recreatedR1],
-      });
-      expect(await target.listRestrictions()).toEqual([r2, recreatedR1]);
-    });
+        const r1 = sampleRestriction("r-1");
+        const r2 = sampleRestriction("r-2");
+        await target.commit({ putRestrictions: [r1, r2] });
+        const recreatedR1 = { ...r1, reason: "recreated", revision: 2 };
+        await target.commit({
+          deleteRestrictions: [r1.id],
+          putRestrictions: [recreatedR1],
+        });
+        expect(await target.listRestrictions()).toEqual([r2, recreatedR1]);
+      }
+    );
 
     test("deleteRestrictions removes only named restrictions and ignores missing keys", async () => {
       const target = await store();
@@ -171,58 +191,64 @@ export function describeAuthorizationStore(
       expect(await first.getRestriction(restrictionId("r"))).not.toBeNull();
     });
 
-    test("transactions read their own writes and roll back completely on throw", async () => {
-      const target = await store();
-      const kept = sampleGrant("kept");
-      const lost = sampleGrant("lost");
-      const rKept = sampleRestriction("r-kept");
-      await target.commit({ putGrants: [kept], putRestrictions: [rKept] });
+    test.runIf(transactions)(
+      "transactions read their own writes and roll back completely on throw",
+      async () => {
+        const target = await store();
+        const kept = sampleGrant("kept");
+        const lost = sampleGrant("lost");
+        const rKept = sampleRestriction("r-kept");
+        await target.commit({ putGrants: [kept], putRestrictions: [rKept] });
 
-      await expect(
-        transactionOf(target)(async (view) => {
-          await view.commit({
-            deleteRestrictions: [rKept.id],
-            putGrants: [lost],
-          });
-          expect(await view.getGrant(lost.id)).toEqual(lost);
-          expect(await view.getRestriction(rKept.id)).toBeNull();
-          throw new Error("abort transaction");
-        })
-      ).rejects.toThrow("abort transaction");
+        await expect(
+          transactionOf(target)(async (view) => {
+            await view.commit({
+              deleteRestrictions: [rKept.id],
+              putGrants: [lost],
+            });
+            expect(await view.getGrant(lost.id)).toEqual(lost);
+            expect(await view.getRestriction(rKept.id)).toBeNull();
+            throw new Error("abort transaction");
+          })
+        ).rejects.toThrow("abort transaction");
 
-      expect(await target.getGrant(kept.id)).toEqual(kept);
-      expect(await target.getGrant(lost.id)).toBeNull();
-      expect(await target.getRestriction(rKept.id)).toEqual(rKept);
+        expect(await target.getGrant(kept.id)).toEqual(kept);
+        expect(await target.getGrant(lost.id)).toBeNull();
+        expect(await target.getRestriction(rKept.id)).toEqual(rKept);
 
-      const returned = await transactionOf(target)(async (view) => {
-        await view.commit({ putGrants: [lost] });
-        return "committed";
-      });
-      expect(returned).toBe("committed");
-      expect(await target.getGrant(lost.id)).toEqual(lost);
-    });
-
-    test("reentrant calls to the outer store inside a transaction are rejected", async () => {
-      const target = await store();
-      const g = sampleGrant("g");
-      const outcomes = await transactionOf(target)(async (view) => {
-        const results = await Promise.all([
-          settlesWithin(target.getGrant(g.id), 1000),
-          settlesWithin(target.listGrants(), 1000),
-          settlesWithin(target.commit({ putGrants: [g] }), 1000),
-          settlesWithin(
-            transactionOf(target)(() => Promise.resolve()),
-            1000
-          ),
-        ]);
-        await view.commit({ putGrants: [g] });
-        return results;
-      });
-      for (const outcome of outcomes) {
-        expect(outcome).toMatch(REFUSAL);
+        const returned = await transactionOf(target)(async (view) => {
+          await view.commit({ putGrants: [lost] });
+          return "committed";
+        });
+        expect(returned).toBe("committed");
+        expect(await target.getGrant(lost.id)).toEqual(lost);
       }
-      expect(await target.getGrant(g.id)).toEqual(g);
-    });
+    );
+
+    test.runIf(transactions && reentrancyGuard)(
+      "reentrant calls to the outer store inside a transaction are rejected",
+      async () => {
+        const target = await store();
+        const g = sampleGrant("g");
+        const outcomes = await transactionOf(target)(async (view) => {
+          const results = await Promise.all([
+            settlesWithin(target.getGrant(g.id), 1000),
+            settlesWithin(target.listGrants(), 1000),
+            settlesWithin(target.commit({ putGrants: [g] }), 1000),
+            settlesWithin(
+              transactionOf(target)(() => Promise.resolve()),
+              1000
+            ),
+          ]);
+          await view.commit({ putGrants: [g] });
+          return results;
+        });
+        for (const outcome of outcomes) {
+          expect(outcome).toMatch(REFUSAL);
+        }
+        expect(await target.getGrant(g.id)).toEqual(g);
+      }
+    );
   });
 }
 

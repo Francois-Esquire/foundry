@@ -9,6 +9,7 @@ export { createPassThroughAsyncScope } from "../async-scope";
 export function createNodeAsyncScope<T>(): AsyncScope<T> {
   const storage = new AsyncLocalStorage<T>();
   return {
+    active: true,
     get: () => storage.getStore(),
     run: (value, work) => storage.run(value, work),
   };

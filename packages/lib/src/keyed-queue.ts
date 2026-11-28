@@ -1,18 +1,39 @@
+import { withAbort } from "./abort";
+
+export interface KeyedQueueRunOptions {
+  readonly signal?: AbortSignal;
+}
+
 export class KeyedQueue<Key = string> {
   readonly #tails = new Map<Key, Promise<void>>();
 
-  async run<T>(key: Key, operation: () => Promise<T>): Promise<T> {
+  async run<T>(
+    key: Key,
+    operation: () => Promise<T>,
+    options?: KeyedQueueRunOptions
+  ): Promise<T> {
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      throw signal.reason;
+    }
     const previous = this.#tails.get(key) ?? Promise.resolve();
-    const { promise: tail, resolve: release } = Promise.withResolvers<void>();
+    const { promise: done, resolve: release } = Promise.withResolvers<void>();
+    const tail = previous.then(() => done);
     this.#tails.set(key, tail);
     try {
-      await previous;
+      await (signal === undefined ? previous : withAbort(previous, signal));
+      if (signal?.aborted) {
+        throw signal.reason;
+      }
       return await operation();
     } finally {
       release();
-      if (this.#tails.get(key) === tail) {
-        this.#tails.delete(key);
-      }
+      // biome-ignore lint/complexity/noVoid: Detached cleanup of map slot once prior work drains.
+      void tail.finally(() => {
+        if (this.#tails.get(key) === tail) {
+          this.#tails.delete(key);
+        }
+      });
     }
   }
 

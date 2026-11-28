@@ -3,8 +3,10 @@ import { pageFromRows } from "@foundry/lib/pagination";
 import {
   assertScope,
   batches,
+  maxBatchRows,
   replacing,
-  SQLITE_MAX_PARAMETERS,
+  resolveMaxParameters,
+  rowBatches,
   type SqliteDatabase,
   type SqliteTransaction,
   storableText,
@@ -70,6 +72,7 @@ export type ArtifactDatabaseTransaction = SqliteTransaction;
 export interface SqliteArtifactStoreOptions {
   readonly database: ArtifactDatabase;
   readonly durability?: ArtifactStoreDurability;
+  readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: ArtifactDatabaseTransaction,
     write: ArtifactStoreWrite
@@ -116,6 +119,7 @@ const SETTLED = "Artifact store transaction has settled";
 export class SqliteArtifactStore implements ArtifactStore {
   readonly durability: ArtifactStoreDurability;
   readonly #database: ArtifactDatabase;
+  readonly #maxParameters: number;
   readonly #scope: string;
   readonly #onCommit: SqliteArtifactStoreOptions["onCommit"];
   readonly #turns = new Turns(REENTRY);
@@ -132,6 +136,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     }
     this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
+    this.#maxParameters = resolveMaxParameters(options.maxParameters);
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
   }
@@ -162,6 +167,7 @@ export class SqliteArtifactStore implements ArtifactStore {
       this.#database.transaction(async (transaction) => {
         const view = new SqliteArtifactStore({
           database: transaction,
+          maxParameters: this.#maxParameters,
           scope: this.#scope,
           ...(this.#onCommit === undefined ? {} : { onCommit: this.#onCommit }),
         });
@@ -525,7 +531,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     });
   }
 
-  #run<T>(operation: () => Promise<T>): Promise<T> {
+  #run<T>(operation: () => T | PromiseLike<T>): Promise<T> {
     return this.#turns.run(() =>
       this.#open?.value === false
         ? Promise.reject(new Error(SETTLED))
@@ -538,43 +544,52 @@ export class SqliteArtifactStore implements ArtifactStore {
     rows: WriteRows
   ): Promise<void> {
     const scope = this.#scope;
+    const maxParameters = this.#maxParameters;
     await deleteIn(
       transaction,
       artifacts,
       scope,
       artifacts.id,
-      rows.deleteArtifacts
+      rows.deleteArtifacts,
+      maxParameters
     );
     await deleteIn(
       transaction,
       artifactContentBlobs,
       scope,
       artifactContentBlobs.contentId,
-      [...rows.deleteContents, ...rows.contents.map((row) => row.id)]
+      [...rows.deleteContents, ...rows.contents.map((row) => row.id)],
+      maxParameters
     );
     await deleteIn(
       transaction,
       artifactContents,
       scope,
       artifactContents.id,
-      rows.deleteContents
+      rows.deleteContents,
+      maxParameters
     );
     await deleteIn(
       transaction,
       artifactBlobChunks,
       scope,
       artifactBlobChunks.blobId,
-      [...rows.deleteBlobs, ...rows.blobs.map((row) => row.id)]
+      [...rows.deleteBlobs, ...rows.blobs.map((row) => row.id)],
+      maxParameters
     );
     await deleteIn(
       transaction,
       artifactBlobs,
       scope,
       artifactBlobs.id,
-      rows.deleteBlobs
+      rows.deleteBlobs,
+      maxParameters
     );
 
-    for (const batch of batches(rows.artifacts, perStatement(artifacts))) {
+    for (const batch of batches(
+      rows.artifacts,
+      perStatement(artifacts, maxParameters)
+    )) {
       await transaction
         .insert(artifacts)
         .values(batch)
@@ -585,7 +600,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     }
     for (const batch of batches(
       rows.contents,
-      perStatement(artifactContents)
+      perStatement(artifactContents, maxParameters)
     )) {
       await transaction
         .insert(artifactContents)
@@ -595,7 +610,10 @@ export class SqliteArtifactStore implements ArtifactStore {
           target: [artifactContents.scope, artifactContents.id],
         });
     }
-    for (const batch of batches(rows.blobs, perStatement(artifactBlobs))) {
+    for (const batch of batches(
+      rows.blobs,
+      perStatement(artifactBlobs, maxParameters)
+    )) {
       await transaction
         .insert(artifactBlobs)
         .values(batch)
@@ -606,7 +624,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     }
     for (const batch of batches(
       rows.contentBlobs,
-      perStatement(artifactContentBlobs)
+      perStatement(artifactContentBlobs, maxParameters)
     )) {
       await transaction
         .insert(artifactContentBlobs)
@@ -615,7 +633,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     }
     for (const batch of batches(
       rows.blobChunks,
-      perStatement(artifactBlobChunks)
+      perStatement(artifactBlobChunks, maxParameters)
     )) {
       await transaction
         .insert(artifactBlobChunks)
@@ -979,9 +997,13 @@ function perStatement(
     | typeof artifactContents
     | typeof artifactBlobs
     | typeof artifactContentBlobs
-    | typeof artifactBlobChunks
+    | typeof artifactBlobChunks,
+  maxParameters: number
 ): number {
-  return SQLITE_MAX_PARAMETERS / Object.keys(getTableColumns(table)).length;
+  return maxBatchRows(
+    Object.keys(getTableColumns(table)).length,
+    maxParameters
+  );
 }
 
 async function deleteIn(
@@ -994,9 +1016,10 @@ async function deleteIn(
     | typeof artifactBlobChunks,
   scope: string,
   key: SQLiteColumn,
-  ids: readonly string[]
+  ids: readonly string[],
+  maxParameters: number
 ): Promise<void> {
-  for (const batch of batches(ids, SQLITE_MAX_PARAMETERS - 1)) {
+  for (const batch of rowBatches(ids, 1, maxParameters, 1)) {
     await transaction
       .delete(table)
       .where(and(eq(table.scope, scope), inArray(key, batch)));

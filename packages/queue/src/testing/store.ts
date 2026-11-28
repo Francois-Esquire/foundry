@@ -13,33 +13,42 @@ import type { QueueStoreService, QueueWrite } from "../store/index";
 
 type Open = () => QueueStoreService | Promise<QueueStoreService>;
 
-export function describeQueueStore(name: string, open: Open): void {
+export interface QueueStoreCapabilities {
+  readonly watermark?: boolean;
+}
+
+export function describeQueueStore(
+  name: string,
+  open: Open,
+  capabilities: QueueStoreCapabilities = {}
+): void {
+  const watermark = capabilities.watermark ?? true;
   describe(`${name} queue store conformance`, () => {
-    describeReads(open);
-    describeWatermark(open);
+    describeReads(open, watermark);
+    if (watermark) {
+      describeWatermark(open);
+    }
     describeRevisions(open);
     describeIdempotency(open);
     describeDeletes(open);
   });
 }
 
-function describeReads(open: Open): void {
+function describeReads(open: Open, watermark: boolean): void {
   test("an empty store holds no records and a zero watermark", async () => {
     const store = await open();
-    expect(
-      await read(
-        Effect.all({
-          job: store.getJob("jb-missing"),
-          jobs: store.listJobs(),
-          pools: store.listPools,
-          run: store.getRun("rn-missing"),
-          runs: store.listRuns(),
-          suspension: store.getSuspension("su-missing"),
-          suspensions: store.listSuspensions(),
-          watermark: store.watermark,
-        })
-      )
-    ).toEqual({
+    const base = await read(
+      Effect.all({
+        job: store.getJob("jb-missing"),
+        jobs: store.listJobs(),
+        pools: store.listPools,
+        run: store.getRun("rn-missing"),
+        runs: store.listRuns(),
+        suspension: store.getSuspension("su-missing"),
+        suspensions: store.listSuspensions(),
+      })
+    );
+    expect(base).toEqual({
       job: undefined,
       jobs: [],
       pools: [],
@@ -47,8 +56,10 @@ function describeReads(open: Open): void {
       runs: [],
       suspension: undefined,
       suspensions: [],
-      watermark: 0,
     });
+    if (watermark) {
+      expect(await read(store.watermark)).toBe(0);
+    }
   });
 
   test("a commit puts jobs, runs, suspensions, and pools that reads return whole", async () => {
