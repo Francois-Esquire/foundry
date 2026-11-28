@@ -1,5 +1,63 @@
 # Changelog
 
+## [0.0.5](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.4...marbles-v0.0.5) (2026-11-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* portable authoring, cloud store seams, and stateless execution primitives ([#156](https://github.com/Francois-Esquire/foundry/issues/156))
+* **agents:** remove unused subsystems ahead of the harness rewrite ([#154](https://github.com/Francois-Esquire/foundry/issues/154))
+* **sandbox:** harden container lifecycle, ownership proof, and collapse wrappers ([#153](https://github.com/Francois-Esquire/foundry/issues/153))
+* **models:** drop unused subsystems and Airplane Mode ([#152](https://github.com/Francois-Esquire/foundry/issues/152))
+* **marbles:** modularize CLI, unify resources & trigger, global mcp, settings, and global --json ([#151](https://github.com/Francois-Esquire/foundry/issues/151))
+* **marbles:** consolidate MCP server around 6 canonical tools ([#142](https://github.com/Francois-Esquire/foundry/issues/142))
+* **marbles:** rename authoring launch to enqueue and regroup the CLI ([#140](https://github.com/Francois-Esquire/foundry/issues/140))
+* **marbles:** add static pool config, keyed dispatch, and nested workflows ([#137](https://github.com/Francois-Esquire/foundry/issues/137))
+* **marbles:** `observe(artifact, …)` handlers are typed `ArtifactEvent | ArtifactShareEvent`; `Runnable` requires `launch`; a monitor key collision now reports itself as a monitor.
+* **marbles:** load providers explicitly with defineProvider ([#131](https://github.com/Francois-Esquire/foundry/issues/131))
+* **marbles:** a workspace's .env.schema is no longer read; its variables must be in the environment of the Marbles process.
+
+### Features
+
+* **authorization:** add unified authorization control plane package ([#155](https://github.com/Francois-Esquire/foundry/issues/155)) ([52dcf21](https://github.com/Francois-Esquire/foundry/commit/52dcf21040ce554918ef0a69b45839f5d80fdb89))
+* **authorization:** migrate callers to @foundry/authorization and retire legacy module ([#163](https://github.com/Francois-Esquire/foundry/issues/163)) ([ce867c4](https://github.com/Francois-Esquire/foundry/commit/ce867c4ca8c75996dead56a351e9ea85391ef702))
+* **marbles:** add static pool config, keyed dispatch, and nested workflows ([#137](https://github.com/Francois-Esquire/foundry/issues/137)) ([ee3c17b](https://github.com/Francois-Esquire/foundry/commit/ee3c17b377e58482187c054dcaa33b0a1a07430a))
+* **marbles:** consolidate MCP server around 6 canonical tools ([#142](https://github.com/Francois-Esquire/foundry/issues/142)) ([7aff00d](https://github.com/Francois-Esquire/foundry/commit/7aff00de5315ae8375dd76deba6a0c0ec455605a))
+* **marbles:** interact with live work through its owning step ([#114](https://github.com/Francois-Esquire/foundry/issues/114)) ([de2b350](https://github.com/Francois-Esquire/foundry/commit/de2b3504c6a183347d9ed4c1dc52388cfc3128f2))
+* **marbles:** launch declared steps and workflows by name ([#139](https://github.com/Francois-Esquire/foundry/issues/139)) ([ac76dc2](https://github.com/Francois-Esquire/foundry/commit/ac76dc2fd362508689e3d17aa3e1e4abf6e9483e))
+* **marbles:** load providers explicitly with defineProvider ([#131](https://github.com/Francois-Esquire/foundry/issues/131)) ([0400077](https://github.com/Francois-Esquire/foundry/commit/0400077ec15fa000d6f74cbb116e8eb8ef1cd904))
+* **marbles:** refine the authoring API surface ([#134](https://github.com/Francois-Esquire/foundry/issues/134)) ([0fe3562](https://github.com/Francois-Esquire/foundry/commit/0fe3562bf4448266a209e18202c36f9cf5ef11c4))
+* **marbles:** remove Varlock environment loading ([#128](https://github.com/Francois-Esquire/foundry/issues/128)) ([3dcedc2](https://github.com/Francois-Esquire/foundry/commit/3dcedc2a534bc85e287fdc613269a3e8752cf4f2))
+* **marbles:** rename authoring launch to enqueue and regroup the CLI ([#140](https://github.com/Francois-Esquire/foundry/issues/140)) ([17d1de3](https://github.com/Francois-Esquire/foundry/commit/17d1de358e71f405ab8434c25c136eee773ccd44))
+* **queue:** extract @foundry/queue and @foundry/scheduling and unify @foundry/workflows runtime ([#143](https://github.com/Francois-Esquire/foundry/issues/143)) ([0894231](https://github.com/Francois-Esquire/foundry/commit/089423192caa0773d2c00fb3b863afea0197d448))
+* **sandbox:** make sandboxes portable with pure Driver seam and cloud-native lifecycle ([#162](https://github.com/Francois-Esquire/foundry/issues/162)) ([ee3d8ea](https://github.com/Francois-Esquire/foundry/commit/ee3d8ea523622cf35bc6559a597383a74b675085))
+
+
+### Bug Fixes
+
+* **marbles:** an orphaned generation lets go of its parked runs instead of cancelling them ([#130](https://github.com/Francois-Esquire/foundry/issues/130)) ([01fc06b](https://github.com/Francois-Esquire/foundry/commit/01fc06b3225cc637c6862abafe614fcf1e6b5a39))
+* **marbles:** contain dispatch_agent cwd and shut the MCP server down in order ([#119](https://github.com/Francois-Esquire/foundry/issues/119)) ([80975c3](https://github.com/Francois-Esquire/foundry/commit/80975c34c2be6ce8e78758f5781c0cc6a2dbf948))
+* **marbles:** escalate engine stops, wait for staging on close, and guard a generation's retire ([#127](https://github.com/Francois-Esquire/foundry/issues/127)) ([8433f57](https://github.com/Francois-Esquire/foundry/commit/8433f5710c02ff34a2072693063263a3057fa7e1))
+* **marbles:** follow a watched run across a handover ([#120](https://github.com/Francois-Esquire/foundry/issues/120)) ([3009883](https://github.com/Francois-Esquire/foundry/commit/3009883e1a71ee512e0200a688b23626c9863fb2))
+* **marbles:** generate and gitignore bundled migrations ([#159](https://github.com/Francois-Esquire/foundry/issues/159)) ([e5c2a8e](https://github.com/Francois-Esquire/foundry/commit/e5c2a8e7927e9e98dddf6e49d811e9e3f22374cc))
+* **marbles:** harden database reads, the client, shares and artifact links ([#124](https://github.com/Francois-Esquire/foundry/issues/124)) ([36f8699](https://github.com/Francois-Esquire/foundry/commit/36f86996d5fd841119bccb8259f5c2da69199e50))
+* **marbles:** harden the daemon's workspace state, IPC and permissions ([#122](https://github.com/Francois-Esquire/foundry/issues/122)) ([32732ee](https://github.com/Francois-Esquire/foundry/commit/32732ee06d7e2b85acd9df1fd58933a463b81110))
+* **marbles:** hold dashboard input, selection and mouse to the modal state ([#123](https://github.com/Francois-Esquire/foundry/issues/123)) ([ac91080](https://github.com/Francois-Esquire/foundry/commit/ac910809006505578d25a497de8feb90a8a3a1f6))
+* **marbles:** keep fal and optional SDK types out of the published declarations ([#126](https://github.com/Francois-Esquire/foundry/issues/126)) ([f121620](https://github.com/Francois-Esquire/foundry/commit/f121620ece1f5b7ece24f4c96de2f44b4baf30e0))
+* **marbles:** load workspace source as plain Bun would and bound Varlock ([#125](https://github.com/Francois-Esquire/foundry/issues/125)) ([a03652e](https://github.com/Francois-Esquire/foundry/commit/a03652e91b0196034a2987a2ec074f2137affd7c))
+* **marbles:** parse command-line flags strictly ([#118](https://github.com/Francois-Esquire/foundry/issues/118)) ([98e1497](https://github.com/Francois-Esquire/foundry/commit/98e14973cbe755585940f980f6879894c33a661a))
+* **marbles:** show the process and generations in status ([#115](https://github.com/Francois-Esquire/foundry/issues/115)) ([c10ec4c](https://github.com/Francois-Esquire/foundry/commit/c10ec4cf642ead96958fac4572d84af17a7c9638))
+* **marbles:** tighten engine library edges found in review ([#121](https://github.com/Francois-Esquire/foundry/issues/121)) ([32c42f3](https://github.com/Francois-Esquire/foundry/commit/32c42f365d6eff2f2da46fef426264eb3721d302))
+
+
+### Code Refactoring
+
+* **agents:** remove unused subsystems ahead of the harness rewrite ([#154](https://github.com/Francois-Esquire/foundry/issues/154)) ([0eb9fbf](https://github.com/Francois-Esquire/foundry/commit/0eb9fbfa219d0725b6166cc227ae322477a2049d))
+* **marbles:** modularize CLI, unify resources & trigger, global mcp, settings, and global --json ([#151](https://github.com/Francois-Esquire/foundry/issues/151)) ([ffce8ac](https://github.com/Francois-Esquire/foundry/commit/ffce8ac6f604371cdf056c66ba19d41ab4b111da))
+* **models:** drop unused subsystems and Airplane Mode ([#152](https://github.com/Francois-Esquire/foundry/issues/152)) ([e34f501](https://github.com/Francois-Esquire/foundry/commit/e34f501cc99e92cb5721ed1df7f8819c7b7ad0b2))
+* portable authoring, cloud store seams, and stateless execution primitives ([#156](https://github.com/Francois-Esquire/foundry/issues/156)) ([58ee506](https://github.com/Francois-Esquire/foundry/commit/58ee5062d0070366e4065252bb0391c814e4f2c3))
+* **sandbox:** harden container lifecycle, ownership proof, and collapse wrappers ([#153](https://github.com/Francois-Esquire/foundry/issues/153)) ([559b9ff](https://github.com/Francois-Esquire/foundry/commit/559b9ff3f8b45edd1f7f020d5cca2bbaee1184df))
+
 ## [0.0.4](https://github.com/Francois-Esquire/foundry/compare/marbles-v0.0.3...marbles-v0.0.4) (2026-11-20)
 
 
