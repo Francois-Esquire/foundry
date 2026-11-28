@@ -16,6 +16,7 @@ export {
   gatewayProvider,
 } from "@foundry/models/providers/gateway";
 export { vercelProvider } from "@foundry/models/providers/vercel";
+export { DEFAULT_POOL } from "@foundry/queue";
 export type { Containers } from "@foundry/sandbox";
 export type { AutomationRecord } from "~/lib/automation";
 export type {
@@ -42,7 +43,6 @@ export type {
   RetentionGap,
   ToolCallObservation,
 } from "~/lib/executions";
-export { DEFAULT_POOL } from "~/lib/executions/record";
 export type { ExecutionStatus } from "~/lib/executions/statuses";
 export {
   EXECUTION_STATUSES,

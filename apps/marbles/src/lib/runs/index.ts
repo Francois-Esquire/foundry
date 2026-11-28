@@ -1,6 +1,7 @@
 import type { ProcessIdentity } from "@foundry/lib/process-identity";
 import { sameProcess } from "@foundry/lib/process-identity";
 import type { Job, RecoverySummary, RunOutcome } from "@foundry/queue";
+import { DEFAULT_POOL } from "@foundry/queue";
 import type { QueueHandlerContext } from "@foundry/queue/client";
 import type { Container } from "@foundry/sandbox";
 import { ambient, type ContextSnapshot } from "~/lib/async-context";
@@ -8,7 +9,7 @@ import type { Agents, SandboxHandle } from "~/lib/definitions/types";
 import type { Executions } from "~/lib/executions";
 import { errorCode } from "~/lib/executions/observations";
 import type { ExecutionRun } from "~/lib/executions/record";
-import { DEFAULT_POOL, isTask, linksOf } from "~/lib/executions/record";
+import { isTask, linksOf } from "~/lib/executions/record";
 import { SETTLED_EXECUTION_STATUSES } from "~/lib/executions/statuses";
 import { asRun, callingRun } from "~/lib/runs/calling";
 import type { ExecutionContext } from "~/lib/runs/context";

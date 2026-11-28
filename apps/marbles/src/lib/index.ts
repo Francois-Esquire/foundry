@@ -4,9 +4,34 @@ export { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";
 export { Workspaces } from "@foundry/workspaces";
 export type {
+  ContextKey,
+  ContextRuntime,
+  ContextSnapshot,
+  ContextVariable,
+} from "~/lib/async-context/runtime";
+export {
+  createPortableContextRuntime,
+  installContextRuntime,
+} from "~/lib/async-context/runtime";
+export type {
   AutomationRecord,
   AutomationService,
 } from "~/lib/automation";
+export type {
+  CommandResult,
+  CommandSite,
+  Exec,
+  ExecOptions,
+} from "~/lib/commands";
+export { CommandError } from "~/lib/commands";
+export type { ArgvArgument } from "~/lib/commands/argv";
+export {
+  fillArgv,
+  parseArgv,
+  placeholdersOf,
+  shellQuote,
+  showArgv,
+} from "~/lib/commands/argv";
 export type {
   AnyDefinition,
   LockedNode,
@@ -39,6 +64,7 @@ export type {
   SessionOptions,
   SessionRef,
   WorkspaceDefinition,
+  WorkspaceGit,
   WorkspaceHandle,
 } from "~/lib/definitions/types";
 export { SessionRouteError } from "~/lib/managers/agents";
@@ -77,7 +103,7 @@ export {
 export type { RunRecord } from "~/lib/runs/records";
 export type { ReadonlyRunScopes, RunScope } from "~/lib/runs/scope";
 export { TERMINAL_RUN_STATUSES } from "~/lib/runs/store";
-export type { SandboxAuthority } from "~/lib/sandbox";
+export type { SandboxAuthority, SandboxGuestSetup } from "~/lib/sandbox";
 export type {
   Change,
   FileChange,
@@ -116,7 +142,13 @@ export type {
 } from "./feed/read";
 export type { AgentsManager } from "./managers/agents";
 export type { ArtifactsManager } from "./managers/artifacts";
-export type { SandboxesManager } from "./managers/sandboxes";
-export type { WorkspacesManager } from "./managers/workspaces";
+export type {
+  SandboxesManager,
+  WorkspaceMaterialization,
+} from "./managers/sandboxes";
+export type {
+  WorkspaceCatalogue,
+  WorkspacesManager,
+} from "./managers/workspaces";
 export type { ActivityRecord, HarnessActivities } from "./sandbox/activities";
 export type { HarnessInteractions } from "./sandbox/interactions";
