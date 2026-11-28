@@ -58,6 +58,9 @@ interface MicrosandboxMountBuilder {
 }
 
 interface MicrosandboxNetworkBuilder {
+  http(
+    configure: (http: MicrosandboxHttpBuilder) => MicrosandboxHttpBuilder
+  ): MicrosandboxNetworkBuilder;
   policy(policy: MicrosandboxNetworkPolicy): MicrosandboxNetworkBuilder;
   portBind(
     bind: string,
@@ -68,6 +71,10 @@ interface MicrosandboxNetworkBuilder {
   tls(
     configure: (tls: MicrosandboxTlsBuilder) => MicrosandboxTlsBuilder
   ): MicrosandboxNetworkBuilder;
+}
+
+interface MicrosandboxHttpBuilder {
+  denyResponse(enabled: boolean): MicrosandboxHttpBuilder;
 }
 
 interface MicrosandboxTlsBuilder {
@@ -107,6 +114,7 @@ const MICROSANDBOX_CAPABILITIES: DriverCapabilities = Object.freeze({
 });
 
 let installing: Promise<void> | undefined;
+const MICROSANDBOX_RUNTIME_VERSION = "0.7.16";
 const MAX_SERVICE_OUTPUT_BYTES = 1024 * 1024;
 const MAX_EXEC_OUTPUT_BYTES = 16 * 1024 * 1024;
 const REMOVE_STOP_TIMEOUT_MS = 2000;
@@ -137,8 +145,8 @@ export function createMicrosandboxDriver(
     },
     async install() {
       installing ??= (async () => {
-        const { install } = await sdk();
-        await install();
+        const { installRuntime } = await sdk();
+        await installRuntime({}, { version: MICROSANDBOX_RUNTIME_VERSION });
       })().catch((error: unknown) => {
         installing = undefined;
         throw error;
@@ -146,8 +154,15 @@ export function createMicrosandboxDriver(
       await installing;
     },
     async isInstalled() {
-      const { isInstalled } = await sdk();
-      return isInstalled();
+      const { isRuntimeInstalled, resolveRuntime, resolveRuntimeVersion } =
+        await sdk();
+      if (!isRuntimeInstalled()) {
+        return false;
+      }
+      return (
+        (await resolveRuntimeVersion(resolveRuntime().msbPath)) ===
+        MICROSANDBOX_RUNTIME_VERSION
+      );
     },
     async listResources(query) {
       const { Sandbox } = await sdk();
@@ -257,11 +272,11 @@ function configureNetwork(
   ports: readonly LoopbackPortMapping[]
 ): void {
   builder.network((network: MicrosandboxNetworkBuilder) => {
-    let configured = network;
+    let configured = network.http((http) => http.denyResponse(false));
     if (typeof spec.network === "object") {
-      configured = allowlistNetwork(network, spec.network);
+      configured = allowlistNetwork(configured, spec.network);
     } else if (spec.network === "none") {
-      configured = network.policy(DENY_GUEST_EGRESS_POLICY);
+      configured = configured.policy(DENY_GUEST_EGRESS_POLICY);
     }
     for (const mapping of ports) {
       assertPrivatePortMapping(mapping);

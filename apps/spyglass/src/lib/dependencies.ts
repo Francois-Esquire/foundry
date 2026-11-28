@@ -50,13 +50,13 @@ export interface CrossBoundaryEdges {
 
 function synthesizeTsconfig(root: string): {
   file: string;
-  compilerOptions: { baseUrl: string; paths: Record<string, string[]> };
+  compilerOptions: { paths: Record<string, string[]> };
 } {
   const paths: Record<string, string[]> = {};
   for (const [key, targets] of Object.entries(workspacePathAliases(root))) {
-    paths[key] = targets.map((target) => toPosix(relative(root, target)));
+    paths[key] = targets.map(toPosix);
   }
-  const compilerOptions = { baseUrl: toPosix(root), paths };
+  const compilerOptions = { paths };
   const dir = mkdtempSync(join(tmpdir(), "semantic-surface-"));
   const file = join(dir, "tsconfig.json");
   writeFileSync(file, JSON.stringify({ compilerOptions }));

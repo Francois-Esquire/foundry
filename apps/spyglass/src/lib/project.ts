@@ -32,7 +32,6 @@ export function createProject(root: string, tsconfig?: string): Project {
 
   const existing = project.getCompilerOptions();
   project.compilerOptions.set({
-    baseUrl: existing.baseUrl ?? root,
     paths: { ...workspacePathAliases(root), ...existing.paths },
   });
 

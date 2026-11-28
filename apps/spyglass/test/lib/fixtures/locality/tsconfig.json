@@ -5,13 +5,12 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@l/core": ["packages/core/src/index.ts"],
-      "@l/store": ["packages/store/src/index.ts"],
-      "@l/app": ["packages/app/src/index.ts"],
-      "@l/plug-a": ["packages/plug-a/src/index.ts"],
-      "@l/plug-b": ["packages/plug-b/src/index.ts"]
+      "@l/core": ["./packages/core/src/index.ts"],
+      "@l/store": ["./packages/store/src/index.ts"],
+      "@l/app": ["./packages/app/src/index.ts"],
+      "@l/plug-a": ["./packages/plug-a/src/index.ts"],
+      "@l/plug-b": ["./packages/plug-b/src/index.ts"]
     }
   }
 }

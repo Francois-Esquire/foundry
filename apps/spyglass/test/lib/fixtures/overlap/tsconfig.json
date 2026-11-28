@@ -5,10 +5,9 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@o/domain": ["packages/domain/src/index.ts"],
-      "@o/db": ["packages/db/src/index.ts"]
+      "@o/domain": ["./packages/domain/src/index.ts"],
+      "@o/db": ["./packages/db/src/index.ts"]
     }
   }
 }

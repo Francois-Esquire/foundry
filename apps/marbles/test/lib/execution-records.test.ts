@@ -340,7 +340,8 @@ it("subscribes with a snapshot and every change after, reconcilable by revision"
   for (const run of snapshot) {
     seen.set(run.id, run);
   }
-  await (await engine.launch("step", 2)).result;
+  const second = await engine.launch("step", 2);
+  await second.result;
   await (await engine.launch("step", 3)).result;
   unsubscribe();
   await (await engine.launch("step", 4)).result;
@@ -365,9 +366,10 @@ it("subscribes with a snapshot and every change after, reconcilable by revision"
   );
   const latest = engine.executions.list();
   expect(latest).toHaveLength(4);
-  expect(latest[1]).toEqual(seen.get(latest[1]?.id ?? ""));
-  expect(latest[1]?.progress).toEqual({ at: 2 });
-  expect(latest[1]?.observations).toEqual([
+  const savedSecond = latest.find((run) => run.id === second.id);
+  expect(savedSecond).toEqual(seen.get(second.id));
+  expect(savedSecond?.progress).toEqual({ at: 2 });
+  expect(savedSecond?.observations).toEqual([
     expect.objectContaining({
       data: { bytes: 2 },
       kind: "result",

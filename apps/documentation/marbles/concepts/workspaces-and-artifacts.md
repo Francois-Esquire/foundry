@@ -69,7 +69,7 @@ filesystem calls should use `checkout.root` explicitly;
 [Sandbox](https://github.com/Francois-Esquire/foundry/blob/main/packages/sandbox/README.md)
 supplies the file and command interfaces. The CLI uses its optional
 MicroSandbox adapter. A real sandbox needs
-`microsandbox@0.6.18` resolvable from the Marbles installation and its native
+`microsandbox@0.7.16` resolvable from the Marbles installation and its native
 runtime binaries. Follow the runtime's setup for your host; adding a
 package to the automation project alone does not necessarily make it
 resolvable from a separate global CLI installation.

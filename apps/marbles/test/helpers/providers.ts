@@ -55,8 +55,10 @@ export async function makeProvidersTemplate(
   return file;
 }
 
-export function configureProviders(state: string): void {
-  const template = process.env[PROVIDERS_TEMPLATE_ENV];
+export function configureProviders(
+  state: string,
+  template = process.env[PROVIDERS_TEMPLATE_ENV]
+): void {
   if (template === undefined || !existsSync(template)) {
     throw new Error("configureProviders runs inside the suite's setup only");
   }

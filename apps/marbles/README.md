@@ -37,10 +37,27 @@ the adapters you use, alongside Marbles in the same project or global install:
 # Codex
 bun add --global ai-sdk-provider-codex-cli@2.4.0
 # Claude Code
-bun add --global ai-sdk-provider-claude-code@4.4.1 @anthropic-ai/claude-agent-sdk@0.3.283 @anthropic-ai/sdk@1.12.0
+bun add --global ai-sdk-provider-claude-code@4.4.1 @anthropic-ai/claude-agent-sdk@0.3.330 @anthropic-ai/sdk@1.12.0
 # Pi
 bun add --global ai-sdk-provider-pi@0.1.0
 ```
+
+Claude adapter 4.4.1 pins an older Agent SDK. Before installing Claude Code,
+add this override to the `package.json` at the installation root (your project,
+or Bun's global package directory for `--global`) to keep one SDK copy:
+
+```json
+{
+  "overrides": {
+    "ai-sdk-provider-claude-code@4.4.1": {
+      "@anthropic-ai/claude-agent-sdk": "0.3.330"
+    }
+  }
+}
+```
+
+Run `bun install` in that root after adding the override. Without it, the
+adapter also installs SDK 0.3.283 and its native binary alongside 0.3.330.
 
 Omit `--global` for a project installation. Codex needs CLI 0.156.0 or newer.
 Authenticate the corresponding CLI

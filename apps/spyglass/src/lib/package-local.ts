@@ -99,7 +99,6 @@ function createLocalProject(
   const ownTsconfig = join(boundary.dir, "tsconfig.json");
   const project = new Project({
     compilerOptions: {
-      baseUrl: root,
       jsx: ts.JsxEmit.ReactJSX,
       module: ts.ModuleKind.ESNext,
       moduleResolution: ts.ModuleResolutionKind.Bundler,

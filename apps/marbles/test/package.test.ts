@@ -177,6 +177,64 @@ const OPTIONAL_PROVIDER_SDKS = [
   "ai-sdk-provider-pi",
 ];
 
+test("the documented Claude override shares one Agent SDK with the adapter", () => {
+  const consumer = mkdtempSync(join(tmpdir(), "marbles-claude-sdk-"));
+  try {
+    const { dependencies, devDependencies } = JSON.parse(
+      readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8")
+    );
+    const { overrides } = JSON.parse(
+      readFileSync(resolve(PACKAGE_ROOT, "../../package.json"), "utf8")
+    );
+    writeFileSync(
+      join(consumer, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          [
+            "@anthropic-ai/claude-agent-sdk",
+            "@anthropic-ai/sdk",
+            "@modelcontextprotocol/sdk",
+            "ai-sdk-provider-claude-code",
+            "zod",
+          ].map((name) => [name, devDependencies[name] ?? dependencies[name]])
+        ),
+        overrides: {
+          "ai-sdk-provider-claude-code@4.4.1":
+            overrides["ai-sdk-provider-claude-code@4.4.1"],
+        },
+        private: true,
+        type: "module",
+      })
+    );
+    run("bun", ["install", "--ignore-scripts"], consumer);
+    const resolved = JSON.parse(
+      run(
+        "bun",
+        [
+          "-e",
+          `import { createRequire } from "node:module";
+          const require = createRequire(import.meta.dir + "/package.json");
+          const adapter = require.resolve("ai-sdk-provider-claude-code");
+          console.log(JSON.stringify({
+            adapterSdk: createRequire(adapter).resolve("@anthropic-ai/claude-agent-sdk"),
+            directSdk: require.resolve("@anthropic-ai/claude-agent-sdk"),
+          }));
+          await import("ai-sdk-provider-claude-code");`,
+        ],
+        consumer
+      )
+    );
+    expect(resolved.adapterSdk).toBe(resolved.directSdk);
+    expect(
+      JSON.parse(
+        readFileSync(join(dirname(resolved.directSdk), "package.json"), "utf8")
+      ).version
+    ).toBe("0.3.330");
+  } finally {
+    rmSync(consumer, { force: true, recursive: true });
+  }
+}, 120_000);
+
 const PROVIDER_ENTRIES = [
   "providers/claude-code",
   "providers/codex",

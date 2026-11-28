@@ -53,7 +53,6 @@ export async function pipedProcess(
     try {
       const exitCode = await forwardOutput(handle, process, signal);
       signal?.throwIfAborted();
-      await sink.close();
       process.complete(exitCode);
     } catch (error) {
       process.fail(processError(error));
