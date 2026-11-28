@@ -16,6 +16,7 @@ export {
 export * from "./domain";
 export {
   type Commit,
+  DEFAULT_CLAIM_TTL_MS,
   type EvaluateDueSchedulesOptions,
   type EvaluateDueSchedulesResult,
   type Evaluation,
@@ -31,3 +32,14 @@ export {
   type SchedulerService,
   type TickResult,
 } from "./scheduler";
+export {
+  pauseSchedule,
+  type RecordSettlementOptions,
+  recordSettlement,
+  registerSchedule,
+  resumeSchedule,
+  type StatelessScheduleOptions,
+  type TriggerScheduleNowOptions,
+  triggerScheduleNow,
+  unregisterSchedule,
+} from "./stateless";

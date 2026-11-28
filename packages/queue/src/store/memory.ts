@@ -3,6 +3,7 @@ import {
   type ConcurrencyPool,
   type Job,
   type Run,
+  type RunFilter,
   type Suspension,
   WriteConflictError,
 } from "../domain";
@@ -80,6 +81,7 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
       const read = <T>(pick: (current: Records) => T) =>
         Effect.map(Ref.get(records), pick);
       return {
+        capabilities: { watermark: true },
         commit: (write) =>
           Effect.flatMap(
             Ref.modify(records, (current) => {
@@ -116,14 +118,15 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
           ),
         listPools: read((current) => [...current.pools.values()]),
         listRuns: (filter = {}) =>
-          read((current) =>
-            [...current.runs.values()].filter(
-              (run) =>
-                (filter.state === undefined ||
-                  run.state.kind === filter.state) &&
-                (filter.jobId === undefined || run.jobId === filter.jobId)
-            )
-          ),
+          read((current) => {
+            const matched = [...current.runs.values()].filter((run) =>
+              matchesRunFilter(run, filter)
+            );
+            sortRuns(matched, filter.orderBy);
+            return filter.limit === undefined
+              ? matched
+              : matched.slice(0, Math.max(0, filter.limit));
+          }),
         listSuspensions: (filter = {}) =>
           read((current) =>
             [...current.suspensions.values()].filter(
@@ -138,6 +141,74 @@ export const makeMemoryQueueStore: Effect.Effect<QueueStoreService> =
       };
     }
   );
+
+const matchesRunFilter = (run: Run, filter: RunFilter): boolean => {
+  if (filter.state !== undefined && run.state.kind !== filter.state) {
+    return false;
+  }
+  if (filter.jobId !== undefined && run.jobId !== filter.jobId) {
+    return false;
+  }
+  if (filter.pool !== undefined && run.pool !== filter.pool) {
+    return false;
+  }
+  if (
+    filter.availableBefore !== undefined &&
+    (run.state.kind !== "queued" ||
+      run.state.availableAt > filter.availableBefore)
+  ) {
+    return false;
+  }
+  if (
+    filter.leaseExpiredBefore !== undefined &&
+    (run.state.kind !== "running" ||
+      run.state.lease.expiresAt === undefined ||
+      run.state.lease.expiresAt > filter.leaseExpiredBefore)
+  ) {
+    return false;
+  }
+  if (filter.orderBy === "availableAt" && run.state.kind !== "queued") {
+    return false;
+  }
+  if (
+    filter.orderBy === "leaseExpiresAt" &&
+    (run.state.kind !== "running" || run.state.lease.expiresAt === undefined)
+  ) {
+    return false;
+  }
+  return true;
+};
+
+const runOrderKey = (
+  run: Run,
+  orderBy: NonNullable<RunFilter["orderBy"]>
+): number => {
+  if (orderBy === "availableAt") {
+    return run.state.kind === "queued"
+      ? run.state.availableAt
+      : Number.POSITIVE_INFINITY;
+  }
+  return run.state.kind === "running"
+    ? (run.state.lease.expiresAt ?? Number.POSITIVE_INFINITY)
+    : Number.POSITIVE_INFINITY;
+};
+
+const compareIds = (a: string, b: string): number => {
+  if (a === b) {
+    return 0;
+  }
+  return a < b ? -1 : 1;
+};
+
+const sortRuns = (runs: Run[], orderBy: RunFilter["orderBy"]): void => {
+  if (orderBy === undefined) {
+    return;
+  }
+  runs.sort((a, b) => {
+    const diff = runOrderKey(a, orderBy) - runOrderKey(b, orderBy);
+    return diff === 0 ? compareIds(a.id, b.id) : diff;
+  });
+};
 
 export const MemoryQueueStore: Layer.Layer<QueueStore> = Layer.effect(
   QueueStore,

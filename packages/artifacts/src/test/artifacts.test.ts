@@ -145,7 +145,8 @@ describe.each(STORE_KINDS)("%s store: Artifacts blob objects", (kind) => {
     for await (const part of required(tail).body) {
       expect([...part]).toEqual([...last]);
     }
-    expect(reads).toHaveBeenCalledTimes(1);
+    // Chunk 0 is read once to infer chunkSize, plus chunk 1 for the tail range.
+    expect(reads).toHaveBeenCalledTimes(2);
     await artifacts.delete(fork.id);
     expect(await store.listBlobs()).toEqual([]);
   }, 30_000);

@@ -16,6 +16,7 @@ import type {
   ArtifactStoreWrite,
   BlobListing,
   ContentLookup,
+  ContentPageQuery,
 } from "./store";
 import type {
   Artifact,
@@ -34,10 +35,12 @@ type Pending<Id, Row> = Map<Id, Row | null>;
 
 interface ChangeState {
   active: boolean;
+  readonly artifactContentPreconditions: Map<ArtifactId, ContentId | null>;
   readonly artifacts: Pending<ArtifactId, Artifact>;
   readonly blobs: Pending<BlobId, Blob>;
   readonly clock: () => Date;
   readonly contents: Pending<ContentId, Content>;
+  readonly contentUpdatedAtPreconditions: Map<ContentId, Date>;
   readonly events: ArtifactEvent[];
   failure: { readonly error: unknown } | undefined;
   readonly id: () => string;
@@ -69,10 +72,12 @@ export class ArtifactChange {
   ): ArtifactChange {
     return new ArtifactChange({
       active: true,
+      artifactContentPreconditions: new Map(),
       artifacts: new Map(),
       blobs: new Map(),
       clock: options.clock ?? (() => new Date()),
       contents: new Map(),
+      contentUpdatedAtPreconditions: new Map(),
       events: [],
       failure: undefined,
       id: options.id ?? (() => crypto.randomUUID()),
@@ -123,6 +128,34 @@ export class ArtifactChange {
     }
   }
 
+  expectArtifactContent(
+    artifactId: ArtifactId,
+    contentId: ContentId | null
+  ): void {
+    if (
+      !(
+        this.#state.artifacts.has(artifactId) ||
+        this.#state.artifactContentPreconditions.has(artifactId)
+      )
+    ) {
+      this.#state.artifactContentPreconditions.set(artifactId, contentId);
+    }
+  }
+
+  expectContentUpdatedAt(contentId: ContentId, updatedAt: Date): void {
+    if (
+      !(
+        this.#state.contents.has(contentId) ||
+        this.#state.contentUpdatedAtPreconditions.has(contentId)
+      )
+    ) {
+      this.#state.contentUpdatedAtPreconditions.set(
+        contentId,
+        new Date(updatedAt.getTime())
+      );
+    }
+  }
+
   write(): ArtifactStoreWrite | undefined {
     if (
       this.#state.artifacts.size === 0 &&
@@ -132,6 +165,27 @@ export class ArtifactChange {
     ) {
       return;
     }
+    const hasArtifactPre = this.#state.artifactContentPreconditions.size > 0;
+    const hasContentPre = this.#state.contentUpdatedAtPreconditions.size > 0;
+    const preconditions =
+      hasArtifactPre || hasContentPre
+        ? {
+            ...(hasArtifactPre
+              ? {
+                  artifactContentIds: Object.fromEntries(
+                    this.#state.artifactContentPreconditions
+                  ) as Readonly<Record<ArtifactId, ContentId | null>>,
+                }
+              : {}),
+            ...(hasContentPre
+              ? {
+                  contentUpdatedAt: Object.fromEntries(
+                    this.#state.contentUpdatedAtPreconditions
+                  ) as Readonly<Record<ContentId, Date>>,
+                }
+              : {}),
+          }
+        : undefined;
     return {
       deleteArtifacts: deleted(this.#state.artifacts),
       deleteBlobs: deleted(this.#state.blobs),
@@ -139,6 +193,7 @@ export class ArtifactChange {
       ...(this.#state.events.length === 0
         ? {}
         : { events: [...this.#state.events] }),
+      ...(preconditions === undefined ? {} : { preconditions }),
       putArtifacts: kept(this.#state.artifacts),
       putBlobs: kept(this.#state.blobs),
       putContents: kept(this.#state.contents),
@@ -259,6 +314,36 @@ export class ArtifactChange {
           (input.tagged === undefined || (row.tag !== null) === input.tagged)
       )
       .sort(compareCreated);
+  }
+
+  async listContentsPage(
+    query: ContentPageQuery = {}
+  ): Promise<Page<Content, ContentId>> {
+    this.#assertActive();
+    const limit = pageLimit(query.limit);
+    const paged = this.#state.store.listContentsPage;
+    if (paged !== undefined) {
+      const baseQuery = buildContentPageQuery(query, limit);
+      if (this.#state.contents.size === 0) {
+        return paged.call(this.#state.store, baseQuery);
+      }
+      const stored = await paged.call(this.#state.store, {
+        ...baseQuery,
+        limit: limit + 1 + this.#state.contents.size,
+      });
+      const rows = filterContentPageRows(
+        merged(stored.items, this.#state.contents),
+        query,
+        limit
+      );
+      return pageFromRows(rows, limit, undefined, (content) => content.id);
+    }
+    const all = await this.listContents(query.artifactId, {
+      ...(query.state === undefined ? {} : { state: query.state }),
+      ...(query.tagged === undefined ? {} : { tagged: query.tagged }),
+    });
+    const rows = filterContentPageRows(all, query, limit);
+    return pageFromRows(rows, limit, undefined, (content) => content.id);
   }
 
   async findContent(
@@ -546,6 +631,45 @@ function kept<Id, Row>(pending: Pending<Id, Row>): Row[] {
 
 function deleted<Id, Row>(pending: Pending<Id, Row>): Id[] {
   return [...pending].flatMap(([id, row]) => (row === null ? [id] : []));
+}
+
+function compareContentId(a: Content, b: Content): number {
+  if (a.id < b.id) {
+    return -1;
+  }
+  return a.id > b.id ? 1 : 0;
+}
+
+function buildContentPageQuery(
+  query: ContentPageQuery,
+  limit: number
+): ContentPageQuery {
+  return {
+    ...(query.artifactId === undefined ? {} : { artifactId: query.artifactId }),
+    ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+    limit,
+    ...(query.state === undefined ? {} : { state: query.state }),
+    ...(query.tagged === undefined ? {} : { tagged: query.tagged }),
+  };
+}
+
+function filterContentPageRows(
+  rows: readonly Content[],
+  query: ContentPageQuery,
+  limit: number
+): Content[] {
+  const states = typeof query.state === "string" ? [query.state] : query.state;
+  return rows
+    .filter(
+      (row) =>
+        (query.artifactId === undefined ||
+          row.artifactId === query.artifactId) &&
+        (states === undefined || states.includes(row.state)) &&
+        (query.tagged === undefined || (row.tag !== null) === query.tagged) &&
+        (query.cursor === undefined || row.id > query.cursor)
+    )
+    .sort(compareContentId)
+    .slice(0, limit + 1);
 }
 
 function namesBlob(content: Content, id: BlobId, skip?: string): boolean {

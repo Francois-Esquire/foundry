@@ -8,6 +8,8 @@ import {
   HIGHLIGHT_SCOPES,
   notation,
   Parser,
+  PortablePrompt,
+  type PortablePromptData,
   Prompt,
   PromptError,
   pi,
@@ -381,6 +383,9 @@ describe("assembling", () => {
     expect(() => assemble({ dialects: { add: claudeCode } })).toThrow(
       '"add" is reserved on prompts; name the dialect something else.'
     );
+    expect(() => assemble({ dialects: { render: claudeCode } })).toThrow(
+      '"render" is reserved on prompts; name the dialect something else.'
+    );
   });
 });
 
@@ -419,5 +424,157 @@ describe("removing a source", () => {
     expect(mine.remove(skills)).toBe(true);
     expect(check.ok).toBe(true);
     expect(mine.remove(skills)).toBe(false);
+  });
+
+  it("removes plain-object PromptNames layers by identity", () => {
+    const names = { skill: ["review"] };
+    const mine = assemble({ dialects: { claude: claudeCode } });
+    mine.add(names);
+    const unresolved = mine.claude`/lint`;
+    expect(mine.has("skill", "review")).toBe(true);
+    expect(unresolved.ok).toBe(false);
+    expect(mine.remove(names)).toBe(true);
+    expect(mine.covers("skill")).toBe(false);
+    expect(unresolved.ok).toBe(true);
+    expect(mine.remove(names)).toBe(false);
+  });
+});
+
+describe("serializable PortablePrompt", () => {
+  it("exposes chunks/values, serializes via toJSON(), and re-renders via prompts.render(data, harness)", () => {
+    const review = prompts.portable`Run ${ref.skill("inspect", "src/")} on ${"auth"}`;
+    expect(review.chunks).toEqual(["Run ", " on ", ""]);
+    expect(review.values).toEqual([
+      { arguments: "src/", kind: "skill", name: "inspect" },
+      "auth",
+    ]);
+
+    const data = JSON.parse(JSON.stringify(review)) as PortablePromptData;
+    expect(data).toEqual({
+      chunks: ["Run ", " on ", ""],
+      values: [{ arguments: "src/", kind: "skill", name: "inspect" }, "auth"],
+    });
+
+    expect(prompts.render(data, "claude-code").text).toBe(
+      "Run /inspect src/ on auth"
+    );
+    expect(prompts.render(data, "codex").text).toBe(
+      "Run $inspect src/ on auth"
+    );
+    expect(prompts.render(data, "pi").text).toBe(
+      "Run /skill:inspect src/ on auth"
+    );
+    expect(prompts.render(data, "direct").text).toBe(
+      "Run inspect src/ on auth"
+    );
+    expect(prompts.render(data, "unknown").text).toBe(
+      "Run inspect src/ on auth"
+    );
+  });
+
+  it("renders PortablePromptData with custom assemble(...) dialects and enforces strict mode", () => {
+    const custom = new Dialect({
+      id: "custom",
+      label: "Custom",
+      notations: [
+        notation.invocation({ id: "custom/skill", kind: "skill", sigil: "#" }),
+      ],
+    });
+    const mine = assemble({
+      dialects: { claude: claudeCode, custom },
+      sources: [{ skill: ["inspect"] }],
+    });
+
+    const validData = JSON.parse(
+      JSON.stringify(mine.portable`Run ${ref.skill("inspect")}`)
+    ) as PortablePromptData;
+    expect(mine.render(validData, "custom").text).toBe("Run #inspect");
+    expect(mine.render(validData, "custom").ok).toBe(true);
+    expect(mine.render(validData, "claude-code").text).toBe("Run /inspect");
+    expect(mine.render(validData, "unknown").text).toBe("Run inspect");
+
+    const missingData = JSON.parse(
+      JSON.stringify(mine.portable`Run ${ref.skill("nope")}`)
+    ) as PortablePromptData;
+    expect(mine.render(missingData, "custom").ok).toBe(false);
+
+    mine.strict = true;
+    expect(() => mine.render(missingData, "custom")).toThrow(PromptError);
+    expect(mine.render(validData, "custom").ok).toBe(true);
+  });
+
+  it("rejects mismatched chunks and values in PortablePrompt constructor", () => {
+    const render = () => prompts.claude("ok");
+
+    expect(
+      () =>
+        new PortablePrompt({
+          chunks: [],
+          key: "k",
+          render,
+          text: "",
+          values: [],
+        })
+    ).toThrow(
+      "PortablePrompt requires chunks.length > 0 and values.length === chunks.length - 1"
+    );
+    expect(
+      () =>
+        new PortablePrompt({
+          chunks: ["a"],
+          key: "k",
+          render,
+          text: "a",
+          values: ["extra"],
+        })
+    ).toThrow(
+      "PortablePrompt requires chunks.length > 0 and values.length === chunks.length - 1"
+    );
+    expect(
+      () =>
+        new PortablePrompt({
+          chunks: ["a", "b"],
+          key: "k",
+          render,
+          text: "ab",
+          values: [],
+        })
+    ).toThrow(
+      "PortablePrompt requires chunks.length > 0 and values.length === chunks.length - 1"
+    );
+    expect(
+      () =>
+        new PortablePrompt({
+          chunks: ["a", "b"],
+          key: "k",
+          render,
+          text: "ab",
+        })
+    ).toThrow(
+      "PortablePrompt requires chunks.length > 0 and values.length === chunks.length - 1"
+    );
+    expect(
+      () =>
+        new PortablePrompt({
+          key: "k",
+          render,
+          text: "a",
+          values: ["extra"],
+        })
+    ).toThrow(
+      "PortablePrompt requires chunks.length > 0 and values.length === chunks.length - 1"
+    );
+
+    const simple = new PortablePrompt({ key: "k", render, text: "hello" });
+    expect(simple.toJSON()).toEqual({ chunks: ["hello"], values: [] });
+
+    const valid = new PortablePrompt({
+      chunks: ["a", "b"],
+      key: "k",
+      render,
+      text: "axb",
+      values: ["x"],
+    });
+    expect(valid.toJSON()).toEqual({ chunks: ["a", "b"], values: ["x"] });
   });
 });

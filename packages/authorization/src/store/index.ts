@@ -18,8 +18,16 @@ export type {
 
 export type AuthorizationStoreDurability = "commit" | "host";
 
+export interface RestrictionQuery {
+  readonly action?: string;
+}
+
 export interface AuthorizationStoreWrite {
+  readonly createClaims?: readonly InvocationClaim[];
+  readonly deleteClaims?: readonly string[];
+  readonly deleteGrants?: readonly GrantId[];
   readonly deleteRestrictions?: readonly RestrictionId[];
+  readonly expectedGrantRevisions?: Readonly<Record<GrantId, number>>;
   readonly putClaims?: readonly InvocationClaim[];
   readonly putGrants?: readonly Grant[];
   readonly putRestrictions?: readonly Restriction[];
@@ -32,6 +40,6 @@ export interface AuthorizationStore {
   getGrant(id: GrantId): Promise<Grant | null>;
   getRestriction(id: RestrictionId): Promise<Restriction | null>;
   listGrants(query?: GrantQuery): Promise<readonly Grant[]>;
-  listRestrictions(): Promise<readonly Restriction[]>;
+  listRestrictions(query?: RestrictionQuery): Promise<readonly Restriction[]>;
   transaction?<T>(work: (view: AuthorizationStore) => Promise<T>): Promise<T>;
 }

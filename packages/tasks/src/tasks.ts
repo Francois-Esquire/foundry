@@ -1,7 +1,7 @@
 import type { Page } from "@foundry/core/pagination";
 import { pageLimit, sliceRanked } from "@foundry/lib/pagination";
 import type { TaskAvailability } from "./availability";
-import { availabilityIn, readyTaskIds } from "./availability";
+import { availabilityIn, isSettled, readyTaskIds } from "./availability";
 import { applyChange, changeEvent } from "./change";
 import { TaskError } from "./errors";
 import type {
@@ -23,6 +23,7 @@ import type {
 } from "./queries";
 import type {
   Task,
+  TaskDependency,
   TaskId,
   TaskSnapshot,
   TaskStatus,
@@ -106,7 +107,9 @@ export class Tasks {
   }
 
   async ready(query: ReadyQuery = {}): Promise<Page<Task, number>> {
-    const snapshot = await this.#snapshot();
+    const snapshot = await this.#transaction((store) =>
+      this.#loadReadySnapshot(store)
+    );
     const readyIds = readyTaskIds(snapshot, { parentGate: this.#parentGate });
     const ready = ordered(snapshot.tasks).filter(
       (task) => readyIds.has(task.id) && hasTags(task, query.tags)
@@ -115,9 +118,28 @@ export class Tasks {
   }
 
   async availability(id: string): Promise<TaskAvailability | null> {
-    const snapshot = await this.#snapshot();
-    return availabilityIn(snapshot, taskId(id), {
-      parentGate: this.#parentGate,
+    return await this.#transaction(async (store) => {
+      const targetId = taskId(id);
+      if (store.dependenciesOf === undefined) {
+        return availabilityIn(await this.#snapshot(store), targetId, {
+          parentGate: this.#parentGate,
+        });
+      }
+      const task = await store.get(targetId);
+      if (task === null) {
+        return null;
+      }
+      const tagged = withTags(task);
+      if (isSettled(tagged.status)) {
+        return { kind: "settled", status: tagged.status };
+      }
+      if (tagged.status === "active") {
+        return { kind: "active" };
+      }
+      const snapshot = await this.#loadAvailabilitySnapshot(store, [tagged]);
+      return availabilityIn(snapshot, targetId, {
+        parentGate: this.#parentGate,
+      });
     });
   }
 
@@ -191,7 +213,7 @@ export class Tasks {
 
   change(change: TaskChange): Promise<TaskChangeResult> {
     return this.#mutation(async (store) => {
-      const snapshot = await this.#snapshot(store);
+      const snapshot = await this.#loadSnapshotForChange(store, change);
       this.#lastInstant = Math.max(this.#lastInstant, latestInstant(snapshot));
       const applied = applyChange(
         snapshot,
@@ -258,12 +280,14 @@ export class Tasks {
 
   remove(id: string, token?: TaskToken): Promise<Task> {
     return this.#serialized(async () => {
-      const checked = removable(await this.#snapshot(), id, token);
-      if (this.#inUse !== undefined && (await this.#inUse(checked.id))) {
-        throw new TaskError(
-          "task_in_use",
-          `Task ${checked.id} is still in use`
-        );
+      if (this.#inUse !== undefined) {
+        const checked = await this.#checkRemovable(this.#store, id, token);
+        if (await this.#inUse(checked.id)) {
+          throw new TaskError(
+            "task_in_use",
+            `Task ${checked.id} is still in use`
+          );
+        }
       }
       return this.#transaction((store) =>
         this.#commitRemoval(store, id, token)
@@ -271,19 +295,55 @@ export class Tasks {
     });
   }
 
+  async #checkRemovable(
+    store: TaskStore,
+    id: string,
+    token: TaskToken | undefined
+  ): Promise<Task> {
+    if (store.children !== undefined) {
+      const found = await store.get(taskId(id));
+      if (found === null) {
+        throw new TaskError("not_found", `Task ${id} not found`);
+      }
+      const task = withTags(found);
+      assertMatchingToken(task, token);
+      const childRows = await store.children(task.id);
+      if (childRows.length > 0) {
+        throw new TaskError(
+          "invalid_operation",
+          `Task ${task.id} still has ${childRows.length} children; move or remove them first`
+        );
+      }
+      return task;
+    }
+    return removable(await this.#snapshot(store), id, token);
+  }
+
   async #commitRemoval(
     store: TaskStore,
     id: string,
     token: TaskToken | undefined
   ): Promise<Task> {
-    const snapshot = await this.#snapshot(store);
-    const task = removable(snapshot, id, token);
-    const dropped = snapshot.dependencies.filter(
-      (edge) => edge.taskId === task.id || edge.dependsOnId === task.id
+    let task: Task;
+    let dropped: readonly TaskDependency[];
+    if (store.children !== undefined && store.dependenciesOf !== undefined) {
+      task = await this.#checkRemovable(store, id, token);
+      dropped = await store.dependenciesOf([task.id]);
+    } else {
+      const snapshot = await this.#snapshot(store);
+      task = removable(snapshot, id, token);
+      dropped = snapshot.dependencies.filter(
+        (edge) => edge.taskId === task.id || edge.dependsOnId === task.id
+      );
+    }
+    this.#lastInstant = Math.max(
+      this.#lastInstant,
+      latestInstant({ dependencies: [], tasks: [task] })
     );
     const write: TaskStoreWrite = {
       deleteDependencies: dropped,
       deleteTasks: [task.id],
+      expectedUpdatedAt: { [task.id]: task.updatedAt },
     };
     const event = changeEvent(
       [{ after: null, before: task, id: task.id }],
@@ -327,6 +387,85 @@ export class Tasks {
     return { ...snapshot, tasks: snapshot.tasks.map(withTags) };
   }
 
+  async #loadReadySnapshot(store: TaskStore): Promise<TaskSnapshot> {
+    if (store.list === undefined || store.dependenciesOf === undefined) {
+      return this.#snapshot(store);
+    }
+    const openTasks = (await store.list({ status: "open" })).map(withTags);
+    if (openTasks.length === 0) {
+      return { dependencies: [], tasks: [] };
+    }
+    return this.#loadAvailabilitySnapshot(store, openTasks);
+  }
+
+  async #loadAvailabilitySnapshot(
+    store: TaskStore,
+    seedTasks: readonly Task[]
+  ): Promise<TaskSnapshot> {
+    const byId = new Map<TaskId, Task>(
+      seedTasks.map((task) => [task.id, withTags(task)])
+    );
+    const seedIds = [...byId.keys()];
+    const allEdges =
+      store.dependenciesOf === undefined
+        ? []
+        : await store.dependenciesOf(seedIds);
+    const seedSet = new Set(seedIds);
+    const outgoingEdges = allEdges.filter((edge) => seedSet.has(edge.taskId));
+    const missingDepIds = outgoingEdges
+      .map((edge) => edge.dependsOnId)
+      .filter((depId) => !byId.has(depId));
+    for (const fetched of await fetchTasksByIds(store, missingDepIds)) {
+      byId.set(fetched.id, withTags(fetched));
+    }
+    if (this.#parentGate) {
+      await loadParentChains(store, byId, seedTasks);
+    }
+    return {
+      dependencies: outgoingEdges,
+      tasks: [...byId.values()],
+    };
+  }
+
+  async #loadSnapshotForChange(
+    store: TaskStore,
+    change: TaskChange
+  ): Promise<TaskSnapshot> {
+    const plan = analyzeChangeTargets(change);
+    if (
+      plan === null ||
+      (plan.readyCheckIds.size > 0 && store.dependenciesOf === undefined)
+    ) {
+      return this.#snapshot(store);
+    }
+    const fetched = (await fetchTasksByIds(store, [...plan.targetedIds])).map(
+      withTags
+    );
+    const byId = new Map<TaskId, Task>(fetched.map((task) => [task.id, task]));
+    let dependencies: readonly TaskDependency[] = [];
+    if (plan.readyCheckIds.size > 0) {
+      const seedForReady = fetched.filter((task) =>
+        plan.readyCheckIds.has(task.id)
+      );
+      const { dependencies: readyDeps, tasks: readyTasks } =
+        await this.#loadAvailabilitySnapshot(store, seedForReady);
+      dependencies = readyDeps;
+      for (const task of readyTasks) {
+        byId.set(task.id, task);
+      }
+    }
+    if (this.#parentGate && plan.parentChainSeedIds.size > 0) {
+      const parentSeeds = [...plan.parentChainSeedIds]
+        .map((id) => byId.get(id))
+        .filter((task): task is Task => task !== undefined);
+      await loadParentChains(store, byId, parentSeeds);
+    }
+    return {
+      dependencies,
+      tasks: [...byId.values()],
+    };
+  }
+
   async #relationsFor(store: TaskStore, id: TaskId): Promise<TaskRelations> {
     const edges = (await store.dependenciesOf?.([id])) ?? [];
     const dependentIds = edges
@@ -336,16 +475,9 @@ export class Tasks {
       .filter((edge) => edge.taskId === id)
       .map((edge) => edge.dependsOnId);
     const uniqueIds = [...new Set([...dependentIds, ...dependsOnIds])];
-    const fetched = await Promise.all(
-      uniqueIds.map(async (relatedId) => {
-        const found = await store.get(relatedId);
-        return found === null ? null : ([relatedId, withTags(found)] as const);
-      })
-    );
-    const byId = new Map(
-      fetched.filter(
-        (entry): entry is readonly [TaskId, Task] => entry !== null
-      )
+    const fetched = await fetchTasksByIds(store, uniqueIds);
+    const byId = new Map<TaskId, Task>(
+      fetched.map((task) => [task.id, withTags(task)])
     );
     const pick = (ids: readonly TaskId[]): readonly Task[] =>
       ordered(ids.flatMap((item) => byId.get(item) ?? []));
@@ -398,12 +530,114 @@ function ordered(tasks: readonly Task[]): Task[] {
   return [...tasks].sort(compareCreation);
 }
 
-function removable(
-  snapshot: TaskSnapshot,
-  id: string,
-  token: TaskToken | undefined
-): Task {
-  const task = requireTask(snapshot.tasks, id);
+function addRefId(ref: TaskRef | undefined, into: Set<TaskId>): void {
+  if (ref !== undefined && "id" in ref) {
+    into.add(taskId(ref.id));
+  }
+}
+
+interface ChangeTargetState {
+  readonly createdParentsById: Map<TaskId, TaskRef | undefined>;
+  readonly createdParentsByKey: Map<string, TaskRef | undefined>;
+  readonly parentChainSeedIds: Set<TaskId>;
+  readonly readyCheckIds: Set<TaskId>;
+  readonly targetedIds: Set<TaskId>;
+}
+
+function resolveCreatedAncestorId(
+  start: TaskRef | undefined,
+  createdParentsByKey: ReadonlyMap<string, TaskRef | undefined>
+): TaskId | undefined {
+  const seenKeys = new Set<string>();
+  let current = start;
+  while (current !== undefined) {
+    if ("id" in current) {
+      return taskId(current.id);
+    }
+    if (seenKeys.has(current.key)) {
+      return undefined;
+    }
+    seenKeys.add(current.key);
+    current = createdParentsByKey.get(current.key);
+  }
+  return undefined;
+}
+
+function recordReadyCheckTarget(ref: TaskRef, state: ChangeTargetState): void {
+  if ("id" in ref) {
+    const id = taskId(ref.id);
+    state.readyCheckIds.add(id);
+    const ancestorId = resolveCreatedAncestorId(
+      state.createdParentsById.get(id),
+      state.createdParentsByKey
+    );
+    if (ancestorId !== undefined) {
+      state.parentChainSeedIds.add(ancestorId);
+    }
+    return;
+  }
+  const ancestorId = resolveCreatedAncestorId(
+    state.createdParentsByKey.get(ref.key),
+    state.createdParentsByKey
+  );
+  if (ancestorId !== undefined) {
+    state.parentChainSeedIds.add(ancestorId);
+  }
+}
+
+function collectOperationTargets(
+  op: TaskOperation,
+  state: ChangeTargetState
+): boolean {
+  if (op.kind === "task.create") {
+    state.createdParentsByKey.set(op.key, op.parent);
+    if (op.input.id !== undefined) {
+      const id = taskId(op.input.id);
+      state.targetedIds.add(id);
+      state.createdParentsById.set(id, op.parent);
+    }
+    addRefId(op.parent, state.targetedIds);
+    return true;
+  }
+  if (op.kind === "task.update") {
+    addRefId(op.task, state.targetedIds);
+    return true;
+  }
+  if (op.kind === "task.set_status") {
+    addRefId(op.task, state.targetedIds);
+    if (op.requireReady === true) {
+      recordReadyCheckTarget(op.task, state);
+    }
+    return true;
+  }
+  return false;
+}
+
+function analyzeChangeTargets(change: TaskChange): {
+  readonly parentChainSeedIds: ReadonlySet<TaskId>;
+  readonly readyCheckIds: ReadonlySet<TaskId>;
+  readonly targetedIds: ReadonlySet<TaskId>;
+} | null {
+  const state: ChangeTargetState = {
+    createdParentsById: new Map(),
+    createdParentsByKey: new Map(),
+    parentChainSeedIds: new Set(),
+    readyCheckIds: new Set(),
+    targetedIds: new Set(),
+  };
+  for (const op of change.operations) {
+    if (!collectOperationTargets(op, state)) {
+      return null;
+    }
+  }
+  return {
+    parentChainSeedIds: state.parentChainSeedIds,
+    readyCheckIds: state.readyCheckIds,
+    targetedIds: state.targetedIds,
+  };
+}
+
+function assertMatchingToken(task: Task, token: TaskToken | undefined): void {
   if (
     token?.expectedUpdatedAt !== undefined &&
     token.expectedUpdatedAt !== task.updatedAt
@@ -413,6 +647,60 @@ function removable(
       `Task ${task.id} changed at ${task.updatedAt}, expected ${token.expectedUpdatedAt}`
     );
   }
+}
+
+async function fetchTasksByIds(
+  store: TaskStore,
+  ids: readonly TaskId[]
+): Promise<readonly Task[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) {
+    return [];
+  }
+  if (store.list !== undefined) {
+    return await store.list({ ids: unique });
+  }
+  const fetched = await Promise.all(unique.map((id) => store.get(id)));
+  return fetched.filter((task): task is Task => task !== null);
+}
+
+async function loadParentChains(
+  store: TaskStore,
+  byId: Map<TaskId, Task>,
+  seeds: readonly Task[]
+): Promise<void> {
+  const seen = new Set<TaskId>(byId.keys());
+  let frontier: TaskId[] = [];
+  for (const task of seeds) {
+    if (task.parentId !== null && !seen.has(task.parentId)) {
+      frontier.push(task.parentId);
+    }
+  }
+  while (frontier.length > 0) {
+    const batch = [...new Set(frontier)];
+    for (const id of batch) {
+      seen.add(id);
+    }
+    const fetched = await fetchTasksByIds(store, batch);
+    const nextFrontier: TaskId[] = [];
+    for (const parent of fetched) {
+      const tagged = withTags(parent);
+      byId.set(tagged.id, tagged);
+      if (tagged.parentId !== null && !seen.has(tagged.parentId)) {
+        nextFrontier.push(tagged.parentId);
+      }
+    }
+    frontier = nextFrontier;
+  }
+}
+
+function removable(
+  snapshot: TaskSnapshot,
+  id: string,
+  token: TaskToken | undefined
+): Task {
+  const task = requireTask(snapshot.tasks, id);
+  assertMatchingToken(task, token);
   const children = snapshot.tasks.filter((item) => item.parentId === task.id);
   if (children.length > 0) {
     throw new TaskError(
@@ -444,12 +732,16 @@ function hasTags(task: Task, query: TagQuery | undefined): boolean {
   );
 }
 
+const MAX_DEPTH = 64;
+
 function requireDepth(depth: number | undefined): number {
   if (depth === undefined) {
     return 0;
   }
-  if (!Number.isSafeInteger(depth) || depth < 0) {
-    throw new RangeError("depth must be a non-negative integer");
+  if (!Number.isSafeInteger(depth) || depth < 0 || depth > MAX_DEPTH) {
+    throw new RangeError(
+      `depth must be a non-negative integer at most ${MAX_DEPTH}`
+    );
   }
   return depth;
 }
@@ -467,13 +759,25 @@ function childrenOf(tasks: readonly Task[]): ChildrenIndex {
   return index;
 }
 
-function expand(task: Task, depth: number, index: ChildrenIndex): TaskNode {
+function expand(
+  task: Task,
+  depth: number,
+  index: ChildrenIndex,
+  seen: ReadonlySet<TaskId> = new Set([task.id])
+): TaskNode {
   if (depth === 0) {
     return task;
   }
+  const children = (index.get(task.id) ?? []).filter(
+    (child) => !seen.has(child.id)
+  );
   return {
     ...task,
-    subtasks: expandAll(index.get(task.id) ?? [], depth - 1, index),
+    subtasks: children.map((child) => {
+      const branch = new Set(seen);
+      branch.add(child.id);
+      return expand(child, depth - 1, index, branch);
+    }),
   };
 }
 

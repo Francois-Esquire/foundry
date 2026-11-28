@@ -26,13 +26,17 @@ export function resetUsage(): void {
 
 const facade: Usage = {
   add: (account) => usageState().active.add(account),
-  budget: (name) => usageState().active.budget(name),
+  budget: (name, options) => usageState().active.budget(name, options),
   initialize: () => usageState().active.initialize(),
   query: ((...args: Parameters<Usage["query"]>) =>
     (usageState().active.query as (...values: unknown[]) => unknown)(
       ...args
     )) as Usage["query"],
-  share: (name, span) => usageState().active.share(name, span),
+  queryAccount: (account, options) =>
+    usageState().active.queryAccount(account, options),
+  remove: (name) => usageState().active.remove(name),
+  share: (name, span, options) =>
+    usageState().active.share(name, span, options),
   use: (provider) => usageState().active.use(provider),
 };
 

@@ -5,7 +5,7 @@ import type { AuthorizationStore } from "../store/index";
 
 export type ScopedAuthorizationStores = (scope: string) => AuthorizationStore;
 
-export interface AuthorizationStoreCapabilities {
+export interface AuthorizationStoreTestCapabilities {
   readonly insertionOrder?: boolean;
   readonly reentrancyGuard?: boolean;
   readonly transactions?: boolean;
@@ -14,7 +14,7 @@ export interface AuthorizationStoreCapabilities {
 export function describeAuthorizationStore(
   name: string,
   open: () => ScopedAuthorizationStores | Promise<ScopedAuthorizationStores>,
-  capabilities: AuthorizationStoreCapabilities = {}
+  capabilities: AuthorizationStoreTestCapabilities = {}
 ): void {
   const insertionOrder = capabilities.insertionOrder ?? true;
   const transactions = capabilities.transactions ?? true;

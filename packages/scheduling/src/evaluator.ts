@@ -22,6 +22,7 @@ import {
   type ScheduleError,
   type ScheduleEvent,
   type ScheduleId,
+  ScheduleNotFoundError,
   type SchedulerOwner,
   type SkipReason,
 } from "./domain";
@@ -126,16 +127,51 @@ const latestSettle = (settled: readonly Occurrence[]) =>
     undefined
   );
 
-const afterSettle = (
-  schedule: Schedule,
+export const defaultNextEventId = (): string => `ev-${crypto.randomUUID()}`;
+
+export const makeStoreCommit =
+  (
+    store: ScheduleStoreService,
+    nextEventId: () => string = defaultNextEventId
+  ): Commit =>
+  (at, facts, write) =>
+    store.commit({
+      ...write,
+      events: facts.map(
+        (fact): ScheduleEvent => ({
+          ...fact,
+          at,
+          id: nextEventId(),
+        })
+      ),
+    });
+
+export const settleCursor = (
+  schedule: Schedule | undefined,
   cursor: ScheduleCursor,
+  activeJobId: string | undefined,
   settledAt: Instant | undefined
-): ScheduleCursor =>
-  schedule.cadence.kind === "delay" &&
-  settledAt !== undefined &&
-  cursor.activeJobId === undefined
-    ? { ...cursor, nextDueAt: nextDue(schedule.cadence, settledAt) }
-    : cursor;
+): ScheduleCursor => {
+  const lastSettledAt =
+    settledAt === undefined
+      ? cursor.lastSettledAt
+      : Math.max(cursor.lastSettledAt ?? settledAt, settledAt);
+  const base = withActive(
+    {
+      ...cursor,
+      ...(lastSettledAt === undefined ? {} : { lastSettledAt }),
+    },
+    activeJobId
+  );
+  return schedule?.cadence.kind === "delay" &&
+    settledAt !== undefined &&
+    base.activeJobId === undefined
+    ? {
+        ...base,
+        nextDueAt: nextDue(schedule.cadence, lastSettledAt ?? settledAt),
+      }
+    : base;
+};
 
 export const makeEvaluator = ({
   claimTtlMs,
@@ -189,19 +225,8 @@ export const makeEvaluator = ({
         )
         .at(-1);
       const settledAt = latestSettle(settled);
-      const lastSettledAt = settledAt ?? cursor.lastSettledAt;
       return {
-        cursor: afterSettle(
-          schedule,
-          withActive(
-            {
-              ...cursor,
-              ...(lastSettledAt === undefined ? {} : { lastSettledAt }),
-            },
-            active
-          ),
-          settledAt
-        ),
+        cursor: settleCursor(schedule, cursor, active, settledAt),
         decided: [],
         facts: settled.map((occurrence) => ({
           occurrence,
@@ -219,13 +244,24 @@ export const makeEvaluator = ({
       : undefined;
 
   const claimExpired = (
-    lease: { readonly claimedAt: Instant; readonly owner: SchedulerOwner },
+    lease: {
+      readonly claimedAt: Instant;
+      readonly expiresAt?: Instant;
+      readonly owner: SchedulerOwner;
+    },
     now: Instant
   ) =>
-    validClaimTtlMs !== undefined && lease.claimedAt + validClaimTtlMs <= now;
+    lease.expiresAt === undefined
+      ? validClaimTtlMs !== undefined &&
+        lease.claimedAt + validClaimTtlMs <= now
+      : lease.expiresAt <= now;
 
   const claimStale = (
-    lease: { readonly claimedAt: Instant; readonly owner: SchedulerOwner },
+    lease: {
+      readonly claimedAt: Instant;
+      readonly expiresAt?: Instant;
+      readonly owner: SchedulerOwner;
+    },
     now: Instant
   ) =>
     Effect.sync(
@@ -297,37 +333,104 @@ export const makeEvaluator = ({
         : "held-by-peer";
     });
 
+  interface CachedDispatch {
+    readonly claimed: Occurrence;
+    readonly dispatchedAt: Instant;
+    readonly jobId: string;
+  }
+
+  interface CallDispatchCache {
+    readonly claimed: Set<Occurrence["id"]>;
+    readonly dispatched: Map<Occurrence["id"], CachedDispatch>;
+  }
+
+  const replayedDispatch = (
+    base: ReturnType<typeof occurrenceAt>,
+    cursor: ScheduleCursor,
+    progress: Progress,
+    prior: CachedDispatch
+  ) => {
+    const dispatched: Occurrence = {
+      ...base,
+      state: {
+        dispatchedAt: prior.dispatchedAt,
+        jobId: prior.jobId,
+        kind: "dispatched",
+      },
+    };
+    return record(
+      progress,
+      withActive(cursor, prior.jobId),
+      dispatched,
+      [
+        { occurrence: prior.claimed, type: "occurrence.claimed" },
+        { occurrence: dispatched, type: "occurrence.dispatched" },
+      ],
+      true
+    );
+  };
+
+  const unclaimedProgress = (
+    outcome: "decided" | "held-by-peer",
+    base: ReturnType<typeof occurrenceAt>,
+    cursor: ScheduleCursor,
+    progress: Progress,
+    now: Instant,
+    contendedBase?: Progress
+  ) => {
+    const taken = skipped(base, "already-claimed", now);
+    if (outcome === "held-by-peer") {
+      const kept = contendedBase ?? progress;
+      return {
+        ...record(kept, kept.cursor, taken, [skippedFact(taken)], false),
+        contended: true,
+      };
+    }
+    return record(progress, cursor, taken, [skippedFact(taken)], false);
+  };
+
   const dispatchDue = (
     schedule: Schedule,
     progress: Progress,
     scheduledFor: Instant,
     now: Instant,
-    contendedBase?: Progress
+    contendedBase?: Progress,
+    callCache?: CallDispatchCache
   ) =>
     Effect.gen(function* () {
       const base = occurrenceAt(schedule.id, scheduledFor);
+      const cursor = { ...progress.cursor, lastScheduledFor: scheduledFor };
+      const prior = callCache?.dispatched.get(base.id);
+      if (prior !== undefined) {
+        return replayedDispatch(base, cursor, progress, prior);
+      }
       const claimed: Occurrence = {
         ...base,
         state: {
           claimedAt: now,
           kind: "claimed",
-          lease: { claimedAt: now, owner: self },
+          lease: {
+            claimedAt: now,
+            ...(validClaimTtlMs === undefined
+              ? {}
+              : { expiresAt: now + validClaimTtlMs }),
+            owner: self,
+          },
         },
       };
       const exclusive: boolean = schedule.overlap !== "allow";
-      const cursor = { ...progress.cursor, lastScheduledFor: scheduledFor };
       const outcome = yield* claim(claimed, exclusive, now);
       if (outcome !== "claimed") {
-        const taken = skipped(base, "already-claimed", now);
-        if (outcome === "held-by-peer") {
-          const kept = contendedBase ?? progress;
-          return {
-            ...record(kept, kept.cursor, taken, [skippedFact(taken)], false),
-            contended: true,
-          };
-        }
-        return record(progress, cursor, taken, [skippedFact(taken)], false);
+        return unclaimedProgress(
+          outcome,
+          base,
+          cursor,
+          progress,
+          now,
+          contendedBase
+        );
       }
+      callCache?.claimed.add(base.id);
       const claimedFact: Fact = {
         occurrence: claimed,
         type: "occurrence.claimed",
@@ -360,6 +463,7 @@ export const makeEvaluator = ({
         }),
         () => Effect.ignore(store.releaseClaim(base.id, self))
       );
+      callCache?.dispatched.set(base.id, { claimed, dispatchedAt: now, jobId });
       const dispatched: Occurrence = {
         ...base,
         state: { dispatchedAt: now, jobId, kind: "dispatched" },
@@ -400,7 +504,8 @@ export const makeEvaluator = ({
   const advance = (
     schedule: Schedule,
     progress: Progress,
-    now: Instant
+    now: Instant,
+    callCache: CallDispatchCache
   ): Effect.Effect<Progress, ScheduleError> => {
     const { nextDueAt } = progress.cursor;
     if (nextDueAt === null || now < nextDueAt) {
@@ -428,62 +533,150 @@ export const makeEvaluator = ({
     if (due.toDispatch === null) {
       return Effect.succeed(advanced);
     }
-    return dispatchDue(schedule, advanced, due.toDispatch, now, progress);
+    return dispatchDue(
+      schedule,
+      advanced,
+      due.toDispatch,
+      now,
+      progress,
+      callCache
+    );
   };
 
-  const evaluateOnce = (schedule: Schedule, now: Instant) =>
+  const releaseUncommittedClaims = (
+    callCache: CallDispatchCache,
+    written: ReadonlySet<Occurrence["id"]> = new Set()
+  ) =>
+    Effect.forEach(
+      [...callCache.claimed].filter(
+        (id) => !(callCache.dispatched.has(id) || written.has(id))
+      ),
+      (id) => Effect.ignore(store.releaseClaim(id, self)),
+      { discard: true }
+    );
+
+  const EMPTY_EVALUATION: Evaluation = {
+    decided: [],
+    nextDueAt: null,
+    open: false,
+  };
+
+  const cleanupRetriedClaims = (
+    callCache: CallDispatchCache,
+    writes: readonly Occurrence[],
+    reloadSchedule: boolean
+  ) =>
+    reloadSchedule && callCache.claimed.size > 0
+      ? releaseUncommittedClaims(callCache, new Set(writes.map((o) => o.id)))
+      : Effect.void;
+
+  const evaluationResult = (
+    current: Schedule,
+    progress: Progress
+  ): Evaluation => ({
+    decided: progress.decided,
+    nextDueAt:
+      current.state === "active" && !progress.contended
+        ? progress.cursor.nextDueAt
+        : null,
+    open:
+      progress.cursor.activeJobId !== undefined ||
+      progress.contended === true ||
+      (current.cadence.kind === "delay" && progress.cursor.nextDueAt === null),
+  });
+
+  const evaluateOnce = (
+    schedule: Schedule,
+    now: Instant,
+    callCache: CallDispatchCache,
+    reloadSchedule: boolean
+  ) =>
     Effect.gen(function* () {
-      const cursor = yield* store.getCursor(schedule.id);
-      if (cursor === undefined) {
-        return {
-          decided: [],
-          nextDueAt: null,
-          open: false,
-        } satisfies Evaluation;
+      const current = reloadSchedule
+        ? yield* store.getSchedule(schedule.id)
+        : schedule;
+      const cursor =
+        current === undefined ? undefined : yield* store.getCursor(current.id);
+      if (current === undefined || cursor === undefined) {
+        yield* releaseUncommittedClaims(callCache);
+        return EMPTY_EVALUATION;
       }
-      const refreshed: Progress = yield* refresh(schedule, cursor);
+      const refreshed: Progress = yield* refresh(current, cursor);
       const progress: Progress =
-        schedule.state === "active"
-          ? yield* advance(schedule, refreshed, now)
+        current.state === "active"
+          ? yield* advance(current, refreshed, now, callCache)
           : refreshed;
       yield* save(cursor, cursor, progress, now);
-      return {
-        decided: progress.decided,
-        nextDueAt:
-          schedule.state === "active" && !progress.contended
-            ? progress.cursor.nextDueAt
-            : null,
-        open:
-          progress.cursor.activeJobId !== undefined ||
-          progress.contended === true ||
-          (schedule.cadence.kind === "delay" &&
-            progress.cursor.nextDueAt === null),
-      } satisfies Evaluation;
+      yield* cleanupRetriedClaims(callCache, progress.writes, reloadSchedule);
+      return evaluationResult(current, progress);
     });
 
-  const triggerNowOnce = (schedule: Schedule, now: Instant) =>
+  const triggerNowOnce = (
+    schedule: Schedule,
+    now: Instant,
+    callCache: CallDispatchCache,
+    reloadSchedule: boolean
+  ) =>
     Effect.gen(function* () {
-      const stored = yield* store.getCursor(schedule.id);
-      const cursor = stored ?? { nextDueAt: null, scheduleId: schedule.id };
+      const current = reloadSchedule
+        ? yield* store.getSchedule(schedule.id)
+        : schedule;
+      if (current === undefined) {
+        return yield* Effect.fail(
+          new ScheduleNotFoundError({ id: schedule.id })
+        );
+      }
+      const stored = yield* store.getCursor(current.id);
+      const cursor = stored ?? { nextDueAt: null, scheduleId: current.id };
       const progress = yield* dispatchDue(
-        schedule,
-        yield* refresh(schedule, cursor),
+        current,
+        yield* refresh(current, cursor),
         now,
-        now
+        now,
+        undefined,
+        callCache
       );
       yield* save(stored, cursor, progress, now);
+      yield* cleanupRetriedClaims(callCache, progress.writes, reloadSchedule);
       return progress.decided.at(-1);
     });
 
   const evaluate = (schedule: Schedule, now: Instant) =>
-    retryingConflicts(evaluateOnce(schedule, now));
+    Effect.suspend(() => {
+      const callCache: CallDispatchCache = {
+        claimed: new Set(),
+        dispatched: new Map(),
+      };
+      let attempt = 0;
+      return retryingConflicts(
+        Effect.suspend(() => {
+          const reloadSchedule = attempt > 0;
+          attempt += 1;
+          return evaluateOnce(schedule, now, callCache, reloadSchedule);
+        })
+      ).pipe(Effect.tapError(() => releaseUncommittedClaims(callCache)));
+    });
 
   const triggerNow = (schedule: Schedule, now: Instant) =>
-    retryingConflicts(triggerNowOnce(schedule, now));
+    Effect.suspend(() => {
+      const callCache: CallDispatchCache = {
+        claimed: new Set(),
+        dispatched: new Map(),
+      };
+      let attempt = 0;
+      return retryingConflicts(
+        Effect.suspend(() => {
+          const reloadSchedule = attempt > 0;
+          attempt += 1;
+          return triggerNowOnce(schedule, now, callCache, reloadSchedule);
+        })
+      ).pipe(Effect.tapError(() => releaseUncommittedClaims(callCache)));
+    });
 
   return { evaluate, triggerNow };
 };
 
+export const DEFAULT_CLAIM_TTL_MS = 60_000;
 const DEFAULT_MAX_OCCURRENCES = 100;
 const DEFAULT_SETTLE_POLL_MS = 5000;
 
@@ -494,10 +687,13 @@ export interface EvaluateDueSchedulesOptions {
   readonly claimTtlMs?: number;
   readonly dispatch: ScheduleDispatchService;
   readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
+  readonly limit?: number;
   readonly maxOccurrencesPerSchedule?: number;
+  readonly nextEventId?: () => string;
   readonly now?: Instant;
   readonly owner?: SchedulerOwner;
   readonly settlePollMs?: number;
+  readonly signal?: AbortSignal;
   readonly store: ScheduleStoreService;
 }
 
@@ -509,8 +705,41 @@ export interface ScheduleEvaluationFailure {
 export interface EvaluateDueSchedulesResult {
   readonly decided: readonly Occurrence[];
   readonly errors: readonly ScheduleEvaluationFailure[];
+  readonly hasMore: boolean;
   readonly soonest: Instant | undefined;
 }
+
+const selectEvaluationCandidates = (
+  store: ScheduleStoreService,
+  now: Instant,
+  limit: number | undefined
+): Effect.Effect<
+  { readonly candidates: readonly Schedule[]; readonly hasMore: boolean },
+  ScheduleError
+> =>
+  Effect.gen(function* () {
+    if (store.listDueSchedules !== undefined) {
+      if (limit !== undefined) {
+        const fetched = yield* store.listDueSchedules(now, {
+          limit: limit + 1,
+        });
+        return {
+          candidates: fetched.slice(0, limit),
+          hasMore: fetched.length > limit,
+        };
+      }
+      const fetched = yield* store.listDueSchedules(now);
+      return {
+        candidates: fetched,
+        hasMore: false,
+      };
+    }
+    const all = yield* store.listSchedules;
+    if (limit !== undefined && all.length > limit) {
+      return { candidates: all.slice(0, limit), hasMore: true };
+    }
+    return { candidates: all, hasMore: false };
+  });
 
 export const evaluateDueSchedules = (
   options: EvaluateDueSchedulesOptions
@@ -524,21 +753,9 @@ export const evaluateDueSchedules = (
           (instance) => Effect.sync(() => closeInstance(instance))
         ));
       const settlePollMs = options.settlePollMs ?? DEFAULT_SETTLE_POLL_MS;
-      const commit: Commit = (at, facts, write) =>
-        options.store.commit({
-          ...write,
-          events: facts.map(
-            (fact): ScheduleEvent => ({
-              ...fact,
-              at,
-              id: `ev-${crypto.randomUUID()}`,
-            })
-          ),
-        });
+      const commit = makeStoreCommit(options.store, options.nextEventId);
       const { evaluate } = makeEvaluator({
-        ...(options.claimTtlMs === undefined
-          ? {}
-          : { claimTtlMs: options.claimTtlMs }),
+        claimTtlMs: options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS,
         commit,
         dispatch: options.dispatch,
         isOwnerGone: options.isOwnerGone ?? neverGone,
@@ -548,10 +765,20 @@ export const evaluateDueSchedules = (
         store: options.store,
       });
       const now = options.now ?? (yield* Clock.currentTimeMillis);
+      const selected = yield* selectEvaluationCandidates(
+        options.store,
+        now,
+        options.limit
+      );
+      let { hasMore } = selected;
       const decided: Occurrence[] = [];
       const errors: ScheduleEvaluationFailure[] = [];
       let soonest: Instant | undefined;
-      for (const schedule of yield* options.store.listSchedules) {
+      for (const schedule of selected.candidates) {
+        if (options.signal?.aborted) {
+          hasMore = true;
+          break;
+        }
         const result = yield* evaluate(schedule, now).pipe(
           Effect.catchAll((error) => {
             errors.push({ error, scheduleId: schedule.id });
@@ -568,6 +795,13 @@ export const evaluateDueSchedules = (
           soonest = earliest(soonest, now + settlePollMs);
         }
       }
-      return { decided, errors, soonest };
+      if (
+        (options.limit !== undefined ||
+          options.store.listDueSchedules !== undefined) &&
+        options.store.nextDueAt !== undefined
+      ) {
+        soonest = earliest(soonest, (yield* options.store.nextDueAt) ?? null);
+      }
+      return { decided, errors, hasMore, soonest };
     })
   );

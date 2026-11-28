@@ -281,12 +281,13 @@ export interface AgentRecipe {
 export function promptFields(
   prompt: string | PortablePrompt
 ): Pick<AgentDefinition, "prompt" | typeof AGENT_PROMPT> {
-  return typeof prompt === "string"
-    ? { prompt }
-    : {
-        [AGENT_PROMPT]: (harness) => prompt.render(harness).text,
-        prompt: prompt.text,
-      };
+  if (typeof prompt === "string") {
+    return { prompt };
+  }
+  return {
+    [AGENT_PROMPT]: (harness) => prompt.render(harness).text,
+    prompt: prompt.text,
+  };
 }
 
 function checkedSpec(id: string, value: unknown): AgentSpec<Output.Output> {

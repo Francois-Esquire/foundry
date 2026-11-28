@@ -24,6 +24,7 @@ import type {
   ArtifactSubstrate,
   ContentResolved,
   EntryInput,
+  RecoverOptions,
   TreeChanges,
   WriteFence,
 } from "../substrate";
@@ -41,7 +42,7 @@ export interface ArtifactFileSystem
     StorageWriter {
   close(): Promise<void>;
   mkdir(path: string): Promise<void>;
-  recover(): Promise<void>;
+  recover(options?: RecoverOptions): Promise<void>;
   remove(path: string): Promise<void>;
   resolve(ref: ArtifactRef): Promise<{
     readonly path: string;
@@ -491,10 +492,10 @@ export function artifactFileSystem(
       }
       return resolve(path);
     },
-    async recover() {
+    async recover(recoverOptions?: RecoverOptions) {
       recovering += 1;
       try {
-        await artifacts.recover();
+        await artifacts.recover(recoverOptions);
       } finally {
         recovering -= 1;
       }

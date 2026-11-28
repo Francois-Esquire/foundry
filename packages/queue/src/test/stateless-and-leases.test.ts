@@ -39,7 +39,7 @@ describe("TTL lease expiry recovery", () => {
         const releaseFirst = yield* Deferred.make<void>();
         const initialExpires = yield* withQueue(
           store,
-          { identity: foreign, leaseTtlMs: 5000 },
+          { identity: foreign, leaseHeartbeatMs: 0, leaseTtlMs: 5000 },
           (workerA) =>
             Effect.gen(function* () {
               yield* workerA.register("work", (context) =>
@@ -115,7 +115,12 @@ describe("TTL lease expiry recovery", () => {
     const result = await inTestClock(
       withQueue(
         store,
-        { defaultLimit: 1, leaseTtlMs: 10, syncIntervalMs: 0 },
+        {
+          defaultLimit: 1,
+          leaseHeartbeatMs: 0,
+          leaseTtlMs: 10,
+          syncIntervalMs: 0,
+        },
         (queue) =>
           Effect.gen(function* () {
             yield* queue.register("hang", () => Effect.never);

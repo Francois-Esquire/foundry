@@ -1,5 +1,4 @@
 import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
-import type { JsonValue } from "@foundry/lib/json";
 import { portableProcess } from "@foundry/lib/process-identity";
 import {
   Clock,
@@ -25,17 +24,13 @@ import {
   isTerminalJob,
   type Job,
   type JobId,
-  JobNotSettledError,
   type QueueEvent,
   QueueRetiringError,
   type Run,
   RunAlreadyExistsError,
   type RunId,
-  StaleSuspensionRevisionError,
   type StoreError,
   type Suspension,
-  SuspensionAlreadySettledError,
-  type SuspensionId,
 } from "./domain";
 import { makeLedger, newId } from "./ledger";
 import { makeRecovery } from "./recovery";
@@ -43,21 +38,18 @@ import { checkRetryPolicy } from "./retry";
 import type {
   QueueOptions,
   QueueService,
-  ResolveSuspensionOptions,
   RunHandler,
   SubmitJobInput,
 } from "./service";
 import { makeSettlement } from "./settlement";
+import {
+  cancelSuspensionOn,
+  removeJobOn,
+  resolveSuspensionOn,
+} from "./stateless";
 import { QueueStore } from "./store/index";
 import { MemoryQueueStore } from "./store/memory";
-import {
-  availableAt,
-  cancellation,
-  removal,
-  resolution,
-  submission,
-  suspensionCancellation,
-} from "./transitions";
+import { availableAt, cancellation, submission } from "./transitions";
 import { awaitingJob, JobWaiters, watchStore } from "./watermark";
 
 const isJobId = (id: JobId | RunId): id is JobId => id.startsWith("jb-");
@@ -85,7 +77,7 @@ const makeQueue = (options: QueueOptions) =>
       (instance) => Effect.sync(() => closeInstance(instance))
     );
     const ledger = makeLedger(store, hub, waiters);
-    const { commit, requireJob, requireRun, requireSuspension } = ledger;
+    const { commit, requireJob, requireRun } = ledger;
     const checkPool = (pool: ConcurrencyPool) =>
       validLimit(pool.limit)
         ? Effect.succeed(pool)
@@ -139,6 +131,9 @@ const makeQueue = (options: QueueOptions) =>
     const { locked, mutate, nudge, releaseStaleSlots } = yield* makeDispatcher({
       capacity,
       handlers,
+      ...(options.leaseHeartbeatMs === undefined
+        ? {}
+        : { leaseHeartbeatMs: options.leaseHeartbeatMs }),
       ...(options.leaseTtlMs === undefined
         ? {}
         : { leaseTtlMs: options.leaseTtlMs }),
@@ -154,7 +149,11 @@ const makeQueue = (options: QueueOptions) =>
     );
 
     const syncIntervalMs = options.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS;
-    if (Number.isFinite(syncIntervalMs) && syncIntervalMs > 0) {
+    if (
+      store.capabilities?.watermark !== false &&
+      Number.isFinite(syncIntervalMs) &&
+      syncIntervalMs > 0
+    ) {
       const from = yield* store.watermark;
       yield* Effect.forkScoped(
         watchStore({
@@ -294,7 +293,7 @@ const makeQueue = (options: QueueOptions) =>
             attempt: 1,
             jobId: job.id,
             now,
-            owner: self,
+            ...(options.ownership === "shared" ? {} : { owner: self }),
             pool: job.pool,
           },
           input.runId
@@ -313,79 +312,6 @@ const makeQueue = (options: QueueOptions) =>
         }
         yield* settlement.fail(yield* requireJob(run.jobId), run, error, false);
         return (yield* store.getRun(id)) ?? run;
-      });
-
-    const pendingSuspension = (suspensionId: SuspensionId) =>
-      Effect.flatMap(requireSuspension(suspensionId), (suspension) =>
-        suspension.state.kind === "pending"
-          ? Effect.succeed(suspension)
-          : Effect.fail(new SuspensionAlreadySettledError({ suspension }))
-      );
-
-    const resolveSuspension = (
-      suspensionId: SuspensionId,
-      value: JsonValue,
-      { expectedRevision }: ResolveSuspensionOptions = {}
-    ) =>
-      Effect.gen(function* () {
-        const suspension = yield* pendingSuspension(suspensionId);
-        if (
-          expectedRevision !== undefined &&
-          expectedRevision !== suspension.revision
-        ) {
-          return yield* new StaleSuspensionRevisionError({
-            expectedRevision,
-            suspension,
-          });
-        }
-        const run = yield* requireRun(suspension.runId);
-        const job = yield* requireJob(run.jobId);
-        const now = yield* Clock.currentTimeMillis;
-        const { change, resolved } = resolution({
-          job,
-          now,
-          run,
-          suspension,
-          value,
-        });
-        yield* commit(now, change);
-        return resolved;
-      });
-
-    const cancelSuspension = (suspensionId: SuspensionId, reason?: string) =>
-      Effect.gen(function* () {
-        const suspension = yield* pendingSuspension(suspensionId);
-        const run = yield* requireRun(suspension.runId);
-        const blocks =
-          run.state.kind === "suspended" &&
-          run.state.suspensionId === suspension.id;
-        if (blocks) {
-          const cancelled = yield* cancelOpen(run, reason, suspension);
-          if (cancelled !== undefined) {
-            return cancelled;
-          }
-        }
-        const now = yield* Clock.currentTimeMillis;
-        const cancelled = suspensionCancellation({ now, reason, suspension });
-        yield* commit(now, cancelled.change);
-        return cancelled.suspension;
-      });
-
-    const removeJob = (id: JobId) =>
-      Effect.gen(function* () {
-        const job = yield* requireJob(id);
-        if (!isTerminalJob(job.state)) {
-          return yield* new JobNotSettledError({ job });
-        }
-        const runs = yield* store.listRuns({ jobId: id });
-        const suspensions = yield* Effect.map(
-          Effect.forEach(runs, (run) =>
-            store.listSuspensions({ runId: run.id })
-          ),
-          (found) => found.flat()
-        );
-        const now = yield* Clock.currentTimeMillis;
-        yield* commit(now, removal(job, runs, suspensions));
       });
 
     const configurePool = (pool: ConcurrencyPool) =>
@@ -533,7 +459,7 @@ const makeQueue = (options: QueueOptions) =>
       awaitJob: awaitingJob(store, waiters),
       cancel,
       cancelSuspension: (suspensionId, reason) =>
-        mutate(cancelSuspension(suspensionId, reason)),
+        mutate(cancelSuspensionOn(ledger, suspensionId, reason)),
       configurePool: (pool) => mutate(configurePool(pool)),
       drain,
       drainUntilIdle,
@@ -563,9 +489,11 @@ const makeQueue = (options: QueueOptions) =>
         }),
       register: (name, handler) =>
         Effect.zipLeft(locked(register(name, handler)), nudge),
-      removeJob: (id) => mutate(removeJob(id)),
+      removeJob: (id) => mutate(removeJobOn(ledger, id)),
       resolveSuspension: (suspensionId, value, resolveOptions) =>
-        mutate(resolveSuspension(suspensionId, value, resolveOptions)),
+        mutate(
+          resolveSuspensionOn(ledger, suspensionId, value, resolveOptions)
+        ),
       resume: Effect.zipLeft(
         locked(
           Effect.sync(() => {

@@ -102,6 +102,9 @@ export function gatedQueueStore(
   const through = <A>(effect: Effect.Effect<A, StoreError>) =>
     storeEffect(() => around(() => runStoreEffect(effect)));
   return {
+    ...(store.capabilities === undefined
+      ? {}
+      : { capabilities: store.capabilities }),
     commit: (write) =>
       commitEffect(() => around(() => runStoreEffect(store.commit(write)))),
     getJob: (id) => through(store.getJob(id)),

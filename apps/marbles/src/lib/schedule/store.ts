@@ -87,6 +87,7 @@ export function gatedScheduleStore(
           : new StoreError({ cause }),
       try: () => around(() => settled(effect)),
     });
+  const { listDueSchedules, nextDueAt } = store;
   return {
     claim: (occurrence, replacing, exclusive) =>
       through(store.claim(occurrence, replacing, exclusive)),
@@ -95,8 +96,17 @@ export function gatedScheduleStore(
     getOccurrence: (id) => through(store.getOccurrence(id)),
     getSchedule: (id) => through(store.getSchedule(id)),
     latestOccurrence: (id) => through(store.latestOccurrence(id)),
+    ...(listDueSchedules === undefined
+      ? {}
+      : {
+          listDueSchedules: (now, options) =>
+            through(listDueSchedules.call(store, now, options)),
+        }),
     listOccurrences: (filter) => through(store.listOccurrences(filter)),
     listSchedules: Effect.suspend(() => through(store.listSchedules)),
+    ...(nextDueAt === undefined
+      ? {}
+      : { nextDueAt: Effect.suspend(() => through(nextDueAt)) }),
     releaseClaim: (id, owner) => through(store.releaseClaim(id, owner)),
   };
 }

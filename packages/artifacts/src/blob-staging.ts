@@ -10,15 +10,35 @@ export const MAX_TREE_BYTES = 8 * 1024 * 1024 * 1024;
 
 export const CHUNK_BYTES = 8 * 1024 * 1024;
 
+export type BlobFileEntry =
+  | string
+  | { readonly modifiedAt?: Date; readonly path: string };
+
 export interface BlobFiles {
-  list(): AsyncIterable<string>;
+  list(options?: {
+    readonly signal?: AbortSignal;
+  }): AsyncIterable<BlobFileEntry>;
   publish(bytes: Uint8Array): Promise<string>;
   read(
     path: string,
-    range: { readonly start: number; readonly end: number }
+    range: {
+      readonly end: number;
+      readonly start: number;
+    }
   ): AsyncIterable<Uint8Array>;
-  remove(path: string): Promise<void>;
+  remove(
+    path: string,
+    options?: { readonly signal?: AbortSignal }
+  ): Promise<void>;
   readonly staging?: BlobStagingArea;
+  url?(
+    path: string,
+    options?: {
+      readonly contentType?: string;
+      readonly expiresInSeconds?: number;
+      readonly signal?: AbortSignal;
+    }
+  ): Promise<string | null>;
 }
 
 export interface BlobStagingArea {
@@ -70,6 +90,7 @@ export interface StagedBytes {
 }
 
 interface StagingLimits {
+  readonly chunkBytes?: number;
   readonly files?: BlobFiles;
   readonly maxFileBytes: number;
   readonly maxTreeBytes?: number;
@@ -103,6 +124,7 @@ export class StagingTurns {
 }
 
 export class BlobStaging {
+  readonly #chunkBytes: number;
   readonly #files: BlobFiles | undefined;
   readonly #area: BlobStagingArea | undefined;
   readonly #maxFileBytes: number;
@@ -116,6 +138,7 @@ export class BlobStaging {
   readonly #ownership = new Map<string, Ownership | null>();
 
   constructor(limits: StagingLimits, turns: StagingTurns = new StagingTurns()) {
+    this.#chunkBytes = resolveChunkBytes(limits.chunkBytes);
     this.#files = limits.files;
     this.#maxTreeBytes = limits.maxTreeBytes;
     this.#turns = turns;
@@ -237,7 +260,8 @@ export class BlobStaging {
           input.source,
           this.#maxFileBytes,
           how.ahead ? how.count : undefined
-        )
+        ),
+        this.#chunkBytes
       );
       declared = input.bytes;
     } else {
@@ -249,7 +273,7 @@ export class BlobStaging {
       if (how.ahead) {
         how.count(bytes.byteLength);
       }
-      pieces = split([bytes]);
+      pieces = split([bytes], this.#chunkBytes);
       declared = bytes.byteLength;
     }
     const hold = (piece: Uint8Array): Promise<StagedChunk> => {
@@ -368,26 +392,59 @@ async function* checked(
   }
 }
 
+export function resolveChunkBytes(value: number | undefined): number {
+  if (value === undefined) {
+    return CHUNK_BYTES;
+  }
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError("chunkBytes must be a positive safe integer");
+  }
+  return value;
+}
+
+function concatParts(parts: readonly Uint8Array[], total: number): Uint8Array {
+  if (parts.length === 1 && parts[0] !== undefined) {
+    return parts[0].byteLength === total ? parts[0] : parts[0].slice(0, total);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.byteLength;
+  }
+  return out;
+}
+
 async function* split(
-  source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>
+  source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  chunkBytes: number = CHUNK_BYTES
 ): AsyncIterable<Uint8Array> {
-  let buffer = new Uint8Array(CHUNK_BYTES);
+  let parts: Uint8Array[] = [];
   let filled = 0;
   for await (const bytes of source) {
+    if (bytes.byteLength === 0) {
+      continue;
+    }
     let offset = 0;
     while (offset < bytes.byteLength) {
-      const take = Math.min(CHUNK_BYTES - filled, bytes.byteLength - offset);
-      buffer.set(bytes.subarray(offset, offset + take), filled);
+      const remaining = bytes.byteLength - offset;
+      if (filled === 0 && remaining >= chunkBytes) {
+        yield bytes.slice(offset, offset + chunkBytes);
+        offset += chunkBytes;
+        continue;
+      }
+      const take = Math.min(chunkBytes - filled, remaining);
+      parts.push(bytes.slice(offset, offset + take));
       filled += take;
       offset += take;
-      if (filled === CHUNK_BYTES) {
-        yield buffer;
-        buffer = new Uint8Array(CHUNK_BYTES);
+      if (filled === chunkBytes) {
+        yield concatParts(parts, chunkBytes);
+        parts = [];
         filled = 0;
       }
     }
   }
   if (filled > 0) {
-    yield buffer.slice(0, filled);
+    yield concatParts(parts, filled);
   }
 }

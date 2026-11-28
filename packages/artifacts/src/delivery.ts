@@ -5,18 +5,34 @@ import { isStoragePath } from "@foundry/core/storage";
 import type { ArtifactOperations, Content } from "./substrate";
 
 export async function fileResponse(
-  artifacts: Pick<ArtifactOperations, "readFileRange">,
+  artifacts: Pick<ArtifactOperations, "readFileRange" | "resolveFileUrl">,
   content: Content,
   path: string,
   options: {
-    readonly range?: string | null;
+    readonly expiresInSeconds?: number;
     readonly headers?: ConstructorParameters<typeof Headers>[0];
+    readonly range?: string | null;
+    readonly redirect?: boolean;
+    readonly signal?: AbortSignal;
   } = {}
 ): Promise<Response> {
   const headers = new Headers(options.headers);
   const entry = isStoragePath(path) ? content.tree[path] : undefined;
   if (entry?.type !== "file") {
     return new Response(null, { headers, status: 404 });
+  }
+  if (options.redirect === true && artifacts.resolveFileUrl !== undefined) {
+    const url = await artifacts.resolveFileUrl(content.id, path, {
+      ...(options.expiresInSeconds === undefined
+        ? {}
+        : { expiresInSeconds: options.expiresInSeconds }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (url !== null && isHttpUrl(url)) {
+      headers.set("Location", url);
+      headers.set("Cache-Control", "private, no-store");
+      return new Response(null, { headers, status: 302 });
+    }
   }
   if (!headers.has("Content-Type")) {
     headers.set("Content-Type", entry.mime ?? "application/octet-stream");
@@ -48,6 +64,15 @@ export async function fileResponse(
     headers,
     status: plan.kind === "partial" ? 206 : 200,
   });
+}
+
+function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function streamOf(body: AsyncIterable<Uint8Array>): ReadableStream<Uint8Array> {

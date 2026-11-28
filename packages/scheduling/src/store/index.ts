@@ -1,6 +1,7 @@
 import { Context, type Effect } from "effect";
 import type {
   CursorConflictError,
+  Instant,
   Occurrence,
   OccurrenceFilter,
   OccurrenceId,
@@ -48,10 +49,15 @@ export interface ScheduleStoreService {
   readonly latestOccurrence: (
     scheduleId: ScheduleId
   ) => Effect.Effect<Occurrence | undefined, StoreError>;
+  readonly listDueSchedules?: (
+    now: Instant,
+    options?: { readonly limit?: number }
+  ) => Effect.Effect<readonly Schedule[], StoreError>;
   readonly listOccurrences: (
     filter?: OccurrenceFilter
   ) => Effect.Effect<readonly Occurrence[], StoreError>;
   readonly listSchedules: Effect.Effect<readonly Schedule[], StoreError>;
+  readonly nextDueAt?: Effect.Effect<Instant | undefined, StoreError>;
   readonly releaseClaim: (
     id: OccurrenceId,
     owner: SchedulerOwner

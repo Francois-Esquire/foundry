@@ -116,6 +116,10 @@ export const taskStoreWriteSchema = z
     deleteDependencies: dependencies.exactOptional(),
     deleteTasks: z.array(taskIdSchema).readonly().exactOptional(),
     events: z.array(taskEventSchema).readonly().exactOptional(),
+    expectedUpdatedAt: z
+      .record(z.string(), instant.nullable())
+      .readonly()
+      .exactOptional(),
     putDependencies: dependencies.exactOptional(),
     putTasks: z.array(storedTask).readonly().exactOptional(),
   })

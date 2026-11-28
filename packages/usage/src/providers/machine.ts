@@ -3,6 +3,8 @@ import { access, readdir, stat } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
+import { mapWithConcurrency } from "../usage";
+
 export type Env = Readonly<Record<string, string | undefined>>;
 
 const READ_CONCURRENCY = 8;
@@ -50,23 +52,32 @@ export const which = async (
   }
 };
 
+const isEnoent = (error: unknown): boolean =>
+  (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+
 const missing =
   <T>(fallback: T) =>
   (error: unknown): T => {
-    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    if (isEnoent(error)) {
       return fallback;
     }
     throw error;
   };
 
-const walk = async (dir: string, found: string[]): Promise<void> => {
+const walk = async (
+  dir: string,
+  found: string[],
+  signal?: AbortSignal
+): Promise<void> => {
+  signal?.throwIfAborted();
   const entries = await readdir(dir, { withFileTypes: true }).catch(
     missing([])
   );
+  signal?.throwIfAborted();
   for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      await walk(path, found);
+      await walk(path, found, signal);
     } else if (entry.name.endsWith(".jsonl")) {
       found.push(path);
     }
@@ -75,69 +86,86 @@ const walk = async (dir: string, found: string[]): Promise<void> => {
 
 export const historyFiles = async (
   roots: readonly string[],
-  since: Date
+  since: Date,
+  signal?: AbortSignal
 ): Promise<string[]> => {
+  signal?.throwIfAborted();
   const candidates: string[] = [];
   for (const root of roots) {
-    await walk(root, candidates);
+    await walk(root, candidates, signal);
   }
   const fresh = await mapLimit(candidates, async (path) => {
+    signal?.throwIfAborted();
     const info = await stat(path).catch(missing(undefined));
     return info && info.mtimeMs >= since.getTime() ? path : undefined;
   });
   return fresh.filter((path) => path !== undefined).sort();
 };
 
-export const mapLimit = async <T, R>(
+export const mapLimit = <T, R>(
   items: readonly T[],
   map: (item: T) => Promise<R>
-): Promise<R[]> => {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next;
-      next += 1;
-      results[index] = await map(items[index] as T);
-    }
-  };
-  await Promise.all(Array.from({ length: READ_CONCURRENCY }, worker));
-  return results;
-};
+): Promise<R[]> => mapWithConcurrency(items, READ_CONCURRENCY, map);
 
 export async function* jsonLines(
   path: string,
-  markers: readonly string[]
+  markers: readonly string[],
+  signal?: AbortSignal
 ): AsyncGenerator<unknown> {
+  signal?.throwIfAborted();
+  const stream = createReadStream(path, { encoding: "utf8" });
   const lines = createInterface({
     crlfDelay: Number.POSITIVE_INFINITY,
-    input: createReadStream(path, { encoding: "utf8" }),
+    input: stream,
   });
-  for await (const line of lines) {
-    if (!markers.some((marker) => line.includes(marker))) {
-      continue;
+  try {
+    for await (const line of lines) {
+      signal?.throwIfAborted();
+      if (!markers.some((marker) => line.includes(marker))) {
+        continue;
+      }
+      try {
+        yield JSON.parse(line);
+      } catch {
+        // biome-ignore lint/complexity/noUselessContinue: Skip this rejected line within the generator.
+        continue;
+      }
     }
-    try {
-      yield JSON.parse(line);
-    } catch {
-      // biome-ignore lint/complexity/noUselessContinue: Skip this rejected line within the generator.
-      continue;
+  } catch (error) {
+    if (isEnoent(error)) {
+      return;
     }
+    throw error;
+  } finally {
+    lines.close();
+    stream.destroy();
   }
 }
 
 export const within = async <T>(
   promise: Promise<T>,
   ms: number,
-  message: string
+  message: string,
+  signal?: AbortSignal
 ): Promise<T> => {
+  signal?.throwIfAborted();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   const late = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error(message)), ms);
+    if (signal) {
+      onAbort = () =>
+        reject(signal.reason ?? new Error("The operation was aborted."));
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
   });
+  promise.catch(() => undefined);
   try {
     return await Promise.race([promise, late]);
   } finally {
     clearTimeout(timer);
+    if (signal && onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 };

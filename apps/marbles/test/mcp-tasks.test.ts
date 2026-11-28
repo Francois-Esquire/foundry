@@ -421,9 +421,16 @@ it("pages through the backlog with a bounded limit", async () => {
     })),
   });
   await tasks.change({
-    operations: Array.from({ length: 105 }, (_, index) => ({
+    operations: Array.from({ length: 100 }, (_, index) => ({
       input: { title: `More ${index}` },
       key: `m${index}`,
+      kind: "task.create" as const,
+    })),
+  });
+  await tasks.change({
+    operations: Array.from({ length: 5 }, (_, index) => ({
+      input: { title: `More ${index + 100}` },
+      key: `m${index + 100}`,
       kind: "task.create" as const,
     })),
   });

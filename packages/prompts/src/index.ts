@@ -40,6 +40,8 @@ export type { PlainToken, ReferenceToken, Token, TokenKind } from "./parser";
 export { Parser } from "./parser";
 export { Prompt, PromptError } from "./prompt";
 export type {
+  PortablePromptData,
+  PortablePromptValue,
   Prompts,
   PromptsBase,
   PromptsOptions,

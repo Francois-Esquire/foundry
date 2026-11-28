@@ -169,6 +169,14 @@ export interface ArtifactOperations {
   readRoot(contentId: ContentId): Promise<FileResolved | null>;
   readThumbnail(contentId: ContentId): Promise<FileResolved | null>;
   rename(artifactId: ArtifactId, name: string): Promise<Artifact>;
+  resolveFileUrl?(
+    contentId: ContentId,
+    path: string,
+    options?: {
+      readonly expiresInSeconds?: number;
+      readonly signal?: AbortSignal;
+    }
+  ): Promise<string | null>;
   revise(input: ReviseInput): Promise<ContentResolved>;
   select(input: {
     readonly artifactId: ArtifactId;
@@ -180,14 +188,30 @@ export interface ArtifactOperations {
     patch: Readonly<Record<string, unknown>>
   ): Promise<Content>;
 
-  sweep(input: { readonly olderThan: Date }): Promise<{
-    readonly contents: number;
+  sweep(input: {
+    readonly cursor?: ContentId;
+    readonly limit?: number;
+    readonly olderThan: Date;
+  }): Promise<{
     readonly blobs: number;
+    readonly contents: number;
+    readonly nextCursor?: ContentId;
   }>;
   tag(contentId: ContentId, tag: string | null): Promise<Content>;
   unarchive(artifactId: ArtifactId): Promise<Artifact>;
 
   write(input: WriteInput): Promise<ContentResolved>;
+}
+
+export interface RecoverOptions {
+  readonly cursor?: ArtifactCursor;
+  readonly limit?: number;
+  readonly orphanGraceMs?: number;
+  readonly signal?: AbortSignal;
+}
+
+export interface RecoverResult {
+  readonly nextCursor?: ArtifactCursor;
 }
 
 export type ArtifactChangeCause = "commit" | "recovery";
@@ -201,7 +225,7 @@ export interface ArtifactSubstrate extends ArtifactOperations {
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
   readonly durability?: ArtifactStoreDurability;
   observe(changed: ArtifactObserver): () => void;
-  recover(): Promise<void>;
+  recover(options?: RecoverOptions): Promise<RecoverResult>;
   transaction<T>(
     operation: (
       artifacts: ArtifactOperations,

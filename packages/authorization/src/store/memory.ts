@@ -1,4 +1,5 @@
 import { Turns } from "@foundry/lib/turns";
+import { AuthorizationRevisionError, AuthorizationStateError } from "../errors";
 import type {
   Grant,
   GrantId,
@@ -11,6 +12,7 @@ import type {
   AuthorizationStore,
   AuthorizationStoreDurability,
   AuthorizationStoreWrite,
+  RestrictionQuery,
 } from "./index";
 import { matchesGrantQuery } from "./query";
 
@@ -54,8 +56,8 @@ export class MemoryAuthorizationStore implements AuthorizationStore {
     return this.transaction((view) => view.getRestriction(id));
   }
 
-  listRestrictions(): Promise<readonly Restriction[]> {
-    return this.transaction((view) => view.listRestrictions());
+  listRestrictions(query?: RestrictionQuery): Promise<readonly Restriction[]> {
+    return this.transaction((view) => view.listRestrictions(query));
   }
 
   getClaim(invocationId: string): Promise<InvocationClaim | null> {
@@ -99,8 +101,12 @@ class MemoryAuthorizationView implements AuthorizationStore {
     return this.#run(() => this.tables.getRestriction(id));
   }
 
-  listRestrictions(): Promise<readonly Restriction[]> {
-    return this.#run(() => this.tables.listRestrictions());
+  listRestrictions(query?: RestrictionQuery): Promise<readonly Restriction[]> {
+    return this.#run(() =>
+      this.tables.listRestrictions(
+        query === undefined ? undefined : structuredClone(query)
+      )
+    );
   }
 
   getClaim(invocationId: string): Promise<InvocationClaim | null> {
@@ -120,7 +126,11 @@ class MemoryAuthorizationView implements AuthorizationStore {
 }
 
 interface OwnedWrite {
+  readonly createClaims: readonly InvocationClaim[];
+  readonly deleteClaims: readonly string[];
+  readonly deleteGrants: readonly GrantId[];
   readonly deleteRestrictions: readonly RestrictionId[];
+  readonly expectedGrantRevisions: Readonly<Record<string, number>>;
   readonly putClaims: readonly InvocationClaim[];
   readonly putGrants: readonly Grant[];
   readonly putRestrictions: readonly Restriction[];
@@ -129,7 +139,11 @@ interface OwnedWrite {
 function captureWrite(write: AuthorizationStoreWrite): OwnedWrite {
   const copy = structuredClone(write);
   return {
+    createClaims: copy.createClaims ?? [],
+    deleteClaims: copy.deleteClaims ?? [],
+    deleteGrants: copy.deleteGrants ?? [],
     deleteRestrictions: copy.deleteRestrictions ?? [],
+    expectedGrantRevisions: copy.expectedGrantRevisions ?? {},
     putClaims: copy.putClaims ?? [],
     putGrants: copy.putGrants ?? [],
     putRestrictions: copy.putRestrictions ?? [],
@@ -163,10 +177,14 @@ class StoreTables {
     return restriction === undefined ? null : structuredClone(restriction);
   }
 
-  listRestrictions(): readonly Restriction[] {
-    return [...this.restrictions.values()].map((restriction) =>
-      structuredClone(restriction)
-    );
+  listRestrictions(query?: RestrictionQuery): readonly Restriction[] {
+    return [...this.restrictions.values()]
+      .filter(
+        (restriction) =>
+          query?.action === undefined ||
+          restriction.scope.action === query.action
+      )
+      .map((restriction) => structuredClone(restriction));
   }
 
   getClaim(invocationId: string): InvocationClaim | null {
@@ -175,7 +193,31 @@ class StoreTables {
   }
 
   applied(write: OwnedWrite): StoreTables {
+    for (const [id, expected] of Object.entries(write.expectedGrantRevisions)) {
+      const current = this.grants.get(id as GrantId);
+      if (current === undefined || current.revision !== expected) {
+        throw new AuthorizationRevisionError(
+          id as GrantId,
+          expected,
+          current?.revision ?? null
+        );
+      }
+    }
     const next = new StoreTables(this);
+    for (const claim of write.createClaims) {
+      if (next.claims.has(claim.invocationId)) {
+        throw new AuthorizationStateError(
+          `Invocation ${claim.invocationId} has already been claimed`
+        );
+      }
+      next.claims.set(claim.invocationId, claim);
+    }
+    for (const id of write.deleteClaims) {
+      next.claims.delete(id);
+    }
+    for (const id of write.deleteGrants) {
+      next.grants.delete(id);
+    }
     for (const id of write.deleteRestrictions) {
       next.restrictions.delete(id);
     }

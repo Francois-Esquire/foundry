@@ -10,12 +10,17 @@ import { Turns } from "@foundry/lib/turns";
 import type { SQL } from "drizzle-orm";
 import {
   and,
+  asc,
   desc,
   eq,
   getTableColumns,
   inArray,
+  isNotNull,
+  lte,
+  min,
   ne,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import type {
@@ -376,6 +381,43 @@ export const makeSqliteScheduleStore = (
           .limit(1);
         return row?.body;
       }),
+    listDueSchedules: (now, listOptions = {}) =>
+      run(async () => {
+        const base = database
+          .select({
+            body: schedulingSchedules.body,
+          })
+          .from(schedulingCursors)
+          .innerJoin(
+            schedulingSchedules,
+            and(
+              eq(schedulingSchedules.scope, schedulingCursors.scope),
+              eq(schedulingSchedules.id, schedulingCursors.scheduleId)
+            )
+          )
+          .where(
+            and(
+              eq(schedulingCursors.scope, scope),
+              or(
+                and(
+                  sql`json_extract(${schedulingSchedules.body}, '$.state') = 'active'`,
+                  isNotNull(schedulingCursors.nextDueAt),
+                  lte(schedulingCursors.nextDueAt, now)
+                ),
+                sql`json_extract(${schedulingCursors.body}, '$.activeJobId') IS NOT NULL`,
+                sql`EXISTS (SELECT 1 FROM ${schedulingOccurrences} WHERE ${schedulingOccurrences.scope} = ${schedulingCursors.scope} AND ${schedulingOccurrences.scheduleId} = ${schedulingCursors.scheduleId} AND ${schedulingOccurrences.state} = 'dispatched')`
+              )
+            )
+          )
+          .orderBy(
+            sql`CASE WHEN ${schedulingCursors.nextDueAt} IS NULL THEN 1 ELSE 0 END ASC`,
+            asc(schedulingCursors.nextDueAt)
+          );
+        const rows = await (listOptions.limit === undefined
+          ? base
+          : base.limit(Math.max(0, listOptions.limit)));
+        return rows.map((row) => row.body);
+      }),
     listOccurrences: (filter = {}) =>
       bodies<Occurrence>(
         schedulingOccurrences,
@@ -390,6 +432,26 @@ export const makeSqliteScheduleStore = (
         schedulingOccurrences.scheduledFor
       ),
     listSchedules: bodies<Schedule>(schedulingSchedules, undefined),
+    nextDueAt: run(async () => {
+      const [row] = await database
+        .select({ soonest: min(schedulingCursors.nextDueAt) })
+        .from(schedulingCursors)
+        .innerJoin(
+          schedulingSchedules,
+          and(
+            eq(schedulingSchedules.scope, schedulingCursors.scope),
+            eq(schedulingSchedules.id, schedulingCursors.scheduleId)
+          )
+        )
+        .where(
+          and(
+            eq(schedulingCursors.scope, scope),
+            isNotNull(schedulingCursors.nextDueAt),
+            sql`json_extract(${schedulingSchedules.body}, '$.state') = 'active'`
+          )
+        );
+      return row?.soonest ?? undefined;
+    }),
     releaseClaim: (id, owner) =>
       run(() =>
         database.transaction(async (transaction) => {
