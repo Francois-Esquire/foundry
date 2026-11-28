@@ -1,9 +1,14 @@
-import { readFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNodeMcpClient } from "@foundry/agents/node";
 import { stopOrphans } from "@foundry/lib/node/orphans";
 import { withWorkspaceDatabase } from "~/database/managed";
+import { readFeedMedia, resolveFeedMedia } from "~/host/feed-media";
+import {
+  ensureWorktreeDir,
+  localWorkspaces,
+  nodeGitAt,
+} from "~/host/workspaces";
 import { installNodeContextRuntime } from "~/lib/async-context/node";
 import { commandRunner } from "~/lib/command";
 import type { EngineOptions } from "~/lib/engine";
@@ -11,7 +16,6 @@ import { Engine as LibEngine } from "~/lib/engine";
 import { environmentSnapshot } from "~/lib/environment";
 import { inTurn } from "~/lib/in-turn";
 import { skillResolver } from "~/lib/managers/skills";
-import { localWorkspaces } from "~/lib/managers/workspaces";
 import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { guestAuth } from "~/lib/sandbox/credentials";
 import { FIRST_PARTY_DRIVERS } from "~/lib/sandbox/drivers";
@@ -19,6 +23,37 @@ import { prepareGuest } from "~/lib/sandbox/prepare";
 import { FileRunOutputSink } from "~/lib/state/output";
 
 installNodeContextRuntime();
+
+function withNodeDefaults(
+  options: EngineOptions,
+  state: string | undefined
+): EngineOptions {
+  const home = options.home ?? homedir();
+  const outputSink =
+    options.outputSink ??
+    (state === undefined ? undefined : new FileRunOutputSink(state));
+  return {
+    commandRunner,
+    createMcpClient: createNodeMcpClient,
+    ensureWorktreeDir,
+    environment: environmentSnapshot(),
+    gitAt: nodeGitAt(options.git),
+    liveness: NODE_OWNER_LIVENESS,
+    readFeedMedia,
+    resolveFeedMedia,
+    sandboxGuest: {
+      drivers: FIRST_PARTY_DRIVERS,
+      guestAuth,
+      prepareGuest,
+    },
+    skills: skillResolver({ home, workspace: options.root }),
+    stopOrphans,
+    workspaces: localWorkspaces(options.git ?? {}),
+    worktrees: Engine.worktreesFor(state),
+    ...options,
+    ...(outputSink === undefined ? {} : { outputSink }),
+  };
+}
 
 export class Engine extends LibEngine {
   readonly #release: () => Promise<void>;
@@ -30,29 +65,7 @@ export class Engine extends LibEngine {
 
   constructor(options: EngineOptions) {
     const { state } = LibEngine.persistence(options);
-    const home = options.home ?? homedir();
-    const outputSink =
-      options.outputSink ??
-      (state === undefined ? undefined : new FileRunOutputSink(state));
-    const withHostDefaults: EngineOptions = {
-      ...options,
-      commandRunner: options.commandRunner ?? commandRunner,
-      createMcpClient: options.createMcpClient ?? createNodeMcpClient,
-      environment: options.environment ?? environmentSnapshot(),
-      liveness: options.liveness ?? NODE_OWNER_LIVENESS,
-      ...(outputSink === undefined ? {} : { outputSink }),
-      readFeedMedia: options.readFeedMedia ?? ((path) => readFile(path)),
-      sandboxGuest: options.sandboxGuest ?? {
-        drivers: FIRST_PARTY_DRIVERS,
-        guestAuth,
-        prepareGuest,
-      },
-      skills:
-        options.skills ?? skillResolver({ home, workspace: options.root }),
-      stopOrphans: options.stopOrphans ?? stopOrphans,
-      workspaces: options.workspaces ?? localWorkspaces(options.git ?? {}),
-      worktrees: options.worktrees ?? Engine.worktreesFor(state),
-    };
+    const withHostDefaults = withNodeDefaults(options, state);
     const kept =
       state === undefined
         ? undefined

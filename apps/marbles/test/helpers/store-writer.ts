@@ -7,8 +7,8 @@ import { createFakeDriver } from "@foundry/sandbox/testing";
 import { artifactBlobs } from "~/database/local-artifacts";
 import { openDatabase } from "~/database/open";
 import { workspaceStores } from "~/database/stores";
+import { localWorkspaces } from "~/host/workspaces";
 import { stateDatabase } from "~/layout";
-import { localWorkspaces } from "~/lib/managers/workspaces";
 
 const SCOPE = "ws";
 

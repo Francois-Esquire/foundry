@@ -1,13 +1,11 @@
-import type { HarnessTurnDriver } from "@foundry/agents/harness";
 import {
   DEFAULT_SANDBOX_WORKING_DIRECTORY,
   SandboxError,
 } from "@foundry/sandbox";
 import { prepareSandboxProcess } from "@foundry/sandbox/node";
-import type { CliHarness, GuestAuth } from "~/lib/cli-harnesses";
+import type { CliHarness } from "~/lib/cli-harnesses";
 import { codexSubscriptionTokens } from "./credentials";
-import type { PreparedGuest } from "./prepare";
-import type { SandboxSessionSettings } from "./session";
+import type { GuestDriver, SandboxSessionSettings } from "./session";
 
 function requireSpawn(settings: SandboxSessionSettings) {
   const spawn = settings.container.processes?.spawn;
@@ -19,16 +17,6 @@ function requireSpawn(settings: SandboxSessionSettings) {
   }
   return spawn;
 }
-
-interface GuestDriverInput {
-  readonly auth: GuestAuth;
-  readonly guest: PreparedGuest;
-  readonly settings: SandboxSessionSettings;
-}
-
-export type GuestDriver = (
-  input: GuestDriverInput
-) => HarnessTurnDriver | Promise<HarnessTurnDriver>;
 
 export const FIRST_PARTY_DRIVERS: Readonly<Record<CliHarness, GuestDriver>> = {
   "claude-code": async ({ guest, settings }) => {

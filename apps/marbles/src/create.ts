@@ -1,5 +1,4 @@
 import { mkdirSync, realpathSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { createNodeMcpClient } from "@foundry/agents/node";
@@ -37,6 +36,13 @@ import { DatabaseProviderStore } from "~/database/providers";
 import type { WorkspaceStores } from "~/database/stores";
 import { assembleSqliteWorkspaceStores } from "~/database/stores";
 import { Engine as PublishedEngine } from "~/entries/engine";
+import { readFeedMedia, resolveFeedMedia } from "~/host/feed-media";
+import { allowedMountRoots } from "~/host/mounts";
+import {
+  ensureWorktreeDir,
+  localWorkspaces,
+  nodeGitAt,
+} from "~/host/workspaces";
 import { layout } from "~/layout";
 import { installNodeContextRuntime } from "~/lib/async-context/node";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
@@ -53,12 +59,8 @@ import type { PoolConfig } from "~/lib/execution-record";
 import type { ExecutionStore } from "~/lib/execution-store";
 import { inTurn } from "~/lib/in-turn";
 import type { LogLevel, LogOrigin } from "~/lib/log";
-import {
-  allowedMountRoots,
-  type WorkspaceMaterialization,
-} from "~/lib/managers/sandboxes";
+import type { WorkspaceMaterialization } from "~/lib/managers/sandboxes";
 import { skillResolver } from "~/lib/managers/skills";
-import { localWorkspaces } from "~/lib/managers/workspaces";
 import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -67,6 +69,7 @@ import type { ProviderPlugin } from "~/lib/providers/plugins";
 import type { ProviderStore } from "~/lib/providers/store";
 import { MemoryProviderStore } from "~/lib/providers/store";
 import { Registry } from "~/lib/registry";
+import type { RunOutputSink } from "~/lib/run-output";
 import type { RunQueueOptions } from "~/lib/run-queue";
 import type { RunStore } from "~/lib/run-store";
 import type { ActivityStore } from "~/lib/sandbox/activities";
@@ -74,7 +77,7 @@ import { guestAuth } from "~/lib/sandbox/credentials";
 import { FIRST_PARTY_DRIVERS } from "~/lib/sandbox/drivers";
 import { containerHolder } from "~/lib/sandbox/holders";
 import { prepareGuest } from "~/lib/sandbox/prepare";
-import { FileRunOutputSink, type RunOutputSink } from "~/lib/state/output";
+import { FileRunOutputSink } from "~/lib/state/output";
 import type { TriggerStore } from "~/lib/trigger-store";
 import type { UsageStore } from "~/lib/usage-store";
 import { initializeUsage } from "~/workspace/node-usage";
@@ -511,13 +514,16 @@ export function createEngine(options: CreateEngineOptions): Engine {
     ...(containerStore === undefined ? {} : { containerRows: containerStore }),
     containers: containersFor(options, worktrees, containerStore),
     createMcpClient: createNodeMcpClient,
+    ensureWorktreeDir,
+    gitAt: nodeGitAt(),
     home,
     ...hostRuntimeOptions(options),
     ...(outputSink === undefined ? {} : { outputSink }),
     ...(options.log ? { log: options.log } : {}),
     ...modelsFor(options, assembled?.providers),
     print,
-    readFeedMedia: (path) => readFile(path),
+    readFeedMedia,
+    resolveFeedMedia,
     ...kept,
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     environment: options.environment ?? environmentSnapshot(),

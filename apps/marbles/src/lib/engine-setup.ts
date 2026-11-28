@@ -244,6 +244,12 @@ export function bindingsOf(
         ? options.log(level, message, { kind: "step" })
         : print(message)
     ),
+    ...(options.resolveFeedMedia === undefined
+      ? {}
+      : {
+          resolveFeedMedia: (path: string) =>
+            options.resolveFeedMedia?.(path, options.root) ?? path,
+        }),
     root: options.root,
     runs: (args) =>
       args === undefined

@@ -13,6 +13,7 @@ import { FollowedRuns } from "~/lib/followed-runs";
 import type { DispatchedRun } from "~/lib/launcher";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
 import { RunListing } from "~/lib/run-listing";
+import type { RunOutputSink } from "~/lib/run-output";
 import type {
   QueuedRun,
   RunFactory,
@@ -22,7 +23,6 @@ import type {
 import { RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
 import { PAUSE_KIND } from "~/lib/run-scope";
-import type { RunOutputSink } from "~/lib/state/output";
 import type { RunRecord } from "~/lib/workflow-runs";
 import { readRun, readRuns } from "~/lib/workflow-runs";
 

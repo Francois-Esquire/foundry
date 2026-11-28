@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNodeMcpClient } from "@foundry/agents/node";
@@ -14,6 +13,8 @@ import { type GitRun, git } from "@foundry/workspaces/node/git";
 import { Catalog, type CollectInput } from "~/authoring/catalog";
 import { declareCatalog } from "~/create";
 import { Engine as DatabaseEngine } from "~/entries/engine";
+import { readFeedMedia, resolveFeedMedia } from "~/host/feed-media";
+import { ensureWorktreeDir, nodeGitAt } from "~/host/workspaces";
 import type { TurnExecutorRef } from "~/lib/cli-harnesses";
 import { commandRunner } from "~/lib/command";
 import type { EngineOptions } from "~/lib/engine";
@@ -96,16 +97,20 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
   const root = given.root ?? process.cwd();
   const workspaceId = given.workspaceId ?? "test";
   const home = given.home ?? NO_HOME;
+  const instances = testInstances(options);
   const engineOptions: EngineOptions = {
     commandRunner,
     createMcpClient: createNodeMcpClient,
+    ensureWorktreeDir,
     environment: environmentSnapshot(),
+    gitAt: nodeGitAt(instances.git),
     home,
     liveness: NODE_OWNER_LIVENESS,
     ...(given.state === undefined
       ? {}
       : { outputSink: new FileRunOutputSink(given.state) }),
-    readFeedMedia: (path) => readFile(path),
+    readFeedMedia,
+    resolveFeedMedia,
     root,
     sandboxGuest: {
       drivers: FIRST_PARTY_DRIVERS,
@@ -117,7 +122,7 @@ export function testEngine(options: TestEngineOptions = {}): Engine {
     workspaceId,
     worktrees: DatabaseEngine.worktreesFor(given.state),
     ...given,
-    ...testInstances(options),
+    ...instances,
   };
   const { state } = engineOptions;
   const engine =

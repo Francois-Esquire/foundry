@@ -5,9 +5,9 @@ import type { FeedRouter } from "~/lib/feed/route";
 import type { DispatchedRun } from "~/lib/launcher";
 import { observeSteps } from "~/lib/observe";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
+import { RunOutput, type RunOutputSink } from "~/lib/run-output";
 import type { AttachedWorkflow, RunQueue } from "~/lib/run-queue";
 import type { RunScopes } from "~/lib/run-scope";
-import { RunOutput, type RunOutputSink } from "~/lib/state/output";
 
 export class RunEndedError extends Error {
   override readonly name = "RunEndedError";

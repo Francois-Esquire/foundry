@@ -5,7 +5,7 @@ import type {
 } from "@foundry/models";
 import type { z } from "zod";
 import type { CliHarness, CliHarnessDescriptor } from "~/lib/cli-harnesses";
-import type { GuestDriver } from "~/lib/sandbox/drivers";
+import type { GuestDriver } from "~/lib/sandbox/session";
 
 export type ProviderScope = "machine" | "workspace";
 

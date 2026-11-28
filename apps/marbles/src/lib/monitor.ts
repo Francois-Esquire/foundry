@@ -8,7 +8,7 @@ import { sha256HexSync } from "~/lib/hash";
 import { isRecord, jsonData, storableJson } from "~/lib/json-data";
 import type { Launch } from "~/lib/launch";
 import { launchTarget } from "~/lib/launch";
-import type { LocalWorkspaces } from "~/lib/managers/workspaces";
+import type { WorkspaceCatalogue } from "~/lib/managers/workspaces";
 import { current } from "~/lib/run-scope";
 import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
 import { storedMonitorState } from "~/lib/trigger-store";
@@ -216,7 +216,7 @@ function storedFiles(state: unknown): Map<string, string> {
 }
 
 async function observeFiles(
-  catalogue: LocalWorkspaces,
+  catalogue: WorkspaceCatalogue,
   root: string,
   spec: { readonly glob: string },
   previous: unknown

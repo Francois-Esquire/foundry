@@ -33,8 +33,10 @@ import type {
   SandboxExecOptions,
   SandboxExecResult,
 } from "@foundry/sandbox";
-import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
-import type { Git } from "@foundry/workspaces/node/git";
+import type {
+  GitSnapshot,
+  Workspace as PackageWorkspace,
+} from "@foundry/workspaces";
 import type {
   InferGenerateOutput,
   Output,
@@ -278,6 +280,30 @@ export interface Agents {
   ): Promise<Session<OUTPUT>>;
 }
 
+export interface WorktreeOptions {
+  readonly base: string;
+  readonly branch?: string;
+  readonly home?: string;
+}
+
+export interface WorkspaceGit {
+  hasBranch(name: string): Promise<boolean>;
+  readonly root: string;
+  status(): Promise<GitSnapshot>;
+  withWorktree<T>(
+    options: WorktreeOptions,
+    body: (worktree: WorkspaceWorktree) => Promise<T>
+  ): Promise<T>;
+  worktree(options: WorktreeOptions): Promise<WorkspaceWorktree>;
+  worktrees(): Promise<readonly WorkspaceWorktree[]>;
+}
+
+interface WorkspaceWorktree extends WorkspaceGit {
+  readonly branch: string | null;
+  remove(): Promise<void>;
+  readonly repository: string;
+}
+
 export type WorkspaceHandle = Pick<
   PackageWorkspace,
   | "createFile"
@@ -290,7 +316,7 @@ export type WorkspaceHandle = Pick<
   | "scan"
   | "summary"
 > & {
-  readonly git: Git;
+  readonly git: WorkspaceGit;
   readonly root: string;
 };
 

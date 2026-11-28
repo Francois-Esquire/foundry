@@ -1,10 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import type { Workspaces as WorkspaceRuntime } from "@foundry/workspaces";
-import type { directory } from "@foundry/workspaces/node";
-import { workspaces } from "@foundry/workspaces/node";
-import { Git, git } from "@foundry/workspaces/node/git";
-import type { WorkspaceStore } from "@foundry/workspaces/store";
+import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
 import type { ExecutionContext } from "~/lib/execution-context";
 import { withinContext } from "~/lib/execution-context";
 
@@ -14,66 +8,98 @@ import type {
   LoadedWorkspace,
   ScopedWorkspaces,
   WorkspaceDefinition,
+  WorkspaceGit,
   WorkspaceHandle,
+  WorktreeOptions,
 } from "../types";
 import { WORKSPACE_METHODS } from "../workspace-methods";
 
-export type LocalWorkspaces = WorkspaceRuntime<
-  [ReturnType<typeof directory>, ReturnType<typeof git>]
->;
+export type PortableWorkspace = Pick<
+  PackageWorkspace,
+  | "createFile"
+  | "entries"
+  | "files"
+  | "id"
+  | "read"
+  | "refresh"
+  | "registration"
+  | "save"
+  | "scan"
+  | "source"
+  | "summary"
+> & {
+  readonly git?: WorkspaceGit;
+  readonly root: string;
+};
 
-type Loaded = Awaited<ReturnType<LocalWorkspaces["load"]>>;
-export type GitOptions = NonNullable<Parameters<typeof Git.at>[1]>;
-
-export function localWorkspaces(
-  gitOptions: GitOptions,
-  store?: WorkspaceStore
-): LocalWorkspaces {
-  return workspaces(store === undefined ? {} : { store }).extend(
-    git(gitOptions)
-  );
+export interface WorkspaceCatalogue {
+  closeAll(): Promise<void>;
+  load(input: { readonly path: string }): Promise<PortableWorkspace>;
 }
 
 export interface WorkspacesDeps {
-  readonly catalogue?: LocalWorkspaces;
+  readonly catalogue?: WorkspaceCatalogue;
   readonly context?: ExecutionContext;
-  readonly gitOptions?: GitOptions;
+  readonly ensureDir?: (path: string) => void;
+  readonly gitAt?: (root: string) => WorkspaceGit | undefined;
   readonly root: string;
   readonly worktreeHome?: string;
 }
 
-export function repositoryRoot(start: string): string | undefined {
-  let dir = resolve(start);
-  for (;;) {
-    if (existsSync(join(dir, ".git"))) {
-      return dir;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) {
-      return undefined;
-    }
-    dir = parent;
-  }
+const WINDOWS_ABSOLUTE = /^[a-zA-Z]:[\\/]/;
+
+function isAbsolutePath(path: string): boolean {
+  return (
+    path.startsWith("/") || path.startsWith("\\") || WINDOWS_ABSOLUTE.test(path)
+  );
 }
 
-type WorktreeOptions = Parameters<Git["worktree"]>[0];
+function normalizePosix(path: string): string {
+  const absolute = path.startsWith("/");
+  const segments: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      if (segments.length > 0 && segments.at(-1) !== "..") {
+        segments.pop();
+      } else if (!absolute) {
+        segments.push("..");
+      }
+    } else {
+      segments.push(segment);
+    }
+  }
+  const joined = segments.join("/");
+  if (absolute) {
+    return `/${joined}`;
+  }
+  return joined || ".";
+}
 
-function wrapGit<G extends Git>(
+function resolveWorkspacePath(root: string, target: string): string {
+  const raw = isAbsolutePath(target) ? target : `${root}/${target}`;
+  return normalizePosix(raw.replaceAll("\\", "/"));
+}
+
+function wrapGit<G extends WorkspaceGit>(
   target: G,
   worktreeHome: string | undefined,
-  context: ExecutionContext | undefined
+  context: ExecutionContext | undefined,
+  ensureDir: ((path: string) => void) | undefined
 ): G {
   const withHome = (options: WorktreeOptions): WorktreeOptions => {
     const home = options.home ?? worktreeHome;
     if (home === undefined) {
       return options;
     }
-    mkdirSync(home, { recursive: true });
+    ensureDir?.(home);
     return { ...options, home };
   };
-  const wrap = <W extends Git>(worktree: W) =>
-    wrapGit(worktree, worktreeHome, context);
-  const overrides: Partial<Git> = {
+  const wrap = <W extends WorkspaceGit>(worktree: W) =>
+    wrapGit(worktree, worktreeHome, context, ensureDir);
+  const overrides: Partial<WorkspaceGit> = {
     withWorktree: (options, body) =>
       target.withWorktree(withHome(options), (worktree) => {
         const wrapped = wrap(worktree);
@@ -101,10 +127,11 @@ type Method = (...args: unknown[]) => Promise<unknown>;
 
 function handle(
   root: string,
-  loaded: () => Promise<Loaded>,
-  gitOf: () => Git | undefined,
+  loaded: () => Promise<PortableWorkspace>,
+  gitOf: () => WorkspaceGit | undefined,
   worktreeHome: string | undefined,
-  context: ExecutionContext | undefined
+  context: ExecutionContext | undefined,
+  ensureDir: ((path: string) => void) | undefined
 ): WorkspaceHandle {
   const target: Record<string, unknown> = { root };
   for (const name of WORKSPACE_METHODS) {
@@ -122,7 +149,7 @@ function handle(
           `${root} is not a git repository; workspaces.*.git needs one`
         );
       }
-      return wrapGit(found, worktreeHome, context);
+      return wrapGit(found, worktreeHome, context, ensureDir);
     },
   });
   return target as unknown as WorkspaceHandle;
@@ -134,23 +161,21 @@ export class WorkspacesManager implements ScopedWorkspaces {
 
   constructor(deps: WorkspacesDeps) {
     this.#deps = deps;
-    let currentLoaded: Promise<Loaded> | undefined;
+    let currentLoaded: Promise<PortableWorkspace> | undefined;
     this.current = handle(
       deps.root,
       () => {
         currentLoaded ??= this.#load(".");
         return currentLoaded;
       },
-      () =>
-        repositoryRoot(deps.root)
-          ? Git.at(deps.root, deps.gitOptions ?? {})
-          : undefined,
+      () => deps.gitAt?.(deps.root),
       deps.worktreeHome,
-      deps.context
+      deps.context,
+      deps.ensureDir
     );
   }
 
-  get system(): LocalWorkspaces {
+  get system(): WorkspaceCatalogue {
     if (this.#deps.catalogue === undefined) {
       throw new Error(
         "workspaces catalogue is not configured; provide options.workspaces"
@@ -163,8 +188,10 @@ export class WorkspacesManager implements ScopedWorkspaces {
     return this.#deps.root;
   }
 
-  #load(path: string): Promise<Loaded> {
-    return this.system.load({ path: resolve(this.#deps.root, path) });
+  #load(path: string): Promise<PortableWorkspace> {
+    return this.system.load({
+      path: resolveWorkspacePath(this.#deps.root, path),
+    });
   }
 
   async load(
@@ -177,7 +204,8 @@ export class WorkspacesManager implements ScopedWorkspaces {
         () => Promise.resolve(workspace),
         () => workspace.git,
         this.#deps.worktreeHome,
-        this.#deps.context
+        this.#deps.context,
+        this.#deps.ensureDir
       ),
       { id: workspace.id, source: workspace.source }
     );

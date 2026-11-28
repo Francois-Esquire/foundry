@@ -6,7 +6,7 @@ import { TaskStorageError } from "~/database/tasks";
 import { RunEndedError } from "~/lib/engine";
 import { ConfigurationError } from "~/lib/providers/store";
 import { ResourceNotFoundError } from "~/lib/resources";
-import { RunOutputError } from "~/lib/state/output";
+import { RunOutputError } from "~/lib/run-output";
 import { NotHostedError, RecordsHeldError } from "~/model/errors";
 import {
   NoProcessError,
