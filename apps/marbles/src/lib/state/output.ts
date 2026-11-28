@@ -14,48 +14,20 @@ import { setTimeout } from "node:timers/promises";
 import {
   isGone,
   type ProcessIdentity,
-  thisProcess,
 } from "@foundry/lib/node/process-identity";
-import type { ChannelChunk, ChannelMessage } from "@foundry/workflows/channels";
-import { z } from "zod";
-import { formatLogValues } from "~/lib/log";
+import type { ChannelMessage } from "@foundry/workflows/channels";
+import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import {
-  type OwnerLiveness,
-  PORTABLE_OWNER_LIVENESS,
-} from "~/lib/owner-liveness";
+  type EndRecord,
+  type OutputRecord,
+  outputRecordSchema,
+  RunOutput as PortableRunOutput,
+  RunOutputError,
+  type RunOutputOptions,
+  type RunOutputSink,
+} from "~/lib/run-output";
 
-const terminalStatusSchema = z.enum(["completed", "failed", "cancelled"]);
-export type TerminalStatus = z.infer<typeof terminalStatusSchema>;
-
-const outputRecordSchema = z.discriminatedUnion("type", [
-  z.object({
-    name: z.string(),
-    pid: z.number().int().nonnegative(),
-    runId: z.string(),
-    started: z.string().nullable().optional(),
-    type: z.literal("start"),
-  }),
-  z.object({
-    chunk: z
-      .object({
-        at: z.string(),
-        path: z.array(z.string()),
-        stepId: z.string(),
-      })
-      .optional(),
-    text: z.string(),
-    type: z.literal("text"),
-  }),
-  z.object({
-    error: z.string().optional(),
-    output: z.string().optional(),
-    status: terminalStatusSchema,
-    type: z.literal("end"),
-  }),
-]);
-
-export type OutputRecord = z.infer<typeof outputRecordSchema>;
-export type EndRecord = Extract<OutputRecord, { readonly type: "end" }>;
+export type { OutputRecord, RunOutputOptions } from "~/lib/run-output";
 
 export type RunHolding =
   | { readonly kind: "held" }
@@ -67,38 +39,17 @@ export type RunHolder = (workspace: string) => Promise<RunHolding>;
 const POLL_MS = 100;
 const HANDOVER_POLL_MS = 1000;
 const START_RECORD_WAIT_MS = 2000;
+const RUN_ID = /^[a-zA-Z0-9_-]+$/;
 
-export type ChunkOrigin = Omit<ChannelChunk, "payload">;
+function outputPath(workspaceState: string, runId: string): string {
+  if (!RUN_ID.test(runId)) {
+    throw new RunOutputError("invalid run ID");
+  }
+  return join(workspaceState, "output", `${runId}.jsonl`);
+}
 
 function removeRunOutput(state: string, runId: string): void {
   rmSync(outputPath(state, runId), { force: true });
-}
-
-export interface RunOutputSink {
-  append(runId: string, record: OutputRecord): void;
-  read?(runId: string): readonly OutputRecord[];
-  remove(runId: string): void;
-}
-
-export class MemoryRunOutputSink implements RunOutputSink {
-  readonly #records = new Map<string, OutputRecord[]>();
-
-  append(runId: string, record: OutputRecord): void {
-    const records = this.#records.get(runId);
-    if (records === undefined) {
-      this.#records.set(runId, [record]);
-    } else {
-      records.push(record);
-    }
-  }
-
-  read(runId: string): readonly OutputRecord[] {
-    return [...(this.#records.get(runId) ?? [])];
-  }
-
-  remove(runId: string): void {
-    this.#records.delete(runId);
-  }
 }
 
 export class FileRunOutputSink implements RunOutputSink {
@@ -124,17 +75,7 @@ export class FileRunOutputSink implements RunOutputSink {
   }
 }
 
-export interface RunOutputOptions {
-  readonly liveness?: OwnerLiveness;
-  readonly sink?: RunOutputSink;
-}
-
-export class RunOutput {
-  readonly #runId: string;
-  readonly #sink: RunOutputSink | undefined;
-  readonly #warn: (line: string) => void;
-  #failed = false;
-
+export class RunOutput extends PortableRunOutput {
   constructor(
     state: string | undefined,
     runId: string,
@@ -142,104 +83,16 @@ export class RunOutput {
     warn: (line: string) => void,
     options?: RunOutputOptions
   ) {
-    this.#runId = runId;
-    this.#warn = warn;
-    if (options?.sink !== undefined) {
-      this.#sink = options.sink;
-      this.#start(
-        name,
-        options.liveness?.identity ?? PORTABLE_OWNER_LIVENESS.identity
-      );
-      return;
-    }
-    if (state === undefined) {
+    if (options?.sink !== undefined || state === undefined) {
+      super(state, runId, name, warn, options);
       return;
     }
     outputPath(state, runId);
-    this.#sink = new FileRunOutputSink(state);
-    this.#start(name, options?.liveness?.identity ?? thisProcess);
-  }
-
-  text(text: string, chunk?: ChunkOrigin): void {
-    this.#append({
-      ...(chunk === undefined
-        ? {}
-        : {
-            chunk: {
-              at: chunk.at,
-              path: [...chunk.path],
-              stepId: chunk.stepId,
-            },
-          }),
-      text,
-      type: "text",
+    super(state, runId, name, warn, {
+      liveness: options?.liveness ?? NODE_OWNER_LIVENESS,
+      sink: new FileRunOutputSink(state),
     });
   }
-
-  finish(status: TerminalStatus, output?: unknown, error?: string): void {
-    this.#append({
-      status,
-      type: "end",
-      ...(output === undefined ? {} : { output: formatLogValues([output]) }),
-      ...(error === undefined ? {} : { error }),
-    });
-  }
-
-  async follow<O>(
-    completion: Promise<O>,
-    cancelled: () => boolean
-  ): Promise<O> {
-    try {
-      const value = await completion;
-      this.finish("completed", value);
-      return value;
-    } catch (error) {
-      this.finish(
-        cancelled() ? "cancelled" : "failed",
-        undefined,
-        error instanceof Error ? error.message : String(error)
-      );
-      throw error;
-    }
-  }
-
-  #start(name: string, identity: () => ProcessIdentity): void {
-    try {
-      const { pid, started } = identity();
-      this.#append({ name, pid, runId: this.#runId, started, type: "start" });
-    } catch (error) {
-      this.#failure(error);
-    }
-  }
-
-  #append(record: OutputRecord): void {
-    if (this.#sink === undefined || this.#failed) {
-      return;
-    }
-    try {
-      this.#sink.append(this.#runId, record);
-    } catch (error) {
-      this.#failure(error);
-    }
-  }
-
-  #failure(error: unknown): void {
-    this.#failed = true;
-    this.#warn(`[state] run output not saved: ${String(error)}`);
-  }
-}
-
-const RUN_ID = /^[a-zA-Z0-9_-]+$/;
-
-export class RunOutputError extends Error {
-  override readonly name = "RunOutputError";
-}
-
-function outputPath(workspaceState: string, runId: string): string {
-  if (!RUN_ID.test(runId)) {
-    throw new RunOutputError("invalid run ID");
-  }
-  return join(workspaceState, "output", `${runId}.jsonl`);
 }
 
 export function hasRunOutput(state: string, runId: string): boolean {

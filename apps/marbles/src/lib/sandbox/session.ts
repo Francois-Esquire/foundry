@@ -5,6 +5,7 @@ import type {
   HarnessAuthoritySettings,
   HarnessPermissionProfile,
   HarnessSession,
+  HarnessTurnDriver,
 } from "@foundry/agents/harness";
 import {
   createBuiltinCodingHarness,
@@ -26,10 +27,23 @@ import type { SandboxAgentOptions } from "~/lib/types";
 import { resolveCompaction } from "../managers/session-options";
 import { createCodingTools } from "./coding-tools";
 import { type DelegationScope, delegationTool } from "./delegate";
-import type { GuestDriver } from "./drivers";
-import type { PreparedGuest } from "./prepare";
 import { assertGuestSessionState } from "./session-state";
 import { observedSession } from "./wrapped-session";
+
+interface PreparedGuest {
+  readonly environment: Readonly<Record<string, string>>;
+  readonly executable: string;
+}
+
+interface GuestDriverInput {
+  readonly auth: GuestAuth;
+  readonly guest: PreparedGuest;
+  readonly settings: SandboxSessionSettings;
+}
+
+export type GuestDriver = (
+  input: GuestDriverInput
+) => HarnessTurnDriver | Promise<HarnessTurnDriver>;
 
 type SandboxGuestAuth = <H extends CliHarness>(
   harness: H,

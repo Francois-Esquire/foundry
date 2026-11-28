@@ -5,7 +5,7 @@ import type { Exec } from "./command-error";
 import type { ExecutionContext } from "./execution-context";
 import type { AgentTurns } from "./managers/agents";
 import type { Runs } from "./managers/runs";
-import type { LocalWorkspaces } from "./managers/workspaces";
+import type { WorkspaceCatalogue } from "./managers/workspaces";
 import type { Frame, RunScope } from "./run-scope";
 import type {
   Agents,
@@ -21,7 +21,7 @@ export interface ManagerArgs {
 }
 
 export interface HostBindings {
-  readonly catalogue?: LocalWorkspaces;
+  readonly catalogue?: WorkspaceCatalogue;
   readonly triggers?: TriggerStore;
 }
 
@@ -32,6 +32,7 @@ export interface Bindings {
   readonly exec?: (args: ManagerArgs) => Exec;
   readonly host?: HostBindings;
   readonly log: Log;
+  readonly resolveFeedMedia?: (path: string) => string;
   readonly root: string;
   readonly runs?: (args?: ManagerArgs) => Runs;
   readonly sandboxes: (args: ManagerArgs) => Sandboxes;

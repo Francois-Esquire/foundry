@@ -69,7 +69,7 @@ import {
   SandboxesManager,
   type WorkspaceMaterialization,
 } from "~/lib/managers/sandboxes";
-import type { GitOptions, LocalWorkspaces } from "~/lib/managers/workspaces";
+import type { WorkspaceCatalogue } from "~/lib/managers/workspaces";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
 import type { OwnerLiveness } from "~/lib/owner-liveness";
 import type { ProviderConfiguration } from "~/lib/providers/configuration";
@@ -79,6 +79,7 @@ import type {
   DefinitionRegistration,
   MonitorRecord,
 } from "~/lib/registry";
+import type { RunOutputSink } from "~/lib/run-output";
 import type { Factory, RunQueueOptions } from "~/lib/run-queue";
 import type { ReadonlyRunScopes } from "~/lib/run-scope";
 import { RunScopes } from "~/lib/run-scope";
@@ -88,12 +89,11 @@ import type { ActivityStore } from "~/lib/sandbox/activities";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import type { HarnessInteractions } from "~/lib/sandbox/interactions";
 import type { SandboxGuestSetup } from "~/lib/sandbox/session";
-import type { RunOutputSink } from "~/lib/state/output";
 import type { StepInput } from "~/lib/step-work";
 import type { TaskDefinition } from "~/lib/tasks";
 import type { TriggerStore } from "~/lib/trigger-store";
 import type { Schedule } from "~/lib/triggers";
-import type { AgentLike, SkillSet } from "~/lib/types";
+import type { AgentLike, SkillSet, WorkspaceGit } from "~/lib/types";
 import type { UsageRecords } from "~/lib/usage";
 import { UsageLedger, withRecovered } from "~/lib/usage";
 import type { ReconciledRun } from "~/lib/usage-evidence";
@@ -121,9 +121,13 @@ export interface EngineOptions {
   readonly createMcpClient?: AgentsDeps["createMcpClient"];
   readonly createQueueClient?: RunQueueOptions["createClient"];
   readonly cwd?: string;
+  readonly ensureWorktreeDir?: (path: string) => void;
   readonly environment?: Readonly<Record<string, string>>;
   readonly executionStore?: ExecutionStore;
-  readonly git?: GitOptions;
+  readonly git?: {
+    readonly run?: (cwd: string, args: readonly string[]) => Promise<string>;
+  };
+  readonly gitAt?: (root: string) => WorkspaceGit | undefined;
   readonly handlerTimeout?: number;
   readonly home?: string;
   readonly leaseTtlMs?: number;
@@ -137,6 +141,7 @@ export interface EngineOptions {
   readonly readFeedMedia?: (path: string) => Promise<Uint8Array>;
   readonly records?: WorkspaceRecords;
   readonly recoveryLog?: RecoveryLog;
+  readonly resolveFeedMedia?: (path: string, root: string) => string;
   readonly root: string;
   readonly runs?: RunStore;
   readonly sandboxGuest?: SandboxGuestSetup;
@@ -149,7 +154,7 @@ export interface EngineOptions {
   readonly usageStore?: UsageStore;
   readonly workspaceId: string;
   readonly workspaceMaterialization?: WorkspaceMaterialization;
-  readonly workspaces?: LocalWorkspaces;
+  readonly workspaces?: WorkspaceCatalogue;
   readonly worktrees?: string;
 }
 
@@ -400,7 +405,10 @@ export class Engine {
     this.workspaces = new WorkspacesManager({
       ...(catalogue === undefined ? {} : { catalogue }),
       context: this.context,
-      gitOptions: options.git ?? {},
+      ...(options.ensureWorktreeDir === undefined
+        ? {}
+        : { ensureDir: options.ensureWorktreeDir }),
+      ...(options.gitAt === undefined ? {} : { gitAt: options.gitAt }),
       root,
       ...(this.worktrees === "" ? {} : { worktreeHome: this.worktrees }),
     });

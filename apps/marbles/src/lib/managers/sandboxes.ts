@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import type {
   Container,
   ContainerSpecInput,
@@ -41,11 +39,48 @@ export interface MountDirs {
   readonly root: string;
 }
 
+const WINDOWS_ABSOLUTE = /^[a-zA-Z]:[\\/]/;
+
+function isAbsolutePath(path: string): boolean {
+  return (
+    path.startsWith("/") || path.startsWith("\\") || WINDOWS_ABSOLUTE.test(path)
+  );
+}
+
+function normalizePosix(path: string): string {
+  const absolute = path.startsWith("/");
+  const segments: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      if (segments.length > 0 && segments.at(-1) !== "..") {
+        segments.pop();
+      } else if (!absolute) {
+        segments.push("..");
+      }
+    } else {
+      segments.push(segment);
+    }
+  }
+  const joined = segments.join("/");
+  if (absolute) {
+    return `/${joined}`;
+  }
+  return joined || ".";
+}
+
+function resolveMountPath(root: string, target: string): string {
+  const raw = isAbsolutePath(target) ? target : `${root}/${target}`;
+  return normalizePosix(raw.replaceAll("\\", "/"));
+}
+
 function mountSource(spec: ImageSandbox, dirs: MountDirs): string {
   if (spec.mount === undefined || spec.mount === "." || spec.mount === "none") {
     return dirs.cwd;
   }
-  return resolve(dirs.root, spec.mount.path);
+  return resolveMountPath(dirs.root, spec.mount.path);
 }
 
 export function guestFiles(
@@ -56,12 +91,6 @@ export function guestFiles(
       path.startsWith("/") ? path : `${WORKSPACE_TARGET}/${path}`,
       content,
     ])
-  );
-}
-
-export function allowedMountRoots(roots: readonly string[]): string[] {
-  return [...new Set(roots.map((root) => resolve(root)))].filter((dir) =>
-    existsSync(dir)
   );
 }
 

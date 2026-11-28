@@ -7,11 +7,13 @@ import { stateDatabase } from "~/layout";
 import type { ExecutionRun } from "~/lib/execution-record";
 import {
   type EndRecord,
+  RunOutputError,
+  type TerminalStatus,
+} from "~/lib/run-output";
+import {
   hasRunOutput,
   type RunHolding,
-  RunOutputError,
   readRunOutput,
-  type TerminalStatus,
 } from "~/lib/state/output";
 
 const SETTLED_AS: Partial<Record<ExecutionRun["status"], EndRecord["status"]>> =

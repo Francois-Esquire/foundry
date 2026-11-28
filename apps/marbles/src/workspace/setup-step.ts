@@ -2,8 +2,9 @@ import { basename } from "node:path";
 import type { StepContext } from "@foundry/workflows/step";
 import { Step } from "@foundry/workflows/step";
 
+import { localFeedPayload } from "~/host/feed-media";
 import type { Engine } from "~/lib/engine";
-import { FEED_POST_EVENT, feedPayload } from "~/lib/feed/entry";
+import { FEED_POST_EVENT } from "~/lib/feed/entry";
 import { type SetupDraft, STARTER, STARTER_GUIDE } from "~/workspace/templates";
 
 export const SETUP_STEP = "marbles.workspace-setup";
@@ -29,7 +30,7 @@ class WorkspaceSetupStep extends Step<SetupInput, void> {
   ): Promise<void> {
     context.emit(
       FEED_POST_EVENT,
-      feedPayload(
+      localFeedPayload(
         {
           body: setupArticle(input),
           key: "workspace-set-up",

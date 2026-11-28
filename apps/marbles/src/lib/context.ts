@@ -143,14 +143,14 @@ function buildAsk(args: AskArgs): Ask {
 
 interface ReportArgs extends AskArgs {
   readonly artifacts: () => ScopedArtifacts;
-  readonly root: string;
+  readonly resolveFeedMedia?: (path: string) => string;
 }
 
 function buildReport({
   artifacts,
   ctx,
   frame,
-  root,
+  resolveFeedMedia,
   scope,
 }: ReportArgs): Report {
   const post = (
@@ -168,7 +168,9 @@ function buildReport({
           ...(entry.media === undefined ? {} : { media: entry.media }),
           title: entry.title,
         },
-        root
+        resolveFeedMedia === undefined
+          ? undefined
+          : { resolveMedia: resolveFeedMedia }
       ),
       ...(artifact === undefined ? {} : { artifact }),
     });
@@ -244,7 +246,9 @@ export function buildContext<I>({
     report: buildReport({
       ...askArgs,
       artifacts: () => bindings.artifacts(managerArgs),
-      root: bindings.root,
+      ...(bindings.resolveFeedMedia === undefined
+        ? {}
+        : { resolveFeedMedia: bindings.resolveFeedMedia }),
     }),
     run,
     get sandboxes() {

@@ -1,5 +1,3 @@
-import { accessSync, constants } from "node:fs";
-import { basename, isAbsolute, resolve } from "node:path";
 import { z } from "zod";
 
 export const FEED_ENTRY_TYPE = "application/vnd.foundry.feed-entry+markdown";
@@ -28,6 +26,16 @@ export const INPUT_DELIVERIES = ["live", "deferred"] as const;
 export type InputDelivery = (typeof INPUT_DELIVERIES)[number];
 
 const MAX_NOTE = 2000;
+const TRAILING_SEPARATORS = /[\\/]+$/;
+
+function pathBasename(path: string): string {
+  const trimmed = path.replace(TRAILING_SEPARATORS, "");
+  if (trimmed === "") {
+    return "";
+  }
+  const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return slash === -1 ? trimmed : trimmed.slice(slash + 1);
+}
 
 export type FeedAnswer =
   | string
@@ -69,24 +77,21 @@ export const feedPostSchema = z.object({
 });
 export type FeedPayload = z.infer<typeof feedPostSchema>;
 
-export function feedPayload(entry: FeedPost, root: string): FeedPayload {
+export function feedPayload(
+  entry: FeedPost,
+  options?: { readonly resolveMedia?: (path: string) => string }
+): FeedPayload {
   const parsed = feedPostSchema.safeParse(entry);
   if (!parsed.success) {
     throw new Error(
       `feed.post: ${parsed.error.issues.map((issue) => issue.message).join("; ")}`
     );
   }
-  const media = parsed.data.media.map((path) =>
-    isAbsolute(path) ? path : resolve(root, path)
-  );
-  for (const path of media) {
-    try {
-      accessSync(path, constants.R_OK);
-    } catch (error) {
-      throw new Error(`feed.post: cannot read media ${path}`, { cause: error });
-    }
-  }
-  const names = media.map((path) => basename(path));
+  const media =
+    options?.resolveMedia === undefined
+      ? parsed.data.media
+      : parsed.data.media.map(options.resolveMedia);
+  const names = media.map(pathBasename);
   const duplicate = names.find((name, index) => names.indexOf(name) !== index);
   if (duplicate) {
     throw new Error(`feed.post: two media files are named "${duplicate}"`);

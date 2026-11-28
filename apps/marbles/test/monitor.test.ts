@@ -14,10 +14,10 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { defaultWorkspaceTriggers } from "~/database/managed";
+import type { LocalWorkspaces } from "~/host/workspaces";
 import type { AnyDefinition } from "~/lib/definition";
 import type { EngineOptions } from "~/lib/engine";
 import { createLog } from "~/lib/log";
-import type { LocalWorkspaces } from "~/lib/managers/workspaces";
 import type {
   Change,
   DetectorOptions,
