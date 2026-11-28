@@ -28,8 +28,9 @@ test("a new view shows the welcome and an empty panel", async () => {
   const frame = (await mount(view(threads.idle).node)).captureCharFrame();
 
   expect(frame).toContain("Give the harness a goal. It will:");
-  expect(frame).toContain("To-dos 0/0");
-  expect(frame).toContain("New thread · claude-code/sonnet");
+  expect(frame).toContain("No to-dos yet.");
+  expect(frame).toContain("0/0 · New thread");
+  expect(frame).toContain("SONNET");
 });
 
 test("Enter hands over a trimmed goal once and clears the field", async () => {
@@ -43,7 +44,8 @@ test("Enter hands over a trimmed goal once and clears the field", async () => {
   await press(ui, "RETURN");
 
   expect(fake.goals).toEqual(["list the files"]);
-  expect(ui.captureCharFrame()).toContain("Give the harness a goal");
+  expect(fake.loadouts).toEqual([{ effort: "medium", model: "sonnet" }]);
+  expect(ui.captureCharFrame()).toContain("Accept, reject or skip the result");
   expect(ui.captureCharFrame()).toContain("18.4k in · 912 out");
 });
 
@@ -58,37 +60,112 @@ test("Enter does nothing while a goal is running", async () => {
   expect(ui.captureCharFrame()).toContain("another goal");
 });
 
-test("Tab and Shift+Tab move through the panel's tabs", async () => {
-  const { ui } = await asked(threads.done);
+test("the picked loadout and avatar stay for every goal and the arrows only browse the toolkit", async () => {
+  const fake = fakeRun(threads.done);
+  const ui = await mount(
+    <HarnessView
+      context={context}
+      picks={{ avatar: 1, effort: "high", model: "opus" }}
+      run={fake.run}
+    />,
+    { height: 44, width: 120 }
+  );
 
+  expect(ui.captureCharFrame()).toContain("WELDER");
   await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("version 3f9a1c2e · 1 kept");
-  await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("◆ task-notes");
-  await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("› add_todo");
-  await press(ui, "TAB");
-  expect(ui.captureCharFrame()).toContain("✓ Write the run instructions");
-  await press(ui, "TAB", { shift: true });
-  expect(ui.captureCharFrame()).toContain("› add_todo");
+  await press(ui, "ARROW_DOWN");
+  expect(ui.captureCharFrame()).toContain("OPUS");
+  expect(ui.captureCharFrame()).toContain("▮▮▮");
+  expect(ui.captureCharFrame()).toContain("WELDER");
+  expect(ui.captureCharFrame()).toContain("▶ 02 backlog");
+
+  await type(ui, "explain this example");
+  await press(ui, "RETURN");
+  expect(fake.goals).toEqual(["explain this example"]);
+  expect(fake.loadouts).toEqual([{ effort: "high", model: "opus" }]);
+});
+
+test("the arrows leave the goal being typed alone", async () => {
+  const { node } = view(threads.idle);
+  const ui = await mount(node, { height: 44, width: 120 });
+
+  await type(ui, "list the files");
+  await press(ui, "ARROW_DOWN");
+
+  expect(ui.captureCharFrame()).toContain("› list the files");
+  expect(ui.captureCharFrame()).toContain("SONNET");
 });
 
 test("PgUp and PgDn scroll the conversation", async () => {
   const { ui } = await asked(threads.done, { height: 16, width: 120 });
-  const top = "│ You ";
+  const top = "You";
   const bottom = await frameWith(ui, "bun run start");
 
   expect(bottom).not.toContain(top);
-  await press(ui, PAGE_UP);
-  await press(ui, PAGE_UP);
+  for (let page = 0; page < 8; page += 1) {
+    await press(ui, PAGE_UP);
+  }
   const scrolled = await frameWith(ui, top);
   expect(scrolled).toContain(top);
   expect(scrolled).not.toContain("bun run start");
-  await press(ui, PAGE_DOWN);
-  await press(ui, PAGE_DOWN);
+  for (let page = 0; page < 8; page += 1) {
+    await press(ui, PAGE_DOWN);
+  }
   const back = await frameWith(ui, "bun run start");
   expect(back).toContain("bun run start");
   expect(back).not.toContain(top);
+});
+
+test("A accepts the finished goal and hands the keys back to the goal field", async () => {
+  const { ui } = await asked(threads.done, { height: 44, width: 120 });
+
+  expect(await frameWith(ui, "awaiting verdict")).toContain("A  Accept");
+  expect(ui.captureCharFrame()).toContain("LV 1");
+  await press(ui, "a");
+
+  const frame = await frameWith(ui, "RANK S");
+  expect(frame).toContain("RANK S · +175 XP");
+  expect(frame).toContain("LV 2");
+  expect(frame).toContain("75/200 xp");
+  expect(frame).not.toContain("A  Accept");
+  await type(ui, "a rare goal");
+  expect(ui.captureCharFrame()).toContain("› a rare goal");
+  expect(ui.captureCharFrame()).toContain("RANK S · +175 XP");
+});
+
+test("R rejects the finished goal and banks nothing", async () => {
+  const { ui } = await asked(threads.done, { height: 44, width: 120 });
+
+  await press(ui, "r");
+
+  const frame = await frameWith(ui, "Rejected");
+  expect(frame).toContain("Rejected · nothing banked");
+  expect(frame).toContain("LV 1");
+  expect(frame).toContain("0/100 xp");
+});
+
+test("Escape skips the verdict, hides the card and banks nothing", async () => {
+  const { ui } = await asked(threads.done, { height: 44, width: 120 });
+
+  await frameWith(ui, "awaiting verdict");
+  await type(ui, "hello");
+  expect(ui.captureCharFrame()).not.toContain("› hello");
+  await press(ui, "ESCAPE");
+
+  const frame = ui.captureCharFrame();
+  expect(frame).not.toContain("RESULTS");
+  expect(frame).toContain("0/100 xp");
+  await type(ui, "next");
+  expect(ui.captureCharFrame()).toContain("› next");
+});
+
+test("the verdict keys go to the goal field while a goal runs", async () => {
+  const { ui } = await asked(threads.working, { height: 44, width: 120 });
+
+  await press(ui, "a");
+
+  expect(ui.captureCharFrame()).not.toContain("RESULTS");
+  expect(ui.captureCharFrame()).toContain("LV 1");
 });
 
 test("a narrow terminal drops the panel and ignores Tab", async () => {
@@ -96,8 +173,8 @@ test("a narrow terminal drops the panel and ignores Tab", async () => {
   const before = await frameWith(ui, "bun run start");
   await press(ui, "TAB");
 
-  expect(before).not.toContain("To-dos");
-  expect(before).not.toContain("Tab panel");
+  expect(before).not.toContain("VITALS");
+  expect(before).not.toContain("Tab");
   expect(before.trimEnd().split("\n")).toHaveLength(24);
   expect(ui.captureCharFrame()).toBe(before);
 });
@@ -115,5 +192,5 @@ test("the view lays out against its own box inside a larger terminal", async () 
 
   expect(lines.slice(24).join("").trim()).toBe("");
   expect(Math.max(...lines.map((line) => line.trimEnd().length))).toBe(100);
-  expect(lines.join("\n")).toContain("To-dos 3/3");
+  expect(lines.join("\n")).toContain("3/3 · ");
 });

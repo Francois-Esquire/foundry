@@ -5,6 +5,7 @@
   "description": "An agent harness with a terminal UI, built on the Marbles library, OpenTUI, and TermCN",
   "type": "module",
   "scripts": {
+    "sprites": "bun run --no-env-file scripts/sprites.ts",
     "start": "bun run --no-env-file src/main.tsx",
     "stories": "bun run --no-env-file textbook --pattern 'stories/**/*.stories.tsx'",
     "stories:web": "cd ../.. && bun run --no-env-file textbook web --cwd examples/foundry-agent-harness --pattern 'stories/**/*.stories.tsx'",

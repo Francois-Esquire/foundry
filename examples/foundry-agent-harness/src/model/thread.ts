@@ -1,3 +1,5 @@
+import type { Loadout } from "@/model/context";
+
 export type Status = "pending" | "running" | "success" | "error";
 
 export interface Todo {
@@ -16,12 +18,33 @@ export interface ToolUse {
   status: Status;
 }
 
-export interface Message {
-  kind: "goal" | "task" | "error";
+export interface Tokens {
+  readonly input: number;
+  readonly output: number;
+}
+
+export interface Step {
   streaming: boolean;
   text: string;
   title: string;
   tools: ToolUse[];
+  usage: Tokens | null;
+}
+
+export type Outcome = "running" | "finished" | "failed";
+
+export interface Encounter {
+  endedAt: number | null;
+  error?: string;
+  readonly goal: string;
+  readonly id: string;
+  readonly loadout: Loadout;
+  outcome: Outcome;
+  plan: Tokens;
+  readonly startedAt: number;
+  steps: Step[];
+  readonly swapped: boolean;
+  todos: Todo[];
 }
 
 export interface Notes {
@@ -31,45 +54,141 @@ export interface Notes {
 }
 
 export interface Thread {
+  encounters: Encounter[];
   id: string;
-  input: number;
-  messages: Message[];
   notes?: Notes;
-  output: number;
   phase: "idle" | "planning" | "working";
-  title: string;
-  todos: Todo[];
 }
 
 export type Run = (
   goal: string,
-  show: (thread: Thread) => void
+  show: (thread: Thread) => void,
+  loadout: Loadout
 ) => Promise<void>;
 
+const NO_TOKENS: Tokens = { input: 0, output: 0 };
+
+const SERVER_TOOL = /^mcp__(.+?)__(.+)$/;
+
+export function toolLabel(name: string): string {
+  return name.replace(SERVER_TOOL, "$1 · $2");
+}
+
 export const emptyThread: Thread = {
+  encounters: [],
   id: "thread-1",
-  input: 0,
-  messages: [],
-  output: 0,
   phase: "idle",
-  title: "New thread",
-  todos: [],
 };
+
+export function startEncounter({
+  goal,
+  id,
+  swapped = false,
+  startedAt,
+  loadout,
+}: {
+  readonly goal: string;
+  readonly id: string;
+  readonly swapped?: boolean;
+  readonly startedAt: number;
+  readonly loadout: Loadout;
+}): Encounter {
+  return {
+    endedAt: null,
+    goal,
+    id,
+    loadout,
+    outcome: "running",
+    plan: NO_TOKENS,
+    startedAt,
+    steps: [],
+    swapped,
+    todos: [],
+  };
+}
+
+export function latestEncounter(thread: Thread): Encounter | undefined {
+  return thread.encounters.at(-1);
+}
+
+export function isEnded(encounter: Encounter | undefined): boolean {
+  return encounter !== undefined && encounter.outcome !== "running";
+}
+
+export function titleOf(thread: Thread): string {
+  return thread.encounters[0]?.goal ?? "New thread";
+}
+
+export function todosOf(thread: Thread): Todo[] {
+  return thread.encounters.flatMap((encounter) => encounter.todos);
+}
+
+export function stepsOf(thread: Thread): Step[] {
+  return thread.encounters.flatMap((encounter) => encounter.steps);
+}
+
+function added(a: Tokens, b: Tokens): Tokens {
+  return { input: a.input + b.input, output: a.output + b.output };
+}
+
+export function tokensOf(encounter: Encounter): Tokens {
+  return encounter.steps.reduce(
+    (sum, step) => added(sum, step.usage ?? NO_TOKENS),
+    encounter.plan
+  );
+}
+
+export function threadTokens(thread: Thread): Tokens {
+  return thread.encounters.map(tokensOf).reduce(added, NO_TOKENS);
+}
 
 export function isBusy(thread: Thread): boolean {
   return thread.phase !== "idle";
 }
 
-export function finishedTodos(thread: Thread): number {
-  return thread.todos.filter((todo) => todo.status === "success").length;
+export function finishedTodos(todos: readonly Todo[]): number {
+  return todos.filter((todo) => todo.status === "success").length;
 }
 
 export function isAnimating(thread: Thread): boolean {
   return (
     isBusy(thread) ||
-    thread.todos.some((todo) => todo.status === "running") ||
-    thread.messages.some((message) =>
-      message.tools.some((tool) => tool.status === "running")
+    todosOf(thread).some((todo) => todo.status === "running") ||
+    stepsOf(thread).some((step) =>
+      step.tools.some((tool) => tool.status === "running")
     )
   );
+}
+
+export interface Tally {
+  readonly count: number;
+  readonly failed: number;
+  readonly name: string;
+  readonly running: boolean;
+}
+
+export function toolTallies(steps: readonly Step[]): Tally[] {
+  const tallies = new Map<string, Tally>();
+  for (const step of steps) {
+    for (const tool of step.tools) {
+      const kept = tallies.get(tool.name);
+      tallies.set(tool.name, {
+        count: (kept?.count ?? 0) + 1,
+        failed: (kept?.failed ?? 0) + (tool.status === "error" ? 1 : 0),
+        name: tool.name,
+        running: (kept?.running ?? false) || tool.status === "running",
+      });
+    }
+  }
+  return [...tallies.values()].sort((a, b) => b.count - a.count);
+}
+
+export function hasFailed(thread: Thread): boolean {
+  return latestEncounter(thread)?.outcome === "failed";
+}
+
+export function compactCount(count: number): string {
+  return count < 1000
+    ? String(count)
+    : `${(count / 1000).toFixed(1).replace(".0", "")}k`;
 }

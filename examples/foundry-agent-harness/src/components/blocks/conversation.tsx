@@ -5,99 +5,122 @@ import { Welcome } from "@/components/blocks/welcome";
 import { ChatMessage } from "@/components/ui/chat-message";
 import { ChatThread } from "@/components/ui/chat-thread";
 import type { Clock } from "@/model/screen";
-import type { Message } from "@/model/thread";
-
-const SENDERS = { error: "error", goal: "user", task: "assistant" } as const;
-
-function numbered(messages: readonly Message[]) {
-  let tasks = 0;
-  return messages.map((message, index) => {
-    tasks += message.kind === "task" ? 1 : 0;
-    return {
-      key: `${index}-${message.kind}`,
-      message,
-      name:
-        message.kind === "task"
-          ? `Task ${tasks} · ${message.title}`
-          : message.title,
-    };
-  });
-}
+import type { Encounter, Step } from "@/model/thread";
 
 const STILL: Clock = { frame: 0, now: 0 };
 
-function isLive(message: Message): boolean {
-  return (
-    message.streaming || message.tools.some((tool) => tool.status === "running")
-  );
+function isLive(step: Step): boolean {
+  return step.streaming || step.tools.some((tool) => tool.status === "running");
 }
 
-function MessageBody({
+function StepBody({
   clock,
-  message,
+  step,
 }: {
   readonly clock: Clock;
-  readonly message: Message;
+  readonly step: Step;
 }) {
-  if (message.text === "" && message.tools.length === 0) {
+  if (step.text === "" && step.tools.length === 0) {
     return null;
   }
   return (
     <box flexDirection="column">
-      {message.tools.map((tool) => (
+      {step.tools.map((tool) => (
         <ToolRow clock={clock} key={tool.id} tool={tool} />
       ))}
       <Reply
-        key={message.streaming ? "streaming" : "finished"}
-        markdown={message.text}
-        streaming={message.streaming}
+        key={step.streaming ? "streaming" : "finished"}
+        markdown={step.text}
+        streaming={step.streaming}
       />
     </box>
   );
 }
 
-function MessageEntry({
+function StepEntry({
   clock,
-  message,
   name,
+  step,
 }: {
   readonly clock: Clock;
-  readonly message: Message;
   readonly name: string;
+  readonly step: Step;
 }) {
   return (
-    <ChatMessage
-      name={name}
-      sender={SENDERS[message.kind]}
-      streaming={message.streaming}
-    >
-      <MessageBody clock={clock} message={message} />
+    <ChatMessage name={name} sender="assistant" streaming={step.streaming}>
+      <StepBody clock={clock} step={step} />
     </ChatMessage>
   );
 }
 
-const ConversationMessage = memo(MessageEntry);
+function SaidEntry({
+  name,
+  sender,
+  text,
+}: {
+  readonly name: string;
+  readonly sender: "error" | "user";
+  readonly text: string;
+}) {
+  return (
+    <ChatMessage name={name} sender={sender}>
+      <Reply markdown={text} streaming={false} />
+    </ChatMessage>
+  );
+}
+
+const ConversationStep = memo(StepEntry);
+const Said = memo(SaidEntry);
+
+function numbered(encounters: readonly Encounter[]) {
+  let count = 0;
+  return encounters.map((encounter) => ({
+    encounter,
+    steps: encounter.steps.map((step) => {
+      count += 1;
+      return { name: `Task ${count} · ${step.title}`, step };
+    }),
+  }));
+}
 
 export function Conversation({
   clock,
-  messages,
+  encounters,
 }: {
   readonly clock: Clock;
-  readonly messages: readonly Message[];
+  readonly encounters: readonly Encounter[];
 }) {
-  if (messages.length === 0) {
+  if (encounters.length === 0) {
     return <Welcome />;
   }
   return (
     <ChatThread>
-      {numbered(messages).map(({ key, message, name }) => (
-        <ConversationMessage
-          clock={isLive(message) ? clock : STILL}
-          key={key}
-          message={message}
-          name={name}
-        />
-      ))}
+      {numbered(encounters).flatMap(({ encounter, steps }) => [
+        <Said
+          key={`${encounter.id}-goal`}
+          name="You"
+          sender="user"
+          text={encounter.goal}
+        />,
+        ...steps.map(({ name, step }, index) => (
+          <ConversationStep
+            clock={isLive(step) ? clock : STILL}
+            key={`${encounter.id}-step-${index}`}
+            name={name}
+            step={step}
+          />
+        )),
+        ...(encounter.error === undefined
+          ? []
+          : [
+              <Said
+                key={`${encounter.id}-error`}
+                name="The harness stopped"
+                sender="error"
+                text={encounter.error}
+              />,
+            ]),
+      ])}
     </ChatThread>
   );
 }

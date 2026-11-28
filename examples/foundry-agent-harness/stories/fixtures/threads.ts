@@ -1,7 +1,9 @@
-import type { Context } from "@/model/context";
+import { progressOf } from "@/game/progress";
+import { scorecardOf } from "@/game/scorecard";
+import type { Context, Loadout } from "@/model/context";
 import type { Clock } from "@/model/screen";
-import type { Message, Status, Thread, Todo } from "@/model/thread";
-import { emptyThread } from "@/model/thread";
+import type { Encounter, Status, Step, Thread, Todo } from "@/model/thread";
+import { emptyThread, startEncounter } from "@/model/thread";
 
 const STARTED = 1_800_000_000_000;
 
@@ -11,6 +13,8 @@ const READ = "Read package.json in this directory";
 const IDENTIFY = "Identify the scripts and what each one runs";
 const WRITE = "Write the run instructions";
 const TITLES = [READ, IDENTIFY, WRITE];
+
+const LOADOUT: Loadout = { effort: "medium", model: "sonnet" };
 
 const REPLY = [
   "This example starts with `bun run start`, which runs `src/main.tsx` on Bun.",
@@ -33,16 +37,7 @@ function todos(...statuses: Status[]): Todo[] {
   }));
 }
 
-const goal: Message = {
-  kind: "goal",
-  streaming: false,
-  text: GOAL,
-  title: "You",
-  tools: [],
-};
-
-const finished: Message = {
-  kind: "task",
+const finished: Step = {
   streaming: false,
   text: REPLY,
   title: READ,
@@ -62,14 +57,30 @@ const finished: Message = {
       status: "success",
     },
   ],
+  usage: { input: 16_000, output: 792 },
 };
 
-const started: Thread = { ...emptyThread, messages: [goal], title: GOAL };
+const opened: Encounter = startEncounter({
+  goal: GOAL,
+  id: "encounter-1",
+  loadout: LOADOUT,
+  startedAt: STARTED,
+});
+
+function thread(encounter: Partial<Encounter>, more: Partial<Thread> = {}) {
+  return {
+    ...emptyThread,
+    encounters: [{ ...opened, ...encounter }],
+    ...more,
+  } satisfies Thread;
+}
 
 export const clock: Clock = { frame: 3, now: STARTED + 4200 };
 
 export const context: Context = {
-  model: "claude-code/sonnet",
+  limit: 200_000,
+  models: ["sonnet", "opus", "haiku"],
+  provider: "claude-code",
   servers: [
     {
       description: "The harness's own to-do list, served from this process.",
@@ -91,22 +102,28 @@ export const context: Context = {
 };
 
 export const threads = {
-  done: {
-    ...started,
-    input: 18_400,
-    messages: [goal, finished],
-    notes: {
-      files: [{ path: "1-read-package-json.md", title: READ }],
-      version: "3f9a1c2e",
-      versions: 1,
+  done: thread(
+    {
+      endedAt: STARTED + 42_000,
+      outcome: "finished",
+      plan: { input: 2400, output: 120 },
+      steps: [finished],
+      todos: todos("success", "success", "success"),
     },
-    output: 912,
-    todos: todos("success", "success", "success"),
-  },
-  failed: {
-    ...started,
-    messages: [
-      goal,
+    {
+      notes: {
+        files: [{ path: "1-read-package-json.md", title: READ }],
+        version: "3f9a1c2e",
+        versions: 1,
+      },
+    }
+  ),
+  failed: thread({
+    endedAt: STARTED + 9000,
+    error: "Claude Code stopped before the turn finished.",
+    outcome: "failed",
+    plan: { input: 2400, output: 120 },
+    steps: [
       {
         ...finished,
         text: "",
@@ -120,49 +137,64 @@ export const threads = {
             status: "error",
           },
         ],
-      },
-      {
-        kind: "error",
-        streaming: false,
-        text: "Claude Code stopped before the turn finished.",
-        title: "The harness stopped",
-        tools: [],
+        usage: null,
       },
     ],
     todos: todos("error", "error", "error"),
-  },
+  }),
   idle: emptyThread,
-  planning: { ...started, phase: "planning" },
-  working: {
-    ...started,
-    messages: [
-      goal,
-      finished,
-      {
-        kind: "task",
-        streaming: true,
-        text: "",
-        title: IDENTIFY,
-        tools: [
-          {
-            detail: "bun run --help",
-            id: "tool-3",
-            name: "Bash",
-            startedAt: STARTED,
-            status: "running",
-          },
-        ],
-      },
-    ],
-    phase: "working",
-    todos: [
-      ...todos("success", "running", "pending"),
-      {
-        added: true,
-        id: "todo-4",
-        status: "pending",
-        title: "Check the Bun version",
-      },
-    ],
-  },
+  planning: thread({}, { phase: "planning" }),
+  working: thread(
+    {
+      plan: { input: 2400, output: 120 },
+      steps: [
+        { ...finished, usage: { input: 180_000, output: 2000 } },
+        {
+          streaming: true,
+          text: "",
+          title: IDENTIFY,
+          tools: [
+            {
+              detail: "bun run --help",
+              id: "tool-3",
+              name: "Bash",
+              startedAt: STARTED,
+              status: "running",
+            },
+          ],
+          usage: null,
+        },
+      ],
+      todos: [
+        ...todos("success", "running", "pending"),
+        {
+          added: true,
+          id: "todo-4",
+          status: "pending",
+          title: "Check the Bun version",
+        },
+      ],
+    },
+    { phase: "working" }
+  ),
 } satisfies Record<string, Thread>;
+
+const [ended = opened] = threads.done.encounters;
+const [lost = opened] = threads.failed.encounters;
+
+export const scorecards = {
+  accepted: scorecardOf(ended, "accept", context.limit),
+  consoled: scorecardOf(lost, "accept", context.limit),
+  pending: scorecardOf(ended, null, context.limit),
+  rejected: scorecardOf(ended, "reject", context.limit),
+};
+
+export const progress = {
+  fresh: progressOf([]),
+  seasoned: progressOf([
+    scorecards.accepted,
+    scorecards.accepted,
+    scorecards.accepted,
+    scorecards.accepted,
+  ]),
+};

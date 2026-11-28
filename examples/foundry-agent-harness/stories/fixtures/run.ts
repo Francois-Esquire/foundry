@@ -6,23 +6,29 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function asked(thread: Thread, goal: string): Thread {
+function asked(thread: Thread, goal: string, round: number): Thread {
   const now = Date.now();
   return {
     ...thread,
-    messages: thread.messages.map((message) => ({
-      ...message,
-      text: message.kind === "goal" ? goal : message.text,
-      tools: message.tools.map((tool) => ({ ...tool, startedAt: now })),
+    encounters: thread.encounters.map((encounter) => ({
+      ...encounter,
+      goal,
+      id: `${encounter.id}-${round}`,
+      steps: encounter.steps.map((step) => ({
+        ...step,
+        tools: step.tools.map((tool) => ({ ...tool, startedAt: now })),
+      })),
     })),
-    title: thread.title === "New thread" ? thread.title : goal,
   };
 }
 
 export function replay(steps: readonly Thread[]): Run {
+  let rounds = 0;
   return async (goal, show) => {
+    rounds += 1;
+    const round = rounds;
     for (const step of steps) {
-      show(asked(step, goal));
+      show(asked(step, goal, round));
       await wait(STEP_MS);
     }
   };

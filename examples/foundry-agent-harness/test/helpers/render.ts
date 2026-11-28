@@ -37,7 +37,7 @@ export async function unmount() {
 export async function press(
   ui: Rendered,
   key: string,
-  modifiers?: { shift?: boolean }
+  modifiers?: { ctrl?: boolean; shift?: boolean }
 ) {
   await act(async () => {
     ui.mockInput.pressKey(key, modifiers);

@@ -1,6 +1,6 @@
 import { act, useEffect, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import type { Message } from "../src/model/thread";
+import { encounter, step } from "./helpers/encounters";
 import { mount, unmount } from "./helpers/render";
 
 const drawn: string[] = [];
@@ -14,14 +14,16 @@ vi.mock("@/components/blocks/reply", () => ({
 
 const { Conversation } = await import("../src/components/blocks/conversation");
 
-function reply(text: string, streaming: boolean): Message {
-  return { kind: "task", streaming, text, title: text, tools: [] };
-}
-
-const messages = [
-  reply("first", false),
-  reply("second", false),
-  reply("third", true),
+const encounters = [
+  encounter({
+    error: "stopped",
+    goal: "asked",
+    steps: [
+      step({ text: "first", title: "first" }),
+      step({ text: "second", title: "second" }),
+      step({ streaming: true, text: "third", title: "third" }),
+    ],
+  }),
 ];
 
 let tick: ((frame: number) => void) | undefined;
@@ -34,7 +36,7 @@ function Ticking() {
     };
   }, []);
   return (
-    <Conversation clock={{ frame, now: frame * 80 }} messages={messages} />
+    <Conversation clock={{ frame, now: frame * 80 }} encounters={encounters} />
   );
 }
 
@@ -42,7 +44,7 @@ afterEach(unmount);
 
 test("a clock tick redraws the streaming reply and leaves finished ones alone", async () => {
   await mount(<Ticking />);
-  expect(drawn).toEqual(["first", "second", "third"]);
+  expect(drawn).toEqual(["asked", "first", "second", "third", "stopped"]);
   drawn.length = 0;
 
   for (const frame of [1, 2, 3]) {
