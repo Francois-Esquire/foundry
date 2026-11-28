@@ -120,7 +120,10 @@ function content(owner: ArtifactId, blobs: readonly BlobId[] = []): Content {
 }
 
 function sharedBlob(): Blob & { readonly bytes: Uint8Array } {
-  const bytes = new Uint8Array(new SharedArrayBuffer(2));
+  const bytes =
+    typeof SharedArrayBuffer === "undefined"
+      ? new Uint8Array(2)
+      : new Uint8Array(new SharedArrayBuffer(2));
   bytes.set([1, 2]);
   return { byteLength: 2, bytes, createdAt: AT, digest: DIGEST, id: blobId() };
 }
@@ -208,7 +211,10 @@ export type ArtifactStoreMode =
 
 export interface ArtifactStoreCapabilities {
   readonly exactTotal?: boolean;
+  readonly largeWrites?: boolean;
   readonly loneSurrogates?: boolean;
+  readonly reentrancyGuard?: boolean;
+  readonly transactions?: boolean;
 }
 
 export function describeArtifactStore(
@@ -218,7 +224,10 @@ export function describeArtifactStore(
   capabilities: ArtifactStoreCapabilities = {}
 ): void {
   const exactTotal = capabilities.exactTotal ?? true;
+  const largeWrites = capabilities.largeWrites ?? true;
   const loneSurrogates = capabilities.loneSurrogates ?? true;
+  const transactions = capabilities.transactions ?? true;
+  const reentrancyGuard = capabilities.reentrancyGuard ?? transactions;
   const expectListing = (
     listing: ArtifactListing,
     expectedArtifacts: readonly Artifact[],
@@ -559,28 +568,31 @@ export function describeArtifactStore(
       expect(await everyArtifact(store)).toEqual([]);
     });
 
-    it("refuses such a write through a transaction's view, and the transaction goes on", async () => {
-      const store = await fresh();
-      const refused = artifact();
-      const kept = artifact();
-      await requireTransaction(store)(async (view) => {
-        for (const value of unplainEvents()) {
-          await expect(
-            view.commit({
-              events: [value as ArtifactEvent],
-              putArtifacts: [refused],
-            })
-          ).rejects.toThrow(TypeError);
-        }
-        await view.commit({
-          events: [event({ artifactId: kept.id, type: "artifact.created" })],
-          putArtifacts: [kept],
+    it.runIf(transactions)(
+      "refuses such a write through a transaction's view, and the transaction goes on",
+      async () => {
+        const store = await fresh();
+        const refused = artifact();
+        const kept = artifact();
+        await requireTransaction(store)(async (view) => {
+          for (const value of unplainEvents()) {
+            await expect(
+              view.commit({
+                events: [value as ArtifactEvent],
+                putArtifacts: [refused],
+              })
+            ).rejects.toThrow(TypeError);
+          }
+          await view.commit({
+            events: [event({ artifactId: kept.id, type: "artifact.created" })],
+            putArtifacts: [kept],
+          });
         });
-      });
 
-      expect(await store.getArtifact(refused.id)).toBeNull();
-      expect(await store.getArtifact(kept.id)).toEqual(kept);
-    });
+        expect(await store.getArtifact(refused.id)).toBeNull();
+        expect(await store.getArtifact(kept.id)).toEqual(kept);
+      }
+    );
 
     it("keeps nothing from a commit that fails", async () => {
       const store = await fresh();
@@ -614,50 +626,56 @@ export function describeArtifactStore(
       expect(await store.getArtifact(after.id)).toEqual(after);
     });
 
-    it("lands a commit made after a transaction whose work throws, and keeps nothing of it", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const doomed = artifact();
-      await expect(
-        transaction(async (view) => {
-          await view.commit({ putArtifacts: [doomed] });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-      const after = artifact();
-      expect(
-        await settlesWithin(store.commit({ putArtifacts: [after] }), 2000)
-      ).toBe("resolved");
-      expect(await store.getArtifact(doomed.id)).toBeNull();
-      expect(await store.getArtifact(after.id)).toEqual(after);
-    });
+    it.runIf(transactions)(
+      "lands a commit made after a transaction whose work throws, and keeps nothing of it",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const doomed = artifact();
+        await expect(
+          transaction(async (view) => {
+            await view.commit({ putArtifacts: [doomed] });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
+        const after = artifact();
+        expect(
+          await settlesWithin(store.commit({ putArtifacts: [after] }), 2000)
+        ).toBe("resolved");
+        expect(await store.getArtifact(doomed.id)).toBeNull();
+        expect(await store.getArtifact(after.id)).toEqual(after);
+      }
+    );
 
-    it("lands a commit queued behind a transaction that fails, and one queued behind a failing commit", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const entered = Promise.withResolvers<undefined>();
-      const release = Promise.withResolvers<undefined>();
-      const failing = transaction(async () => {
-        entered.resolve(undefined);
-        await release.promise;
-        throw new Error("work failed");
-      });
-      await entered.promise;
-      const queued = artifact();
-      const waiting = store.commit({ putArtifacts: [queued] });
-      const refused = store.commit({
-        putArtifacts: [artifact({ createdAt: new Date(Number.NaN) })],
-      });
-      const last = artifact();
-      const behind = store.commit({ putArtifacts: [last] });
-      release.resolve(undefined);
-      await expect(failing).rejects.toThrow("work failed");
-      await refused.catch(() => undefined);
-      expect(await settlesWithin(waiting, 2000)).toBe("resolved");
-      expect(await settlesWithin(behind, 2000)).toBe("resolved");
-      expect(await store.getArtifact(queued.id)).toEqual(queued);
-      expect(await store.getArtifact(last.id)).toEqual(last);
-    });
+    it.runIf(transactions)(
+      "lands a commit queued behind a transaction that fails, and one queued behind a failing commit",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const failing = transaction(async () => {
+          entered.resolve(undefined);
+          await release.promise;
+          throw new Error("work failed");
+        });
+        await entered.promise;
+        const queued = artifact();
+        const waiting = store.commit({ putArtifacts: [queued] });
+        const refused = store.commit({
+          putArtifacts: [artifact({ createdAt: new Date(Number.NaN) })],
+        });
+        const last = artifact();
+        const behind = store.commit({ putArtifacts: [last] });
+        release.resolve(undefined);
+        await expect(failing).rejects.toThrow("work failed");
+        await refused.catch(() => undefined);
+        expect(await settlesWithin(waiting, 2000)).toBe("resolved");
+        expect(await settlesWithin(behind, 2000)).toBe("resolved");
+        expect(await store.getArtifact(queued.id)).toEqual(queued);
+        expect(await store.getArtifact(last.id)).toEqual(last);
+      }
+    );
 
     it("detaches what it stores from what it returns", async () => {
       const store = await fresh();
@@ -1095,132 +1113,146 @@ export function describeArtifactStore(
       expect(Object.getPrototypeOf(owned)).toBe(Object.prototype);
     });
 
-    it("commits a tree naming thousands of blobs, and deletes tens of thousands of ids, in one write", async () => {
-      const store = await fresh();
-      const owner = artifact();
-      const files = 11_000;
-      const named = Array.from({ length: files }, () => blobId());
-      const version = content(owner.id, named);
-      await store.commit({ putArtifacts: [owner], putContents: [version] });
-      expect(await store.getContent(version.id)).toEqual(version);
-      expect(await store.findReferences(named[files - 1] as BlobId)).toEqual({
-        blobIds: [],
-        contentIds: [version.id],
-      });
-
-      const absent = 33_000;
-      await store.commit({
-        deleteArtifacts: Array.from({ length: absent }, () => artifactId()),
-        deleteBlobs: Array.from({ length: absent }, () => blobId()),
-        deleteContents: [
-          ...Array.from({ length: absent }, () => contentId()),
-          version.id,
-        ],
-      });
-      expect(await store.getContent(version.id)).toBeNull();
-      expect(await store.findReferences(named[0] as BlobId)).toEqual({
-        blobIds: [],
-        contentIds: [],
-      });
-      expect(await everyArtifact(store)).toEqual([owner]);
-    }, 30_000);
-
-    it("commits and deletes thousands of records in one write", async () => {
-      const store = await fresh();
-      const count = 5000;
-      const owners = Array.from({ length: count }, () => artifact());
-      const blobs = owners.map(() => inlineBlob());
-      const versions = owners.map((owner, index) =>
-        content(owner.id, [blobs[index]?.id as BlobId, blobs[0]?.id as BlobId])
-      );
-      await store.commit({
-        putArtifacts: owners,
-        putBlobs: blobs,
-        putContents: versions,
-      });
-      const sample = await store.listArtifacts({ limit: 10 });
-      expect(sample.artifacts).toHaveLength(10);
-      if (exactTotal) {
-        expect(sample.total).toBe(count);
-      }
-      expect(await store.listContents()).toHaveLength(count);
-      expect(await store.listBlobs()).toHaveLength(count);
-      expect(
-        (await store.findReferences(blobs[0]?.id as BlobId)).contentIds
-      ).toHaveLength(count);
-
-      await store.commit({
-        deleteArtifacts: owners.map((row) => row.id),
-        deleteBlobs: blobs.map((row) => row.id),
-        deleteContents: versions.map((row) => row.id),
-      });
-      expect(await everyArtifact(store)).toEqual([]);
-      expect(await store.listContents()).toEqual([]);
-      expect(await store.listBlobs()).toEqual([]);
-      expect(await store.findReferences(blobs[0]?.id as BlobId)).toEqual({
-        blobIds: [],
-        contentIds: [],
-      });
-    }, 30_000);
-
-    it("takes a write as it stands when commit is called, whatever the caller changes after", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const owner = artifact({ metadata: { list: ["kept"] } });
-      const [leaf, other] = [inlineBlob(), inlineBlob()];
-      const version = content(owner.id, [leaf.id]);
-      const manifest: Blob = {
-        byteLength: 1,
-        chunks: [leaf.id],
-        createdAt: AT,
-        digest: OTHER_DIGEST,
-        id: blobId(),
-      };
-      const expected = structuredClone({ manifest, owner, version });
-      const check = async (target: ArtifactStore) => {
-        expect(await target.getArtifact(owner.id)).toEqual(expected.owner);
-        expect(await target.getContent(version.id)).toEqual(expected.version);
-        expect(await target.getBlob(manifest.id)).toEqual(expected.manifest);
-        expect(await target.findReferences(leaf.id)).toEqual({
-          blobIds: [manifest.id],
+    it.runIf(largeWrites)(
+      "commits a tree naming thousands of blobs, and deletes tens of thousands of ids, in one write",
+      async () => {
+        const store = await fresh();
+        const owner = artifact();
+        const files = 11_000;
+        const named = Array.from({ length: files }, () => blobId());
+        const version = content(owner.id, named);
+        await store.commit({ putArtifacts: [owner], putContents: [version] });
+        expect(await store.getContent(version.id)).toEqual(version);
+        expect(await store.findReferences(named[files - 1] as BlobId)).toEqual({
+          blobIds: [],
           contentIds: [version.id],
         });
-        expect(await target.findReferences(other.id)).toEqual({
+
+        const absent = 33_000;
+        await store.commit({
+          deleteArtifacts: Array.from({ length: absent }, () => artifactId()),
+          deleteBlobs: Array.from({ length: absent }, () => blobId()),
+          deleteContents: [
+            ...Array.from({ length: absent }, () => contentId()),
+            version.id,
+          ],
+        });
+        expect(await store.getContent(version.id)).toBeNull();
+        expect(await store.findReferences(named[0] as BlobId)).toEqual({
           blobIds: [],
           contentIds: [],
         });
-        expect(await everyArtifact(target)).toHaveLength(1);
-      };
-      const writeOf = () => ({
-        putArtifacts: [structuredClone(owner)],
-        putBlobs: [leaf, other, structuredClone(manifest)],
-        putContents: [structuredClone(version)],
-      });
+        expect(await everyArtifact(store)).toEqual([owner]);
+      },
+      30_000
+    );
 
-      const held = Promise.withResolvers<void>();
-      const entered = Promise.withResolvers<void>();
-      const running = transaction(async () => {
-        entered.resolve();
-        await held.promise;
-      });
-      await entered.promise;
-      const queued = writeOf();
-      const landing = store.commit(queued);
-      scramble(queued, other.id);
-      held.resolve();
-      await Promise.all([running, landing]);
-      await check(store);
+    it.runIf(largeWrites)(
+      "commits and deletes thousands of records in one write",
+      async () => {
+        const store = await fresh();
+        const count = 5000;
+        const owners = Array.from({ length: count }, () => artifact());
+        const blobs = owners.map(() => inlineBlob());
+        const versions = owners.map((owner, index) =>
+          content(owner.id, [
+            blobs[index]?.id as BlobId,
+            blobs[0]?.id as BlobId,
+          ])
+        );
+        await store.commit({
+          putArtifacts: owners,
+          putBlobs: blobs,
+          putContents: versions,
+        });
+        const sample = await store.listArtifacts({ limit: 10 });
+        expect(sample.artifacts).toHaveLength(10);
+        if (exactTotal) {
+          expect(sample.total).toBe(count);
+        }
+        expect(await store.listContents()).toHaveLength(count);
+        expect(await store.listBlobs()).toHaveLength(count);
+        expect(
+          (await store.findReferences(blobs[0]?.id as BlobId)).contentIds
+        ).toHaveLength(count);
 
-      const second = await fresh();
-      await requireTransaction(second)(async (view) => {
-        const through = writeOf();
-        const committed = view.commit(through);
-        scramble(through, other.id);
-        await committed;
-        await check(view);
-      });
-      await check(second);
-    });
+        await store.commit({
+          deleteArtifacts: owners.map((row) => row.id),
+          deleteBlobs: blobs.map((row) => row.id),
+          deleteContents: versions.map((row) => row.id),
+        });
+        expect(await everyArtifact(store)).toEqual([]);
+        expect(await store.listContents()).toEqual([]);
+        expect(await store.listBlobs()).toEqual([]);
+        expect(await store.findReferences(blobs[0]?.id as BlobId)).toEqual({
+          blobIds: [],
+          contentIds: [],
+        });
+      },
+      30_000
+    );
+
+    it.runIf(transactions)(
+      "takes a write as it stands when commit is called, whatever the caller changes after",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const owner = artifact({ metadata: { list: ["kept"] } });
+        const [leaf, other] = [inlineBlob(), inlineBlob()];
+        const version = content(owner.id, [leaf.id]);
+        const manifest: Blob = {
+          byteLength: 1,
+          chunks: [leaf.id],
+          createdAt: AT,
+          digest: OTHER_DIGEST,
+          id: blobId(),
+        };
+        const expected = structuredClone({ manifest, owner, version });
+        const check = async (target: ArtifactStore) => {
+          expect(await target.getArtifact(owner.id)).toEqual(expected.owner);
+          expect(await target.getContent(version.id)).toEqual(expected.version);
+          expect(await target.getBlob(manifest.id)).toEqual(expected.manifest);
+          expect(await target.findReferences(leaf.id)).toEqual({
+            blobIds: [manifest.id],
+            contentIds: [version.id],
+          });
+          expect(await target.findReferences(other.id)).toEqual({
+            blobIds: [],
+            contentIds: [],
+          });
+          expect(await everyArtifact(target)).toHaveLength(1);
+        };
+        const writeOf = () => ({
+          putArtifacts: [structuredClone(owner)],
+          putBlobs: [leaf, other, structuredClone(manifest)],
+          putContents: [structuredClone(version)],
+        });
+
+        const held = Promise.withResolvers<void>();
+        const entered = Promise.withResolvers<void>();
+        const running = transaction(async () => {
+          entered.resolve();
+          await held.promise;
+        });
+        await entered.promise;
+        const queued = writeOf();
+        const landing = store.commit(queued);
+        scramble(queued, other.id);
+        held.resolve();
+        await Promise.all([running, landing]);
+        await check(store);
+
+        const second = await fresh();
+        await requireTransaction(second)(async (view) => {
+          const through = writeOf();
+          const committed = view.commit(through);
+          scramble(through, other.id);
+          await committed;
+          await check(view);
+        });
+        await check(second);
+      }
+    );
 
     it("keeps a value as structuredClone takes it: no caller's toJSON runs, a getter's value stays", async () => {
       const store = await fresh();
@@ -1254,14 +1286,17 @@ export function describeArtifactStore(
       expect(reads).toBe(1);
     });
 
-    it("commits for good itself, and says its transaction's view does not", async () => {
-      const store = await fresh();
-      expect(store.durability ?? "commit").toBe("commit");
-      const durability = await requireTransaction(store)((view) =>
-        Promise.resolve(view.durability)
-      );
-      expect(durability).toBe("host");
-    });
+    it.runIf(transactions)(
+      "commits for good itself, and says its transaction's view does not",
+      async () => {
+        const store = await fresh();
+        expect(store.durability ?? "commit").toBe("commit");
+        const durability = await requireTransaction(store)((view) =>
+          Promise.resolve(view.durability)
+        );
+        expect(durability).toBe("host");
+      }
+    );
 
     it("refuses a listing limit that is not a positive safe integer", async () => {
       const store = await fresh();
@@ -1277,9 +1312,11 @@ export function describeArtifactStore(
         await expect(store.listArtifacts({ limit })).rejects.toThrow(
           "limit must be a positive safe integer"
         );
-        await expect(
-          requireTransaction(store)((view) => view.listArtifacts({ limit }))
-        ).rejects.toThrow("limit must be a positive safe integer");
+        if (transactions) {
+          await expect(
+            requireTransaction(store)((view) => view.listArtifacts({ limit }))
+          ).rejects.toThrow("limit must be a positive safe integer");
+        }
       }
       const full = await store.listArtifacts({
         limit: Number.MAX_SAFE_INTEGER,
@@ -1290,32 +1327,35 @@ export function describeArtifactStore(
       }
     });
 
-    it("lists by the query as it stands when called, whatever the caller changes after", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
-      const rows = [1, 2, 3].map((seconds) =>
-        artifact({ createdAt: at(seconds), name: `Note ${String(seconds)}` })
-      );
-      await store.commit({ putArtifacts: rows });
-      const [first, second] = rows;
-      const held = Promise.withResolvers<void>();
-      const entered = Promise.withResolvers<void>();
-      const running = transaction(async () => {
-        entered.resolve();
-        await held.promise;
-      });
-      await entered.promise;
-      const after = { createdAt: at(1), id: first?.id as ArtifactId };
-      const query = { after, limit: 1, text: "note", type: "text/plain" };
-      const listing = store.listArtifacts(query);
-      Object.assign(query, { limit: 10, text: "other", type: "image/png" });
-      after.createdAt.setTime(0);
-      held.resolve();
-      await running;
+    it.runIf(transactions)(
+      "lists by the query as it stands when called, whatever the caller changes after",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const at = (seconds: number) => new Date(AT.getTime() + seconds * 1000);
+        const rows = [1, 2, 3].map((seconds) =>
+          artifact({ createdAt: at(seconds), name: `Note ${String(seconds)}` })
+        );
+        await store.commit({ putArtifacts: rows });
+        const [first, second] = rows;
+        const held = Promise.withResolvers<void>();
+        const entered = Promise.withResolvers<void>();
+        const running = transaction(async () => {
+          entered.resolve();
+          await held.promise;
+        });
+        await entered.promise;
+        const after = { createdAt: at(1), id: first?.id as ArtifactId };
+        const query = { after, limit: 1, text: "note", type: "text/plain" };
+        const listing = store.listArtifacts(query);
+        Object.assign(query, { limit: 10, text: "other", type: "image/png" });
+        after.createdAt.setTime(0);
+        held.resolve();
+        await running;
 
-      expectListing(await listing, [second as Artifact], 3);
-    });
+        expectListing(await listing, [second as Artifact], 3);
+      }
+    );
 
     it("keeps a blob's bytes as they were at the call, even over shared memory", async () => {
       const store = await fresh();
@@ -1325,19 +1365,25 @@ export function describeArtifactStore(
       await landing;
 
       const inner = sharedBlob();
-      await requireTransaction(store)(async (view) => {
-        const committed = view.commit({ putBlobs: [inner] });
-        inner.bytes[0] = 9;
-        await committed;
-        expect((await view.getBlob(inner.id))?.bytes).toEqual(
-          new Uint8Array([1, 2])
-        );
-      });
+      const idsToCheck: BlobId[] = [outer.id];
+      if (transactions) {
+        await requireTransaction(store)(async (view) => {
+          const committed = view.commit({ putBlobs: [inner] });
+          inner.bytes[0] = 9;
+          await committed;
+          expect((await view.getBlob(inner.id))?.bytes).toEqual(
+            new Uint8Array([1, 2])
+          );
+        });
+        idsToCheck.push(inner.id);
+      }
 
-      for (const id of [outer.id, inner.id]) {
+      for (const id of idsToCheck) {
         const stored = await store.getBlob(id);
         expect(stored?.bytes).toEqual(new Uint8Array([1, 2]));
-        expect(stored?.bytes?.buffer).not.toBeInstanceOf(SharedArrayBuffer);
+        if (typeof SharedArrayBuffer !== "undefined") {
+          expect(stored?.bytes?.buffer).not.toBeInstanceOf(SharedArrayBuffer);
+        }
       }
     });
 
@@ -1349,45 +1395,50 @@ export function describeArtifactStore(
       const [found] = await store.findBlobs(blob.digest);
       found?.bytes?.fill(7);
       (await store.getBlob(blob.id))?.bytes?.fill(8);
-      await requireTransaction(store)(async (view) => {
-        (await view.getBlob(blob.id))?.bytes?.fill(6);
-      });
+      if (transactions) {
+        await requireTransaction(store)(async (view) => {
+          (await view.getBlob(blob.id))?.bytes?.fill(6);
+        });
+      }
       expect((await store.getBlob(blob.id))?.bytes).toEqual(
         new Uint8Array([1, 2])
       );
     });
 
-    it("queues a plain commit behind a running transaction", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      let release!: () => void;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      let entered!: () => void;
-      const inside = new Promise<void>((resolve) => {
-        entered = resolve;
-      });
-      const order: string[] = [];
-      const running = transaction(async (view) => {
-        entered();
-        await held;
-        expect(await everyArtifact(view)).toEqual([]);
-        order.push("transaction ends");
-      });
-      await inside;
-      const outside = store
-        .commit({ putArtifacts: [artifact({ name: "Outside" })] })
-        .then(() => order.push("outside lands"));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(order).toEqual([]);
-      release();
-      await Promise.all([running, outside]);
-      expect(order).toEqual(["transaction ends", "outside lands"]);
-      expect(await everyArtifact(store)).toHaveLength(1);
-    });
+    it.runIf(transactions)(
+      "queues a plain commit behind a running transaction",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let entered!: () => void;
+        const inside = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const order: string[] = [];
+        const running = transaction(async (view) => {
+          entered();
+          await held;
+          expect(await everyArtifact(view)).toEqual([]);
+          order.push("transaction ends");
+        });
+        await inside;
+        const outside = store
+          .commit({ putArtifacts: [artifact({ name: "Outside" })] })
+          .then(() => order.push("outside lands"));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(order).toEqual([]);
+        release();
+        await Promise.all([running, outside]);
+        expect(order).toEqual(["transaction ends", "outside lands"]);
+        expect(await everyArtifact(store)).toHaveLength(1);
+      }
+    );
 
-    it("runs transactions one at a time", async () => {
+    it.runIf(transactions)("runs transactions one at a time", async () => {
       const store = await fresh();
       const transaction = requireTransaction(store);
       const order: string[] = [];
@@ -1415,127 +1466,145 @@ export function describeArtifactStore(
       expect(await everyArtifact(store)).toHaveLength(2);
     });
 
-    it("reads a transaction's own commits through its view", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const record = artifact();
-      const blob = inlineBlob();
-      await transaction(async (view) => {
-        await view.commit({ putArtifacts: [record], putBlobs: [blob] });
-        expect(await view.getArtifact(record.id)).toEqual(record);
-        expect(await everyArtifact(view)).toEqual([record]);
-        expect(await view.findBlobs(DIGEST)).toEqual([blob]);
-        await view.commit({ deleteBlobs: [blob.id] });
-        expect(await view.getBlob(blob.id)).toBeNull();
-      });
-      expect(await store.getArtifact(record.id)).toEqual(record);
-      expect(await store.getBlob(blob.id)).toBeNull();
-    });
+    it.runIf(transactions)(
+      "reads a transaction's own commits through its view",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const record = artifact();
+        const blob = inlineBlob();
+        await transaction(async (view) => {
+          await view.commit({ putArtifacts: [record], putBlobs: [blob] });
+          expect(await view.getArtifact(record.id)).toEqual(record);
+          expect(await everyArtifact(view)).toEqual([record]);
+          expect(await view.findBlobs(DIGEST)).toEqual([blob]);
+          await view.commit({ deleteBlobs: [blob.id] });
+          expect(await view.getBlob(blob.id)).toBeNull();
+        });
+        expect(await store.getArtifact(record.id)).toEqual(record);
+        expect(await store.getBlob(blob.id)).toBeNull();
+      }
+    );
 
-    it("keeps every commit made concurrently through one view", async () => {
-      const storage = await open();
-      const store = storage("conformance");
-      const transaction = requireTransaction(store);
-      const first = artifact({ name: "First" });
-      const second = artifact({ name: "Second" });
-      const named = (rows: readonly Artifact[]) =>
-        rows.map((row) => row.name).sort();
-      await transaction(async (view) => {
-        await Promise.all([
-          view.commit({ putArtifacts: [first] }),
-          view.commit({ putArtifacts: [second] }),
+    it.runIf(transactions)(
+      "keeps every commit made concurrently through one view",
+      async () => {
+        const storage = await open();
+        const store = storage("conformance");
+        const transaction = requireTransaction(store);
+        const first = artifact({ name: "First" });
+        const second = artifact({ name: "Second" });
+        const named = (rows: readonly Artifact[]) =>
+          rows.map((row) => row.name).sort();
+        await transaction(async (view) => {
+          await Promise.all([
+            view.commit({ putArtifacts: [first] }),
+            view.commit({ putArtifacts: [second] }),
+          ]);
+          expect(named(await everyArtifact(view))).toEqual(["First", "Second"]);
+        });
+        expect(named(await everyArtifact(store))).toEqual(["First", "Second"]);
+        expect(named(await everyArtifact(storage("conformance")))).toEqual([
+          "First",
+          "Second",
         ]);
-        expect(named(await everyArtifact(view))).toEqual(["First", "Second"]);
-      });
-      expect(named(await everyArtifact(store))).toEqual(["First", "Second"]);
-      expect(named(await everyArtifact(storage("conformance")))).toEqual([
-        "First",
-        "Second",
-      ]);
-    });
+      }
+    );
 
-    it("refuses a call to the outer store from inside its own transaction, at once", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const inner = artifact({ name: "Inner" });
-      const calls: Record<string, () => Promise<unknown>> = {
-        commit: () => store.commit({ putArtifacts: [artifact()] }),
-        transaction: () => transaction(() => Promise.resolve()),
-      };
-      const ended = Promise.withResolvers<void>();
-      let later: Promise<unknown> = Promise.resolve();
+    it.runIf(transactions && reentrancyGuard)(
+      "refuses a call to the outer store from inside its own transaction, at once",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const inner = artifact({ name: "Inner" });
+        const calls: Record<string, () => Promise<unknown>> = {
+          commit: () => store.commit({ putArtifacts: [artifact()] }),
+          transaction: () => transaction(() => Promise.resolve()),
+        };
+        const ended = Promise.withResolvers<void>();
+        let later: Promise<unknown> = Promise.resolve();
 
-      const refusals = await transaction(async (view) => {
-        const outcomes: Record<string, string> = {};
-        for (const [method, call] of Object.entries(calls)) {
-          outcomes[method] = await settlesWithin(call(), 1000);
-        }
-        later = ended.promise.then(() =>
-          store.commit({ putArtifacts: [artifact({ name: "Later" })] })
-        );
-        await view.commit({ putArtifacts: [inner] });
-        return outcomes;
-      });
-      ended.resolve();
+        const refusals = await transaction(async (view) => {
+          const outcomes: Record<string, string> = {};
+          for (const [method, call] of Object.entries(calls)) {
+            outcomes[method] = await settlesWithin(call(), 1000);
+          }
+          later = ended.promise.then(() =>
+            store.commit({ putArtifacts: [artifact({ name: "Later" })] })
+          );
+          await view.commit({ putArtifacts: [inner] });
+          return outcomes;
+        });
+        ended.resolve();
 
-      expect(refusals).toEqual({
-        commit: expect.stringMatching(REFUSAL),
-        transaction: expect.stringMatching(REFUSAL),
-      });
-      await later;
-      await store.commit({ putArtifacts: [artifact({ name: "After" })] });
-      expect(
-        (await everyArtifact(store)).map((row) => row.name).sort()
-      ).toEqual(["After", "Inner", "Later"]);
-    });
+        expect(refusals).toEqual({
+          commit: expect.stringMatching(REFUSAL),
+          transaction: expect.stringMatching(REFUSAL),
+        });
+        await later;
+        await store.commit({ putArtifacts: [artifact({ name: "After" })] });
+        expect(
+          (await everyArtifact(store)).map((row) => row.name).sort()
+        ).toEqual(["After", "Inner", "Later"]);
+      }
+    );
 
-    it("queues an independent caller behind a transaction it runs alongside", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const read = Promise.withResolvers<void>();
-      const proceed = Promise.withResolvers<void>();
-      const running = transaction(async (view) => {
-        const before = await everyArtifact(view);
-        read.resolve();
-        await proceed.promise;
-        return { after: await everyArtifact(view), before };
-      });
-      await read.promise;
-      const outside = store.commit({ putArtifacts: [artifact()] });
-      const nested = transaction(() => Promise.resolve("queued"));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      proceed.resolve();
-      expect(await running).toEqual({ after: [], before: [] });
-      await outside;
-      expect(await nested).toBe("queued");
-      expect(await everyArtifact(store)).toHaveLength(1);
-    });
+    it.runIf(transactions)(
+      "queues an independent caller behind a transaction it runs alongside",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const read = Promise.withResolvers<void>();
+        const proceed = Promise.withResolvers<void>();
+        const running = transaction(async (view) => {
+          const before = await everyArtifact(view);
+          read.resolve();
+          await proceed.promise;
+          return { after: await everyArtifact(view), before };
+        });
+        await read.promise;
+        const outside = store.commit({ putArtifacts: [artifact()] });
+        const nested = transaction(() => Promise.resolve("queued"));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        proceed.resolve();
+        expect(await running).toEqual({ after: [], before: [] });
+        await outside;
+        expect(await nested).toBe("queued");
+        expect(await everyArtifact(store)).toHaveLength(1);
+      }
+    );
 
-    it("rejects a view used after its transaction settled", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const kept = await transaction((view) => Promise.resolve(view));
-      await expect(kept.listBlobs()).rejects.toThrow("settled");
-      await expect(kept.commit({ putArtifacts: [artifact()] })).rejects.toThrow(
-        "settled"
-      );
-      expect(await everyArtifact(store)).toEqual([]);
-    });
+    it.runIf(transactions)(
+      "rejects a view used after its transaction settled",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const kept = await transaction((view) => Promise.resolve(view));
+        await expect(kept.listBlobs()).rejects.toThrow("settled");
+        await expect(
+          kept.commit({ putArtifacts: [artifact()] })
+        ).rejects.toThrow("settled");
+        expect(await everyArtifact(store)).toEqual([]);
+      }
+    );
 
-    it("keeps none of a transaction's commits when its work throws", async () => {
-      const store = await fresh();
-      const transaction = requireTransaction(store);
-      const before = artifact();
-      await store.commit({ putArtifacts: [before] });
-      await expect(
-        transaction(async (view) => {
-          await view.commit({ putArtifacts: [artifact()] });
-          await view.commit({ deleteArtifacts: [before.id] });
-          throw new Error("abandoned");
-        })
-      ).rejects.toThrow("abandoned");
-      expect(await everyArtifact(store)).toEqual([before]);
-    });
+    it.runIf(transactions)(
+      "keeps none of a transaction's commits when its work throws",
+      async () => {
+        const store = await fresh();
+        const transaction = requireTransaction(store);
+        const before = artifact();
+        await store.commit({ putArtifacts: [before] });
+        await expect(
+          transaction(async (view) => {
+            await view.commit({ putArtifacts: [artifact()] });
+            await view.commit({ deleteArtifacts: [before.id] });
+            throw new Error("abandoned");
+          })
+        ).rejects.toThrow("abandoned");
+        expect(await everyArtifact(store)).toEqual([before]);
+      }
+    );
   });
 }
 

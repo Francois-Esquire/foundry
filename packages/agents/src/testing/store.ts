@@ -23,11 +23,22 @@ export type SessionStoreMode =
       readonly recording: () => Promise<RecordingSessionStorage>;
     };
 
+export interface SessionStoreCapabilities {
+  readonly blockingTransactions?: boolean;
+  readonly reentrancyGuard?: boolean;
+  readonly transactions?: boolean;
+}
+
 export function describeSessionStore(
   name: string,
   open: () => SessionStorage | Promise<SessionStorage>,
-  mode: SessionStoreMode
+  mode: SessionStoreMode,
+  capabilities: SessionStoreCapabilities = {}
 ): void {
+  const transactions = capabilities.transactions ?? true;
+  const reentrancyGuard = capabilities.reentrancyGuard ?? transactions;
+  const blockingTransactions =
+    capabilities.blockingTransactions ?? transactions;
   const fresh = async (): Promise<SessionStore> => (await open())("scope");
 
   describe(`${name} (SessionStore events)`, () => {
@@ -755,120 +766,134 @@ export function describeSessionStore(
       await expect(ids(store, "s")).resolves.toEqual(["m2"]);
     });
 
-    it("refuses at once a call to the store from inside its own transaction", async (context) => {
-      const store = await fresh();
-      const { transaction } = store;
-      if (transaction === undefined) {
-        context.skip();
-        return;
-      }
-      await store.commit({ putSessions: [session("s")] });
-      const calls: Record<string, () => Promise<unknown>> = {
-        commit: () => store.commit({ putSessions: [session("x")] }),
-        getMessage: () => store.getMessage("m"),
-        getSession: () => store.getSession("s"),
-        listMessages: () => store.listMessages("s"),
-        transaction: () =>
-          transaction.call(store, () => Promise.resolve(undefined)),
-      };
-      const ended = Promise.withResolvers<void>();
-      let later: Promise<unknown> = Promise.resolve();
-
-      const outcomes = await store.transaction?.(async (view) => {
-        const settled: Record<string, string> = {};
-        for (const [method, call] of Object.entries(calls)) {
-          settled[method] = await settlesWithin(call(), 1000);
+    it.runIf(transactions && reentrancyGuard)(
+      "refuses at once a call to the store from inside its own transaction",
+      async (context) => {
+        const store = await fresh();
+        const { transaction } = store;
+        if (transaction === undefined) {
+          context.skip();
+          return;
         }
-        later = ended.promise.then(() =>
-          store.commit({ putSessions: [session("later")] })
-        );
-        await view.commit({ putSessions: [session("inside")] });
-        return settled;
-      });
-      ended.resolve();
+        await store.commit({ putSessions: [session("s")] });
+        const calls: Record<string, () => Promise<unknown>> = {
+          commit: () => store.commit({ putSessions: [session("x")] }),
+          getMessage: () => store.getMessage("m"),
+          getSession: () => store.getSession("s"),
+          listMessages: () => store.listMessages("s"),
+          transaction: () =>
+            transaction.call(store, () => Promise.resolve(undefined)),
+        };
+        const ended = Promise.withResolvers<void>();
+        let later: Promise<unknown> = Promise.resolve();
 
-      expect(Object.keys(outcomes ?? {})).toEqual(Object.keys(calls));
-      for (const outcome of Object.values(outcomes ?? {})) {
-        expect(outcome).toMatch(REFUSAL);
-      }
-      await later;
-      await store.commit({ putSessions: [session("after")] });
-      for (const id of ["inside", "later", "after"]) {
-        await expect(store.getSession(id)).resolves.toStrictEqual(session(id));
-      }
-      await expect(store.getSession("x")).resolves.toBeNull();
-    });
-
-    it("lands an outside commit only after a running transaction ends", async (context) => {
-      const storage = await open();
-      const store = storage("a");
-      const outside = storage("a");
-      if (store.transaction === undefined) {
-        context.skip();
-        return;
-      }
-      await store.commit({ putSessions: [session("s", { title: "0" })] });
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      let landed = false;
-
-      const running = store.transaction(async (view) => {
-        entered.resolve();
-        await release.promise;
-        const seen = await view.getSession("s");
-        await view.commit({
-          putSessions: [session("s", { title: `${seen?.title}+tx` })],
+        const outcomes = await store.transaction?.(async (view) => {
+          const settled: Record<string, string> = {};
+          for (const [method, call] of Object.entries(calls)) {
+            settled[method] = await settlesWithin(call(), 1000);
+          }
+          later = ended.promise.then(() =>
+            store.commit({ putSessions: [session("later")] })
+          );
+          await view.commit({ putSessions: [session("inside")] });
+          return settled;
         });
-      });
-      await entered.promise;
-      const plain = outside
-        .commit({ putSessions: [session("s", { title: "outside" })] })
-        .then(() => {
-          landed = true;
-        });
-      await new Promise((resolve) => setTimeout(resolve, 20));
+        ended.resolve();
 
-      expect(landed).toBe(false);
-      release.resolve();
-      await Promise.all([running, plain]);
-      await expect(storage("a").getSession("s")).resolves.toMatchObject({
-        title: "outside",
-      });
-    });
-
-    it("lets no other transaction land between a transaction's reads and its commit", async (context) => {
-      const storage = await open();
-      const first = storage("a");
-      const second = storage("a");
-      if (first.transaction === undefined || second.transaction === undefined) {
-        context.skip();
-        return;
+        expect(Object.keys(outcomes ?? {})).toEqual(Object.keys(calls));
+        for (const outcome of Object.values(outcomes ?? {})) {
+          expect(outcome).toMatch(REFUSAL);
+        }
+        await later;
+        await store.commit({ putSessions: [session("after")] });
+        for (const id of ["inside", "later", "after"]) {
+          await expect(store.getSession(id)).resolves.toStrictEqual(
+            session(id)
+          );
+        }
+        await expect(store.getSession("x")).resolves.toBeNull();
       }
-      await first.commit({ putSessions: [session("s", { title: "0" })] });
-      const read = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
+    );
 
-      const writer = first.transaction(async (view) => {
-        await view.getSession("s");
-        read.resolve();
-        await release.promise;
-        await view.commit({ putSessions: [session("s", { title: "1" })] });
-      });
-      await read.promise;
-      const follower = second.transaction(async (view) => {
-        const seen = await view.getSession("s");
-        await view.commit({
-          putSessions: [session("s", { title: `${seen?.title}+` })],
+    it.runIf(transactions && blockingTransactions)(
+      "lands an outside commit only after a running transaction ends",
+      async (context) => {
+        const storage = await open();
+        const store = storage("a");
+        const outside = storage("a");
+        if (store.transaction === undefined) {
+          context.skip();
+          return;
+        }
+        await store.commit({ putSessions: [session("s", { title: "0" })] });
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        let landed = false;
+
+        const running = store.transaction(async (view) => {
+          entered.resolve();
+          await release.promise;
+          const seen = await view.getSession("s");
+          await view.commit({
+            putSessions: [session("s", { title: `${seen?.title}+tx` })],
+          });
         });
-      });
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      release.resolve();
-      await Promise.all([writer, follower]);
+        await entered.promise;
+        const plain = outside
+          .commit({ putSessions: [session("s", { title: "outside" })] })
+          .then(() => {
+            landed = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 20));
 
-      await expect(second.getSession("s")).resolves.toMatchObject({
-        title: "1+",
-      });
-    });
+        expect(landed).toBe(false);
+        release.resolve();
+        await Promise.all([running, plain]);
+        await expect(storage("a").getSession("s")).resolves.toMatchObject({
+          title: "outside",
+        });
+      }
+    );
+
+    it.runIf(transactions && blockingTransactions)(
+      "lets no other transaction land between a transaction's reads and its commit",
+      async (context) => {
+        const storage = await open();
+        const first = storage("a");
+        const second = storage("a");
+        if (
+          first.transaction === undefined ||
+          second.transaction === undefined
+        ) {
+          context.skip();
+          return;
+        }
+        await first.commit({ putSessions: [session("s", { title: "0" })] });
+        const read = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+
+        const writer = first.transaction(async (view) => {
+          await view.getSession("s");
+          read.resolve();
+          await release.promise;
+          await view.commit({ putSessions: [session("s", { title: "1" })] });
+        });
+        await read.promise;
+        const follower = second.transaction(async (view) => {
+          const seen = await view.getSession("s");
+          await view.commit({
+            putSessions: [session("s", { title: `${seen?.title}+` })],
+          });
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        release.resolve();
+        await Promise.all([writer, follower]);
+
+        await expect(second.getSession("s")).resolves.toMatchObject({
+          title: "1+",
+        });
+      }
+    );
   });
 }
 

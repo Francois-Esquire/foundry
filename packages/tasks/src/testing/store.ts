@@ -12,6 +12,8 @@ export type ScopedTaskStores = (scope: string) => TaskStore;
 
 export interface TaskStoreCapabilities {
   readonly insertionOrder?: boolean;
+  readonly reentrancyGuard?: boolean;
+  readonly transactions?: boolean;
 }
 
 export function describeTaskStore(
@@ -20,6 +22,8 @@ export function describeTaskStore(
   capabilities: TaskStoreCapabilities = {}
 ): void {
   const insertionOrder = capabilities.insertionOrder ?? true;
+  const transactions = capabilities.transactions ?? true;
+  const reentrancyGuard = capabilities.reentrancyGuard ?? transactions;
   const normalizeTasks = (items: readonly Task[]): readonly Task[] =>
     insertionOrder
       ? items
@@ -307,50 +311,56 @@ export function describeTaskStore(
       );
     });
 
-    test("takes a write as it stands when commit is called, though it waits behind a transaction", async () => {
-      const target = await store();
-      const kept = task("kept");
-      await target.commit({ putTasks: [kept] });
-      const write = callerWrite(kept);
-      const expected = storedAfter(write, kept);
-      const entered = Promise.withResolvers<void>();
-      const held = Promise.withResolvers<void>();
-      const running = transactionOf(target)(async () => {
-        entered.resolve();
-        await held.promise;
-      });
-      await entered.promise;
+    test.runIf(transactions)(
+      "takes a write as it stands when commit is called, though it waits behind a transaction",
+      async () => {
+        const target = await store();
+        const kept = task("kept");
+        await target.commit({ putTasks: [kept] });
+        const write = callerWrite(kept);
+        const expected = storedAfter(write, kept);
+        const entered = Promise.withResolvers<void>();
+        const held = Promise.withResolvers<void>();
+        const running = transactionOf(target)(async () => {
+          entered.resolve();
+          await held.promise;
+        });
+        await entered.promise;
 
-      const landing = target.commit(write);
-      scramble(write, kept);
-      held.resolve();
-      await Promise.all([running, landing]);
-
-      expect(normalizeSnapshot(await target.snapshot())).toEqual(
-        normalizeSnapshot(expected)
-      );
-    });
-
-    test("takes a write through a transaction's view as it stands when commit is called", async () => {
-      const target = await store();
-      const kept = task("kept");
-      await target.commit({ putTasks: [kept] });
-      const write = callerWrite(kept);
-      const expected = storedAfter(write, kept);
-
-      await transactionOf(target)(async (view) => {
-        const committed = view.commit(write);
+        const landing = target.commit(write);
         scramble(write, kept);
-        await committed;
-        expect(normalizeSnapshot(await view.snapshot())).toEqual(
+        held.resolve();
+        await Promise.all([running, landing]);
+
+        expect(normalizeSnapshot(await target.snapshot())).toEqual(
           normalizeSnapshot(expected)
         );
-      });
+      }
+    );
 
-      expect(normalizeSnapshot(await target.snapshot())).toEqual(
-        normalizeSnapshot(expected)
-      );
-    });
+    test.runIf(transactions)(
+      "takes a write through a transaction's view as it stands when commit is called",
+      async () => {
+        const target = await store();
+        const kept = task("kept");
+        await target.commit({ putTasks: [kept] });
+        const write = callerWrite(kept);
+        const expected = storedAfter(write, kept);
+
+        await transactionOf(target)(async (view) => {
+          const committed = view.commit(write);
+          scramble(write, kept);
+          await committed;
+          expect(normalizeSnapshot(await view.snapshot())).toEqual(
+            normalizeSnapshot(expected)
+          );
+        });
+
+        expect(normalizeSnapshot(await target.snapshot())).toEqual(
+          normalizeSnapshot(expected)
+        );
+      }
+    );
 
     test("two scopes on one storage never see each other", async () => {
       const stores = await open();
@@ -379,105 +389,119 @@ export function describeTaskStore(
       expect(await stores("scope-a").get(a.id)).toEqual(a);
     });
 
-    test("a transaction reads its own commits and returns what its work returns", async () => {
-      const target = await store();
-      const a = task("a");
-      const result = await transactionOf(target)(async (view) => {
-        await view.commit({
-          putDependencies: [dependency(a, a)],
-          putTasks: [a],
+    test.runIf(transactions)(
+      "a transaction reads its own commits and returns what its work returns",
+      async () => {
+        const target = await store();
+        const a = task("a");
+        const result = await transactionOf(target)(async (view) => {
+          await view.commit({
+            putDependencies: [dependency(a, a)],
+            putTasks: [a],
+          });
+          expect(await view.get(a.id)).toEqual(a);
+          expect(await view.snapshot()).toEqual({
+            dependencies: [dependency(a, a)],
+            tasks: [a],
+          });
+          return "done";
         });
-        expect(await view.get(a.id)).toEqual(a);
-        expect(await view.snapshot()).toEqual({
-          dependencies: [dependency(a, a)],
-          tasks: [a],
-        });
-        return "done";
-      });
 
-      expect(result).toBe("done");
-      expect(await target.get(a.id)).toEqual(a);
-    });
-
-    test("a transaction whose work throws leaves nothing, and the next one runs", async () => {
-      const target = await store();
-      const [kept, lost] = [task("kept"), task("lost")];
-      await target.commit({ putTasks: [kept] });
-
-      await expect(
-        transactionOf(target)(async (view) => {
-          await view.commit({ deleteTasks: [kept.id], putTasks: [lost] });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-      expect(await target.snapshot()).toEqual({
-        dependencies: [],
-        tasks: [kept],
-      });
-
-      await transactionOf(target)((view) => view.commit({ putTasks: [lost] }));
-      expect(await target.get(lost.id)).toEqual(lost);
-    });
-
-    test("a write from outside cannot land between a transaction's read and its commit", async () => {
-      const target = await store();
-      const a = task("a");
-      await target.commit({ putTasks: [a] });
-      const outside = { ...a, title: "outside" };
-      const inside = { ...a, title: "inside" };
-      const read = Promise.withResolvers<void>();
-      const proceed = Promise.withResolvers<void>();
-
-      const running = transactionOf(target)(async (view) => {
-        const before = await view.get(a.id);
-        read.resolve();
-        await proceed.promise;
-        const after = await view.get(a.id);
-        await view.commit({ putTasks: [inside] });
-        return { after, before };
-      });
-      await read.promise;
-      const landed = target.commit({ putTasks: [outside] });
-      await pause(20);
-      proceed.resolve();
-
-      expect(await running).toEqual({ after: a, before: a });
-      await landed;
-      expect(await target.get(a.id)).toEqual(outside);
-    });
-
-    test("a call to the store from inside its own transaction is refused at once", async () => {
-      const target = await store();
-      const a = task("a");
-      const calls: Record<string, () => Promise<unknown>> = {
-        commit: () => target.commit({ putTasks: [a] }),
-        get: () => target.get(a.id),
-        snapshot: () => target.snapshot(),
-        transaction: () => transactionOf(target)(() => Promise.resolve()),
-      };
-      const { promise: ended, resolve: end } = Promise.withResolvers<void>();
-      let later: Promise<unknown> = Promise.resolve();
-
-      const refusals = await transactionOf(target)(async (view) => {
-        const outcomes: Record<string, string> = {};
-        for (const [method, call] of Object.entries(calls)) {
-          outcomes[method] = await settlesWithin(call(), 1000);
-        }
-        later = ended.then(() => target.commit({ putTasks: [a] }));
-        await view.commit({ putTasks: [task("b")] });
-        return outcomes;
-      });
-      end();
-
-      for (const outcome of Object.values(refusals)) {
-        expect(outcome).toMatch(REFUSAL);
+        expect(result).toBe("done");
+        expect(await target.get(a.id)).toEqual(a);
       }
-      await later;
-      const ids = (await target.snapshot()).tasks.map((t) => t.id);
-      expect(insertionOrder ? ids : [...ids].sort()).toEqual(
-        insertionOrder ? ["b", "a"] : ["a", "b"]
-      );
-    });
+    );
+
+    test.runIf(transactions)(
+      "a transaction whose work throws leaves nothing, and the next one runs",
+      async () => {
+        const target = await store();
+        const [kept, lost] = [task("kept"), task("lost")];
+        await target.commit({ putTasks: [kept] });
+
+        await expect(
+          transactionOf(target)(async (view) => {
+            await view.commit({ deleteTasks: [kept.id], putTasks: [lost] });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
+        expect(await target.snapshot()).toEqual({
+          dependencies: [],
+          tasks: [kept],
+        });
+
+        await transactionOf(target)((view) =>
+          view.commit({ putTasks: [lost] })
+        );
+        expect(await target.get(lost.id)).toEqual(lost);
+      }
+    );
+
+    test.runIf(transactions)(
+      "a write from outside cannot land between a transaction's read and its commit",
+      async () => {
+        const target = await store();
+        const a = task("a");
+        await target.commit({ putTasks: [a] });
+        const outside = { ...a, title: "outside" };
+        const inside = { ...a, title: "inside" };
+        const read = Promise.withResolvers<void>();
+        const proceed = Promise.withResolvers<void>();
+
+        const running = transactionOf(target)(async (view) => {
+          const before = await view.get(a.id);
+          read.resolve();
+          await proceed.promise;
+          const after = await view.get(a.id);
+          await view.commit({ putTasks: [inside] });
+          return { after, before };
+        });
+        await read.promise;
+        const landed = target.commit({ putTasks: [outside] });
+        await pause(20);
+        proceed.resolve();
+
+        expect(await running).toEqual({ after: a, before: a });
+        await landed;
+        expect(await target.get(a.id)).toEqual(outside);
+      }
+    );
+
+    test.runIf(transactions && reentrancyGuard)(
+      "a call to the store from inside its own transaction is refused at once",
+      async () => {
+        const target = await store();
+        const a = task("a");
+        const calls: Record<string, () => Promise<unknown>> = {
+          commit: () => target.commit({ putTasks: [a] }),
+          get: () => target.get(a.id),
+          snapshot: () => target.snapshot(),
+          transaction: () => transactionOf(target)(() => Promise.resolve()),
+        };
+        const { promise: ended, resolve: end } = Promise.withResolvers<void>();
+        let later: Promise<unknown> = Promise.resolve();
+
+        const refusals = await transactionOf(target)(async (view) => {
+          const outcomes: Record<string, string> = {};
+          for (const [method, call] of Object.entries(calls)) {
+            outcomes[method] = await settlesWithin(call(), 1000);
+          }
+          later = ended.then(() => target.commit({ putTasks: [a] }));
+          await view.commit({ putTasks: [task("b")] });
+          return outcomes;
+        });
+        end();
+
+        for (const outcome of Object.values(refusals)) {
+          expect(outcome).toMatch(REFUSAL);
+        }
+        await later;
+        const ids = (await target.snapshot()).tasks.map((t) => t.id);
+        expect(insertionOrder ? ids : [...ids].sort()).toEqual(
+          insertionOrder ? ["b", "a"] : ["a", "b"]
+        );
+      }
+    );
 
     test("optional indexed reads filter by status, parent, and dependency endpoints", async () => {
       const target = await store();

@@ -33,27 +33,45 @@ export type WorkspaceStoreMode =
       readonly recording: () => Promise<RecordingWorkspaceStores>;
     };
 
+export interface WorkspaceStoreCapabilities {
+  readonly exactTotal?: boolean;
+  readonly largeWrites?: boolean;
+  readonly reentrancyGuard?: boolean;
+  readonly transactions?: boolean;
+}
+
 export function describeWorkspaceStore(
   name: string,
   open: () => ScopedWorkspaceStores | Promise<ScopedWorkspaceStores>,
-  mode: WorkspaceStoreMode
+  mode: WorkspaceStoreMode,
+  capabilities: WorkspaceStoreCapabilities = {}
 ): void {
+  const exactTotal = capabilities.exactTotal ?? true;
+  const largeWrites = capabilities.largeWrites ?? true;
+  const transactions = capabilities.transactions ?? true;
+  const reentrancyGuard = capabilities.reentrancyGuard ?? transactions;
   describe(`${name} WorkspaceStore conformance`, () => {
     describeEvents(open);
     if (mode.hooked) {
       describeRecordedEvents(mode.recording);
     }
-    describeReads(open);
+    describeReads(open, exactTotal);
     describeOrdering(open);
     describeWrites(open);
-    describeScopes(open);
+    describeScopes(open, exactTotal);
     describeAtomicity(open);
     describeDetachment(open);
-    describeOwnership(open);
-    describeLargeWrites(open);
-    describeTransactions(open);
-    describeReentry(open);
-    describeFailedTurns(open);
+    describeOwnership(open, exactTotal);
+    if (largeWrites) {
+      describeLargeWrites(open, exactTotal);
+    }
+    if (transactions) {
+      describeTransactions(open);
+      if (reentrancyGuard) {
+        describeReentry(open);
+      }
+      describeFailedTurns(open);
+    }
   });
 }
 
@@ -402,7 +420,27 @@ function describeRecordedEvents(
   });
 }
 
-function describeReads(open: Open): void {
+function expectWorkspacePage(
+  page: {
+    readonly items: readonly WorkspaceRegistration[];
+    readonly nextCursor?: number;
+    readonly total?: number;
+  },
+  expected: {
+    readonly items: readonly WorkspaceRegistration[];
+    readonly nextCursor?: number;
+    readonly total: number;
+  },
+  exactTotal: boolean
+): void {
+  expect(page.items).toEqual(expected.items);
+  expect(page.nextCursor).toBe(expected.nextCursor);
+  if (exactTotal) {
+    expect(page.total).toBe(expected.total);
+  }
+}
+
+function describeReads(open: Open, exactTotal: boolean): void {
   describe("reads", () => {
     test("answer an empty store with nothing", async () => {
       const store = (await open())(SCOPE);
@@ -413,7 +451,11 @@ function describeReads(open: Open): void {
       expect(await store.listEntries(absent)).toEqual([]);
       expect(await store.findWorkspaceByPath(newRoot("absent"))).toBeNull();
       expect(await store.findWorkspaceBySourceId("absent")).toBeNull();
-      expect(await store.listWorkspaces()).toEqual({ items: [], total: 0 });
+      expectWorkspacePage(
+        await store.listWorkspaces(),
+        { items: [], total: 0 },
+        exactTotal
+      );
     });
 
     test("round-trip a registration and its entries in path order", async () => {
@@ -503,17 +545,21 @@ function describeReads(open: Open): void {
       }
 
       const largest = await store.listWorkspaces({ limit: 1000 });
-      expect(largest.items).toEqual(created.slice(0, 200));
-      expect(largest.total).toBe(201);
-      expect(largest.nextCursor).toBe(200);
-      expect(await store.listWorkspaces({ cursor: 200, limit: 5 })).toEqual({
-        items: created.slice(200),
-        total: 201,
-      });
-      expect(await store.listWorkspaces({ cursor: 500 })).toEqual({
-        items: [],
-        total: 201,
-      });
+      expectWorkspacePage(
+        largest,
+        { items: created.slice(0, 200), nextCursor: 200, total: 201 },
+        exactTotal
+      );
+      expectWorkspacePage(
+        await store.listWorkspaces({ cursor: 200, limit: 5 }),
+        { items: created.slice(200), total: 201 },
+        exactTotal
+      );
+      expectWorkspacePage(
+        await store.listWorkspaces({ cursor: 500 }),
+        { items: [], total: 201 },
+        exactTotal
+      );
       for (const input of [
         { limit: 0 },
         { limit: 1.5 },
@@ -597,21 +643,26 @@ function describeReads(open: Open): void {
         await seed(store, workspace);
       }
 
-      expect(await store.listWorkspaces()).toEqual({
-        items: ordered,
-        total: 3,
-      });
+      expectWorkspacePage(
+        await store.listWorkspaces(),
+        { items: ordered, total: 3 },
+        exactTotal
+      );
       const firstPage = await store.listWorkspaces({ limit: 2 });
       expect(firstPage.items).toEqual(ordered.slice(0, 2));
-      expect(firstPage.total).toBe(3);
+      if (exactTotal) {
+        expect(firstPage.total).toBe(3);
+      }
       expect(firstPage.nextCursor).toBeDefined();
       const secondPage = await store.listWorkspaces({
         cursor: firstPage.nextCursor,
         limit: 2,
       });
-      expect(secondPage.items).toEqual(ordered.slice(2));
-      expect(secondPage.total).toBe(3);
-      expect(secondPage.nextCursor).toBeUndefined();
+      expectWorkspacePage(
+        secondPage,
+        { items: ordered.slice(2), total: 3 },
+        exactTotal
+      );
     });
 
     test("paginate and count entries when listEntriesPage and countEntries are implemented", async () => {
@@ -1255,7 +1306,7 @@ function describeOrdering(open: Open): void {
   });
 }
 
-function describeScopes(open: Open): void {
+function describeScopes(open: Open, exactTotal: boolean): void {
   describe("scopes", () => {
     test("two scopes on one storage never see each other", async () => {
       const stores = await open();
@@ -1274,7 +1325,11 @@ function describeScopes(open: Open): void {
         await second.findWorkspaceByPath(workspace.source.path)
       ).toBeNull();
       expect(await second.findWorkspaceBySourceId("shared")).toBeNull();
-      expect(await second.listWorkspaces()).toEqual({ items: [], total: 0 });
+      expectWorkspacePage(
+        await second.listWorkspaces(),
+        { items: [], total: 0 },
+        exactTotal
+      );
 
       const theirs = { ...workspace, name: "theirs" };
       const theirReadme = { ...readme, bytes: 99 };
@@ -1286,10 +1341,11 @@ function describeScopes(open: Open): void {
 
       expect(await first.getWorkspace(workspace.id)).toEqual(workspace);
       expect(await first.listEntries(workspace.id)).toEqual([readme]);
-      expect(await first.listWorkspaces()).toEqual({
-        items: [workspace],
-        total: 1,
-      });
+      expectWorkspacePage(
+        await first.listWorkspaces(),
+        { items: [workspace], total: 1 },
+        exactTotal
+      );
       expect(await stores("scope-a").getEntry(workspace.id, readme.id)).toEqual(
         readme
       );
@@ -1297,7 +1353,7 @@ function describeScopes(open: Open): void {
   });
 }
 
-function describeLargeWrites(open: Open): void {
+function describeLargeWrites(open: Open, exactTotal: boolean): void {
   describe("large writes", () => {
     test("one save can put and delete thousands of entries", async () => {
       const store = (await open())(SCOPE);
@@ -1316,11 +1372,10 @@ function describeLargeWrites(open: Open): void {
       expect(await store.listEntries(workspace.id)).toEqual(second);
 
       await store.commit({ removeWorkspace: workspace.id });
-      expect(await everything(store, workspace)).toEqual({
-        entries: [],
-        list: { items: [], total: 0 },
-        workspace: null,
-      });
+      const after = await everything(store, workspace);
+      expect(after.entries).toEqual([]);
+      expect(after.workspace).toBeNull();
+      expectWorkspacePage(after.list, { items: [], total: 0 }, exactTotal);
     });
   });
 }
@@ -1490,7 +1545,7 @@ function manyFiles(
   );
 }
 
-function describeOwnership(open: Open): void {
+function describeOwnership(open: Open, exactTotal: boolean): void {
   describe("a write and a list input are the store's from the call", () => {
     async function arranged() {
       const store = (await open())(SCOPE);
@@ -1600,7 +1655,7 @@ function describeOwnership(open: Open): void {
       const atOnce: { cursor?: number; limit?: number } = { limit: 1 };
       const listed = store.listWorkspaces(atOnce);
       change(atOnce);
-      expect(await listed).toEqual(firstPage);
+      expectWorkspacePage(await listed, firstPage, exactTotal);
 
       if (store.transaction === undefined) {
         return skip();
@@ -1617,7 +1672,7 @@ function describeOwnership(open: Open): void {
       change(queued);
       release.resolve(undefined);
       await running;
-      expect(await waiting).toEqual(firstPage);
+      expectWorkspacePage(await waiting, firstPage, exactTotal);
     });
   });
 }
