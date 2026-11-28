@@ -216,7 +216,7 @@ setInterval(() => undefined, 1000);
         script,
         `import { existsSync } from "node:fs";
 import { recordWorkspace } from ${JSON.stringify(resolve("test/helpers/registry.ts"))};
-import { workspaceState } from ${JSON.stringify(join(SRC, "lib/state/workspace.ts"))};
+import { workspaceState } from ${JSON.stringify(join(SRC, "state/workspace.ts"))};
 process.stdout.write("ready\\n");
 while (!existsSync(${JSON.stringify(go)})) {
   await new Promise((settle) => setTimeout(settle, 5));

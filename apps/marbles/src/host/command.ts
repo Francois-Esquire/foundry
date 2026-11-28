@@ -1,21 +1,16 @@
 import { execFile } from "node:child_process";
 import type { Writable } from "node:stream";
 import { recordChild } from "@foundry/lib/node/spawn-record";
-import type { CommandResult, Exec, ExecOptions } from "~/lib/commands";
+import type {
+  CommandResult,
+  CommandSite,
+  Exec,
+  ExecOptions,
+} from "~/lib/commands";
 import { CommandError } from "~/lib/commands";
 import { showArgv } from "~/lib/commands/argv";
 import type { SandboxHandle, SandboxInstance } from "~/lib/definitions/types";
-import { StepInputError, type StepWork } from "~/lib/runs/step-work";
-
-export interface CommandSite {
-  readonly cwd: () => string;
-  readonly environment?: Readonly<Record<string, string>>;
-  readonly print: (line: string) => void;
-  readonly signal: () => AbortSignal | undefined;
-  readonly spawned?: string;
-  readonly work?: StepWork;
-  readonly write?: (value: unknown) => void;
-}
+import { StepInputError } from "~/lib/runs/step-work";
 
 const MAX_BUFFER = 64 * 1024 * 1024;
 

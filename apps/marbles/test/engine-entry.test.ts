@@ -9,10 +9,12 @@ import { fileIdentity, queuedFiles } from "~/database/client";
 import { openWorkspaceRecords } from "~/database/managed";
 import { providerStoreForState } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
+import { Engine as EmbeddedEntryEngine } from "~/entries/embedded";
 import { Engine } from "~/entries/engine";
-import { Engine as LibEntryEngine } from "~/entries/lib";
 import { stateDatabase } from "~/layout";
+import { Engine as PortableEngine } from "~/lib/engine";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
+import { Engine as LibEntryEngine } from "~/lib/index";
 import { claimProcess, readProcess } from "~/process/instance";
 import { workspaceState } from "~/state/workspace";
 import { testInstances } from "./helpers/engine";
@@ -83,12 +85,13 @@ describe("the published Engine", () => {
     expect(existsSync(stateDatabase(workspace.dir))).toBe(false);
   });
 
-  it("is the class the lib entry publishes too", async () => {
-    expect(LibEntryEngine).toBe(Engine);
+  it("is the class the engine entry publishes and extends the portable lib Engine", async () => {
+    expect(EmbeddedEntryEngine).toBe(Engine);
+    expect(LibEntryEngine).toBe(PortableEngine);
     const state = join(scratch(), "lib-state");
     const make = () => {
       const root = scratch();
-      return new LibEntryEngine({
+      return new EmbeddedEntryEngine({
         ...testInstances({ root }),
         root,
         state,
@@ -98,10 +101,15 @@ describe("the published Engine", () => {
     expect((await across(make)).read).toBe("Kept");
   });
 
-  it("publishes the provider store of a state root on the lib entry as a class, not a loose function", async () => {
-    const lib: Record<string, unknown> = await import("~/entries/lib");
-    expect(Object.keys(lib)).not.toContain("stateProviders");
-    expect(lib.DatabaseProviderStore).toBe(DatabaseProviderStore);
+  it("publishes the provider store of a state root on the engine entry as a class, not a loose function", async () => {
+    const embedded: Record<string, unknown> = await import(
+      "~/entries/embedded"
+    );
+    const lib: Record<string, unknown> = await import("~/lib/index");
+    expect(Object.keys(embedded)).not.toContain("stateProviders");
+    expect(embedded.DatabaseProviderStore).toBe(DatabaseProviderStore);
+    expect(Object.keys(lib)).not.toContain("DatabaseProviderStore");
+    expect(Object.keys(lib)).not.toContain("FileRunOutputSink");
     const state = join(scratch(), "provider-state");
     await providerStoreForState(state).update(undefined, () => ({
       machine: { providers: [], version: 1 },
@@ -182,6 +190,7 @@ describe("the published Engine", () => {
     });
     try {
       expect(engine).toBeInstanceOf(Engine);
+      expect(engine).toBeInstanceOf(EmbeddedEntryEngine);
       expect(engine).toBeInstanceOf(LibEntryEngine);
     } finally {
       await engine.dispose();

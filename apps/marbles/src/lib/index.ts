@@ -1,14 +1,8 @@
 // biome-ignore lint/performance/noBarrelFile: This is the public package entry point for programmatic hosts.
-export { claudeCodeProvider } from "@foundry/models/providers/claude-code";
-export { codexProvider } from "@foundry/models/providers/codex";
-export { piProvider } from "@foundry/models/providers/pi";
 export { createContainers } from "@foundry/sandbox";
 export { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 export type { ChannelMessage } from "@foundry/workflows/channels";
 export { Workspaces } from "@foundry/workspaces";
-export { directory } from "@foundry/workspaces/node";
-export { git } from "@foundry/workspaces/node/git";
-export { nodeObserver } from "@foundry/workspaces/node/watch";
 export type {
   AutomationRecord,
   AutomationService,
@@ -113,7 +107,6 @@ export type {
   UsageRecords,
   UsageTokens,
 } from "~/lib/usage";
-export { FileRunOutputSink } from "~/state/output";
 export * from "./embedded";
 export type { FeedAnswer } from "./feed/entry";
 export type {

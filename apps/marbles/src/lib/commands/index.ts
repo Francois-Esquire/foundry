@@ -1,7 +1,18 @@
 import { showArgv } from "~/lib/commands/argv";
 import type { SandboxHandle, SandboxInstance } from "~/lib/definitions/types";
+import type { StepWork } from "~/lib/runs/step-work";
 
 const COMMAND_ERROR = Symbol.for("marbles.command-error.v1");
+
+export interface CommandSite {
+  readonly cwd: () => string;
+  readonly environment?: Readonly<Record<string, string>>;
+  readonly print: (line: string) => void;
+  readonly signal: () => AbortSignal | undefined;
+  readonly spawned?: string;
+  readonly work?: StepWork;
+  readonly write?: (value: unknown) => void;
+}
 
 export interface CommandResult {
   readonly exitCode: number;

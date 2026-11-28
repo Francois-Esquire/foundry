@@ -25,7 +25,7 @@ const SELF_URLS: ReadonlyMap<string, string> = new Map([
     "@foundry.sh/marbles/engine",
     entryUrl("../entries/embedded.ts", "engine.js"),
   ],
-  ["@foundry.sh/marbles/lib", entryUrl("../entries/lib.ts", "lib.js")],
+  ["@foundry.sh/marbles/lib", entryUrl("../lib/index.ts", "lib.js")],
   [
     "@foundry.sh/marbles/process",
     entryUrl("../process/index.ts", "process.js"),

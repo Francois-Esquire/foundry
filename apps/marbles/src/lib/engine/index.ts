@@ -13,11 +13,10 @@ import type { TaskStore } from "@foundry/tasks";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import type { BaseContext } from "@foundry/workflows/executable";
 import type { Output } from "ai";
-import type { CommandSite } from "~/host/command";
 import { AutomationService } from "~/lib/automation";
 import { configuredMonitorUrl } from "~/lib/automation/configured";
 import type { AutomationStore } from "~/lib/automation/store";
-import type { Exec } from "~/lib/commands";
+import type { CommandSite, Exec } from "~/lib/commands";
 import type { AnyDefinition } from "~/lib/definitions";
 import type { Bindings } from "~/lib/definitions/bindings";
 import type {

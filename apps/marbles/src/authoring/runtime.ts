@@ -216,7 +216,7 @@ function loadingError(
 
 function missingRuntimeError(): Error {
   return new Error(
-    'no Marbles host or default runtime is configured; run via `marbles`, or import "@foundry.sh/marbles/engine" (or "@foundry.sh/marbles/lib") to enable the default Node runtime'
+    'no Marbles host or default runtime is configured; run via `marbles`, or import "@foundry.sh/marbles/engine" to enable the default Node runtime'
   );
 }
 

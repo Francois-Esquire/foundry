@@ -1105,8 +1105,8 @@ describe("delivery across processes", () => {
       script,
       `import { openDatabase } from ${JSON.stringify(resolvePath("src/database/open.ts"))};
 import { DatabaseWorkspaceRecords } from ${JSON.stringify(resolvePath("src/database/tasks.ts"))};
-import { NODE_OWNER_LIVENESS } from ${JSON.stringify(resolvePath("src/lib/node-host-liveness.ts"))};
-import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/delivery.ts"))};
+import { NODE_OWNER_LIVENESS } from ${JSON.stringify(resolvePath("src/host/liveness.ts"))};
+import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/index.ts"))};
 import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
 const opened = await openDatabase(${JSON.stringify(machine.database.file)});
 if (opened === undefined) throw new Error("no database");
@@ -1172,7 +1172,7 @@ setInterval(() => undefined, 1000);
       script,
       `import { openDatabase } from ${JSON.stringify(resolvePath("src/database/open.ts"))};
 import { DatabaseWorkspaceRecords } from ${JSON.stringify(resolvePath("src/database/tasks.ts"))};
-import { NODE_OWNER_LIVENESS } from ${JSON.stringify(resolvePath("src/lib/node-host-liveness.ts"))};
+import { NODE_OWNER_LIVENESS } from ${JSON.stringify(resolvePath("src/host/liveness.ts"))};
 const opened = await openDatabase(${JSON.stringify(machine.database.file)});
 if (opened === undefined) throw new Error("no database");
 const records = new DatabaseWorkspaceRecords({ liveness: NODE_OWNER_LIVENESS, database: opened.database, scope: ${JSON.stringify(basename(state))} });
@@ -1911,7 +1911,7 @@ describe("the delivery timer", () => {
     const script = join(dir, "never-stopped.ts");
     writeFileSync(
       script,
-      `import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/delivery.ts"))};
+      `import { Delivery } from ${JSON.stringify(resolvePath("src/lib/events/index.ts"))};
 import { MemoryWorkspaceRecords } from ${JSON.stringify(resolvePath("src/lib/events/records.ts"))};
 import { TASKS } from ${JSON.stringify(resolvePath("src/lib/events/source.ts"))};
 const delivery = new Delivery({ print: () => undefined, records: new MemoryWorkspaceRecords() });
