@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { mkdir, open, readdir, realpath, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, realpath, stat, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { hasErrorCode, writeFileAtomic } from "@foundry/lib/node/atomic-file";
 
@@ -39,8 +39,16 @@ export function blobFiles(root: string): BlobFiles {
       for (const entry of await readdir(base, {
         withFileTypes: true,
       })) {
-        if (BLOB_FILENAME.test(entry.name)) {
-          yield entry.name;
+        if (!BLOB_FILENAME.test(entry.name)) {
+          continue;
+        }
+        try {
+          const info = await stat(join(base, entry.name));
+          yield { modifiedAt: info.mtime, path: entry.name };
+        } catch (error) {
+          if (!hasErrorCode(error, "ENOENT")) {
+            throw error;
+          }
         }
       }
     },

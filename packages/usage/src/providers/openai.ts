@@ -18,9 +18,9 @@ export type OpenAIOptions =
   | { readonly apiKey?: undefined; readonly home?: string }
   | { readonly apiKey: string; readonly home?: undefined };
 
-export type OpenAICredential =
+type OpenAICredential =
   | { readonly home: string; readonly kind: "login" }
-  | { readonly key: string; readonly kind: "api-key" };
+  | { readonly kind: "api-key" };
 
 export interface OpenAIMachine {
   readonly env?: Env;
@@ -43,13 +43,15 @@ const spawnCodex: SpawnCodex = (command, args, options) => {
 };
 
 export const createOpenAI = (machine: OpenAIMachine = {}) => {
-  const env = machine.env ?? process.env;
-  const home = machine.home ?? homedir();
-  const codexHomeOf = (codexHome?: string) =>
-    expandHome(
-      codexHome ?? (env.CODEX_HOME?.trim() || join(home, ".codex")),
+  const envOf = () => machine.env ?? process.env;
+  const homeOf = () => machine.home ?? homedir();
+  const codexHomeOf = (codexHome?: string) => {
+    const home = homeOf();
+    return expandHome(
+      codexHome ?? (envOf().CODEX_HOME?.trim() || join(home, ".codex")),
       home
     );
+  };
 
   return defineProvider({
     credential: (options: OpenAIOptions): OpenAICredential => {
@@ -58,7 +60,7 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
       }
       return options.apiKey === undefined
         ? { home: codexHomeOf(options.home), kind: "login" }
-        : { key: options.apiKey, kind: "api-key" };
+        : { kind: "api-key" };
     },
     detect: async () => {
       const codexHome = codexHomeOf();
@@ -67,15 +69,22 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         ? {}
         : undefined;
     },
-    history: async (credential, since) => {
+    history: async (credential, since, callOptions) => {
+      callOptions?.signal?.throwIfAborted();
       if (credential.kind === "api-key") {
         return;
       }
-      const works = await readCodexHistory(credential.home, since);
+      const works = await readCodexHistory(
+        credential.home,
+        since,
+        callOptions?.signal
+      );
+      callOptions?.signal?.throwIfAborted();
       return consumptionOf(works, since, listPrices("openai"), "notional");
     },
     id: "openai",
-    limits: async (credential) => {
+    limits: async (credential, callOptions) => {
+      callOptions?.signal?.throwIfAborted();
       if (credential.kind === "api-key") {
         return {
           limits: [],
@@ -83,8 +92,9 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         };
       }
       return readCodexLimits({
-        cwd: home,
-        env: childEnv(env, FOREIGN_AUTH, { CODEX_HOME: credential.home }),
+        cwd: homeOf(),
+        env: childEnv(envOf(), FOREIGN_AUTH, { CODEX_HOME: credential.home }),
+        ...(callOptions?.signal ? { signal: callOptions.signal } : {}),
         spawn: machine.spawn ?? spawnCodex,
         timeoutMs: machine.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       });

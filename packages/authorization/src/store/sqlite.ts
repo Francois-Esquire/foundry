@@ -15,6 +15,7 @@ import type { SQL } from "drizzle-orm";
 import { and, asc, eq, getTableColumns, inArray, is, max } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
+import { AuthorizationRevisionError, AuthorizationStateError } from "../errors";
 import type {
   Grant,
   GrantId,
@@ -27,6 +28,7 @@ import type {
   AuthorizationStore,
   AuthorizationStoreDurability,
   AuthorizationStoreWrite,
+  RestrictionQuery,
 } from "./index";
 import { matchesGrantQuery } from "./query";
 import {
@@ -116,6 +118,11 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
+        await this.#checkExpectedGrantRevisions(
+          transaction,
+          owned.expectedGrantRevisions
+        );
+        await this.#createClaims(transaction, rows.createClaims);
         await this.#deleteRestrictions(
           transaction,
           owned.deleteRestrictions ?? []
@@ -211,12 +218,24 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     });
   }
 
-  listRestrictions(): Promise<readonly Restriction[]> {
+  listRestrictions(query?: RestrictionQuery): Promise<readonly Restriction[]> {
     return this.#turns.run(async () => {
+      const conditions: SQL[] = [
+        eq(authorizationRestrictions.scope, this.#scope),
+      ];
+      if (
+        !appendTextCondition(
+          conditions,
+          authorizationRestrictions.action,
+          query?.action
+        )
+      ) {
+        return [];
+      }
       const rows = await this.#database
         .select({ record: authorizationRestrictions.record })
         .from(authorizationRestrictions)
-        .where(eq(authorizationRestrictions.scope, this.#scope))
+        .where(and(...conditions))
         .orderBy(asc(authorizationRestrictions.position));
       return rows.map((row) => structuredClone(row.record));
     });
@@ -299,6 +318,92 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     return conditions;
   }
 
+  async #checkExpectedGrantRevisions(
+    transaction: AuthorizationTransaction,
+    expected: Readonly<Record<string, number>> | undefined
+  ): Promise<void> {
+    if (expected === undefined) {
+      return;
+    }
+    const entries = Object.entries(expected);
+    if (entries.length === 0) {
+      return;
+    }
+    const ids = entries.map(([id]) => id as GrantId).filter(storableText);
+    const actualById = new Map<string, number>();
+    for (const batch of rowBatches(ids, 1, this.#maxParameters, 1)) {
+      const rows = await transaction
+        .select({
+          id: authorizationGrants.id,
+          revision: authorizationGrants.revision,
+        })
+        .from(authorizationGrants)
+        .where(
+          and(
+            eq(authorizationGrants.scope, this.#scope),
+            inArray(authorizationGrants.id, batch)
+          )
+        );
+      for (const row of rows) {
+        actualById.set(row.id, row.revision);
+      }
+    }
+    for (const [id, expectedRevision] of entries) {
+      const actual = actualById.get(id);
+      if (actual === undefined || actual !== expectedRevision) {
+        throw new AuthorizationRevisionError(
+          id as GrantId,
+          expectedRevision,
+          actual ?? null
+        );
+      }
+    }
+  }
+
+  async #createClaims(
+    transaction: AuthorizationTransaction,
+    records: readonly Omit<ClaimRow, "scope">[]
+  ): Promise<void> {
+    if (records.length === 0) {
+      return;
+    }
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const record of records) {
+      if (seen.has(record.invocationId)) {
+        throw new AuthorizationStateError(
+          `Invocation ${record.invocationId} has already been claimed`
+        );
+      }
+      seen.add(record.invocationId);
+      ids.push(record.invocationId);
+    }
+    for (const batch of rowBatches(ids, 1, this.#maxParameters, 1)) {
+      const existing = await transaction
+        .select({ invocationId: authorizationClaims.invocationId })
+        .from(authorizationClaims)
+        .where(
+          and(
+            eq(authorizationClaims.scope, this.#scope),
+            inArray(authorizationClaims.invocationId, batch)
+          )
+        );
+      if (existing[0] !== undefined) {
+        throw new AuthorizationStateError(
+          `Invocation ${existing[0].invocationId} has already been claimed`
+        );
+      }
+    }
+    const columns = Object.keys(getTableColumns(authorizationClaims)).length;
+    const rows = records.map((record) => ({
+      ...record,
+      scope: this.#scope,
+    }));
+    for (const batch of rowBatches(rows, columns, this.#maxParameters)) {
+      await transaction.insert(authorizationClaims).values(batch);
+    }
+  }
+
   async #deleteRestrictions(
     transaction: AuthorizationTransaction,
     keys: readonly RestrictionId[]
@@ -379,6 +484,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
 
 interface PreparedRows {
   readonly claims: readonly Omit<ClaimRow, "scope">[];
+  readonly createClaims: readonly Omit<ClaimRow, "scope">[];
   readonly grants: readonly Omit<GrantRow, "position" | "scope">[];
   readonly restrictions: readonly Omit<RestrictionRow, "position" | "scope">[];
 }
@@ -402,6 +508,9 @@ function prepareRows(write: AuthorizationStoreWrite): PreparedRows {
   return {
     claims: (write.putClaims ?? []).map((claim, index) =>
       prepareClaimRow(claim, `putClaims[${index}]`)
+    ),
+    createClaims: (write.createClaims ?? []).map((claim, index) =>
+      prepareClaimRow(claim, `createClaims[${index}]`)
     ),
     grants: (write.putGrants ?? []).map((grant, index) =>
       prepareGrantRow(grant, `putGrants[${index}]`)

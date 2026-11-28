@@ -1,4 +1,8 @@
-import { type BillingAccountOptions, billingLimits } from "./billing-account";
+import {
+  type BillingAccountOptions,
+  type BillingReadRuntime,
+  billingLimits,
+} from "./billing-account";
 import type { Consumption } from "./consumption";
 import {
   compact,
@@ -14,10 +18,16 @@ import {
   snapshotOf,
 } from "./snapshot";
 
-export interface Account<C = unknown> {
-  readonly credential: C;
-  history(since: Date): Promise<Consumption | undefined>;
-  limits(): Promise<Reading>;
+export interface AccountCallOptions {
+  readonly signal?: AbortSignal;
+}
+
+export interface Account {
+  history(
+    since: Date,
+    options?: AccountCallOptions
+  ): Promise<Consumption | undefined>;
+  limits(options?: AccountCallOptions): Promise<Reading>;
   readonly name: string;
   readonly provider: Provider;
 }
@@ -34,11 +44,19 @@ export interface Provider {
 export type DurationText = `${number}${"m" | "h" | "d" | "w"}`;
 
 export interface QueryOptions {
+  readonly signal?: AbortSignal;
   readonly since?: Date | DurationText;
 }
 
 export interface QueryAllOptions extends QueryOptions {
   readonly provider?: string;
+}
+
+export interface UsageOptions {
+  readonly billingTimeoutMs?: number;
+  readonly clock?: () => Date;
+  readonly fetch?: typeof globalThis.fetch;
+  readonly maxBillingPages?: number;
 }
 
 export interface Budget {
@@ -55,11 +73,18 @@ export interface Budget {
 
 export interface Usage {
   add(account: Account | BillingAccountOptions): string;
-  budget(name: string): Promise<Budget | undefined>;
+  budget(
+    name: string,
+    options?: AccountCallOptions
+  ): Promise<Budget | undefined>;
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
   query(options?: QueryAllOptions): Promise<readonly Snapshot[]>;
-  share(name: string, span?: Span): Promise<number | undefined>;
+  share(
+    name: string,
+    span?: Span,
+    options?: AccountCallOptions
+  ): Promise<number | undefined>;
   use(provider: Provider): void;
 }
 
@@ -73,7 +98,10 @@ const UNIT_DURATIONS = new Map<string, Duration>([
 ]);
 const DURATION_TEXT = /^(\d+(?:\.\d+)?)([mhdw])$/;
 
-const sinceDate = (since: QueryOptions["since"]): Date | undefined => {
+const sinceDate = (
+  since: QueryOptions["since"],
+  clock: () => Date
+): Date | undefined => {
   if (since === undefined || since instanceof Date) {
     return since;
   }
@@ -82,7 +110,7 @@ const sinceDate = (since: QueryOptions["since"]): Date | undefined => {
   if (!(match && unit)) {
     throw new Error(`Cannot read "${since}" as a duration, such as "7d".`);
   }
-  return new Date(Date.now() - Number(match[1]) * unit);
+  return new Date(clock().getTime() - Number(match[1]) * unit);
 };
 
 const weekStart = (reading: Reading | undefined, at: Date): Date => {
@@ -94,18 +122,27 @@ const weekStart = (reading: Reading | undefined, at: Date): Date => {
 
 const read = async (
   account: RegisteredAccount,
-  since?: Date
+  options: {
+    readonly clock: () => Date;
+    readonly signal?: AbortSignal;
+    readonly since?: Date;
+  }
 ): Promise<Snapshot> => {
-  const at = new Date();
-  const reading = account.limits();
-  const [limits, history] = await Promise.allSettled([
-    reading,
-    since
-      ? account.history(since)
-      : reading
-          .catch(() => undefined)
-          .then((found) => account.history(weekStart(found, at))),
-  ]);
+  const { clock, signal, since } = options;
+  signal?.throwIfAborted();
+  const at = clock();
+  const callOptions = signal ? { signal } : undefined;
+  const reading = account.limits(callOptions);
+  const historyPromise = since
+    ? account.history(since, callOptions)
+    : reading
+        .catch(() => undefined)
+        .then((found) => {
+          signal?.throwIfAborted();
+          return account.history(weekStart(found, at), callOptions);
+        });
+  const [limits, history] = await Promise.allSettled([reading, historyPromise]);
+  signal?.throwIfAborted();
   return snapshotOf(
     { name: account.name, provider: account.provider?.id },
     at,
@@ -115,11 +152,15 @@ const read = async (
 };
 
 const readBudget = async (
-  account: RegisteredAccount
+  account: RegisteredAccount,
+  clock: () => Date,
+  options?: AccountCallOptions
 ): Promise<Budget | undefined> => {
-  const reading = await account.limits();
+  options?.signal?.throwIfAborted();
+  const reading = await account.limits(options);
+  options?.signal?.throwIfAborted();
   const limit = reading.limits.find((entry) => entry.kind === "spend-cap");
-  const asOf = new Date();
+  const asOf = clock();
   if (
     !(
       limit &&
@@ -146,19 +187,50 @@ const readBudget = async (
   });
 };
 
-export const createUsage = (): Usage => {
+const validateUsageOptions = (options: UsageOptions): void => {
+  if (
+    options.maxBillingPages !== undefined &&
+    (!Number.isInteger(options.maxBillingPages) || options.maxBillingPages < 1)
+  ) {
+    throw new RangeError(
+      "Usage option `maxBillingPages` must be a finite integer >= 1."
+    );
+  }
+  if (
+    options.billingTimeoutMs !== undefined &&
+    (!Number.isFinite(options.billingTimeoutMs) ||
+      options.billingTimeoutMs <= 0)
+  ) {
+    throw new RangeError(
+      "Usage option `billingTimeoutMs` must be a finite number > 0."
+    );
+  }
+};
+
+export const createUsage = (options: UsageOptions = {}): Usage => {
+  validateUsageOptions(options);
+  const clock = options.clock ?? (() => new Date());
+  const billingBaseRuntime: BillingReadRuntime = {
+    billingTimeoutMs: options.billingTimeoutMs,
+    clock,
+    fetch: options.fetch,
+    maxBillingPages: options.maxBillingPages,
+  };
   const providers = new Map<string, Provider>();
   const accounts = new Map<string, RegisteredAccount>();
 
-  const billedAccount = (options: BillingAccountOptions): RegisteredAccount => {
-    const { billing, name, provider: id } = options;
+  const billedAccount = (input: BillingAccountOptions): RegisteredAccount => {
+    const { billing, name, provider: id } = input;
     if (!Number.isFinite(billing.cap) || billing.cap < 0) {
       throw new Error(`Billing for "${name}" requires a nonnegative USD cap.`);
     }
     const account = {
-      credential: undefined,
       history: async () => undefined,
-      limits: () => billingLimits(options),
+      limits: (callOptions?: AccountCallOptions) =>
+        billingLimits(input, {
+          ...billingBaseRuntime,
+          ...(callOptions?.signal ? { signal: callOptions.signal } : {}),
+        }),
       name,
     };
     if (id === undefined) {
@@ -168,11 +240,11 @@ export const createUsage = (): Usage => {
       return account;
     }
     const scope = id === "openai" ? billing.projectId : billing.workspaceId;
-    if (
-      typeof billing.adminKey !== "string" ||
-      !billing.adminKey.trim() ||
-      scope?.trim() === ""
-    ) {
+    const validKey =
+      typeof billing.adminKey === "function" ||
+      (typeof billing.adminKey === "string" &&
+        Boolean(billing.adminKey.trim()));
+    if (!validKey || scope?.trim() === "") {
       throw new Error(
         `Billing for "${name}" requires an admin key and a nonempty scope ID when scoped.`
       );
@@ -204,27 +276,43 @@ export const createUsage = (): Usage => {
     named: QueryOptions = {}
   ): Promise<Snapshot | readonly Snapshot[]> => {
     if (typeof nameOrOptions === "string") {
+      named.signal?.throwIfAborted();
       const account = accounts.get(nameOrOptions);
       if (!account) {
         throw new Error(`No usage account named "${nameOrOptions}" is added.`);
       }
-      return read(account, sinceDate(named.since));
+      return read(account, {
+        clock,
+        signal: named.signal,
+        since: sinceDate(named.since, clock),
+      });
     }
-    const { provider, since } = nameOrOptions ?? {};
-    const start = sinceDate(since);
+    const { provider, signal, since } = nameOrOptions ?? {};
+    signal?.throwIfAborted();
+    const start = sinceDate(since, clock);
     const selected = [...accounts.values()].filter(
       (account) => provider === undefined || provider === account.provider?.id
     );
-    return Promise.all(selected.map((account) => read(account, start)));
+    return Promise.all(
+      selected.map((account) => read(account, { clock, signal, since: start }))
+    );
   };
 
   return {
     add,
-    budget: (name) => {
+    budget: async (name, callOptions) => {
+      callOptions?.signal?.throwIfAborted();
       const account = accounts.get(name);
-      return account
-        ? readBudget(account).catch(() => undefined)
-        : Promise.resolve(undefined);
+      if (!account) {
+        return;
+      }
+      try {
+        const result = await readBudget(account, clock, callOptions);
+        callOptions?.signal?.throwIfAborted();
+        return result;
+      } catch {
+        callOptions?.signal?.throwIfAborted();
+      }
     },
     initialize: async () => {
       const free = [...providers.values()].filter(
@@ -241,14 +329,22 @@ export const createUsage = (): Usage => {
       );
     },
     query: query as Usage["query"],
-    share: async (name, span = "weekly") => {
+    share: async (name, span?: Span, callOptions?: AccountCallOptions) => {
+      callOptions?.signal?.throwIfAborted();
       const account = accounts.get(name);
       if (!account) {
         return;
       }
-      const reading = await account.limits().catch(() => undefined);
-      const limit = reading && accountWide(reading.limits, span);
-      return limit && resolve(limit, new Date()).headroom.share;
+      let reading: Reading | undefined;
+      try {
+        reading = await account.limits(callOptions);
+      } catch {
+        callOptions?.signal?.throwIfAborted();
+        return;
+      }
+      callOptions?.signal?.throwIfAborted();
+      const limit = accountWide(reading.limits, span ?? "weekly");
+      return limit && resolve(limit, clock()).headroom.share;
     },
     use: (provider) => {
       if (providers.has(provider.id)) {

@@ -39,7 +39,7 @@ export interface PromptsBase extends PromptSource {
     strings: TemplateStringsArray,
     ...values: Interpolation[]
   ): PortablePrompt;
-  remove(source: PromptSource): boolean;
+  remove(source: PromptSource | PromptNames): boolean;
   strict: boolean;
   readonly surface: Surface;
 }
@@ -76,13 +76,25 @@ export function assemble<D extends Record<string, Dialect>>(
   options: PromptsOptions<D>
 ): Prompts<D> {
   const layers: PromptSource[] = [];
+  const wrapped = new WeakMap<PromptNames, PromptSource[]>();
   const dialects = Object.values(options.dialects);
   const byHarness = new Map<string, Tag>();
 
   const base: PromptsBase = {
     ...layered(layers),
     add(source) {
-      layers.push(isSource(source) ? source : namesSource(source));
+      if (isSource(source)) {
+        layers.push(source);
+      } else {
+        const adapted = namesSource(source);
+        layers.push(adapted);
+        const existing = wrapped.get(source);
+        if (existing) {
+          existing.push(adapted);
+        } else {
+          wrapped.set(source, [adapted]);
+        }
+      }
       return this;
     },
     portable(strings, ...values) {
@@ -97,7 +109,20 @@ export function assemble<D extends Record<string, Dialect>>(
       });
     },
     remove(source) {
-      const index = layers.indexOf(source);
+      let target: PromptSource | undefined;
+      if (isSource(source)) {
+        target = source;
+      } else {
+        const existing = wrapped.get(source);
+        target = existing?.shift();
+        if (existing && existing.length === 0) {
+          wrapped.delete(source);
+        }
+      }
+      if (!target) {
+        return false;
+      }
+      const index = layers.indexOf(target);
       if (index === -1) {
         return false;
       }

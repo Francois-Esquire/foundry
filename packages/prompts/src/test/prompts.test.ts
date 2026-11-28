@@ -420,4 +420,28 @@ describe("removing a source", () => {
     expect(check.ok).toBe(true);
     expect(mine.remove(skills)).toBe(false);
   });
+
+  it("removes plain-object PromptNames layers by identity", () => {
+    const names = { skill: ["review"] };
+    const mine = assemble({ dialects: { claude: claudeCode } });
+    mine.add(names);
+    const unresolved = mine.claude`/lint`;
+    expect(mine.has("skill", "review")).toBe(true);
+    expect(unresolved.ok).toBe(false);
+    expect(mine.remove(names)).toBe(true);
+    expect(mine.covers("skill")).toBe(false);
+    expect(unresolved.ok).toBe(true);
+    expect(mine.remove(names)).toBe(false);
+  });
+
+  it("removes repeated plain-object PromptNames registrations one at a time", () => {
+    const names = { skill: ["review"] };
+    const mine = assemble({ dialects: { claude: claudeCode } });
+    mine.add(names).add(names);
+    expect(mine.remove(names)).toBe(true);
+    expect(mine.has("skill", "review")).toBe(true);
+    expect(mine.remove(names)).toBe(true);
+    expect(mine.covers("skill")).toBe(false);
+    expect(mine.remove(names)).toBe(false);
+  });
 });

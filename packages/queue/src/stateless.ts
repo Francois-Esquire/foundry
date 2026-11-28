@@ -3,6 +3,7 @@ import type { JsonValue } from "@foundry/lib/json";
 import { portableProcess } from "@foundry/lib/process-identity";
 import { Cause, Clock, Effect, Exit } from "effect";
 import {
+  type ConcurrencyPool,
   DEFAULT_POOL,
   type ErrorShape,
   type Instant,
@@ -57,6 +58,7 @@ export interface ClaimRunOptions {
   readonly leaseTtlMs?: number;
   readonly owner?: QueueOwner;
   readonly pool?: PoolName;
+  readonly scanLimit?: number;
 }
 
 export interface ClaimedRun {
@@ -69,7 +71,12 @@ export interface SaveRunCheckpointOptions {
   readonly leaseTtlMs?: number;
 }
 
+export interface RenewLeaseOptions {
+  readonly leaseTtlMs: number;
+}
+
 export interface RecoverExpiredLeasesOptions {
+  readonly limit?: number;
   readonly now?: Instant;
 }
 
@@ -141,10 +148,97 @@ export const enqueueJob = (
   });
 };
 
+const DEFAULT_CLAIM_SCAN_LIMIT = 256;
+
+const countActiveByPool = (running: readonly Run[]): Map<PoolName, number> => {
+  const activeByPool = new Map<PoolName, number>();
+  for (const activeRun of running) {
+    activeByPool.set(
+      activeRun.pool,
+      (activeByPool.get(activeRun.pool) ?? 0) + 1
+    );
+  }
+  return activeByPool;
+};
+
+const isPoolBlocked = (
+  pool: ConcurrencyPool | undefined,
+  activeByPool: ReadonlyMap<PoolName, number>
+): boolean =>
+  pool !== undefined &&
+  (pool.state === "paused" || (activeByPool.get(pool.name) ?? 0) >= pool.limit);
+
+const isClaimableRun = (
+  run: Run,
+  now: Instant,
+  owner: QueueOwner,
+  pools: ReadonlyMap<PoolName, ConcurrencyPool>,
+  activeByPool: ReadonlyMap<PoolName, number>,
+  poolFilter: PoolName | undefined
+): boolean =>
+  run.state.kind === "queued" &&
+  (run.state.owner === undefined || sameInstance(run.state.owner, owner)) &&
+  availableAt(run) <= now &&
+  (poolFilter === undefined || run.pool === poolFilter) &&
+  !isPoolBlocked(pools.get(run.pool), activeByPool);
+
+const tryClaimCandidate = (
+  store: QueueStoreService,
+  ledger: ReturnType<typeof makeLedger>,
+  run: Run,
+  options: {
+    readonly allowed: ReadonlySet<string> | undefined;
+    readonly leaseTtlMs: number | undefined;
+    readonly now: Instant;
+    readonly owner: QueueOwner;
+  }
+) =>
+  Effect.gen(function* () {
+    const job = yield* store.getJob(run.jobId);
+    if (
+      job === undefined ||
+      (options.allowed !== undefined && !options.allowed.has(job.handler.name))
+    ) {
+      return { kind: "skip" as const };
+    }
+    const expiresAt = leaseExpiry(options.now, options.leaseTtlMs);
+    const { active, change, running } = starting({
+      ...(expiresAt === undefined ? {} : { expiresAt }),
+      job,
+      now: options.now,
+      owner: options.owner,
+      run,
+    });
+    const outcome = yield* ledger.commit(options.now, change).pipe(
+      Effect.as({ kind: "ok" as const }),
+      Effect.catchIf(
+        (error) => error instanceof WriteConflictError,
+        (error) => Effect.succeed({ error, kind: "conflict" as const })
+      )
+    );
+    if (outcome.kind === "conflict") {
+      return outcome;
+    }
+    return running.state.kind === "running"
+      ? {
+          kind: "claimed" as const,
+          result: {
+            job: active,
+            lease: running.state.lease,
+            run: running,
+          } satisfies ClaimedRun,
+        }
+      : { kind: "skip" as const };
+  });
+
 export const claimRun = (
   store: QueueStoreService,
   options: ClaimRunOptions = {}
 ): Effect.Effect<ClaimedRun | undefined, StoreError> => {
+  const scanLimit = options.scanLimit ?? DEFAULT_CLAIM_SCAN_LIMIT;
+  if (!Number.isFinite(scanLimit) || scanLimit <= 0) {
+    return Effect.succeed(undefined);
+  }
   const ledger = makeLedger(store);
   const owner = options.owner ?? ephemeralOwner();
   const allowed =
@@ -158,76 +252,42 @@ export const claimRun = (
       const pools = new Map(
         (yield* store.listPools).map((pool) => [pool.name, pool])
       );
-      const activeByPool = new Map<PoolName, number>();
-      for (const activeRun of yield* store.listRuns({ state: "running" })) {
-        activeByPool.set(
-          activeRun.pool,
-          (activeByPool.get(activeRun.pool) ?? 0) + 1
-        );
-      }
-      const queued = (yield* store.listRuns({ state: "queued" }))
-        .filter((run) => {
-          if (run.state.kind !== "queued") {
-            return false;
-          }
-          if (
-            run.state.owner !== undefined &&
-            !sameInstance(run.state.owner, owner)
-          ) {
-            return false;
-          }
-          if (
-            availableAt(run) > now ||
-            (options.pool !== undefined && run.pool !== options.pool)
-          ) {
-            return false;
-          }
-          const pool = pools.get(run.pool);
-          if (pool?.state === "paused") {
-            return false;
-          }
-          if (
-            pool !== undefined &&
-            (activeByPool.get(run.pool) ?? 0) >= pool.limit
-          ) {
-            return false;
-          }
-          return true;
+      const activeByPool = countActiveByPool(
+        yield* store.listRuns({
+          ...(options.pool === undefined ? {} : { pool: options.pool }),
+          state: "running",
         })
+      );
+      if (
+        options.pool !== undefined &&
+        isPoolBlocked(pools.get(options.pool), activeByPool)
+      ) {
+        return;
+      }
+      const queued = (yield* store.listRuns({
+        availableBefore: now,
+        limit: Math.max(1, Math.floor(scanLimit)),
+        orderBy: "availableAt",
+        ...(options.pool === undefined ? {} : { pool: options.pool }),
+        state: "queued",
+      }))
+        .filter((run) =>
+          isClaimableRun(run, now, owner, pools, activeByPool, options.pool)
+        )
         .sort((one, other) => availableAt(one) - availableAt(other));
       let lastConflict: WriteConflictError | undefined;
       for (const run of queued) {
-        const job = yield* store.getJob(run.jobId);
-        if (
-          job === undefined ||
-          (allowed !== undefined && !allowed.has(job.handler.name))
-        ) {
-          continue;
-        }
-        const expiresAt = leaseExpiry(now, options.leaseTtlMs);
-        const { active, change, running } = starting({
-          ...(expiresAt === undefined ? {} : { expiresAt }),
-          job,
+        const outcome = yield* tryClaimCandidate(store, ledger, run, {
+          allowed,
+          leaseTtlMs: options.leaseTtlMs,
           now,
           owner,
-          run,
         });
-        const claimed = yield* ledger.commit(now, change).pipe(
-          Effect.as(true),
-          Effect.catchIf(
-            (error) => error instanceof WriteConflictError,
-            (error) => {
-              lastConflict = error;
-              return Effect.succeed(false);
-            }
-          )
-        );
-        if (claimed && running.state.kind === "running") {
-          return {
-            job: active,
-            lease: running.state.lease,
-            run: running,
-          } satisfies ClaimedRun;
+        if (outcome.kind === "claimed") {
+          return outcome.result;
+        }
+        if (outcome.kind === "conflict") {
+          lastConflict = outcome.error;
         }
       }
       if (lastConflict !== undefined) {
@@ -320,7 +380,12 @@ export const recoverExpiredLeases = (
   return Effect.gen(function* () {
     const now = options.now ?? (yield* Clock.currentTimeMillis);
     const interrupted: RunId[] = [];
-    for (const run of yield* store.listRuns({ state: "running" })) {
+    for (const run of yield* store.listRuns({
+      leaseExpiredBefore: now,
+      limit: options.limit ?? 100,
+      orderBy: "leaseExpiresAt",
+      state: "running",
+    })) {
       if (run.state.kind !== "running") {
         continue;
       }
@@ -386,6 +451,42 @@ export const cancelJob = (
         suspension: blocking,
       });
       yield* ledger.commit(now, cancelled.change);
+    })
+  );
+};
+
+export const renewLease = (
+  store: QueueStoreService,
+  runId: RunId,
+  lease: Lease,
+  options: RenewLeaseOptions
+): Effect.Effect<Lease | undefined, StoreError | WriteConflictError> => {
+  const ledger = makeLedger(store);
+  return retryOnConflict(
+    Effect.gen(function* () {
+      const run = yield* store.getRun(runId);
+      if (!heldBy(run, lease)) {
+        return;
+      }
+      const now = yield* Clock.currentTimeMillis;
+      const expiresAt = leaseExpiry(now, options.leaseTtlMs);
+      if (expiresAt === undefined) {
+        return run.state.lease;
+      }
+      const nextLease: Lease = { ...run.state.lease, expiresAt };
+      yield* ledger.commit(now, {
+        facts: [],
+        write: {
+          runs: [
+            {
+              ...run,
+              revision: run.revision + 1,
+              state: { ...run.state, lease: nextLease },
+            },
+          ],
+        },
+      });
+      return nextLease;
     })
   );
 };

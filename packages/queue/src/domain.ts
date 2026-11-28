@@ -245,7 +245,12 @@ export interface JobFilter {
 }
 
 export interface RunFilter {
+  readonly availableBefore?: Instant;
   readonly jobId?: JobId;
+  readonly leaseExpiredBefore?: Instant;
+  readonly limit?: number;
+  readonly orderBy?: "availableAt" | "leaseExpiresAt";
+  readonly pool?: PoolName;
   readonly state?: RunState["kind"];
 }
 

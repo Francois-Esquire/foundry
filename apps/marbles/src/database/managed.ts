@@ -228,7 +228,8 @@ function sideStores(
     getGrant: (id) => authorization((store) => store.getGrant(id)),
     getRestriction: (id) => authorization((store) => store.getRestriction(id)),
     listGrants: (query) => authorization((store) => store.listGrants(query)),
-    listRestrictions: () => authorization((store) => store.listRestrictions()),
+    listRestrictions: (query) =>
+      authorization((store) => store.listRestrictions(query)),
     transaction: (work) => authorization((store) => store.transaction(work)),
   };
   return {

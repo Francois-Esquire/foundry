@@ -5,7 +5,7 @@ import {
   Effect,
   ExecutionStrategy,
   type Exit,
-  type Fiber,
+  Fiber,
   Schedule,
   Scope,
 } from "effect";
@@ -25,6 +25,7 @@ import {
 import { type Ledger, retryOnConflict } from "./ledger";
 import type { RunContext, RunHandler } from "./service";
 import type { Settlement } from "./settlement";
+import { renewLease } from "./stateless";
 import { availableAt, heldBy, leaseExpiry, starting } from "./transitions";
 
 const LOOP_RETRY_MS = 1000;
@@ -49,15 +50,38 @@ const withTimeout =
 export interface DispatcherOptions {
   readonly capacity: Capacity;
   readonly handlers: ReadonlyMap<string, RunHandler>;
+  readonly leaseHeartbeatMs?: number;
   readonly leaseTtlMs?: number;
   readonly ledger: Ledger;
   readonly self: QueueOwner;
   readonly settlement: Settlement;
 }
 
+const resolveHeartbeatIntervalMs = (
+  leaseTtlMs: number | undefined,
+  leaseHeartbeatMs: number | undefined
+): number | undefined => {
+  if (
+    leaseTtlMs === undefined ||
+    !Number.isFinite(leaseTtlMs) ||
+    leaseTtlMs <= 0
+  ) {
+    return undefined;
+  }
+  const defaultIntervalMs = Math.max(1, Math.floor(leaseTtlMs / 3));
+  if (leaseHeartbeatMs !== undefined) {
+    if (!Number.isFinite(leaseHeartbeatMs) || leaseHeartbeatMs <= 0) {
+      return undefined;
+    }
+    return leaseHeartbeatMs < leaseTtlMs ? leaseHeartbeatMs : defaultIntervalMs;
+  }
+  return defaultIntervalMs;
+};
+
 export const makeDispatcher = ({
   capacity,
   handlers,
+  leaseHeartbeatMs,
   leaseTtlMs,
   ledger,
   self,
@@ -204,7 +228,11 @@ export const makeDispatcher = ({
     const execute = (job: Job, run: Run, lease: Lease, handler: RunHandler) =>
       Effect.gen(function* () {
         const controller = new AbortController();
-        const exit = yield* contextFor(job, run, lease, controller.signal).pipe(
+        const heartbeatIntervalMs = resolveHeartbeatIntervalMs(
+          leaseTtlMs,
+          leaseHeartbeatMs
+        );
+        const runHandler = contextFor(job, run, lease, controller.signal).pipe(
           Effect.mapError(
             (error): ErrorShape => ({ message: String(error), name: "store" })
           ),
@@ -214,9 +242,40 @@ export const makeDispatcher = ({
             )
           ),
           withTimeout(job.policy.timeoutMs),
-          Effect.interruptible,
-          Effect.exit
+          Effect.interruptible
         );
+        const heartbeat = (ttlMs: number, intervalMs: number) =>
+          Effect.gen(function* () {
+            for (;;) {
+              yield* Effect.sleep(Duration.millis(intervalMs));
+              const renewed = yield* renewLease(store, run.id, lease, {
+                leaseTtlMs: ttlMs,
+              }).pipe(
+                Effect.map((next) => ({ kind: "ok" as const, next })),
+                Effect.catchAll((error) =>
+                  Effect.as(
+                    Effect.logWarning("lease heartbeat failed", error),
+                    { kind: "retry" as const }
+                  )
+                )
+              );
+              if (renewed.kind === "ok" && renewed.next === undefined) {
+                yield* Effect.sync(() => {
+                  controller.abort(new Error(`lease lost for run ${run.id}`));
+                });
+                return;
+              }
+            }
+          }).pipe(Effect.interruptible);
+        const exit = yield* (
+          heartbeatIntervalMs === undefined || leaseTtlMs === undefined
+            ? runHandler
+            : Effect.acquireUseRelease(
+                Effect.fork(heartbeat(leaseTtlMs, heartbeatIntervalMs)),
+                () => runHandler,
+                (heartbeatFiber) => Fiber.interrupt(heartbeatFiber)
+              )
+        ).pipe(Effect.exit);
         yield* mutate(settle(run.id, lease, exit)).pipe(
           Effect.uninterruptible,
           Effect.tapError((error) =>

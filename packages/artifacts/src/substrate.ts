@@ -190,6 +190,11 @@ export interface ArtifactOperations {
   write(input: WriteInput): Promise<ContentResolved>;
 }
 
+export interface RecoverOptions {
+  readonly orphanGraceMs?: number;
+  readonly signal?: AbortSignal;
+}
+
 export type ArtifactChangeCause = "commit" | "recovery";
 
 export type ArtifactObserver = (
@@ -201,7 +206,7 @@ export interface ArtifactSubstrate extends ArtifactOperations {
   bind(apply: (artifactId: ArtifactId) => Promise<void>): () => void;
   readonly durability?: ArtifactStoreDurability;
   observe(changed: ArtifactObserver): () => void;
-  recover(): Promise<void>;
+  recover(options?: RecoverOptions): Promise<void>;
   transaction<T>(
     operation: (
       artifacts: ArtifactOperations,

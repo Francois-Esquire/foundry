@@ -38,6 +38,7 @@ export interface ClaudeProbe {
   readonly executable?: string;
   readonly initTimeoutMs: number;
   readonly query?: ClaudeQuery;
+  readonly signal?: AbortSignal;
   readonly usageTimeoutMs: number;
 }
 
@@ -63,9 +64,13 @@ const silentPrompt = (signal: AbortSignal): AsyncIterable<SDKUserMessage> => {
 export const readClaudeLimits = async (
   probe: ClaudeProbe
 ): Promise<Reading> => {
+  probe.signal?.throwIfAborted();
   const query =
     probe.query ?? (await import("@anthropic-ai/claude-agent-sdk")).query;
+  probe.signal?.throwIfAborted();
   const abortController = new AbortController();
+  const onAbort = () => abortController.abort(probe.signal?.reason);
+  probe.signal?.addEventListener("abort", onAbort, { once: true });
   const session = query({
     options: {
       abortController,
@@ -90,7 +95,8 @@ export const readClaudeLimits = async (
     const init = await within(
       session.initializationResult(),
       probe.initTimeoutMs,
-      `Claude Code did not start within ${probe.initTimeoutMs} ms.`
+      `Claude Code did not start within ${probe.initTimeoutMs} ms.`,
+      probe.signal
     );
     const account = record(record(init).account);
     const refused = refusal(account);
@@ -100,10 +106,12 @@ export const readClaudeLimits = async (
     const usage = await within(
       session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(),
       probe.usageTimeoutMs,
-      `Claude Code did not report usage within ${probe.usageTimeoutMs} ms.`
+      `Claude Code did not report usage within ${probe.usageTimeoutMs} ms.`,
+      probe.signal
     );
     return claudeReading(account, usage);
   } finally {
+    probe.signal?.removeEventListener("abort", onAbort);
     abortController.abort();
     session.close();
   }

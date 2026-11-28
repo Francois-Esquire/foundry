@@ -139,6 +139,9 @@ const makeQueue = (options: QueueOptions) =>
     const { locked, mutate, nudge, releaseStaleSlots } = yield* makeDispatcher({
       capacity,
       handlers,
+      ...(options.leaseHeartbeatMs === undefined
+        ? {}
+        : { leaseHeartbeatMs: options.leaseHeartbeatMs }),
       ...(options.leaseTtlMs === undefined
         ? {}
         : { leaseTtlMs: options.leaseTtlMs }),
@@ -154,7 +157,11 @@ const makeQueue = (options: QueueOptions) =>
     );
 
     const syncIntervalMs = options.syncIntervalMs ?? DEFAULT_SYNC_INTERVAL_MS;
-    if (Number.isFinite(syncIntervalMs) && syncIntervalMs > 0) {
+    if (
+      store.capabilities?.watermark !== false &&
+      Number.isFinite(syncIntervalMs) &&
+      syncIntervalMs > 0
+    ) {
       const from = yield* store.watermark;
       yield* Effect.forkScoped(
         watchStore({

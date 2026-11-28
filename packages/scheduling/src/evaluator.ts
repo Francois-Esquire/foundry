@@ -126,16 +126,46 @@ const latestSettle = (settled: readonly Occurrence[]) =>
     undefined
   );
 
-const afterSettle = (
-  schedule: Schedule,
+export const makeStoreCommit =
+  (store: ScheduleStoreService): Commit =>
+  (at, facts, write) =>
+    store.commit({
+      ...write,
+      events: facts.map(
+        (fact): ScheduleEvent => ({
+          ...fact,
+          at,
+          id: `ev-${crypto.randomUUID()}`,
+        })
+      ),
+    });
+
+const settleCursor = (
+  schedule: Schedule | undefined,
   cursor: ScheduleCursor,
+  activeJobId: string | undefined,
   settledAt: Instant | undefined
-): ScheduleCursor =>
-  schedule.cadence.kind === "delay" &&
-  settledAt !== undefined &&
-  cursor.activeJobId === undefined
-    ? { ...cursor, nextDueAt: nextDue(schedule.cadence, settledAt) }
-    : cursor;
+): ScheduleCursor => {
+  const lastSettledAt =
+    settledAt === undefined
+      ? cursor.lastSettledAt
+      : Math.max(cursor.lastSettledAt ?? settledAt, settledAt);
+  const base = withActive(
+    {
+      ...cursor,
+      ...(lastSettledAt === undefined ? {} : { lastSettledAt }),
+    },
+    activeJobId
+  );
+  return schedule?.cadence.kind === "delay" &&
+    settledAt !== undefined &&
+    base.activeJobId === undefined
+    ? {
+        ...base,
+        nextDueAt: nextDue(schedule.cadence, lastSettledAt ?? settledAt),
+      }
+    : base;
+};
 
 export const makeEvaluator = ({
   claimTtlMs,
@@ -189,19 +219,8 @@ export const makeEvaluator = ({
         )
         .at(-1);
       const settledAt = latestSettle(settled);
-      const lastSettledAt = settledAt ?? cursor.lastSettledAt;
       return {
-        cursor: afterSettle(
-          schedule,
-          withActive(
-            {
-              ...cursor,
-              ...(lastSettledAt === undefined ? {} : { lastSettledAt }),
-            },
-            active
-          ),
-          settledAt
-        ),
+        cursor: settleCursor(schedule, cursor, active, settledAt),
         decided: [],
         facts: settled.map((occurrence) => ({
           occurrence,
@@ -219,13 +238,24 @@ export const makeEvaluator = ({
       : undefined;
 
   const claimExpired = (
-    lease: { readonly claimedAt: Instant; readonly owner: SchedulerOwner },
+    lease: {
+      readonly claimedAt: Instant;
+      readonly expiresAt?: Instant;
+      readonly owner: SchedulerOwner;
+    },
     now: Instant
   ) =>
-    validClaimTtlMs !== undefined && lease.claimedAt + validClaimTtlMs <= now;
+    lease.expiresAt === undefined
+      ? validClaimTtlMs !== undefined &&
+        lease.claimedAt + validClaimTtlMs <= now
+      : lease.expiresAt <= now;
 
   const claimStale = (
-    lease: { readonly claimedAt: Instant; readonly owner: SchedulerOwner },
+    lease: {
+      readonly claimedAt: Instant;
+      readonly expiresAt?: Instant;
+      readonly owner: SchedulerOwner;
+    },
     now: Instant
   ) =>
     Effect.sync(
@@ -311,7 +341,13 @@ export const makeEvaluator = ({
         state: {
           claimedAt: now,
           kind: "claimed",
-          lease: { claimedAt: now, owner: self },
+          lease: {
+            claimedAt: now,
+            ...(validClaimTtlMs === undefined
+              ? {}
+              : { expiresAt: now + validClaimTtlMs }),
+            owner: self,
+          },
         },
       };
       const exclusive: boolean = schedule.overlap !== "allow";
@@ -484,6 +520,7 @@ export const makeEvaluator = ({
   return { evaluate, triggerNow };
 };
 
+export const DEFAULT_CLAIM_TTL_MS = 60_000;
 const DEFAULT_MAX_OCCURRENCES = 100;
 const DEFAULT_SETTLE_POLL_MS = 5000;
 
@@ -524,21 +561,9 @@ export const evaluateDueSchedules = (
           (instance) => Effect.sync(() => closeInstance(instance))
         ));
       const settlePollMs = options.settlePollMs ?? DEFAULT_SETTLE_POLL_MS;
-      const commit: Commit = (at, facts, write) =>
-        options.store.commit({
-          ...write,
-          events: facts.map(
-            (fact): ScheduleEvent => ({
-              ...fact,
-              at,
-              id: `ev-${crypto.randomUUID()}`,
-            })
-          ),
-        });
+      const commit = makeStoreCommit(options.store);
       const { evaluate } = makeEvaluator({
-        ...(options.claimTtlMs === undefined
-          ? {}
-          : { claimTtlMs: options.claimTtlMs }),
+        claimTtlMs: options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS,
         commit,
         dispatch: options.dispatch,
         isOwnerGone: options.isOwnerGone ?? neverGone,
@@ -548,10 +573,14 @@ export const evaluateDueSchedules = (
         store: options.store,
       });
       const now = options.now ?? (yield* Clock.currentTimeMillis);
+      const candidates =
+        options.store.listDueSchedules === undefined
+          ? yield* options.store.listSchedules
+          : yield* options.store.listDueSchedules(now);
       const decided: Occurrence[] = [];
       const errors: ScheduleEvaluationFailure[] = [];
       let soonest: Instant | undefined;
-      for (const schedule of yield* options.store.listSchedules) {
+      for (const schedule of candidates) {
         const result = yield* evaluate(schedule, now).pipe(
           Effect.catchAll((error) => {
             errors.push({ error, scheduleId: schedule.id });
@@ -567,6 +596,12 @@ export const evaluateDueSchedules = (
         if (result.open) {
           soonest = earliest(soonest, now + settlePollMs);
         }
+      }
+      if (
+        options.store.listDueSchedules !== undefined &&
+        options.store.nextDueAt !== undefined
+      ) {
+        soonest = earliest(soonest, (yield* options.store.nextDueAt) ?? null);
       }
       return { decided, errors, soonest };
     })

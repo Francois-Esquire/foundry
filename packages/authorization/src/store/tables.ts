@@ -31,6 +31,11 @@ export const authorizationGrants = sqliteTable(
       table.position
     ),
     index("authorization_grants_scope_state").on(table.scope, table.state),
+    index("authorization_grants_scope_state_action").on(
+      table.scope,
+      table.state,
+      table.action
+    ),
     index("authorization_grants_scope_session").on(
       table.scope,
       table.sessionId
@@ -65,6 +70,10 @@ export const authorizationRestrictions = sqliteTable(
     index("authorization_restrictions_scope_position").on(
       table.scope,
       table.position
+    ),
+    index("authorization_restrictions_scope_action").on(
+      table.scope,
+      table.action
     ),
   ]
 );

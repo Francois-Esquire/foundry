@@ -54,19 +54,24 @@ export class ArtifactExistsError extends ArtifactError {
 }
 
 export class StaleContentError extends ArtifactError {
-  readonly artifactId: ArtifactId;
+  readonly artifactId: ArtifactId | null;
   readonly current: {
     readonly contentId: ContentId | null;
     readonly updatedAt: Date | null;
   };
   constructor(
-    artifactId: ArtifactId,
+    artifactId: ArtifactId | null,
     current: {
       readonly contentId: ContentId | null;
       readonly updatedAt: Date | null;
-    }
+    },
+    contentId?: ContentId
   ) {
-    super(`[artifacts] Artifact "${artifactId}" changed under the write`);
+    super(
+      artifactId === null
+        ? `[artifacts] Content "${contentId ?? current.contentId ?? "unknown"}" changed under the write`
+        : `[artifacts] Artifact "${artifactId}" changed under the write`
+    );
     this.artifactId = artifactId;
     this.current = current;
   }

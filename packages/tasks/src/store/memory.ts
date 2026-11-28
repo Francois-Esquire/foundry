@@ -1,5 +1,6 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
 import { Turns } from "@foundry/lib/turns";
+import { TaskError } from "../errors";
 import type {
   Task,
   TaskDependency,
@@ -48,17 +49,19 @@ export class MemoryTaskStore implements TaskStore {
   }
 
   list(query: TaskStoreListQuery = {}): Promise<readonly Task[]> {
-    return this.turns.run(() =>
-      Promise.resolve(
-        [...this.tasks.values()]
-          .filter(
-            (task) =>
-              (query.status === undefined || task.status === query.status) &&
-              (query.parentId === undefined || task.parentId === query.parentId)
-          )
-          .map((task) => structuredClone(task))
-      )
-    );
+    return this.turns.run(() => {
+      if (query.ids !== undefined && query.ids.length === 0) {
+        return Promise.resolve([]);
+      }
+      const idSet = query.ids === undefined ? undefined : new Set(query.ids);
+      const filtered = [...this.tasks.values()].filter(
+        (task) =>
+          (idSet === undefined || idSet.has(task.id)) &&
+          (query.status === undefined || task.status === query.status) &&
+          (query.parentId === undefined || task.parentId === query.parentId)
+      );
+      return Promise.resolve(filtered.map((task) => structuredClone(task)));
+    });
   }
 
   children(parentId: TaskId): Promise<readonly Task[]> {
@@ -105,6 +108,23 @@ export class MemoryTaskStore implements TaskStore {
   }
 
   private apply(write: TaskStoreWrite): void {
+    for (const [id, expected] of Object.entries(
+      write.expectedUpdatedAt ?? {}
+    )) {
+      const current = this.tasks.get(id as TaskId);
+      if (expected === null) {
+        if (current !== undefined) {
+          throw new TaskError("conflict", `Task ${id} already exists`);
+        }
+        continue;
+      }
+      if (current === undefined || current.updatedAt !== expected) {
+        throw new TaskError(
+          "conflict",
+          `Task ${id} changed at ${current?.updatedAt ?? "missing"}, expected ${expected}`
+        );
+      }
+    }
     for (const id of write.deleteTasks ?? []) {
       this.tasks.delete(id);
     }

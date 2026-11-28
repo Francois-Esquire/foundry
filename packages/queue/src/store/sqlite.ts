@@ -5,7 +5,17 @@ import {
   type SqliteTransaction,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import { and, eq, getTableColumns, inArray, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  lte,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import type {
   SQLiteColumn,
   SQLiteTable,
@@ -17,6 +27,7 @@ import {
   type Job,
   type JobId,
   type Run,
+  type RunFilter,
   StoreError,
   type Suspension,
   WriteConflictError,
@@ -107,11 +118,15 @@ const writeRecords = async (
       body: run,
       id: run.id,
       jobId: run.jobId,
+      leaseExpiresAt:
+        run.state.kind === "running"
+          ? (run.state.lease.expiresAt ?? null)
+          : null,
       pool: run.pool,
       scope,
       state: run.state.kind,
     })),
-    ["availableAt", "body", "pool", "state"],
+    ["availableAt", "body", "leaseExpiresAt", "pool", "state"],
     maxParameters
   );
   await upsert(
@@ -320,7 +335,10 @@ export const makeSqliteQueueStore = (
   const first = <Body>(rows: Effect.Effect<readonly Body[], StoreError>) =>
     Effect.map(rows, ([found]) => found);
 
+  const watermarkEnabled = options.watermark ?? true;
+
   return {
+    capabilities: { watermark: watermarkEnabled },
     commit: (write) =>
       Effect.tryPromise({
         catch: (cause) =>
@@ -372,13 +390,23 @@ export const makeSqliteQueueStore = (
       );
     }),
     listRuns: (filter = {}) =>
-      bodies<Run>(
-        queueRuns,
-        matching(
-          [queueRuns.state, filter.state],
-          [queueRuns.jobId, filter.jobId]
-        )
-      ),
+      run(async () => {
+        const conditions = buildRunFilterConditions(scope, filter);
+        const base = database
+          .select({ body: queueRuns.body })
+          .from(queueRuns)
+          .where(and(...conditions));
+        const orderColumn = orderColumnFor(filter.orderBy);
+        const orderedQuery =
+          orderColumn === undefined
+            ? base
+            : base.orderBy(orderColumn, asc(queueRuns.id));
+        const rows =
+          filter.limit === undefined
+            ? await orderedQuery
+            : await orderedQuery.limit(Math.max(0, filter.limit));
+        return rows.map((row) => row.body);
+      }),
     listSuspensions: (filter = {}) =>
       bodies<Suspension>(
         queueSuspensions,
@@ -395,6 +423,46 @@ export const makeSqliteQueueStore = (
       return row?.value ?? 0;
     }),
   };
+};
+
+const buildRunFilterConditions = (
+  scope: string,
+  filter: RunFilter
+): (SQL | undefined)[] => {
+  const conditions: (SQL | undefined)[] = [
+    eq(queueRuns.scope, scope),
+    filter.state === undefined ? undefined : eq(queueRuns.state, filter.state),
+    filter.jobId === undefined ? undefined : eq(queueRuns.jobId, filter.jobId),
+    filter.pool === undefined ? undefined : eq(queueRuns.pool, filter.pool),
+    filter.availableBefore === undefined
+      ? undefined
+      : and(
+          isNotNull(queueRuns.availableAt),
+          lte(queueRuns.availableAt, filter.availableBefore)
+        ),
+    filter.leaseExpiredBefore === undefined
+      ? undefined
+      : and(
+          isNotNull(queueRuns.leaseExpiresAt),
+          lte(queueRuns.leaseExpiresAt, filter.leaseExpiredBefore)
+        ),
+  ];
+  if (filter.orderBy === "availableAt") {
+    conditions.push(isNotNull(queueRuns.availableAt));
+  }
+  if (filter.orderBy === "leaseExpiresAt") {
+    conditions.push(isNotNull(queueRuns.leaseExpiresAt));
+  }
+  return conditions;
+};
+
+const orderColumnFor = (orderBy: RunFilter["orderBy"]) => {
+  if (orderBy === "availableAt") {
+    return asc(queueRuns.availableAt);
+  }
+  if (orderBy === "leaseExpiresAt") {
+    return asc(queueRuns.leaseExpiresAt);
+  }
 };
 
 export const SqliteQueueStore = (

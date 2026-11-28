@@ -127,7 +127,11 @@ const step = (state: Rollout, value: unknown): Work | undefined => {
   }
 };
 
-const readRollout = async (file: string): Promise<Work[]> => {
+const readRollout = async (
+  file: string,
+  signal?: AbortSignal
+): Promise<Work[]> => {
+  signal?.throwIfAborted();
   const state: Rollout = {
     model: "",
     sawMeta: false,
@@ -135,7 +139,7 @@ const readRollout = async (file: string): Promise<Work[]> => {
     standardSpeed: true,
   };
   const works: Work[] = [];
-  for await (const value of jsonLines(file, MARKERS)) {
+  for await (const value of jsonLines(file, MARKERS, signal)) {
     const work = step(state, value);
     if (work) {
       works.push(work);
@@ -146,13 +150,16 @@ const readRollout = async (file: string): Promise<Work[]> => {
 
 export const readCodexHistory = async (
   home: string,
-  since: Date
+  since: Date,
+  signal?: AbortSignal
 ): Promise<Work[]> => {
+  signal?.throwIfAborted();
   const files = await historyFiles(
     [join(home, "sessions"), join(home, "archived_sessions")],
-    since
+    since,
+    signal
   );
-  const perFile = await mapLimit(files, readRollout);
+  const perFile = await mapLimit(files, (file) => readRollout(file, signal));
   const filesBySession = new Map<string, number>();
   for (const works of perFile) {
     for (const session of new Set(works.map((work) => work.session))) {

@@ -22,6 +22,11 @@ declare module "../../snapshot" {
 
 interface CodexProcess {
   kill(signal?: NodeJS.Signals): boolean;
+  off?(
+    event: "error",
+    listener: (error: Error & { code?: string }) => void
+  ): unknown;
+  off?(event: "exit", listener: () => void): unknown;
   on(
     event: "error",
     listener: (error: Error & { code?: string }) => void
@@ -44,6 +49,8 @@ const WEEK_MINS = 10_080;
 const MONTH_MINS = 43_200;
 const NO_METHOD = -32_601;
 
+const KILL_GRACE_MS = 250;
+
 const connect = (child: CodexProcess) => {
   const pending = new Map<
     number,
@@ -51,8 +58,14 @@ const connect = (child: CodexProcess) => {
   >();
   let nextId = 1;
   let closed: Error | undefined;
+  let exited = false;
+  const rl = createInterface({ input: child.stdout });
+  const closeReadline = () => {
+    rl.close();
+  };
   const fail = (error: Error) => {
     closed ??= error;
+    closeReadline();
     for (const entry of pending.values()) {
       entry.reject(closed);
     }
@@ -63,7 +76,7 @@ const connect = (child: CodexProcess) => {
       child.stdin.write(`${JSON.stringify(message)}\n`);
     }
   };
-  createInterface({ input: child.stdout }).on("line", (line) => {
+  rl.on("line", (line) => {
     let message: Record<string, unknown>;
     try {
       message = record(JSON.parse(line));
@@ -93,19 +106,49 @@ const connect = (child: CodexProcess) => {
       entry?.resolve(message.result);
     }
   });
-  child.on("error", (error) =>
+  child.on("error", (error) => {
+    exited = true;
     fail(
       error.code === "ENOENT"
         ? new Error("Codex is not installed: no `codex` on PATH.")
         : error
-    )
-  );
-  child.on("exit", () => fail(new Error("Codex app-server exited.")));
+    );
+  });
+  child.on("exit", () => {
+    exited = true;
+    fail(new Error("Codex app-server exited."));
+  });
   child.stdin.on("error", () =>
     fail(new Error("Codex app-server stopped reading."))
   );
+  child.stdout.on("error", () =>
+    fail(new Error("Codex app-server stdout failed."))
+  );
+  child.stderr?.on("error", () => undefined);
   child.stderr?.resume();
+  const closeStreams = () => {
+    closeReadline();
+    try {
+      if (!child.stdin.destroyed) {
+        child.stdin.end();
+      }
+    } catch {
+      // Ignore stream shutdown errors.
+    }
+    try {
+      child.stdout.destroy();
+    } catch {
+      // Ignore stream shutdown errors.
+    }
+    try {
+      child.stderr?.destroy();
+    } catch {
+      // Ignore stream shutdown errors.
+    }
+  };
   return {
+    close: closeStreams,
+    hasExited: () => exited,
     notify: (method: string) => write({ method }),
     request: (method: string, params: unknown) =>
       closed
@@ -119,18 +162,66 @@ const connect = (child: CodexProcess) => {
   };
 };
 
+const safeKill = (child: CodexProcess, signal: NodeJS.Signals): void => {
+  try {
+    child.kill(signal);
+  } catch {
+    // Process may have already exited or failed to spawn.
+  }
+};
+
+const terminateChild = async (
+  child: CodexProcess,
+  hasExited: () => boolean
+): Promise<void> => {
+  if (hasExited()) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      child.off?.("exit", onDone);
+      child.off?.("error", onDone);
+      resolve();
+    };
+    const onDone = () => {
+      finish();
+    };
+    const timer = setTimeout(() => {
+      if (!hasExited()) {
+        safeKill(child, "SIGKILL");
+      }
+      finish();
+    }, KILL_GRACE_MS);
+    timer.unref?.();
+    child.on("exit", onDone);
+    child.on("error", onDone);
+    safeKill(child, "SIGTERM");
+    if (hasExited()) {
+      finish();
+    }
+  });
+};
+
 export const readCodexLimits = async (options: {
   readonly cwd: string;
   readonly env: Record<string, string>;
+  readonly signal?: AbortSignal;
   readonly spawn: SpawnCodex;
   readonly timeoutMs: number;
 }): Promise<Reading> => {
+  options.signal?.throwIfAborted();
   const child = options.spawn("codex", ["app-server"], {
     cwd: options.cwd,
     env: options.env,
   });
+  const server = connect(child);
   const read = async () => {
-    const server = connect(child);
     await server.request("initialize", {
       capabilities: { experimentalApi: true },
       clientInfo: {
@@ -154,10 +245,12 @@ export const readCodexLimits = async (options: {
     return await within(
       read(),
       options.timeoutMs,
-      `Codex did not report usage within ${options.timeoutMs} ms.`
+      `Codex did not report usage within ${options.timeoutMs} ms.`,
+      options.signal
     );
   } finally {
-    child.kill("SIGTERM");
+    server.close();
+    await terminateChild(child, server.hasExited);
   }
 };
 

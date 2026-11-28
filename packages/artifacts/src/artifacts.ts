@@ -40,6 +40,7 @@ import type {
   FreezeOption,
   ListArtifactsInput,
   ListContentsInput,
+  RecoverOptions,
   ReviseInput,
   WriteInput,
 } from "./substrate";
@@ -56,6 +57,7 @@ export interface ArtifactsOptions {
   readonly id?: () => string;
   readonly maxFileBytes?: number;
   readonly maxTreeBytes?: number;
+  readonly orphanGraceMs?: number;
   readonly store?: ArtifactStore;
 }
 
@@ -69,14 +71,46 @@ interface StoreTurn {
 
 const storeTurns = asyncScope<StoreTurn>();
 
+const DEFAULT_ORPHAN_GRACE_MS = 0;
+
+function validateOrphanGraceMs(value: number): number {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError("orphanGraceMs must be a finite number >= 0");
+  }
+  return value;
+}
+
 const REENTRY =
   "[artifacts] The Artifact store was called from inside its own transaction; use the operations passed to that transaction's work instead";
+
+async function loadRetainedBlobPaths(
+  store: ArtifactStore,
+  signal: AbortSignal | undefined
+): Promise<ReadonlySet<string>> {
+  const { listBlobsPage } = store;
+  const blobs =
+    listBlobsPage === undefined
+      ? await store.listBlobs()
+      : await collectPages<
+          Awaited<ReturnType<typeof store.listBlobs>>[number],
+          BlobId
+        >(
+          (blobCursor) =>
+            listBlobsPage.call(
+              store,
+              blobCursor === undefined ? {} : { cursor: blobCursor }
+            ),
+          signal ? { signal } : undefined
+        );
+  return new Set(blobs.flatMap((blob) => (blob.path ? [blob.path] : [])));
+}
 
 export class Artifacts implements ArtifactSubstrate {
   readonly durability: ArtifactStoreDurability;
   readonly #store: ArtifactStore;
   readonly #held: boolean;
   readonly #limits: TransactionLimits;
+  readonly #orphanGraceMs: number;
   readonly #bindings = new Set<(id: ArtifactId) => Promise<void>>();
   readonly #observers = new Set<ArtifactObserver>();
   #tail: Promise<unknown> = Promise.resolve();
@@ -86,6 +120,9 @@ export class Artifacts implements ArtifactSubstrate {
   readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
   constructor(options: ArtifactsOptions = {}) {
+    this.#orphanGraceMs = validateOrphanGraceMs(
+      options.orphanGraceMs ?? DEFAULT_ORPHAN_GRACE_MS
+    );
     this.#store = options.store ?? new MemoryArtifactStore();
     this.durability = this.#store.durability ?? "commit";
     this.#held = this.durability === "host";
@@ -398,7 +435,7 @@ export class Artifacts implements ArtifactSubstrate {
     return this.transaction((artifacts) => artifacts.sweep(input));
   }
 
-  async recover(): Promise<void> {
+  async recover(options: RecoverOptions = {}): Promise<void> {
     if (this.#held) {
       throw new Error(
         'Artifacts cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from an Artifacts instance over the durable store, outside the host\'s transaction.'
@@ -408,35 +445,14 @@ export class Artifacts implements ArtifactSubstrate {
     if (refused) {
       throw refused;
     }
-    const { files } = this.#limits;
-    if (files) {
-      await abandonStaging(files);
-      await this.#exclusive(async (store) => {
-        const { listBlobsPage } = store;
-        const blobs =
-          listBlobsPage === undefined
-            ? await store.listBlobs()
-            : await collectPages<
-                Awaited<ReturnType<typeof store.listBlobs>>[number],
-                BlobId
-              >((blobCursor) =>
-                listBlobsPage.call(
-                  store,
-                  blobCursor === undefined ? {} : { cursor: blobCursor }
-                )
-              );
-        const retained = new Set(
-          blobs.flatMap((blob) => (blob.path ? [blob.path] : []))
-        );
-        for await (const path of files.list()) {
-          if (!retained.has(path)) {
-            await files.remove(path);
-          }
-        }
-      });
+    if (options.orphanGraceMs !== undefined) {
+      validateOrphanGraceMs(options.orphanGraceMs);
     }
+    options.signal?.throwIfAborted();
+    await this.#pruneOrphanFiles(options);
     let cursor: ListArtifactsInput["cursor"];
     do {
+      options.signal?.throwIfAborted();
       const page = await this.list({ cursor, includeArchived: true });
       for (const artifact of page.items) {
         for (const apply of this.#bindings) {
@@ -449,6 +465,53 @@ export class Artifacts implements ArtifactSubstrate {
       );
       cursor = page.nextCursor;
     } while (cursor);
+  }
+
+  async #pruneOrphanFiles(options: RecoverOptions): Promise<void> {
+    const { files } = this.#limits;
+    if (!files) {
+      return;
+    }
+    const clock = this.#limits.clock ?? (() => new Date());
+    const cutoffMs = clock().getTime();
+    await abandonStaging(files);
+    const retained = await this.#exclusive((store) =>
+      loadRetainedBlobPaths(store, options.signal)
+    );
+    const graceMs = options.orphanGraceMs ?? this.#orphanGraceMs;
+    const callOptions = options.signal ? { signal: options.signal } : undefined;
+    for await (const entry of files.list(callOptions)) {
+      options.signal?.throwIfAborted();
+      const path = typeof entry === "string" ? entry : entry.path;
+      const modifiedAt =
+        typeof entry === "string" ? undefined : entry.modifiedAt;
+      if (retained.has(path)) {
+        continue;
+      }
+      if (modifiedAt !== undefined) {
+        const modifiedMs = modifiedAt.getTime();
+        if (
+          modifiedMs > cutoffMs ||
+          (graceMs > 0 && cutoffMs - modifiedMs < graceMs)
+        ) {
+          continue;
+        }
+      }
+      const stillOrphan = await this.#exclusive(async (store) => {
+        if (store.findBlobByPath !== undefined) {
+          return (await store.findBlobByPath(path)) === null;
+        }
+        const currentRetained = await loadRetainedBlobPaths(
+          store,
+          options.signal
+        );
+        return !currentRetained.has(path);
+      });
+      if (!stillOrphan) {
+        continue;
+      }
+      await files.remove(path, callOptions);
+    }
   }
 
   #read<T>(
