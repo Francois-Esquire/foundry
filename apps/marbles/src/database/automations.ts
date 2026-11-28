@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { asBusy } from "~/database/busy";
 import { marblesAutomations } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import type { AutomationRecord } from "~/lib/automation/service";
+import type { AutomationRecord } from "~/lib/automation";
 import type {
   AutomationStore,
   AutomationView,

@@ -6,7 +6,7 @@ import { Artifacts } from "@foundry/artifacts";
 import { blobFiles } from "@foundry/artifacts/node";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
 import { afterEach, expect, it } from "vitest";
-import { CrashRecovery } from "~/lib/crash-recovery";
+import { CrashRecovery } from "~/lib/recovery";
 import { HarnessActivities } from "~/lib/sandbox/activities";
 import { testEngine } from "../helpers/engine";
 

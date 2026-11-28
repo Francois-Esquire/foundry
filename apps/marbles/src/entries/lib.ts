@@ -1,5 +1,5 @@
 import { installDefaultRuntime } from "~/create";
-import { installNodeContextRuntime } from "~/lib/async-context/node";
+import { installNodeContextRuntime } from "~/host/async-context";
 
 installNodeContextRuntime();
 installDefaultRuntime();

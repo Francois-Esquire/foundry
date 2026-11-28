@@ -1,13 +1,12 @@
 import type { ChannelMessage } from "@foundry/workflows/channels";
-
+import type { InputValues } from "~/lib/definitions/inputs";
+import type { DefinitionEntry } from "~/lib/definitions/registry";
+import type { SessionRef } from "~/lib/definitions/types";
 import type { FeedAnswer } from "~/lib/feed/entry";
-import type { InputValues } from "~/lib/inputs";
-import type { MonitorSpec } from "~/lib/monitor";
-import type { DefinitionEntry } from "~/lib/registry";
-import type { TerminalStatus } from "~/lib/run-output";
-import type { StepInput } from "~/lib/step-work";
-import type { Schedule, Trigger } from "~/lib/triggers";
-import type { SessionRef } from "~/lib/types";
+import type { TerminalStatus } from "~/lib/runs/output";
+import type { StepInput } from "~/lib/runs/step-work";
+import type { MonitorSpec } from "~/lib/schedule/monitor";
+import type { Schedule, Trigger } from "~/lib/schedule/triggers";
 import type { DashboardSnapshot } from "~/model/dashboard";
 import type {
   TaskCommand,

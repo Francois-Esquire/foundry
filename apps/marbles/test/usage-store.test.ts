@@ -7,7 +7,7 @@ import { marblesUsageFacts } from "~/database/tables";
 import { DatabaseUsageStore } from "~/database/usage";
 import { stateDatabase } from "~/layout";
 import { UsageLedger } from "~/lib/usage";
-import { MemoryUsageStore } from "~/lib/usage-store";
+import { MemoryUsageStore } from "~/lib/usage/store";
 import { describeUsageStore, directFact, runFact } from "./helpers/usage-store";
 
 describeUsageStore(

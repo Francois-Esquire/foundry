@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { RecordedScope } from "~/lib/run-scope";
-import type { RunStore } from "~/lib/run-store";
-import { NotStorableError } from "~/lib/state/json";
-import { readRun, runStoreEffect } from "~/lib/workflow-runs";
+import { readRun, runStoreEffect } from "~/lib/runs/records";
+import type { RecordedScope } from "~/lib/runs/scope";
+import type { RunStore } from "~/lib/runs/store";
+import { NotStorableError } from "~/state/json";
 import { putRun } from "./queue-runs";
 
 export interface RunStoreFixture {

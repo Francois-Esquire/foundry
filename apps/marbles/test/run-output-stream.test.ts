@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChannelMessage } from "@foundry/workflows/channels";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { RunOutput, runOutputStream } from "~/lib/state/output";
+import { RunOutput, runOutputStream } from "~/state/output";
 
 const descriptors = vi.hoisted(() => new Set<number>());
 

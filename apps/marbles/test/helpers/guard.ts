@@ -1,8 +1,8 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, sep } from "node:path";
+import { installNodeContextRuntime } from "~/host/async-context";
 import { layout } from "~/layout";
-import { installNodeContextRuntime } from "~/lib/async-context/node";
 import { recordProcess } from "./processes";
 import { RUN_ENV, runRecords } from "./runs";
 

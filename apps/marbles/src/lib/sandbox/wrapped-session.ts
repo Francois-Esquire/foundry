@@ -1,8 +1,8 @@
 import type { HarnessSession, TurnOptions } from "@foundry/agents/harness";
 import type { SessionInput } from "@foundry/agents/session";
 import type { Output } from "ai";
-import type { RecordObservation } from "~/lib/observations";
-import { observeCliTurn, toolObserver } from "~/lib/observations";
+import type { RecordObservation } from "~/lib/executions/observations";
+import { observeCliTurn, toolObserver } from "~/lib/executions/observations";
 
 type SessionOverrides = Partial<
   Pick<HarnessSession, "close" | "interrupt" | "stopActivity" | "stream">

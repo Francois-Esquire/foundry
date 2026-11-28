@@ -8,7 +8,7 @@ import {
   inputDefaults,
   inputProblem,
   parseInputs,
-} from "~/lib/inputs";
+} from "~/lib/definitions/inputs";
 import { createStarter } from "~/workspace/create";
 import { renderModule, type SetupDraft, STARTER } from "~/workspace/templates";
 import { type TestHome, testHome } from "./helpers/home";

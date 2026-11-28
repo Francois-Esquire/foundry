@@ -10,13 +10,12 @@ import { join } from "node:path";
 import { lockContents } from "@foundry/lib/node/file-lock";
 
 import { describe, expect, it } from "vitest";
-
-import { writeJson } from "~/lib/state/json";
 import {
   claimProcess,
   ProcessHeldError,
   readProcess,
 } from "~/process/instance";
+import { writeJson } from "~/state/json";
 import { temporaryDirectory } from "./helpers/temporary";
 
 function stateDir() {

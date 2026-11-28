@@ -3,8 +3,8 @@ import { z } from "zod";
 
 import { step, workflow } from "~/authoring/builder";
 import { Catalog } from "~/authoring/catalog";
-import { isLockedNode } from "~/lib/definition";
-import { createLog } from "~/lib/log";
+import { isLockedNode } from "~/lib/definitions";
+import { createLog } from "~/lib/shared/log";
 import { declared } from "../helpers/engine";
 
 const ALREADY_REGISTERED = /already registered/;

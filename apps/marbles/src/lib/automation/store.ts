@@ -1,6 +1,6 @@
+import type { AutomationRecord } from "~/lib/automation";
 import { RecordsGate } from "~/lib/events/records-gate";
-import { storableJson } from "~/lib/json-data";
-import type { AutomationRecord } from "./service";
+import { storableJson } from "~/lib/shared/json-data";
 
 export interface AutomationStore extends AutomationView {
   close(): Promise<void>;

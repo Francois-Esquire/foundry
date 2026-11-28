@@ -8,15 +8,15 @@ import {
   SandboxError,
 } from "@foundry/sandbox";
 
-import type { ManagerArgs } from "../bindings";
-import { workingDirectory } from "../run-scope";
+import type { ManagerArgs } from "~/lib/definitions/bindings";
 import type {
   ImageSandbox,
   SandboxDefinition,
   Sandboxes,
   SandboxHandle,
   SandboxSpec,
-} from "../types";
+} from "~/lib/definitions/types";
+import { workingDirectory } from "~/lib/runs/scope";
 
 type WorkspaceMaterializer = (
   container: Container,

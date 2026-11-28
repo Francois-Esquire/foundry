@@ -9,10 +9,10 @@ import {
 } from "~/cli/format/resources";
 import { readResourceView, recordedWorkspaces } from "~/database/open";
 import { ALL_WORKSPACES, type ViewScope } from "~/database/resources";
-import type { ResourceKind } from "~/lib/resources";
-import { ResourceNotFoundError } from "~/lib/resources";
-import type { Workspace } from "~/lib/state/workspace";
-import { workspaceState } from "~/lib/state/workspace";
+import type { ResourceKind } from "~/lib/definitions/resources";
+import { ResourceNotFoundError } from "~/lib/definitions/resources";
+import type { Workspace } from "~/state/workspace";
+import { workspaceState } from "~/state/workspace";
 
 export interface ResourceCommandContext {
   readonly directory: string;

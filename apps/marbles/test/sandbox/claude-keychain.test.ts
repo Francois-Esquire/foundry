@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { claudeSubscriptionToken } from "~/lib/sandbox/credentials";
+import { claudeSubscriptionToken } from "~/host/guest/credentials";
 
 const calls = vi.hoisted(
   () => [] as { args: string[]; env?: Record<string, string>; file: string }[]

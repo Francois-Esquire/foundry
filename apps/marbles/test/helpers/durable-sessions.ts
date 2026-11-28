@@ -4,7 +4,7 @@ import { openWorkspaceDatabase } from "~/database/managed";
 import type { StoreDatabase } from "~/database/open";
 import { writeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import type { ListedSessionStore } from "~/lib/usage-evidence";
+import type { ListedSessionStore } from "~/lib/usage/evidence";
 
 export function durableSessions(
   state: string,

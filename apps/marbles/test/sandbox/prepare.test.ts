@@ -2,9 +2,9 @@ import { createContainers } from "@foundry/sandbox/node";
 import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { createFakeDriver } from "@foundry/sandbox/testing";
 import { describe, expect, it, vi } from "vitest";
-import { CLI_HARNESSES } from "~/lib/cli-harnesses";
-import { guestAuth } from "~/lib/sandbox/credentials";
-import { guestArtifact, prepareGuest } from "~/lib/sandbox/prepare";
+import { guestAuth } from "~/host/guest/credentials";
+import { guestArtifact, prepareGuest } from "~/host/guest/prepare";
+import { CLI_HARNESSES } from "~/lib/managers/cli-harnesses";
 
 describe("guest CLI preparation", () => {
   it("pins the SDK paired native binaries for both Linux architectures", () => {

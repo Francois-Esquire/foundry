@@ -2,8 +2,8 @@ import { gc, sleep } from "bun";
 import { expect, it } from "vitest";
 import { step } from "~/authoring/builder";
 import { Catalog } from "~/authoring/catalog";
-import type { Current } from "~/lib/run-scope";
-import { current } from "~/lib/run-scope";
+import type { Current } from "~/lib/runs/scope";
+import { current } from "~/lib/runs/scope";
 
 async function collect(): Promise<void> {
   for (let pass = 0; pass < 3; pass += 1) {

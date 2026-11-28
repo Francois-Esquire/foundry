@@ -15,21 +15,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { skills } from "~/authoring/resources";
 import { workspaceStores } from "~/database/stores";
 import { allowedMountRoots } from "~/host/mounts";
+import { skillResolver } from "~/host/skills";
 import {
   ensureWorktreeDir,
   nodeGitAt,
   repositoryRoot,
 } from "~/host/workspaces";
-import type { Bindings, ManagerArgs } from "~/lib/bindings";
+import type { Bindings, ManagerArgs } from "~/lib/definitions/bindings";
 import { ArtifactsManager, artifactIdFor } from "~/lib/managers/artifacts";
 import {
   constraintsFor,
   guestFiles,
   SandboxesManager,
 } from "~/lib/managers/sandboxes";
-import { skillResolver } from "~/lib/managers/skills";
 import { WorkspacesManager } from "~/lib/managers/workspaces";
-import { current, RunScope } from "~/lib/run-scope";
+import { current, RunScope } from "~/lib/runs/scope";
 import { echoGit } from "../helpers/engine";
 import { testMachine } from "./../helpers/records";
 import { seedRepository } from "./../helpers/repository";

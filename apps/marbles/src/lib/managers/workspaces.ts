@@ -1,9 +1,5 @@
 import type { Workspace as PackageWorkspace } from "@foundry/workspaces";
-import type { ExecutionContext } from "~/lib/execution-context";
-import { withinContext } from "~/lib/execution-context";
-
-import type { ManagerArgs } from "../bindings";
-import { current } from "../run-scope";
+import type { ManagerArgs } from "~/lib/definitions/bindings";
 import type {
   LoadedWorkspace,
   ScopedWorkspaces,
@@ -11,8 +7,11 @@ import type {
   WorkspaceGit,
   WorkspaceHandle,
   WorktreeOptions,
-} from "../types";
-import { WORKSPACE_METHODS } from "../workspace-methods";
+} from "~/lib/definitions/types";
+import { WORKSPACE_METHODS } from "~/lib/managers/workspace-methods";
+import type { ExecutionContext } from "~/lib/runs/context";
+import { withinContext } from "~/lib/runs/context";
+import { current } from "~/lib/runs/scope";
 
 export type PortableWorkspace = Pick<
   PackageWorkspace,

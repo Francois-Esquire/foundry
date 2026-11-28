@@ -1,8 +1,7 @@
 import { canonicalizeJson } from "@foundry/lib/json";
 import type { Output } from "ai";
-import type { AnyDefinition, LockedNode } from "~/lib/definition";
-import { quoteOrigin } from "~/lib/definition";
-import { sourceKey } from "~/lib/events/source";
+import type { AnyDefinition, LockedNode } from "~/lib/definitions";
+import { quoteOrigin } from "~/lib/definitions";
 import {
   AGENT_META,
   DEFAULT_PROVIDER,
@@ -11,16 +10,17 @@ import {
   OBSERVER_META,
   SCHEDULE_META,
   STATIC_TREE,
-} from "~/lib/handles";
-import { sha256HexSync } from "~/lib/hash";
-import type { ProviderPlugin } from "~/lib/providers/plugins";
-import type { MonitorRecord } from "~/lib/registry";
-import type { Schedule } from "~/lib/triggers";
+} from "~/lib/definitions/handles";
+import type { MonitorRecord } from "~/lib/definitions/registry";
 import type {
   AgentLike,
   ArtifactDefinition,
   SandboxDefinition,
-} from "~/lib/types";
+} from "~/lib/definitions/types";
+import { sourceKey } from "~/lib/events/source";
+import type { ProviderPlugin } from "~/lib/providers/plugins";
+import type { Schedule } from "~/lib/schedule/triggers";
+import { sha256HexSync } from "~/lib/shared/hash";
 import type { PendingBatch } from "./collect";
 import { collectBatch, normalizedPath, walkStaticTree } from "./collect";
 import type { PoolConfig } from "./config";

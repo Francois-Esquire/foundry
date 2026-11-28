@@ -1,6 +1,5 @@
 import { changeTasks, readTasks } from "~/database/open";
 import { layout } from "~/layout";
-import { insideState } from "~/lib/state/workspace";
 import type { WorkspaceConnection } from "~/model/connection";
 import {
   NotHostedError,
@@ -14,6 +13,7 @@ import type {
 } from "~/model/tasks";
 import type { MarblesClient } from "~/process/client";
 import { connect, NoProcessError } from "~/process/client";
+import { insideState } from "~/state/workspace";
 import type { WorkspaceHost } from "~/workspace/host";
 import type { HostOptions, OpenedWorkspace } from "~/workspace/open";
 import { resolveSource } from "~/workspace/source";

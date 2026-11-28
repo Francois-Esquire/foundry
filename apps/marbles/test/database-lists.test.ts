@@ -5,7 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DatabaseRunStore } from "~/database/runs";
 import { marblesWorkflowRuns } from "~/database/tables";
-import { readRun, runStoreEffect } from "~/lib/workflow-runs";
+import { readRun, runStoreEffect } from "~/lib/runs/records";
 import { putRun } from "./helpers/queue-runs";
 import type { TestMachine } from "./helpers/records";
 import { testMachine } from "./helpers/records";

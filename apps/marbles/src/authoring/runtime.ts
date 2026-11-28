@@ -2,16 +2,16 @@ import type { Models } from "@foundry/models";
 import type { TaskStore } from "@foundry/tasks";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
+import type { AgentLike } from "~/lib/definitions/types";
 import type { Engine } from "~/lib/engine";
-import type { ExecutionContext } from "~/lib/execution-context";
-import type { Current } from "~/lib/run-scope";
+import type { ExecutionContext } from "~/lib/runs/context";
+import type { Current } from "~/lib/runs/scope";
 import {
   currentExecutionContext,
   currentRun,
   currentSetupCounters,
   scopeStorageFor,
-} from "~/lib/scope-bridge";
-import type { AgentLike } from "~/lib/types";
+} from "~/lib/runs/scope-bridge";
 
 export type InstanceRuntime = Pick<
   Engine,

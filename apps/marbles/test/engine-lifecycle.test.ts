@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 import { expect, it, vi } from "vitest";
-import type { Context } from "~/lib/types";
+import type { Context } from "~/lib/definitions/types";
 import { testEngine, testInstances } from "./helpers/engine";
 import { storedRun } from "./helpers/stored-runs";
 

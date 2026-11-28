@@ -6,7 +6,7 @@ import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createEngine } from "~/create";
 import type { Engine } from "~/lib/engine";
-import { runSteps } from "~/lib/run-trace";
+import { runSteps } from "~/lib/runs/trace";
 import { rollSchedule } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { startEngine } from "./helpers/engine";

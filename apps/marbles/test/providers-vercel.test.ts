@@ -6,8 +6,8 @@ import { expect, it, vi } from "vitest";
 import { initializeDatabase } from "~/database/open";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
-import { ProviderConfiguration } from "~/lib/providers/configuration";
-import { vercel as vercelPlugin } from "~/lib/providers/vercel";
+import { ProviderConfiguration } from "~/lib/providers";
+import { vercel as vercelPlugin } from "~/providers/vercel";
 import { pluginOf } from "./helpers/plugins";
 
 it("refreshes scoped Vercel catalogs and resolves the listed models and defaults", async () => {

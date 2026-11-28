@@ -12,9 +12,8 @@ import type { ModelKind, Provider } from "@foundry/models";
 import { Models } from "@foundry/models";
 import { CLAUDE_CODE_DEFAULT_MODELS } from "@foundry/models/providers/claude-code";
 import { afterEach, describe, expect, it } from "vitest";
-
-import { selectExecutor } from "~/lib/executor";
-import { which } from "~/lib/which";
+import { which } from "~/host/which";
+import { selectExecutor } from "~/lib/managers/executor";
 import { CLAUDE_CODE, CODEX, PI } from "./helpers/harnesses";
 import { mockModels } from "./helpers/mock";
 

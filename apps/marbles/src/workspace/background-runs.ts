@@ -4,15 +4,7 @@ import { sameProcess, thisProcess } from "@foundry/lib/node/process-identity";
 import type { RunStatus } from "@foundry/workflows/types";
 import type { Output } from "ai";
 import type { Catalog } from "~/authoring/catalog";
-import type { Engine } from "~/lib/engine";
-import type { ExecutionRun } from "~/lib/execution-record";
-import type { ExecutionStatus } from "~/lib/execution-statuses";
-import { SETTLED_EXECUTION_STATUSES } from "~/lib/execution-statuses";
-import { AGENT_DEFINITION, AGENT_PROMPT } from "~/lib/handles";
-import { idempotencyKeyOf } from "~/lib/launcher";
-import { buildDefinition } from "~/lib/managers/agents";
-import type { RunView } from "~/lib/managers/runs";
-import { TERMINAL_RUN_STATUSES } from "~/lib/run-store";
+import { AGENT_DEFINITION, AGENT_PROMPT } from "~/lib/definitions/handles";
 import type {
   AgentDefinition,
   AgentLike,
@@ -21,8 +13,16 @@ import type {
   Session,
   SessionOptions,
   SessionRef,
-} from "~/lib/types";
-import type { RunRecord } from "~/lib/workflow-runs";
+} from "~/lib/definitions/types";
+import type { Engine } from "~/lib/engine";
+import type { ExecutionRun } from "~/lib/executions/record";
+import type { ExecutionStatus } from "~/lib/executions/statuses";
+import { SETTLED_EXECUTION_STATUSES } from "~/lib/executions/statuses";
+import { buildDefinition } from "~/lib/managers/agents";
+import type { RunView } from "~/lib/managers/runs";
+import { idempotencyKeyOf } from "~/lib/runs";
+import type { RunRecord } from "~/lib/runs/records";
+import { TERMINAL_RUN_STATUSES } from "~/lib/runs/store";
 import type {
   DispatchInfo,
   DispatchOptions,

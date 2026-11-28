@@ -10,7 +10,7 @@ import { MemoryContainerStore } from "@foundry/sandbox/store/memory";
 import { expect, it } from "vitest";
 import { AgentsManager } from "~/lib/managers/agents";
 import { SandboxesManager } from "~/lib/managers/sandboxes";
-import { RunScope } from "~/lib/run-scope";
+import { RunScope } from "~/lib/runs/scope";
 import { testEngine } from "../helpers/engine";
 
 for (const harness of ["builtin", "claude-code", "codex"] as const) {

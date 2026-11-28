@@ -22,39 +22,14 @@ import { observeAgentTurn } from "@foundry/models";
 import type { Container } from "@foundry/sandbox";
 import { DEFAULT_SANDBOX_WORKING_DIRECTORY } from "@foundry/sandbox";
 import type { Output } from "ai";
-import type { AutomationService } from "~/lib/automation/service";
-import type { TurnExecutorRef } from "~/lib/cli-harnesses";
-import { DIRECT_HARNESS, harnessOf, isCliHarness } from "~/lib/cli-harnesses";
-import type { ExecutionContext } from "~/lib/execution-context";
-import { withinContext } from "~/lib/execution-context";
-import type { ExecutionObservation } from "~/lib/executions";
-import type { RecordObservation } from "~/lib/observations";
-import { composeObservers, runTurnObserver } from "~/lib/observations";
-import type { Execution } from "~/lib/providers/plugins";
-import type { HarnessActivities } from "~/lib/sandbox/activities";
-import type { HarnessInteractions } from "~/lib/sandbox/interactions";
-import type {
-  SandboxGuestSetup,
-  SandboxSessionOptions,
-} from "~/lib/sandbox/session";
-import { createSandboxSession } from "~/lib/sandbox/session";
-import type {
-  CostMeter,
-  RecordedUsageFact,
-  ReportedCost,
-  TurnSource,
-  UsageLedger,
-} from "~/lib/usage";
-import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
-import type { ManagerArgs } from "../bindings";
+import type { AutomationService } from "~/lib/automation";
+import type { ManagerArgs } from "~/lib/definitions/bindings";
 import {
   AGENT_DEFINITION,
   AGENT_META,
   AGENT_PROMPT,
   SANDBOX_HANDLE,
-} from "../handles";
-import { inputSnapshot } from "../json-data";
-import { workingDirectory } from "../run-scope";
+} from "~/lib/definitions/handles";
 import type {
   AgentDefinition,
   AgentLike,
@@ -69,15 +44,44 @@ import type {
   SessionRef,
   SessionReply,
   SkillSet,
-} from "../types";
+} from "~/lib/definitions/types";
+import type { ExecutionObservation } from "~/lib/executions";
+import type { RecordObservation } from "~/lib/executions/observations";
 import {
-  deferredStream,
+  composeObservers,
+  runTurnObserver,
+} from "~/lib/executions/observations";
+import type { TurnExecutorRef } from "~/lib/managers/cli-harnesses";
+import {
+  DIRECT_HARNESS,
+  harnessOf,
+  isCliHarness,
+} from "~/lib/managers/cli-harnesses";
+import type { Execution } from "~/lib/providers/plugins";
+import type { ExecutionContext } from "~/lib/runs/context";
+import { withinContext } from "~/lib/runs/context";
+import { workingDirectory } from "~/lib/runs/scope";
+import type { SandboxGuestSetup, SandboxSessionOptions } from "~/lib/sandbox";
+import { createSandboxSession } from "~/lib/sandbox";
+import type { HarnessActivities } from "~/lib/sandbox/activities";
+import type { HarnessInteractions } from "~/lib/sandbox/interactions";
+import { inputSnapshot } from "~/lib/shared/json-data";
+import type {
+  CostMeter,
+  RecordedUsageFact,
+  ReportedCost,
+  TurnSource,
+  UsageLedger,
+} from "~/lib/usage";
+import { catalogPrices, costMeter, lostFact, usageFact } from "~/lib/usage";
+import {
   type LiveSession,
   replayedStream,
   replyOf,
   type SessionTurnSite,
   wrapAgentSession,
 } from "./agent-turns";
+import { deferredStream } from "./deferred-stream";
 import {
   resolveCompaction,
   resolveTurnLimit,

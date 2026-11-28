@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { existsSync, rmSync } from "node:fs";
 import { Engine } from "~/lib/engine";
-import { RunQueue } from "~/lib/run-queue";
+import { RunQueue } from "~/lib/runs/queue";
 
 const marker = process.env.MARBLES_TEST_FAIL_HANDOVER ?? "";
 const busy = process.env.MARBLES_TEST_FAIL_ORPHAN_TAKE;

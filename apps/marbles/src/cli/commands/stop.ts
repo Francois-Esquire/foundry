@@ -4,9 +4,9 @@ import { UsageError } from "~/cli/errors";
 import { writeDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import { insideState } from "~/lib/state/workspace";
 import { joinProcess } from "~/process/access";
 import { stopProcess } from "~/process/client";
+import { insideState } from "~/state/workspace";
 
 async function detachWorkspace(ctx: CliContext): Promise<void> {
   const { workspace } = ctx.findWorkspace();

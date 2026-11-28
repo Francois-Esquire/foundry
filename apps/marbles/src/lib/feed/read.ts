@@ -1,10 +1,10 @@
 import type { ArtifactResolved, ArtifactSubstrate } from "@foundry/artifacts";
 import { isUsableContent } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
+import type { FeedMetadata } from "~/lib/feed";
+import { feedMetadataOf, listFeedArtifacts } from "~/lib/feed";
 import type { AskMode, InputDelivery, InputStatus } from "~/lib/feed/entry";
 import { FEED_ENTRY_FILE } from "~/lib/feed/entry";
-import type { FeedMetadata } from "~/lib/feed/publish";
-import { feedMetadataOf, listFeedArtifacts } from "~/lib/feed/publish";
 
 export interface FeedMediaSnapshot {
   readonly bytes?: Uint8Array;

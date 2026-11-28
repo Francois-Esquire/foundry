@@ -6,14 +6,12 @@ import { MemorySessionStore } from "@foundry/agents/store/memory";
 import { simulateReadableStream } from "ai";
 import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it, vi } from "vitest";
-
+import { StepWork } from "~/lib/runs/step-work";
 import {
   replayedStream,
   replyOf,
   wrapAgentSession,
 } from "../src/lib/managers/agent-turns";
-
-import { StepWork } from "../src/lib/step-work";
 
 const usage = {
   inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 0, total: 0 },

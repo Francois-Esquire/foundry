@@ -1,19 +1,19 @@
 import { realpathSync } from "node:fs";
 import { basename, isAbsolute, relative, sep } from "node:path";
 import type { WorkflowStepNode } from "@foundry/workflows/snapshot";
-import type { AutomationRecord } from "~/lib/automation/service";
+import type { AutomationRecord } from "~/lib/automation";
+import type { DefinitionEntry } from "~/lib/definitions/registry";
 import type { ExecutionRun } from "~/lib/executions";
 import type { FeedEntrySnapshot } from "~/lib/feed/read";
-import type { MonitorSpec } from "~/lib/monitor";
-import { describeMonitor } from "~/lib/monitor";
-import type { DefinitionEntry } from "~/lib/registry";
-import { decodeTrace, observedTree } from "~/lib/run-trace";
+import type { RunRecord } from "~/lib/runs/records";
+import type { LiveWork } from "~/lib/runs/step-work";
+import { decodeTrace, observedTree } from "~/lib/runs/trace";
 import type { ActivityRecord } from "~/lib/sandbox/activities";
 import { describeTrigger, nextDue } from "~/lib/schedule";
-import type { LiveWork } from "~/lib/step-work";
-import type { Schedule } from "~/lib/triggers";
+import type { MonitorSpec } from "~/lib/schedule/monitor";
+import { describeMonitor } from "~/lib/schedule/monitor";
+import type { Schedule } from "~/lib/schedule/triggers";
 import type { RunUsageFact, UsageRecords } from "~/lib/usage";
-import type { RunRecord } from "~/lib/workflow-runs";
 import type {
   CatalogOrigin,
   DashboardSnapshot,

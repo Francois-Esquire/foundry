@@ -1,7 +1,7 @@
 import type { AgentModel, CompactionSettings } from "@foundry/agents/harness";
 import { createModelSummarizer } from "@foundry/agents/session";
 import { stepCountIs } from "ai";
-import type { SessionOptions } from "../types";
+import type { SessionOptions } from "~/lib/definitions/types";
 
 export function resolveCompaction(
   option: SessionOptions["compaction"],

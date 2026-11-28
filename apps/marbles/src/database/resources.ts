@@ -10,10 +10,10 @@ import { asBusy } from "~/database/busy";
 import { DatabaseSessionStore } from "~/database/sessions";
 import type { StoreDatabase } from "~/database/types";
 import { WorkspaceRegistry } from "~/database/workspaces";
-import { ownerOfRun } from "~/lib/execution-record";
-import type { ResourceKind, ResourceRef } from "~/lib/resources";
-import type { RunReads, RunRecord } from "~/lib/workflow-runs";
-import { readRuns, runStoreEffect } from "~/lib/workflow-runs";
+import type { ResourceKind, ResourceRef } from "~/lib/definitions/resources";
+import { ownerOfRun } from "~/lib/executions/record";
+import type { RunReads, RunRecord } from "~/lib/runs/records";
+import { readRuns, runStoreEffect } from "~/lib/runs/records";
 
 export type ViewScope = { readonly workspace: string } | typeof ALL_WORKSPACES;
 

@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { agent, models } from "~/authoring";
 import { Catalog } from "~/authoring/catalog";
 import { captureScope, releaseEngine, setHost } from "~/authoring/runtime";
-import { inContext } from "~/lib/execution-context";
+import { inContext } from "~/lib/runs/context";
 import { testEngine } from "./helpers/engine";
 
 it("checks the engine bound to the active context or captured scope, including after a replacement", async () => {

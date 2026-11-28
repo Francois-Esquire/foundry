@@ -26,7 +26,7 @@ import {
   sourceKey,
   WORKSPACES,
 } from "~/lib/events/source";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
+import type { OwnerLiveness } from "~/lib/recovery/liveness";
 
 export interface WorkspaceStores {
   readonly artifacts: SqliteArtifactStore;

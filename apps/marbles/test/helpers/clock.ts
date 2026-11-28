@@ -1,4 +1,4 @@
-import type { DeliveryClock } from "~/lib/events/delivery";
+import type { DeliveryClock } from "~/lib/events";
 
 interface Wait {
   readonly resolve: () => void;

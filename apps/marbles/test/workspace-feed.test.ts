@@ -7,7 +7,7 @@ import { artifactBlobs } from "~/database/local-artifacts";
 import type { StoreDatabase } from "~/database/open";
 import { initializeDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import { feedPublisher } from "~/lib/feed/publish";
+import { feedPublisher } from "~/lib/feed";
 import { feedReader } from "~/lib/feed/read";
 import { ALL_WORKSPACES, scopedFeed } from "~/tui/state/feed-model";
 import { workspaceFeed } from "~/workspace/feed";

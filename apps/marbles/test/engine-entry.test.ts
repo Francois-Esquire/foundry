@@ -13,8 +13,8 @@ import { Engine } from "~/entries/engine";
 import { Engine as LibEntryEngine } from "~/entries/lib";
 import { stateDatabase } from "~/layout";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import { workspaceState } from "~/lib/state/workspace";
 import { claimProcess, readProcess } from "~/process/instance";
+import { workspaceState } from "~/state/workspace";
 import { testInstances } from "./helpers/engine";
 
 const roots: string[] = [];

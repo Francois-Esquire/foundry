@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, extname, join, relative, sep } from "node:path";
 
-import type { WorkspaceRecord } from "~/lib/state/workspace";
+import type { WorkspaceRecord } from "~/state/workspace";
 import { DATA_EXTENSIONS, isModulePath } from "~/workspace/source";
 
 const SKIPPED = new Set([

@@ -1,5 +1,5 @@
 import { trackCreatedDeclaration } from "~/authoring/runtime";
-import { PROVIDER_DECLARATION } from "~/lib/handles";
+import { PROVIDER_DECLARATION } from "~/lib/definitions/handles";
 import type { ProviderPlugin } from "~/lib/providers/plugins";
 
 export type {

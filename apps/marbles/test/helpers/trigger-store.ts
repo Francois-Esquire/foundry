@@ -1,8 +1,8 @@
 import type { Occurrence, Schedule, ScheduleCursor } from "@foundry/scheduling";
 import { afterEach, describe, expect, it } from "vitest";
-import { NotStorableError } from "~/lib/state/json";
-import type { MonitorState, TriggerStore } from "~/lib/trigger-store";
-import { runStoreEffect as run } from "~/lib/workflow-runs";
+import { runStoreEffect as run } from "~/lib/runs/records";
+import type { MonitorState, TriggerStore } from "~/lib/schedule/store";
+import { NotStorableError } from "~/state/json";
 
 export interface TriggerStoreFixture {
   close(): Promise<void>;

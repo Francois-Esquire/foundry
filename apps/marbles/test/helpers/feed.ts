@@ -4,8 +4,8 @@ import type { ArtifactSubstrate } from "@foundry/artifacts";
 import { Artifacts } from "@foundry/artifacts";
 import { blobFiles, JsonArtifactStore } from "@foundry/artifacts/node";
 import { MemoryArtifactStore } from "@foundry/artifacts/store/memory";
-import type { FeedPublisher } from "~/lib/feed/publish";
-import { feedPublisher } from "~/lib/feed/publish";
+import type { FeedPublisher } from "~/lib/feed";
+import { feedPublisher } from "~/lib/feed";
 import type { FeedReader } from "~/lib/feed/read";
 import { feedReader } from "~/lib/feed/read";
 

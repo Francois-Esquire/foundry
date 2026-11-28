@@ -7,7 +7,7 @@ import { z } from "zod";
 import { resourceLines } from "~/cli/format/resources";
 import { ResourceView } from "~/database/resources";
 import { DatabaseSessionStore } from "~/database/sessions";
-import { insideState } from "~/lib/state/workspace";
+import { insideState } from "~/state/workspace";
 import type { MockBindings } from "./helpers/bindings";
 import { bindMock } from "./helpers/bindings";
 import { durableSessions } from "./helpers/durable-sessions";

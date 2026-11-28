@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { ExecutionObservation } from "~/lib/execution-record";
-import type { ExecutionStore } from "~/lib/execution-store";
+import type { ExecutionObservation } from "~/lib/executions/record";
+import type { ExecutionStore } from "~/lib/executions/store";
 
 export interface ExecutionStoreFixture {
   close(): Promise<void>;

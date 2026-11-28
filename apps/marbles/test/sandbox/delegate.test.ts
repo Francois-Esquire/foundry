@@ -19,12 +19,12 @@ import type { ToolSet } from "ai";
 import { tool as createTool } from "ai";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { delegationTool } from "~/lib/sandbox/delegate";
+import type { SandboxHandle } from "~/lib/definitions/types";
 import {
   createSandboxSession,
   type SandboxSessionSettings,
-} from "~/lib/sandbox/session";
-import type { SandboxHandle } from "~/lib/types";
+} from "~/lib/sandbox";
+import { delegationTool } from "~/lib/sandbox/delegate";
 
 const builtinSettings: {
   readonly sessionId?: string;

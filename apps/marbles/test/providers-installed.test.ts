@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { providerInstalled } from "~/lib/providers/installed";
+import { providerInstalled } from "~/providers/installed";
 
 it("resolves an adapter without evaluating it and returns false when absent", () => {
   const root = mkdtempSync(join(tmpdir(), "marbles-adapter-resolution-"));

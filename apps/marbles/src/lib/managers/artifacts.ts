@@ -8,9 +8,7 @@ import type {
 } from "@foundry/artifacts";
 import { artifactIdSchema, contentIdSchema } from "@foundry/artifacts";
 import { classifyFile } from "@foundry/lib/file-classification";
-import { sha256HexSync } from "~/lib/hash";
-
-import type { ManagerArgs } from "../bindings";
+import type { ManagerArgs } from "~/lib/definitions/bindings";
 import type {
   ArtifactDefinition,
   ArtifactFiles,
@@ -19,7 +17,8 @@ import type {
   ArtifactWriteOptions,
   LatestArtifact,
   ScopedArtifacts,
-} from "../types";
+} from "~/lib/definitions/types";
+import { sha256HexSync } from "~/lib/shared/hash";
 
 export interface ArtifactsDeps {
   readonly artifacts: Pick<

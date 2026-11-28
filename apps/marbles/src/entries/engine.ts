@@ -3,24 +3,24 @@ import { join } from "node:path";
 import { createNodeMcpClient } from "@foundry/agents/node";
 import { stopOrphans } from "@foundry/lib/node/orphans";
 import { withWorkspaceDatabase } from "~/database/managed";
+import { installNodeContextRuntime } from "~/host/async-context";
+import { commandRunner } from "~/host/command";
+import { environmentSnapshot } from "~/host/environment";
 import { readFeedMedia, resolveFeedMedia } from "~/host/feed-media";
+import { guestAuth } from "~/host/guest/credentials";
+import { FIRST_PARTY_DRIVERS } from "~/host/guest/drivers";
+import { prepareGuest } from "~/host/guest/prepare";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
+import { skillResolver } from "~/host/skills";
 import {
   ensureWorktreeDir,
   localWorkspaces,
   nodeGitAt,
 } from "~/host/workspaces";
-import { installNodeContextRuntime } from "~/lib/async-context/node";
-import { commandRunner } from "~/lib/command";
 import type { EngineOptions } from "~/lib/engine";
 import { Engine as LibEngine } from "~/lib/engine";
-import { environmentSnapshot } from "~/lib/environment";
-import { inTurn } from "~/lib/in-turn";
-import { skillResolver } from "~/lib/managers/skills";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import { guestAuth } from "~/lib/sandbox/credentials";
-import { FIRST_PARTY_DRIVERS } from "~/lib/sandbox/drivers";
-import { prepareGuest } from "~/lib/sandbox/prepare";
-import { FileRunOutputSink } from "~/lib/state/output";
+import { inTurn } from "~/lib/shared/in-turn";
+import { FileRunOutputSink } from "~/state/output";
 
 installNodeContextRuntime();
 

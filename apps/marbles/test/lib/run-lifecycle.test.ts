@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Engine } from "~/lib/engine";
-import type { TaskContext } from "~/lib/tasks";
+import type { TaskContext } from "~/lib/runs/tasks";
 import { testEngine } from "../helpers/engine";
 
 const CANCELLED = /cancelled/;

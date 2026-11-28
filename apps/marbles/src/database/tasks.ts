@@ -19,8 +19,8 @@ import type { ChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { RecordsGate } from "~/lib/events/records-gate";
 import { sourceKey, TASKS } from "~/lib/events/source";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
-import { PORTABLE_OWNER_LIVENESS } from "~/lib/owner-liveness";
+import type { OwnerLiveness } from "~/lib/recovery/liveness";
+import { PORTABLE_OWNER_LIVENESS } from "~/lib/recovery/liveness";
 
 const TASKS_KEY = sourceKey(TASKS) ?? "tasks";
 

@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import { marblesWorkspaces } from "~/database/tables";
 import type { StoreDatabase } from "~/database/types";
-import type { Workspace, WorkspaceRecord } from "~/lib/state/workspace";
+import type { Workspace, WorkspaceRecord } from "~/state/workspace";
 
 export interface TouchOptions {
   readonly cwd?: string;

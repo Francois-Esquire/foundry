@@ -13,8 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
-import { workspaceState } from "~/lib/state/workspace";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
+import { workspaceState } from "~/state/workspace";
 import { cliArgs } from "./helpers/cli";
 import { type TestHome, testHome } from "./helpers/home";
 

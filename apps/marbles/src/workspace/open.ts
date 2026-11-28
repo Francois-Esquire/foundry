@@ -16,16 +16,12 @@ import { createEngine, readTriggers } from "~/create";
 import type { MarblesDatabase } from "~/database/open";
 import { readDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
+import { environmentSnapshot } from "~/host/environment";
 import { stateDatabase } from "~/layout";
 import type { Engine } from "~/lib/engine";
-import { environmentSnapshot } from "~/lib/environment";
-import type { LogLevel, LogOrigin } from "~/lib/log";
-import type { Workspace } from "~/lib/state/workspace";
-import {
-  insideState,
-  workspaceAt,
-  workspaceState,
-} from "~/lib/state/workspace";
+import type { LogLevel, LogOrigin } from "~/lib/shared/log";
+import type { Workspace } from "~/state/workspace";
+import { insideState, workspaceAt, workspaceState } from "~/state/workspace";
 import { openLoadSession, realPathOf } from "~/workspace/loader";
 import { initializeUsage } from "~/workspace/node-usage";
 import {

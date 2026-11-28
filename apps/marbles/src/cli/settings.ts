@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-
-import { isRecord, writeJson } from "~/lib/state/json";
 import { isTheme, type ThemeName } from "~/model/settings";
+import { isRecord, writeJson } from "~/state/json";
 
 export interface Settings {
   readonly dismissedProviderOffers?: readonly string[];

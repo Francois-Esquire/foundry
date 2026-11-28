@@ -10,15 +10,6 @@ import {
   workspaceInstance,
 } from "~/authoring/instances";
 import { trackCreatedDeclaration } from "~/authoring/runtime";
-import {
-  ARTIFACTS,
-  observable,
-  SANDBOXES,
-  SESSIONS,
-  WORKSPACES,
-} from "~/lib/events/source";
-import { sha256HexSync } from "~/lib/hash";
-import { jsonData } from "~/lib/json-data";
 import type {
   Agent,
   ArtifactInstance,
@@ -28,7 +19,16 @@ import type {
   SkillOp,
   SkillSet,
   WorkspaceInstance,
-} from "~/lib/types";
+} from "~/lib/definitions/types";
+import {
+  ARTIFACTS,
+  observable,
+  SANDBOXES,
+  SESSIONS,
+  WORKSPACES,
+} from "~/lib/events/source";
+import { sha256HexSync } from "~/lib/shared/hash";
+import { jsonData } from "~/lib/shared/json-data";
 
 function checkedName(name: string | undefined): string | undefined {
   if (name !== undefined && name.trim() === "") {

@@ -14,10 +14,10 @@ export default defineConfig({
         (name) =>
           [
             `@foundry.sh/marbles/providers/${name}`,
-            `src/lib/providers/${name}.ts`,
+            `src/providers/${name}.ts`,
           ] as const
       ),
-      ["@foundry.sh/marbles/statuses", "src/lib/execution-statuses.ts"],
+      ["@foundry.sh/marbles/statuses", "src/lib/executions/statuses.ts"],
       ["@foundry.sh/marbles/workspace", "src/workspace/index.ts"],
     ]
       .map(([name, file]) => ({

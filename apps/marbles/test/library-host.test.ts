@@ -15,10 +15,10 @@ import { IncompatibleDatabaseError, MIGRATIONS } from "~/database/migrate";
 import { initializeDatabase, readDatabase } from "~/database/open";
 import { WorkspaceRegistry } from "~/database/workspaces";
 import { stateDatabase } from "~/layout";
-import { acquireLock, PROCESS_LOCK } from "~/lib/state/locks";
-import { insideState, workspaceState } from "~/lib/state/workspace";
 import { type Daemon, startDaemon } from "~/process/daemon";
 import { recordSpawned } from "~/process/spawned";
+import { acquireLock, PROCESS_LOCK } from "~/state/locks";
+import { insideState, workspaceState } from "~/state/workspace";
 import { testHome } from "./helpers/home";
 import { readWorkspace, recordWorkspace } from "./helpers/registry";
 

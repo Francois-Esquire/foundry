@@ -11,9 +11,9 @@ import { step, workflow } from "@foundry.sh/marbles";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Engine } from "~/lib/engine";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
-import type { OwnerLiveness } from "~/lib/owner-liveness";
-import { MemoryRunOutputSink } from "~/lib/run-output";
-import { runScheduler } from "~/lib/schedule-loop";
+import type { OwnerLiveness } from "~/lib/recovery/liveness";
+import { MemoryRunOutputSink } from "~/lib/runs/output";
+import { runScheduler } from "~/lib/schedule/loop";
 
 const NODE_BUILTIN =
   /^(?:node:|bun:|(?:assert|async_hooks|buffer|child_process|cluster|crypto|dgram|dns|events|fs|http|http2|https|inspector|module|net|os|path|perf_hooks|process|punycode|querystring|readline|repl|stream|string_decoder|timers|tls|tty|url|util|v8|vm|worker_threads|zlib)(?:\/|$))/;
@@ -188,7 +188,7 @@ describe("import portability", () => {
     "database/migrate-core",
     "authoring/index",
     "authoring/providers",
-    "lib/execution-statuses",
+    "lib/executions/statuses",
   ])(
     "bundles %s for the browser without Node or libsql imports",
     async (entry) => {

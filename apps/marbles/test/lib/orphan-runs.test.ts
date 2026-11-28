@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { thisProcess } from "@foundry/lib/node/process-identity";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { Context } from "~/lib/definitions/types";
 import type { Engine } from "~/lib/engine";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import { TASKS } from "~/lib/events/source";
-import type { Context } from "~/lib/types";
 import { testEngine } from "../helpers/engine";
 import {
   type SeededRun,

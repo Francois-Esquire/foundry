@@ -3,13 +3,13 @@ import { useRenderer } from "@opentui/react";
 import { testRender } from "@opentui/react/test-utils";
 import { act, type ReactNode, useLayoutEffect } from "react";
 import { afterEach, expect, test } from "vitest";
-import { ArgumentForm } from "../src/components/blocks/argument-form";
 import {
   type InputField,
   type InputValues,
   inputDefaults,
   parseInputs,
-} from "../src/lib/inputs";
+} from "~/lib/definitions/inputs";
+import { ArgumentForm } from "../src/components/blocks/argument-form";
 import type { DashboardSnapshot } from "../src/tui/state/dashboard-model";
 import { DashboardView } from "../src/tui/views/dashboard";
 import { OnboardingView } from "../src/tui/views/onboarding";

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { initializeDatabase, readStoredSchedules } from "~/database/open";
 import { marblesMonitorStates } from "~/database/tables";
 import { stateDatabase } from "~/layout";
-import { runStoreEffect } from "~/lib/workflow-runs";
+import { runStoreEffect } from "~/lib/runs/records";
 import { readStatus } from "~/process/status";
 import { otherWorkspaces } from "~/workspace/others";
 import { seedWorkspace } from "./helpers/registry";

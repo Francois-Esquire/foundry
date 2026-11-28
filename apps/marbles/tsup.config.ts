@@ -41,7 +41,7 @@ function exportPaths(name: string): [string, string[]][] {
 const PROVIDERS = ["claude-code", "codex", "gateway", "pi", "vercel"];
 
 const providerEntries = Object.fromEntries(
-  PROVIDERS.map((name) => [`providers/${name}`, `src/lib/providers/${name}.ts`])
+  PROVIDERS.map((name) => [`providers/${name}`, `src/providers/${name}.ts`])
 );
 
 const selfImports: Record<string, string> = {
@@ -50,7 +50,7 @@ const selfImports: Record<string, string> = {
   ...Object.fromEntries(
     PROVIDERS.map((name) => [
       `@foundry.sh/marbles/providers/${name}`,
-      `./src/lib/providers/${name}.ts`,
+      `./src/providers/${name}.ts`,
     ])
   ),
 };
@@ -78,7 +78,7 @@ export default defineConfig([
     entry: {
       index: "src/authoring/index.ts",
       providers: "src/authoring/providers.ts",
-      statuses: "src/lib/execution-statuses.ts",
+      statuses: "src/lib/executions/statuses.ts",
     },
     esbuildOptions(options) {
       options.alias = selfImports;
@@ -131,7 +131,7 @@ export default defineConfig([
       process: "src/process/index.ts",
       providers: "src/authoring/providers.ts",
       ...providerEntries,
-      statuses: "src/lib/execution-statuses.ts",
+      statuses: "src/lib/executions/statuses.ts",
       workspace: "src/workspace/index.ts",
     },
   },

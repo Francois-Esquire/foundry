@@ -18,15 +18,15 @@ import {
 import { ChangeRecorder, DatabaseChangeLog } from "~/database/changes";
 import { openDatabase } from "~/database/open";
 import { DatabaseWorkspaceRecords } from "~/database/tasks";
+import { NODE_OWNER_LIVENESS } from "~/host/liveness";
 import type { Engine } from "~/lib/engine";
-import { DELIVERY_POLL_MS, Delivery, retryDelay } from "~/lib/events/delivery";
+import { DELIVERY_POLL_MS, Delivery, retryDelay } from "~/lib/events";
 import type { ChangeLog } from "~/lib/events/log";
 import { CHANGE_BATCH, MemoryChangeLog } from "~/lib/events/log";
 import type { WorkspaceRecords } from "~/lib/events/records";
 import { MemoryWorkspaceRecords } from "~/lib/events/records";
 import type { Fact, Handler } from "~/lib/events/source";
 import { TASKS } from "~/lib/events/source";
-import { NODE_OWNER_LIVENESS } from "~/lib/node-host-liveness";
 import { recordSpawned } from "~/process/spawned";
 import { ManualClock } from "./helpers/clock";
 import { testEngine } from "./helpers/engine";

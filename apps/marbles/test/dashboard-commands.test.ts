@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LiveWork } from "~/lib/step-work";
+import type { LiveWork } from "~/lib/runs/step-work";
 import {
   type CommandContext,
   capturesKeys,

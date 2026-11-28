@@ -1,11 +1,11 @@
 import { ownedWrite } from "@foundry/lib/plain-json";
 import type { TaskStore, TaskStoreWrite } from "@foundry/tasks";
 import { MemoryTaskStore } from "@foundry/tasks/store/memory";
-import { callingRun } from "~/lib/calling-run";
 import type { ChangeLog, RecordedFact } from "~/lib/events/log";
 import { MemoryChangeLog } from "~/lib/events/log";
 import { sourceKey, TASKS } from "~/lib/events/source";
-import { current } from "~/lib/run-scope";
+import { callingRun } from "~/lib/runs/calling";
+import { current } from "~/lib/runs/scope";
 import { EmitListeners, RecordsGate } from "./records-gate";
 
 export interface WorkspaceRecords extends DeliveryLease {

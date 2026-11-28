@@ -10,10 +10,10 @@ import type {
   workspace,
 } from "~/authoring/resources";
 import { trackCreatedDeclaration } from "~/authoring/runtime";
+import { OBSERVER_META } from "~/lib/definitions/handles";
 import type { Fact, Handler, Observable, Source } from "~/lib/events/source";
 import { SOURCE, sourceKey } from "~/lib/events/source";
-import { OBSERVER_META } from "~/lib/handles";
-import type { RunEvent } from "~/lib/workflow-runs";
+import type { RunEvent } from "~/lib/runs/records";
 
 export interface ObserverMeta {
   readonly explicitName: boolean;

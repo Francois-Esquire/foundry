@@ -1,4 +1,4 @@
-import type { LogOrigin } from "~/lib/log";
+import type { LogOrigin } from "~/lib/shared/log";
 import type { LogEntry, SetupLogEntry } from "~/model/log";
 
 const TROUBLE =

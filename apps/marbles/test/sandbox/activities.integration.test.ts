@@ -9,7 +9,7 @@ import { createEngine } from "~/create";
 import { DatabaseAutomationStore } from "~/database/automations";
 import { openDatabase } from "~/database/open";
 import { stateDatabase } from "~/layout";
-import { AutomationService } from "~/lib/automation/service";
+import { AutomationService } from "~/lib/automation";
 import { rollSchedule } from "~/lib/schedule";
 import { dashboardSnapshot } from "~/workspace/snapshot";
 import { declared } from "../helpers/engine";
