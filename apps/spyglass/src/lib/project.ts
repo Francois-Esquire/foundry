@@ -1,3 +1,4 @@
+import { globSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { Project, ts } from "ts-morph";
@@ -35,14 +36,11 @@ export function createProject(root: string, tsconfig?: string): Project {
     paths: { ...workspacePathAliases(root), ...existing.paths },
   });
 
-  project.addSourceFilesAtPaths(workspaceSourceFiles(root, project));
+  project.addSourceFilesAtPaths(workspaceSourceFiles(root));
   return project;
 }
 
-export function workspaceSourceFiles(
-  root: string,
-  project: Project = new Project({ skipFileDependencyResolution: true })
-): string[] {
+export function workspaceSourceFiles(root: string): string[] {
   const posixRoot = toPosix(root);
   const patterns = workspacePatterns(root);
   const includes = (patterns.length > 0 ? patterns : [""]).map((pattern) =>
@@ -50,34 +48,24 @@ export function workspaceSourceFiles(
       ? `${posixRoot}/**/*.{ts,tsx}`
       : `${posixRoot}/${pattern}/**/*.{ts,tsx}`
   );
-  return globSources(root, includes, project);
+  return globSources(root, includes);
 }
 
-export function packageSourceFiles(
-  root: string,
-  boundary: Boundary,
-  project: Project = new Project({ skipFileDependencyResolution: true })
-): string[] {
-  return globSources(root, [`${toPosix(boundary.dir)}/**/*.{ts,tsx}`], project);
+export function packageSourceFiles(root: string, boundary: Boundary): string[] {
+  return globSources(root, [`${toPosix(boundary.dir)}/**/*.{ts,tsx}`]);
 }
 
-function globSources(
-  root: string,
-  includes: string[],
-  project: Project
-): string[] {
+function globSources(root: string, includes: string[]): string[] {
   const posixRoot = toPosix(root);
   const excludes = EXCLUDED_DIRS.map(
-    (dir) => `!${posixRoot}/**/${dir}/**`
+    (dir) => `${posixRoot}/**/${dir}/**`
   ).concat(
-    `!${posixRoot}/**/${FIXTURE_DIR}/**`,
-    `!${posixRoot}/**/*.d.ts`,
-    `!${posixRoot}/**/*.config.{ts,tsx,mts,cts}`
+    `${posixRoot}/**/${FIXTURE_DIR}/**`,
+    `${posixRoot}/**/*.d.ts`,
+    `${posixRoot}/**/*.config.{ts,tsx,mts,cts}`
   );
   const ignorer = createIgnorer(root);
-  return project
-    .getFileSystem()
-    .globSync([...includes, ...excludes])
+  return globSync(includes, { cwd: root, exclude: excludes })
     .filter((file) => !ignoresAbsolute(ignorer, root, file))
     .sort();
 }
