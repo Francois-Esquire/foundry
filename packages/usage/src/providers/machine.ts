@@ -3,6 +3,8 @@ import { access, readdir, stat } from "node:fs/promises";
 import { delimiter, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 
+import { mapWithConcurrency } from "../usage";
+
 export type Env = Readonly<Record<string, string | undefined>>;
 
 const READ_CONCURRENCY = 8;
@@ -100,22 +102,10 @@ export const historyFiles = async (
   return fresh.filter((path) => path !== undefined).sort();
 };
 
-export const mapLimit = async <T, R>(
+export const mapLimit = <T, R>(
   items: readonly T[],
   map: (item: T) => Promise<R>
-): Promise<R[]> => {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next;
-      next += 1;
-      results[index] = await map(items[index] as T);
-    }
-  };
-  await Promise.all(Array.from({ length: READ_CONCURRENCY }, worker));
-  return results;
-};
+): Promise<R[]> => mapWithConcurrency(items, READ_CONCURRENCY, map);
 
 export async function* jsonLines(
   path: string,

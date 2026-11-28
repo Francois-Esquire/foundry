@@ -11,6 +11,7 @@ import {
   BlobStaging,
   MAX_FILE_BYTES,
   MAX_TREE_BYTES,
+  resolveChunkBytes,
   StagingTurns,
 } from "./blob-staging";
 import { ArtifactChange } from "./change";
@@ -41,6 +42,7 @@ import type {
   ListArtifactsInput,
   ListContentsInput,
   RecoverOptions,
+  RecoverResult,
   ReviseInput,
   WriteInput,
 } from "./substrate";
@@ -49,13 +51,16 @@ import {
   ArtifactTransaction,
   fileRange,
   operationEffects,
+  validateMaxReadBytes,
 } from "./transaction";
 
 export interface ArtifactsOptions {
+  readonly chunkBytes?: number;
   readonly clock?: () => Date;
   readonly files?: BlobFiles;
   readonly id?: () => string;
   readonly maxFileBytes?: number;
+  readonly maxReadBytes?: number;
   readonly maxTreeBytes?: number;
   readonly orphanGraceMs?: number;
   readonly store?: ArtifactStore;
@@ -120,6 +125,12 @@ export class Artifacts implements ArtifactSubstrate {
   readonly #ordered = new Map<ArtifactId, Promise<void>>();
 
   constructor(options: ArtifactsOptions = {}) {
+    if (options.chunkBytes !== undefined) {
+      resolveChunkBytes(options.chunkBytes);
+    }
+    if (options.maxReadBytes !== undefined) {
+      validateMaxReadBytes(options.maxReadBytes);
+    }
     this.#orphanGraceMs = validateOrphanGraceMs(
       options.orphanGraceMs ?? DEFAULT_ORPHAN_GRACE_MS
     );
@@ -127,10 +138,16 @@ export class Artifacts implements ArtifactSubstrate {
     this.durability = this.#store.durability ?? "commit";
     this.#held = this.durability === "host";
     this.#limits = {
+      ...(options.chunkBytes === undefined
+        ? {}
+        : { chunkBytes: options.chunkBytes }),
       ...(options.clock ? { clock: options.clock } : {}),
       ...(options.files ? { files: options.files } : {}),
       ...(options.id ? { id: options.id } : {}),
       maxFileBytes: options.maxFileBytes ?? MAX_FILE_BYTES,
+      ...(options.maxReadBytes === undefined
+        ? {}
+        : { maxReadBytes: options.maxReadBytes }),
       maxTreeBytes: options.maxTreeBytes ?? MAX_TREE_BYTES,
     };
   }
@@ -429,13 +446,32 @@ export class Artifacts implements ArtifactSubstrate {
     return this.#read((artifacts) => artifacts.readThumbnail(id));
   }
 
+  resolveFileUrl(
+    id: ContentId,
+    path: string,
+    options?: {
+      readonly expiresInSeconds?: number;
+      readonly signal?: AbortSignal;
+    }
+  ): Promise<string | null> {
+    return this.#read((artifacts) =>
+      artifacts.resolveFileUrl(id, path, options)
+    );
+  }
+
   sweep(input: {
+    readonly cursor?: ContentId;
+    readonly limit?: number;
     readonly olderThan: Date;
-  }): Promise<{ readonly contents: number; readonly blobs: number }> {
+  }): Promise<{
+    readonly blobs: number;
+    readonly contents: number;
+    readonly nextCursor?: ContentId;
+  }> {
     return this.transaction((artifacts) => artifacts.sweep(input));
   }
 
-  async recover(options: RecoverOptions = {}): Promise<void> {
+  async recover(options: RecoverOptions = {}): Promise<RecoverResult> {
     if (this.#held) {
       throw new Error(
         'Artifacts cannot recover over a store whose commits a host transaction may roll back (durability "host"): files its records stop naming may be named again. Run recover from an Artifacts instance over the durable store, outside the host\'s transaction.'
@@ -449,22 +485,10 @@ export class Artifacts implements ArtifactSubstrate {
       validateOrphanGraceMs(options.orphanGraceMs);
     }
     options.signal?.throwIfAborted();
-    await this.#pruneOrphanFiles(options);
-    let cursor: ListArtifactsInput["cursor"];
-    do {
-      options.signal?.throwIfAborted();
-      const page = await this.list({ cursor, includeArchived: true });
-      for (const artifact of page.items) {
-        for (const apply of this.#bindings) {
-          await apply(artifact.id);
-        }
-      }
-      this.#notify(
-        page.items.map((artifact) => artifact.id),
-        "recovery"
-      );
-      cursor = page.nextCursor;
-    } while (cursor);
+    if (options.cursor === undefined) {
+      await this.#pruneOrphanFiles(options);
+    }
+    return await this.#replayRecoveryPages(options);
   }
 
   async #pruneOrphanFiles(options: RecoverOptions): Promise<void> {
@@ -512,6 +536,36 @@ export class Artifacts implements ArtifactSubstrate {
       }
       await files.remove(path, callOptions);
     }
+  }
+
+  async #replayRecoveryPages(options: RecoverOptions): Promise<RecoverResult> {
+    let cursor: ListArtifactsInput["cursor"] = options.cursor;
+    const bounded = options.limit !== undefined;
+    let nextCursor: ArtifactCursor | undefined;
+    do {
+      options.signal?.throwIfAborted();
+      const page = await this.list({
+        cursor,
+        includeArchived: true,
+        ...(options.limit === undefined ? {} : { limit: options.limit }),
+      });
+      for (const artifact of page.items) {
+        for (const apply of this.#bindings) {
+          await apply(artifact.id);
+        }
+      }
+      this.#notify(
+        page.items.map((artifact) => artifact.id),
+        "recovery"
+      );
+      if (bounded) {
+        ({ nextCursor } = page);
+        cursor = undefined;
+      } else {
+        cursor = page.nextCursor;
+      }
+    } while (cursor);
+    return nextCursor === undefined ? {} : { nextCursor };
   }
 
   #read<T>(

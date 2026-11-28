@@ -2,6 +2,7 @@ export type { AdminKeySource, BillingAccountOptions } from "./billing-account";
 export type {
   Charge,
   Consumption,
+  ListPricesOptions,
   Quantities,
   SessionConsumption,
 } from "./consumption";

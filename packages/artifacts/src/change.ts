@@ -16,6 +16,7 @@ import type {
   ArtifactStoreWrite,
   BlobListing,
   ContentLookup,
+  ContentPageQuery,
 } from "./store";
 import type {
   Artifact,
@@ -315,6 +316,36 @@ export class ArtifactChange {
       .sort(compareCreated);
   }
 
+  async listContentsPage(
+    query: ContentPageQuery = {}
+  ): Promise<Page<Content, ContentId>> {
+    this.#assertActive();
+    const limit = pageLimit(query.limit);
+    const paged = this.#state.store.listContentsPage;
+    if (paged !== undefined) {
+      const baseQuery = buildContentPageQuery(query, limit);
+      if (this.#state.contents.size === 0) {
+        return paged.call(this.#state.store, baseQuery);
+      }
+      const stored = await paged.call(this.#state.store, {
+        ...baseQuery,
+        limit: limit + 1 + this.#state.contents.size,
+      });
+      const rows = filterContentPageRows(
+        merged(stored.items, this.#state.contents),
+        query,
+        limit
+      );
+      return pageFromRows(rows, limit, undefined, (content) => content.id);
+    }
+    const all = await this.listContents(query.artifactId, {
+      ...(query.state === undefined ? {} : { state: query.state }),
+      ...(query.tagged === undefined ? {} : { tagged: query.tagged }),
+    });
+    const rows = filterContentPageRows(all, query, limit);
+    return pageFromRows(rows, limit, undefined, (content) => content.id);
+  }
+
   async findContent(
     artifactId: ArtifactId,
     by: ContentLookup
@@ -600,6 +631,45 @@ function kept<Id, Row>(pending: Pending<Id, Row>): Row[] {
 
 function deleted<Id, Row>(pending: Pending<Id, Row>): Id[] {
   return [...pending].flatMap(([id, row]) => (row === null ? [id] : []));
+}
+
+function compareContentId(a: Content, b: Content): number {
+  if (a.id < b.id) {
+    return -1;
+  }
+  return a.id > b.id ? 1 : 0;
+}
+
+function buildContentPageQuery(
+  query: ContentPageQuery,
+  limit: number
+): ContentPageQuery {
+  return {
+    ...(query.artifactId === undefined ? {} : { artifactId: query.artifactId }),
+    ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+    limit,
+    ...(query.state === undefined ? {} : { state: query.state }),
+    ...(query.tagged === undefined ? {} : { tagged: query.tagged }),
+  };
+}
+
+function filterContentPageRows(
+  rows: readonly Content[],
+  query: ContentPageQuery,
+  limit: number
+): Content[] {
+  const states = typeof query.state === "string" ? [query.state] : query.state;
+  return rows
+    .filter(
+      (row) =>
+        (query.artifactId === undefined ||
+          row.artifactId === query.artifactId) &&
+        (states === undefined || states.includes(row.state)) &&
+        (query.tagged === undefined || (row.tag !== null) === query.tagged) &&
+        (query.cursor === undefined || row.id > query.cursor)
+    )
+    .sort(compareContentId)
+    .slice(0, limit + 1);
 }
 
 function namesBlob(content: Content, id: BlobId, skip?: string): boolean {

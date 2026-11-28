@@ -6,7 +6,7 @@ import type {
   StagedBytes,
   StagedChunk,
 } from "./blob-staging";
-import { BlobStaging, CHUNK_BYTES, checkSize } from "./blob-staging";
+import { BlobStaging, checkSize } from "./blob-staging";
 import type { ArtifactChange } from "./change";
 import { InvalidArtifactInputError } from "./errors";
 import type { BlobId } from "./ids";
@@ -73,40 +73,88 @@ export async function* readBlob(
     return;
   }
   if (blob.path !== undefined) {
-    if (!reader.files) {
-      throw new Error("Filesystem blob requires BlobFiles");
-    }
-    let length = 0;
-    for await (const bytes of reader.files.read(blob.path, { end, start })) {
-      length += bytes.byteLength;
-      yield bytes;
-    }
-    if (length !== end - start) {
-      throw new Error(`Truncated blob: ${blob.id}`);
-    }
+    yield* readFileBlob(blob, blob.path, start, end, reader);
     return;
   }
-  if (blob.chunks.length !== Math.ceil(blob.byteLength / CHUNK_BYTES)) {
+  yield* readChunkedBlob(blob, start, end, reader);
+}
+
+async function* readFileBlob(
+  blob: Blob,
+  path: string,
+  start: number,
+  end: number,
+  reader: BlobReader
+): AsyncIterable<Uint8Array> {
+  if (!reader.files) {
+    throw new Error("Filesystem blob requires BlobFiles");
+  }
+  let length = 0;
+  for await (const bytes of reader.files.read(path, { end, start })) {
+    length += bytes.byteLength;
+    yield bytes;
+  }
+  if (length !== end - start) {
+    throw new Error(`Truncated blob: ${blob.id}`);
+  }
+}
+
+async function resolveChunkLayout(
+  blob: Blob & { readonly chunks: readonly BlobId[] },
+  reader: BlobReader
+): Promise<{ readonly chunkSize: number; readonly firstChunk: Blob }> {
+  const [firstId] = blob.chunks;
+  if (firstId === undefined) {
+    throw new Error(`Missing manifest chunk: ${blob.id}`);
+  }
+  const firstChunk = await reader.require(firstId);
+  if (firstChunk.chunks !== undefined) {
+    throw new Error("Nested blob manifests are invalid");
+  }
+  const chunkSize = firstChunk.byteLength;
+  if (
+    chunkSize <= 0 ||
+    blob.chunks.length !== Math.ceil(blob.byteLength / chunkSize)
+  ) {
     throw new Error(`Invalid manifest size: ${blob.id}`);
+  }
+  return { chunkSize, firstChunk };
+}
+
+async function* readChunkedBlob(
+  blob: Blob & { readonly chunks: readonly BlobId[] },
+  start: number,
+  end: number,
+  reader: BlobReader
+): AsyncIterable<Uint8Array> {
+  if (blob.chunks.length === 0) {
+    if (blob.byteLength !== 0) {
+      throw new Error(`Invalid manifest size: ${blob.id}`);
+    }
+    return;
   }
   if (start >= end) {
     return;
   }
+  const { chunkSize, firstChunk } = await resolveChunkLayout(blob, reader);
   for (
-    let index = Math.floor(start / CHUNK_BYTES);
-    index <= Math.floor((end - 1) / CHUNK_BYTES);
+    let index = Math.floor(start / chunkSize);
+    index <= Math.floor((end - 1) / chunkSize);
     index += 1
   ) {
     const id = blob.chunks[index];
     if (id === undefined) {
       throw new Error(`Missing manifest chunk: ${blob.id}`);
     }
-    const chunk = await reader.require(id);
+    const chunk =
+      index === 0 && firstChunk !== undefined
+        ? firstChunk
+        : await reader.require(id);
     if (chunk.chunks !== undefined) {
       throw new Error("Nested blob manifests are invalid");
     }
-    const offset = index * CHUNK_BYTES;
-    if (chunk.byteLength !== Math.min(CHUNK_BYTES, blob.byteLength - offset)) {
+    const offset = index * chunkSize;
+    if (chunk.byteLength !== Math.min(chunkSize, blob.byteLength - offset)) {
       throw new Error(`Invalid manifest chunk size: ${id}`);
     }
     yield* readBlob(
@@ -131,6 +179,7 @@ export class BlobRepository implements BlobReader {
     change: ArtifactChange,
     effects: BlobEffects,
     options: {
+      readonly chunkBytes?: number;
       readonly clock?: () => Date;
       readonly files?: BlobFiles;
       readonly id?: () => string;
@@ -287,7 +336,7 @@ export class BlobRepository implements BlobReader {
 
   async #leaf(chunk: StagedChunk, exclude: BlobId | undefined): Promise<Blob> {
     const existing = await this.#change.findBlob(chunk.digest);
-    if (existing && existing.id !== exclude) {
+    if (existing && existing.chunks === undefined && existing.id !== exclude) {
       this.#unused([chunk]);
       return existing;
     }

@@ -123,6 +123,8 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
           owned.expectedGrantRevisions
         );
         await this.#createClaims(transaction, rows.createClaims);
+        await this.#deleteClaims(transaction, owned.deleteClaims ?? []);
+        await this.#deleteGrants(transaction, owned.deleteGrants ?? []);
         await this.#deleteRestrictions(
           transaction,
           owned.deleteRestrictions ?? []
@@ -401,6 +403,48 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     }));
     for (const batch of rowBatches(rows, columns, this.#maxParameters)) {
       await transaction.insert(authorizationClaims).values(batch);
+    }
+  }
+
+  async #deleteClaims(
+    transaction: AuthorizationTransaction,
+    keys: readonly string[]
+  ): Promise<void> {
+    for (const batch of rowBatches(
+      keys.filter(storableText),
+      1,
+      this.#maxParameters,
+      1
+    )) {
+      await transaction
+        .delete(authorizationClaims)
+        .where(
+          and(
+            eq(authorizationClaims.scope, this.#scope),
+            inArray(authorizationClaims.invocationId, batch)
+          )
+        );
+    }
+  }
+
+  async #deleteGrants(
+    transaction: AuthorizationTransaction,
+    keys: readonly GrantId[]
+  ): Promise<void> {
+    for (const batch of rowBatches(
+      keys.filter(storableText),
+      1,
+      this.#maxParameters,
+      1
+    )) {
+      await transaction
+        .delete(authorizationGrants)
+        .where(
+          and(
+            eq(authorizationGrants.scope, this.#scope),
+            inArray(authorizationGrants.id, batch)
+          )
+        );
     }
   }
 

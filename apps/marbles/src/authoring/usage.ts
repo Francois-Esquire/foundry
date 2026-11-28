@@ -32,6 +32,9 @@ const facade: Usage = {
     (usageState().active.query as (...values: unknown[]) => unknown)(
       ...args
     )) as Usage["query"],
+  queryAccount: (account, options) =>
+    usageState().active.queryAccount(account, options),
+  remove: (name) => usageState().active.remove(name),
   share: (name, span, options) =>
     usageState().active.share(name, span, options),
   use: (provider) => usageState().active.use(provider),

@@ -34,8 +34,12 @@ export {
 } from "./scheduler";
 export {
   pauseSchedule,
+  type RecordSettlementOptions,
+  recordSettlement,
   registerSchedule,
   resumeSchedule,
   type StatelessScheduleOptions,
+  type TriggerScheduleNowOptions,
+  triggerScheduleNow,
   unregisterSchedule,
 } from "./stateless";

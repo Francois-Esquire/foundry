@@ -99,7 +99,8 @@ export function gatedScheduleStore(
     ...(listDueSchedules === undefined
       ? {}
       : {
-          listDueSchedules: (now) => through(listDueSchedules.call(store, now)),
+          listDueSchedules: (now, options) =>
+            through(listDueSchedules.call(store, now, options)),
         }),
     listOccurrences: (filter) => through(store.listOccurrences(filter)),
     listSchedules: Effect.suspend(() => through(store.listSchedules)),

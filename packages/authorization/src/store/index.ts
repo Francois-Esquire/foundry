@@ -24,6 +24,8 @@ export interface RestrictionQuery {
 
 export interface AuthorizationStoreWrite {
   readonly createClaims?: readonly InvocationClaim[];
+  readonly deleteClaims?: readonly string[];
+  readonly deleteGrants?: readonly GrantId[];
   readonly deleteRestrictions?: readonly RestrictionId[];
   readonly expectedGrantRevisions?: Readonly<Record<GrantId, number>>;
   readonly putClaims?: readonly InvocationClaim[];

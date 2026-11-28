@@ -1,7 +1,11 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { consumptionOf, listPrices } from "../consumption";
+import {
+  consumptionOf,
+  type ListPricesOptions,
+  listPrices,
+} from "../consumption";
 import { defineProvider } from "../provider";
 import { readClaudeHistory } from "./anthropic/history";
 import { type ClaudeQuery, readClaudeLimits } from "./anthropic/limits";
@@ -18,6 +22,7 @@ type AnthropicCredential =
   | { readonly kind: "api-key" };
 
 export interface AnthropicMachine {
+  readonly catalog?: ListPricesOptions["catalog"];
   readonly env?: Env;
   readonly home?: string;
   readonly initTimeoutMs?: number;
@@ -67,6 +72,11 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
     );
   };
 
+  const price = listPrices(
+    "anthropic",
+    machine.catalog ? { catalog: machine.catalog } : undefined
+  );
+
   return defineProvider({
     credential: (options: AnthropicOptions): AnthropicCredential => {
       if ("apiKey" in options && !options.apiKey?.trim()) {
@@ -88,7 +98,7 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
         callOptions?.signal
       );
       callOptions?.signal?.throwIfAborted();
-      return consumptionOf(works, since, listPrices("anthropic"), "notional");
+      return consumptionOf(works, since, price, "notional");
     },
     id: "anthropic",
     limits: async (credential, callOptions) => {

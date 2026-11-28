@@ -381,9 +381,9 @@ export const makeSqliteScheduleStore = (
           .limit(1);
         return row?.body;
       }),
-    listDueSchedules: (now) =>
+    listDueSchedules: (now, listOptions = {}) =>
       run(async () => {
-        const rows = await database
+        const base = database
           .select({
             body: schedulingSchedules.body,
           })
@@ -413,6 +413,9 @@ export const makeSqliteScheduleStore = (
             sql`CASE WHEN ${schedulingCursors.nextDueAt} IS NULL THEN 1 ELSE 0 END ASC`,
             asc(schedulingCursors.nextDueAt)
           );
+        const rows = await (listOptions.limit === undefined
+          ? base
+          : base.limit(Math.max(0, listOptions.limit)));
         return rows.map((row) => row.body);
       }),
     listOccurrences: (filter = {}) =>

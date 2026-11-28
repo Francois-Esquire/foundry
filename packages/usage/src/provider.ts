@@ -54,6 +54,7 @@ export const defineProvider = <Id extends string, O extends object, C>(
 export type {
   Charge,
   Consumption,
+  ListPricesOptions,
   Price,
   Quantities,
   SessionConsumption,

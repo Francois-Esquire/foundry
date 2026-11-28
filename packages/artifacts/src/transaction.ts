@@ -12,6 +12,7 @@ import {
   isReferenceInput,
   MAX_FILE_BYTES,
   MAX_TREE_BYTES,
+  resolveChunkBytes,
 } from "./blob-staging";
 import type { EventInput } from "./change";
 import { ArtifactChange } from "./change";
@@ -76,18 +77,22 @@ export function operationEffects(): OperationEffects {
 }
 
 export interface TransactionLimits {
+  readonly chunkBytes?: number;
   readonly clock?: () => Date;
   readonly files?: BlobFiles;
   readonly id?: () => string;
   readonly maxFileBytes: number;
+  readonly maxReadBytes?: number;
   readonly maxTreeBytes: number;
 }
 
 export interface ArtifactTransactionOptions {
+  readonly chunkBytes?: number;
   readonly clock?: () => Date;
   readonly files?: BlobFiles;
   readonly id?: () => string;
   readonly maxFileBytes?: number;
+  readonly maxReadBytes?: number;
   readonly maxTreeBytes?: number;
   readonly readOnly?: boolean;
 }
@@ -109,17 +114,36 @@ async function discardPublished(
   }
 }
 
+export function validateMaxReadBytes(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError("maxReadBytes must be a non-negative safe integer");
+  }
+  return value;
+}
+
 export function runArtifactTransaction<T>(
   store: ArtifactStore,
   operation: (artifacts: ArtifactOperations) => Promise<T>,
   options: ArtifactTransactionOptions = {}
 ): Promise<ArtifactTransactionResult<T>> {
+  if (options.chunkBytes !== undefined) {
+    resolveChunkBytes(options.chunkBytes);
+  }
+  if (options.maxReadBytes !== undefined) {
+    validateMaxReadBytes(options.maxReadBytes);
+  }
   const effects = operationEffects();
   const limits: TransactionLimits = {
+    ...(options.chunkBytes === undefined
+      ? {}
+      : { chunkBytes: options.chunkBytes }),
     ...(options.clock ? { clock: options.clock } : {}),
     ...(options.files ? { files: options.files } : {}),
     ...(options.id ? { id: options.id } : {}),
     maxFileBytes: options.maxFileBytes ?? MAX_FILE_BYTES,
+    ...(options.maxReadBytes === undefined
+      ? {}
+      : { maxReadBytes: options.maxReadBytes }),
     maxTreeBytes: options.maxTreeBytes ?? MAX_TREE_BYTES,
   };
   const changeOptions = {
@@ -230,6 +254,12 @@ export class ArtifactTransaction implements ArtifactOperations {
     limits: TransactionLimits,
     staging: BlobStaging = new BlobStaging(limits)
   ) {
+    if (limits.chunkBytes !== undefined) {
+      resolveChunkBytes(limits.chunkBytes);
+    }
+    if (limits.maxReadBytes !== undefined) {
+      validateMaxReadBytes(limits.maxReadBytes);
+    }
     this.#change = change;
     this.#clock = limits.clock ?? (() => new Date());
     this.#effects = effects;
@@ -775,13 +805,71 @@ export class ArtifactTransaction implements ArtifactOperations {
     return this.#readFrom(content, content.metadata.thumbnail);
   }
 
+  async resolveFileUrl(
+    id: ContentId,
+    path: string,
+    options?: {
+      readonly expiresInSeconds?: number;
+      readonly signal?: AbortSignal;
+    }
+  ): Promise<string | null> {
+    if (this.#limits.files?.url === undefined) {
+      return null;
+    }
+    const content = await this.#requireContent(id);
+    const located = await this.#locate(content, path);
+    if (!located || located.blob.path === undefined) {
+      return null;
+    }
+    return this.#limits.files.url(located.blob.path, {
+      ...(located.entry.mime === null
+        ? {}
+        : { contentType: located.entry.mime }),
+      ...(options?.expiresInSeconds === undefined
+        ? {}
+        : { expiresInSeconds: options.expiresInSeconds }),
+      ...(options?.signal === undefined ? {} : { signal: options.signal }),
+    });
+  }
+
   async sweep(input: {
+    readonly cursor?: ContentId;
+    readonly limit?: number;
     readonly olderThan: Date;
-  }): Promise<{ readonly contents: number; readonly blobs: number }> {
+  }): Promise<{
+    readonly blobs: number;
+    readonly contents: number;
+    readonly nextCursor?: ContentId;
+  }> {
+    const paged = input.limit !== undefined;
+    let batch: readonly Content[];
+    let nextCursor: ContentId | undefined;
+    if (paged) {
+      const page = await this.#change.listContentsPage({
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+        limit: input.limit,
+        state: ["ready", "failed"],
+      });
+      ({ items: batch, nextCursor } = page);
+    } else {
+      const allCandidates = [
+        ...(await this.#change.listContents(undefined, {
+          state: ["ready", "failed"],
+        })),
+      ].sort((a, b) => {
+        if (a.id < b.id) {
+          return -1;
+        }
+        return a.id > b.id ? 1 : 0;
+      });
+      const { cursor } = input;
+      batch =
+        cursor === undefined
+          ? allCandidates
+          : allCandidates.filter((content) => content.id > cursor);
+    }
     let contents = 0;
-    for (const content of await this.#change.listContents(undefined, {
-      state: ["ready", "failed"],
-    })) {
+    for (const content of batch) {
       if (
         (content.state !== "ready" && content.state !== "failed") ||
         content.updatedAt >= input.olderThan
@@ -793,6 +881,11 @@ export class ArtifactTransaction implements ArtifactOperations {
         continue;
       }
       await this.#change.deleteContent(content.id);
+      this.#blobs.release(
+        Object.values(content.tree).flatMap((node) =>
+          node.type === "file" ? [node.blobId] : []
+        )
+      );
       contents += 1;
       this.#effects.changed.add(content.artifactId);
       this.#change.record({
@@ -801,7 +894,14 @@ export class ArtifactTransaction implements ArtifactOperations {
         type: "artifact.discarded",
       });
     }
-    return { blobs: await this.#blobs.reclaimAll(), contents };
+    const blobs = paged
+      ? await this.#blobs.reclaim()
+      : await this.#blobs.reclaimAll();
+    return {
+      blobs,
+      contents,
+      ...(nextCursor === undefined ? {} : { nextCursor }),
+    };
   }
 
   async locateFile(id: ContentId, path: string): Promise<LocatedFile | null> {
@@ -816,8 +916,22 @@ export class ArtifactTransaction implements ArtifactOperations {
     content: Content,
     path: string | undefined
   ): Promise<FileResolved | null> {
-    const located =
-      path === undefined ? null : await this.#locate(content, path);
+    if (path === undefined) {
+      return null;
+    }
+    const entry = Object.hasOwn(content.tree, path)
+      ? content.tree[path]
+      : undefined;
+    if (entry?.type !== "file") {
+      return null;
+    }
+    if (
+      this.#limits.maxReadBytes !== undefined &&
+      entry.bytes > this.#limits.maxReadBytes
+    ) {
+      throw new FileTooLargeError(path, entry.bytes, this.#limits.maxReadBytes);
+    }
+    const located = await this.#locate(content, path);
     if (!located) {
       return null;
     }

@@ -73,6 +73,7 @@ export type {
   ListArtifactsInput,
   ListContentsInput,
   RecoverOptions,
+  RecoverResult,
   ReviseInput,
   TreeChanges,
   WriteFence,

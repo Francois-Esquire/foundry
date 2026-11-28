@@ -6,7 +6,11 @@ import {
   spawnRecordEnvironment,
 } from "@foundry/lib/node/spawn-record";
 
-import { consumptionOf, listPrices } from "../consumption";
+import {
+  consumptionOf,
+  type ListPricesOptions,
+  listPrices,
+} from "../consumption";
 import { defineProvider } from "../provider";
 import { childEnv, type Env, exists, expandHome } from "./machine";
 import { readCodexHistory } from "./openai/history";
@@ -23,6 +27,7 @@ type OpenAICredential =
   | { readonly kind: "api-key" };
 
 export interface OpenAIMachine {
+  readonly catalog?: ListPricesOptions["catalog"];
   readonly env?: Env;
   readonly home?: string;
   readonly spawn?: SpawnCodex;
@@ -53,6 +58,11 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
     );
   };
 
+  const price = listPrices(
+    "openai",
+    machine.catalog ? { catalog: machine.catalog } : undefined
+  );
+
   return defineProvider({
     credential: (options: OpenAIOptions): OpenAICredential => {
       if ("apiKey" in options && !options.apiKey?.trim()) {
@@ -80,7 +90,7 @@ export const createOpenAI = (machine: OpenAIMachine = {}) => {
         callOptions?.signal
       );
       callOptions?.signal?.throwIfAborted();
-      return consumptionOf(works, since, listPrices("openai"), "notional");
+      return consumptionOf(works, since, price, "notional");
     },
     id: "openai",
     limits: async (credential, callOptions) => {

@@ -14,16 +14,23 @@ export type {
   ClaimedRun,
   ClaimRunOptions,
   EnqueueJobOptions,
+  NextWakeAtOptions,
   RecoverExpiredLeasesOptions,
   RenewLeaseOptions,
   SaveRunCheckpointOptions,
+  YieldRunOptions,
 } from "./stateless";
 export {
   cancelJob,
+  cancelSuspension,
   claimRun,
   enqueueJob,
+  nextWakeAt,
   recoverExpiredLeases,
+  removeJob,
   renewLease,
+  resolveSuspension,
   saveRunCheckpoint,
   settleRun,
+  yieldRun,
 } from "./stateless";

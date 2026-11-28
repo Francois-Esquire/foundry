@@ -76,7 +76,12 @@ describe("Stateless scheduling evaluation", () => {
       })
     );
 
-    expect(result.before).toEqual({ decided: [], errors: [], soonest: 1000 });
+    expect(result.before).toEqual({
+      decided: [],
+      errors: [],
+      hasMore: false,
+      soonest: 1000,
+    });
     expect(result.atFirst.decided).toHaveLength(1);
     expect(result.atFirst.decided[0]?.state.kind).toBe("dispatched");
     expect(result.atFirst.soonest).toBe(2000);

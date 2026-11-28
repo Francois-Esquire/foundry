@@ -186,7 +186,7 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
                 undefined
               )
           ),
-        listDueSchedules: (now) =>
+        listDueSchedules: (now, options = {}) =>
           read((current) => {
             const openSchedules = new Set<string>();
             for (const occurrence of current.occurrences.values()) {
@@ -194,7 +194,7 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
                 openSchedules.add(occurrence.scheduleId);
               }
             }
-            return [...current.cursors.values()]
+            const due = [...current.cursors.values()]
               .filter((cursor) => {
                 const schedule = current.schedules.get(cursor.scheduleId);
                 if (schedule === undefined) {
@@ -217,6 +217,9 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
                 const schedule = current.schedules.get(cursor.scheduleId);
                 return schedule === undefined ? [] : [schedule];
               });
+            return options.limit === undefined
+              ? due
+              : due.slice(0, Math.max(0, options.limit));
           }),
         listOccurrences: (filter = {}) =>
           read((current) =>

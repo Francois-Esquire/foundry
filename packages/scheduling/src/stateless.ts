@@ -1,26 +1,59 @@
+import { closeInstance, openInstance } from "@foundry/lib/instance-identity";
+import {
+  neverGone,
+  type ProcessIdentity,
+  portableProcess,
+} from "@foundry/lib/process-identity";
 import { Clock, Effect } from "effect";
 import { firstDue, validateCadence, validatePolicies } from "./cadence";
+import type { ScheduleDispatchService } from "./dispatch";
 import {
   type Instant,
+  type JobOutcome,
+  type Occurrence,
+  type OccurrenceId,
   type RegisterScheduleInput,
   type Schedule,
   type ScheduleCursor,
   type ScheduleError,
   type ScheduleId,
   ScheduleNotFoundError,
+  type SchedulerOwner,
 } from "./domain";
-import { type Commit, makeStoreCommit, sameJson } from "./evaluator";
+import {
+  type Commit,
+  DEFAULT_CLAIM_TTL_MS,
+  makeEvaluator,
+  makeStoreCommit,
+  sameJson,
+  settleCursor,
+} from "./evaluator";
 import type { ScheduleStoreService } from "./store/index";
+
+const DEFAULT_MAX_OCCURRENCES = 100;
 
 export interface StatelessScheduleOptions {
   readonly commit?: Commit;
+  readonly nextEventId?: () => string;
   readonly now?: Instant;
+}
+
+export interface TriggerScheduleNowOptions extends StatelessScheduleOptions {
+  readonly claimTtlMs?: number;
+  readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
+  readonly maxOccurrencesPerSchedule?: number;
+  readonly owner?: SchedulerOwner;
+}
+
+export interface RecordSettlementOptions extends StatelessScheduleOptions {
+  readonly maxOccurrencesPerSchedule?: number;
+  readonly settledAt?: Instant;
 }
 
 const resolveCommit = (
   store: ScheduleStoreService,
   options: StatelessScheduleOptions
-): Commit => options.commit ?? makeStoreCommit(store);
+): Commit => options.commit ?? makeStoreCommit(store, options.nextEventId);
 
 const retryingScheduleConflicts = <A>(
   attempt: Effect.Effect<A, ScheduleError>
@@ -36,6 +69,12 @@ const retryingWriteConflicts = <A>(attempt: Effect.Effect<A, ScheduleError>) =>
     while: (error) =>
       error._tag === "ScheduleConflictError" ||
       error._tag === "CursorConflictError",
+  });
+
+const retryingCursorConflicts = <A>(attempt: Effect.Effect<A, ScheduleError>) =>
+  Effect.retry(attempt, {
+    times: 3,
+    while: (error) => error._tag === "CursorConflictError",
   });
 
 const requireSchedule = (store: ScheduleStoreService, id: ScheduleId) =>
@@ -145,4 +184,100 @@ export const unregisterSchedule = (
       removed: [id],
     });
   });
+};
+
+export const triggerScheduleNow = (
+  store: ScheduleStoreService,
+  dispatch: ScheduleDispatchService,
+  id: ScheduleId,
+  options: TriggerScheduleNowOptions = {}
+): Effect.Effect<Occurrence, ScheduleError> =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const schedule = yield* requireSchedule(store, id);
+      const self: SchedulerOwner =
+        options.owner ??
+        (yield* Effect.acquireRelease(
+          Effect.sync(() => openInstance(portableProcess())),
+          (instance) => Effect.sync(() => closeInstance(instance))
+        ));
+      const { triggerNow } = makeEvaluator({
+        claimTtlMs: options.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS,
+        commit: resolveCommit(store, options),
+        dispatch,
+        isOwnerGone: options.isOwnerGone ?? neverGone,
+        maxOccurrencesPerSchedule:
+          options.maxOccurrencesPerSchedule ?? DEFAULT_MAX_OCCURRENCES,
+        self,
+        store,
+      });
+      const now = options.now ?? (yield* Clock.currentTimeMillis);
+      const occurrence = yield* triggerNow(schedule, now);
+      return occurrence ?? (yield* Effect.dieMessage("nothing was decided"));
+    })
+  );
+
+export const recordSettlement = (
+  store: ScheduleStoreService,
+  occurrenceId: OccurrenceId,
+  outcome: JobOutcome,
+  options: RecordSettlementOptions = {}
+): Effect.Effect<Occurrence | undefined, ScheduleError> => {
+  const commit = resolveCommit(store, options);
+  return retryingCursorConflicts(
+    Effect.gen(function* () {
+      const existing = yield* store.getOccurrence(occurrenceId);
+      if (existing === undefined || existing.state.kind !== "dispatched") {
+        return;
+      }
+      const settledAt =
+        options.settledAt ?? options.now ?? (yield* Clock.currentTimeMillis);
+      const settled: Occurrence = {
+        ...existing,
+        state: {
+          jobId: existing.state.jobId,
+          kind: "settled",
+          outcome,
+          settledAt,
+        },
+      };
+      const [schedule, cursor] = yield* Effect.all([
+        store.getSchedule(existing.scheduleId),
+        store.getCursor(existing.scheduleId),
+      ]);
+      let activeJobId = cursor?.activeJobId;
+      if (cursor !== undefined && cursor.activeJobId === existing.state.jobId) {
+        const open = yield* store.listOccurrences({
+          scheduleId: existing.scheduleId,
+          state: "dispatched",
+        });
+        activeJobId = open
+          .flatMap((occurrence) =>
+            occurrence.id !== existing.id &&
+            occurrence.state.kind === "dispatched"
+              ? [occurrence.state.jobId]
+              : []
+          )
+          .at(-1);
+      }
+      const nextCursor =
+        cursor === undefined
+          ? undefined
+          : settleCursor(schedule, cursor, activeJobId, settledAt);
+      yield* commit(
+        settledAt,
+        [{ occurrence: settled, type: "occurrence.settled" }],
+        {
+          ...(nextCursor === undefined ? {} : { cursors: [nextCursor] }),
+          ...(nextCursor !== undefined && cursor !== undefined
+            ? { expectedCursors: [cursor] }
+            : {}),
+          maxOccurrencesPerSchedule:
+            options.maxOccurrencesPerSchedule ?? DEFAULT_MAX_OCCURRENCES,
+          occurrences: [settled],
+        }
+      );
+      return settled;
+    })
+  );
 };

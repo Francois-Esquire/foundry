@@ -1,11 +1,9 @@
 import type { CommitEffects } from "@foundry/core/storage";
-import { sha256Hex } from "@foundry/lib/digest";
-import { canonicalizeJson } from "@foundry/lib/json";
 import { Turns } from "@foundry/lib/turns";
+import { prepareApproval, validateParentDelegations } from "./delegation";
 import {
   AuthorizationDeniedError,
   AuthorizationNotFoundError,
-  AuthorizationRevisionError,
   AuthorizationStateError,
   AuthorizationValidationError,
 } from "./errors";
@@ -14,11 +12,30 @@ import {
   findBlockingDenyForGrantScope,
   isExpired,
   restrictionMatchesGrantPath,
-  samePrincipalIdentity,
   scopeFromRequest,
   validateGrantForReplay,
-  walkDelegationAncestors,
 } from "./evaluation";
+import { createEventHub, dispatchEvent, type EventHub } from "./event-hub";
+import {
+  assertNonEmptyText,
+  assertPositiveInteger,
+  assertUnusedGrantRecord,
+  buildGrant,
+  exactPrincipalRef,
+  fingerprintRequest,
+  matchesPendingGrantForRequest,
+  matchesRequestFingerprint,
+  reuseIdempotentIssuance,
+  reusePendingRequest,
+  validateGrantBounds,
+  validateScope,
+} from "./grant-helpers";
+import {
+  loadAncestorMapByIds,
+  loadGrantsWithAncestors,
+  selectRevocationTargets,
+  uniqueIds,
+} from "./grant-loader";
 import { createPermit, type Permit } from "./permit";
 import type {
   AddRestrictionInput,
@@ -29,10 +46,8 @@ import type {
   Decision,
   DenyGrantInput,
   Grant,
-  GrantApproval,
   GrantId,
   GrantQuery,
-  GrantState,
   InvocationClaim,
   IssueGrantInput,
   LiftRestrictionOptions,
@@ -46,14 +61,7 @@ import {
   grantId as asGrantId,
   restrictionId as asRestrictionId,
 } from "./schema";
-import type {
-  AccessRequest,
-  NarrowOptions,
-  Principal,
-  PrincipalMatcher,
-  Scope,
-} from "./scope";
-import { matchesPrincipal, narrows } from "./scope";
+import type { AccessRequest, NarrowOptions } from "./scope";
 import type {
   AuthorizationStore,
   AuthorizationStoreDurability,
@@ -77,11 +85,6 @@ export interface AuthorizationOptions {
 
 const REENTRY =
   "Authorization store does not provide transaction(); concurrent calls were serialized";
-
-interface EventHub {
-  readonly observers: Set<(event: AuthorizationEvent) => void>;
-  readonly permitHandlers: Set<(event: AuthorizationEvent) => void>;
-}
 
 interface InternalBinding {
   readonly defaultEffects?: CommitEffects;
@@ -125,10 +128,7 @@ export class Authorization {
     if (options.isNarrowerDigest !== undefined) {
       this.#narrowOptions = { isNarrowerDigest: options.isNarrowerDigest };
     }
-    this.#hub = binding?.hub ?? {
-      observers: new Set(),
-      permitHandlers: new Set(),
-    };
+    this.#hub = binding?.hub ?? createEventHub();
     this.#defaultEffects = binding?.defaultEffects;
   }
 
@@ -191,6 +191,97 @@ export class Authorization {
     return {
       kind: "ask",
       reason: "No active grant covers request",
+    };
+  }
+
+  async verifyReceipt(
+    receipt: AuthorizationReceipt,
+    request: AccessRequest
+  ): Promise<Decision> {
+    const snapshot = structuredClone(request);
+    const { claim, grant, grants, restrictions } = await this.#inTransaction(
+      async (view) => {
+        const [loadedClaim, loadedGrant, loadedRestrictions] =
+          await Promise.all([
+            view.getClaim(receipt.invocationId),
+            view.getGrant(receipt.grantId),
+            view.listRestrictions({ action: snapshot.action }),
+          ]);
+        const loadedGrants =
+          loadedGrant === null
+            ? []
+            : await loadGrantsWithAncestors(view, [loadedGrant]);
+        return {
+          claim: loadedClaim,
+          grant: loadedGrant,
+          grants: loadedGrants,
+          restrictions: loadedRestrictions,
+        };
+      }
+    );
+    if (claim === null || claim.grantId !== receipt.grantId) {
+      return {
+        kind: "deny",
+        reason: `Invocation ${receipt.invocationId} has no matching claim for grant ${receipt.grantId}`,
+      };
+    }
+    if (
+      !(await matchesRequestFingerprint(claim.requestFingerprint, snapshot))
+    ) {
+      return {
+        kind: "deny",
+        reason: `Invocation ${receipt.invocationId} was claimed for a different request`,
+      };
+    }
+    if (grant === null) {
+      return {
+        kind: "deny",
+        reason: `Grant ${receipt.grantId} no longer exists`,
+      };
+    }
+    const now = this.#clock();
+    const validated = validateGrantForReplay(
+      grant,
+      snapshot,
+      grants,
+      restrictions,
+      now,
+      receipt.invocationId
+    );
+    if (validated.blockedByDeny !== undefined) {
+      return {
+        kind: "deny",
+        reason: validated.blockedByDeny.reason,
+        restrictionId: validated.blockedByDeny.id,
+      };
+    }
+    if (validated.blockedByDirectGrant !== undefined) {
+      return {
+        kind: "deny",
+        reason: validated.blockedByDirectGrant.reason,
+        restrictionId: validated.blockedByDirectGrant.id,
+      };
+    }
+    if (validated.grantPath === undefined) {
+      return {
+        kind: "deny",
+        reason: `Grant ${receipt.grantId} is no longer valid for request`,
+      };
+    }
+    if (
+      receipt.grantPath.length === 0 ||
+      receipt.grantPath.length !== validated.grantPath.length ||
+      receipt.grantPath.some((id, index) => id !== validated.grantPath?.[index])
+    ) {
+      return {
+        kind: "deny",
+        reason: `Receipt grantPath does not match active grant chain for ${receipt.grantId}`,
+      };
+    }
+    return {
+      grantId: grant.id,
+      grantPath: validated.grantPath,
+      kind: "allow",
     };
   }
 
@@ -348,34 +439,17 @@ export class Authorization {
           loadAncestorMapByIds(view, parentIds),
         ]);
       const at = this.#clock();
-      if (input.issuanceKey !== undefined) {
-        const duplicate = findIdempotentIssuance(
-          issuanceGrants,
-          input.issuanceKey,
-          input.holder,
-          input.scope,
-          parentIds,
-          input.sessionId
-        );
-        if (duplicate !== undefined) {
-          if (
-            duplicate.canDelegate !== (input.canDelegate ?? false) ||
-            duplicate.expiresAt !== input.expiresAt ||
-            duplicate.usesRemaining !== input.usesRemaining
-          ) {
-            throw new AuthorizationStateError(
-              `Issuance key ${input.issuanceKey} already issued a grant with different bounds`
-            );
-          }
-          return { created: false, grant: duplicate, now: at };
-        }
+      const reused = reuseIdempotentIssuance(issuanceGrants, input, parentIds);
+      if (reused !== undefined) {
+        return { created: false, grant: reused, now: at };
       }
       assertUnusedGrantRecord(input.id, existingById);
-      const ancestors = this.#validateParentDelegations(
+      const ancestors = validateParentDelegations(
         parentIds,
         parentMap,
         input,
-        at
+        at,
+        this.#narrowOptions
       );
       const blocking = findBlockingDenyForGrantScope(
         input.holder,
@@ -437,12 +511,13 @@ export class Authorization {
         ]);
         grantMap.set(existing.id, existing);
         const at = this.#clock();
-        const prepared = this.#prepareApproval(
+        const prepared = prepareApproval(
           existing,
           input,
           grantMap,
           restrictions,
-          at
+          at,
+          this.#narrowOptions
         );
         await view.commit({
           expectedGrantRevisions: { [existing.id]: existing.revision },
@@ -929,276 +1004,6 @@ export class Authorization {
     };
   }
 
-  #validateParentDelegations(
-    parentIds: readonly GrantId[],
-    grantMap: ReadonlyMap<GrantId, Grant>,
-    input: IssueGrantInput,
-    now: number
-  ): ReadonlySet<GrantId> {
-    if (parentIds.length === 0) {
-      return new Set();
-    }
-    const ancestorOrder = walkDelegationAncestors(parentIds, grantMap, now, {
-      sessionId: input.sessionId,
-    });
-    if (ancestorOrder === null) {
-      throw new AuthorizationStateError(
-        "Parent grant chain is missing, inactive, expired, non-delegable, or cyclic"
-      );
-    }
-    for (const parentId of parentIds) {
-      const parent = grantMap.get(parentId);
-      if (parent === undefined) {
-        throw new AuthorizationNotFoundError("grant", parentId);
-      }
-      if (
-        input.issuer !== undefined &&
-        !matchesPrincipal(parent.holder, input.issuer, "allow")
-      ) {
-        throw new AuthorizationStateError(
-          `Issuer does not hold parent grant ${parentId}`
-        );
-      }
-      this.#assertNarrowsParent(parent, {
-        expiresAt: input.expiresAt,
-        scope: input.scope,
-        sessionId: input.sessionId,
-        usesRemaining: input.usesRemaining,
-      });
-    }
-    return new Set(ancestorOrder);
-  }
-
-  #prepareApproval(
-    existing: Grant,
-    input: ApproveGrantInput,
-    grantMap: ReadonlyMap<GrantId, Grant>,
-    restrictions: readonly Restriction[],
-    now: number
-  ): { readonly approval: GrantApproval; readonly updated: Grant } {
-    if (existing.state !== "pending") {
-      throw new AuthorizationStateError(
-        `Cannot approve grant ${existing.id} in state ${existing.state}`
-      );
-    }
-    if (isExpired(existing, now)) {
-      throw new AuthorizationStateError(`Grant ${existing.id} has expired`);
-    }
-    if (
-      input.allowSelfApproval !== true &&
-      samePrincipalIdentity(input.approver, existing.requestedBy)
-    ) {
-      throw new AuthorizationStateError("Self-approval is not permitted");
-    }
-    if (
-      existing.approvals.some((entry) =>
-        samePrincipalIdentity(entry.approver, input.approver)
-      )
-    ) {
-      throw new AuthorizationStateError(
-        `Approver ${input.approver.kind}:${input.approver.id} has already approved grant ${existing.id}`
-      );
-    }
-    const tightened = this.#tightenPendingGrant(existing, input);
-    const parentIds = uniqueIds([
-      ...existing.parentIds,
-      ...(input.parentGrantId === undefined ? [] : [input.parentGrantId]),
-    ]);
-    const ancestors = this.#verifyApproverAuthority(
-      input,
-      tightened,
-      parentIds,
-      existing.invocationId,
-      grantMap,
-      now
-    );
-    const blocking = findBlockingDenyForGrantScope(
-      existing.holder,
-      tightened.scope,
-      ancestors,
-      restrictions,
-      this.#narrowOptions
-    );
-    if (blocking !== undefined) {
-      throw new AuthorizationDeniedError(blocking.reason, blocking.id);
-    }
-    const approval: GrantApproval = {
-      approver: input.approver,
-      at: now,
-      ...(input.parentGrantId === undefined
-        ? {}
-        : { parentGrantId: input.parentGrantId }),
-      ...(input.reason === undefined ? {} : { reason: input.reason }),
-    };
-    const nextApprovals = [...existing.approvals, approval];
-    const activated = nextApprovals.length >= existing.requiredApprovals;
-    const updated: Grant = {
-      ...existing,
-      approvals: nextApprovals,
-      canDelegate: tightened.canDelegate,
-      ...(tightened.expiresAt === undefined
-        ? {}
-        : { expiresAt: tightened.expiresAt }),
-      parentIds,
-      revision: existing.revision + 1,
-      scope: tightened.scope,
-      ...(tightened.sessionId === undefined
-        ? {}
-        : { sessionId: tightened.sessionId }),
-      state: activated ? "active" : "pending",
-      updatedAt: now,
-      ...(tightened.usesRemaining === undefined
-        ? {}
-        : { usesRemaining: tightened.usesRemaining }),
-    };
-    return { approval, updated };
-  }
-
-  #tightenPendingGrant(
-    existing: Grant,
-    input: ApproveGrantInput
-  ): TightenedGrantFields {
-    const scope = input.scope ?? existing.scope;
-    if (
-      input.scope !== undefined &&
-      !narrows(input.scope, existing.scope, this.#narrowOptions)
-    ) {
-      throw new AuthorizationStateError(
-        "Approval scope cannot widen the requested grant scope"
-      );
-    }
-    const expiresAt = input.expiresAt ?? existing.expiresAt;
-    if (
-      input.expiresAt !== undefined &&
-      existing.expiresAt !== undefined &&
-      input.expiresAt > existing.expiresAt
-    ) {
-      throw new AuthorizationStateError(
-        "Approval expiresAt cannot exceed the requested grant expiration"
-      );
-    }
-    const usesRemaining = input.usesRemaining ?? existing.usesRemaining;
-    if (
-      input.usesRemaining !== undefined &&
-      existing.usesRemaining !== undefined &&
-      input.usesRemaining > existing.usesRemaining
-    ) {
-      throw new AuthorizationStateError(
-        "Approval usesRemaining cannot exceed the requested grant uses"
-      );
-    }
-    const sessionId = input.sessionId ?? existing.sessionId;
-    if (
-      input.sessionId !== undefined &&
-      existing.sessionId !== undefined &&
-      input.sessionId !== existing.sessionId
-    ) {
-      throw new AuthorizationStateError(
-        "Approval sessionId cannot change an existing session restriction"
-      );
-    }
-    const canDelegate = input.canDelegate ?? existing.canDelegate;
-    if (canDelegate && !existing.canDelegate) {
-      throw new AuthorizationStateError(
-        "Approval cannot enable delegation on a non-delegable grant request"
-      );
-    }
-    return { canDelegate, expiresAt, scope, sessionId, usesRemaining };
-  }
-
-  #verifyApproverAuthority(
-    input: ApproveGrantInput,
-    tightened: TightenedGrantFields,
-    allParentIds: readonly GrantId[],
-    invocationId: string | undefined,
-    grantMap: ReadonlyMap<GrantId, Grant>,
-    now: number
-  ): ReadonlySet<GrantId> {
-    if (input.parentGrantId === undefined) {
-      if (input.rootAuthority !== true) {
-        throw new AuthorizationStateError(
-          "Approval requires either parentGrantId or rootAuthority: true"
-        );
-      }
-      if (allParentIds.length === 0) {
-        return new Set();
-      }
-      const existingAncestors = walkDelegationAncestors(
-        allParentIds,
-        grantMap,
-        now,
-        { invocationId, sessionId: tightened.sessionId }
-      );
-      if (existingAncestors === null) {
-        throw new AuthorizationStateError(
-          "Existing parent grant chain is no longer active or delegable"
-        );
-      }
-      return new Set(existingAncestors);
-    }
-    const parent = grantMap.get(input.parentGrantId);
-    if (parent === undefined) {
-      throw new AuthorizationNotFoundError("grant", input.parentGrantId);
-    }
-    if (!matchesPrincipal(parent.holder, input.approver, "allow")) {
-      throw new AuthorizationStateError(
-        `Approver does not hold parent grant ${input.parentGrantId}`
-      );
-    }
-    const ancestors = walkDelegationAncestors(allParentIds, grantMap, now, {
-      invocationId,
-      sessionId: tightened.sessionId,
-    });
-    if (ancestors === null) {
-      throw new AuthorizationStateError(
-        "Approver parent grant chain is inactive, expired, non-delegable, or cyclic"
-      );
-    }
-    this.#assertNarrowsParent(parent, tightened);
-    return new Set(ancestors);
-  }
-
-  #assertNarrowsParent(
-    parent: Grant,
-    child: {
-      readonly expiresAt?: number;
-      readonly scope: Scope;
-      readonly sessionId?: string;
-      readonly usesRemaining?: number;
-    }
-  ): void {
-    if (!narrows(child.scope, parent.scope, this.#narrowOptions)) {
-      throw new AuthorizationStateError(
-        `Child scope does not narrow parent grant ${parent.id}`
-      );
-    }
-    if (
-      parent.expiresAt !== undefined &&
-      (child.expiresAt === undefined || child.expiresAt > parent.expiresAt)
-    ) {
-      throw new AuthorizationStateError(
-        `Child expiresAt exceeds parent grant ${parent.id}`
-      );
-    }
-    if (
-      parent.usesRemaining !== undefined &&
-      (child.usesRemaining === undefined ||
-        child.usesRemaining > parent.usesRemaining)
-    ) {
-      throw new AuthorizationStateError(
-        `Child usesRemaining exceeds parent grant ${parent.id}`
-      );
-    }
-    if (
-      parent.sessionId !== undefined &&
-      child.sessionId !== parent.sessionId
-    ) {
-      throw new AuthorizationStateError(
-        `Child sessionId must match parent grant ${parent.id}`
-      );
-    }
-  }
-
   #bindLivePermit(
     receipt: AuthorizationReceipt,
     request: AccessRequest,
@@ -1298,19 +1103,14 @@ export class Authorization {
     if (this.durability === "host") {
       effects?.afterCommit(async () => {
         for (const event of events) {
-          this.#dispatch(event);
+          dispatchEvent(this.#hub, event);
         }
       });
       return;
     }
     for (const event of events) {
-      this.#dispatch(event);
+      dispatchEvent(this.#hub, event);
     }
-  }
-
-  #dispatch(event: AuthorizationEvent): void {
-    dispatchAll(this.#hub.permitHandlers, event);
-    dispatchAll(this.#hub.observers, event);
   }
 
   #nextGrantId(): GrantId {
@@ -1320,442 +1120,4 @@ export class Authorization {
   #nextRestrictionId(): RestrictionId {
     return asRestrictionId(this.#generateId("rst"));
   }
-}
-
-function dispatchAll(
-  listeners: ReadonlySet<(event: AuthorizationEvent) => void>,
-  event: AuthorizationEvent
-): void {
-  for (const listener of [...listeners]) {
-    invokeSafely(listener, event);
-  }
-}
-
-function invokeSafely(
-  listener: (event: AuthorizationEvent) => void,
-  event: AuthorizationEvent
-): boolean {
-  try {
-    listener(event);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-interface TightenedGrantFields {
-  readonly canDelegate: boolean;
-  readonly expiresAt?: number;
-  readonly scope: Scope;
-  readonly sessionId?: string;
-  readonly usesRemaining?: number;
-}
-
-interface BuildGrantFields {
-  readonly canDelegate: boolean;
-  readonly expiresAt?: number;
-  readonly holder: PrincipalMatcher;
-  readonly id: GrantId;
-  readonly invocationId?: string;
-  readonly issuanceKey?: string;
-  readonly now: number;
-  readonly parentIds: readonly GrantId[];
-  readonly reason?: string;
-  readonly requestedBy: Principal;
-  readonly requiredApprovals: number;
-  readonly scope: Scope;
-  readonly sessionId?: string;
-  readonly state: GrantState;
-  readonly usesRemaining?: number;
-}
-
-function buildGrant(fields: BuildGrantFields): Grant {
-  return {
-    approvals: [],
-    canDelegate: fields.canDelegate,
-    createdAt: fields.now,
-    ...(fields.expiresAt === undefined ? {} : { expiresAt: fields.expiresAt }),
-    holder: fields.holder,
-    id: fields.id,
-    ...(fields.invocationId === undefined
-      ? {}
-      : { invocationId: fields.invocationId }),
-    ...(fields.issuanceKey === undefined
-      ? {}
-      : { issuanceKey: fields.issuanceKey }),
-    parentIds: fields.parentIds,
-    ...(fields.reason === undefined ? {} : { reason: fields.reason }),
-    requestedBy: fields.requestedBy,
-    requiredApprovals: fields.requiredApprovals,
-    revision: 1,
-    scope: fields.scope,
-    ...(fields.sessionId === undefined ? {} : { sessionId: fields.sessionId }),
-    state: fields.state,
-    updatedAt: fields.now,
-    ...(fields.usesRemaining === undefined
-      ? {}
-      : { usesRemaining: fields.usesRemaining }),
-  };
-}
-
-function assertUnusedGrantRecord(
-  id: GrantId | undefined,
-  existing: Grant | null
-): void {
-  if (id !== undefined && existing !== null) {
-    throw new AuthorizationValidationError(`Grant id ${id} already exists`);
-  }
-}
-
-function reusePendingRequest(
-  pendingForInvocation: readonly Grant[],
-  input: RequestGrantInput,
-  requiredApprovals: number,
-  at: number
-): Grant | undefined {
-  if (input.invocationId === undefined) {
-    return;
-  }
-  const [existing] = pendingForInvocation;
-  if (existing === undefined) {
-    return;
-  }
-  if (isExpired(existing, at)) {
-    throw new AuthorizationStateError(
-      `Pending grant for invocation ${input.invocationId} has expired`
-    );
-  }
-  if (!matchesPendingGrantRequestInput(existing, input, requiredApprovals)) {
-    throw new AuthorizationStateError(
-      `Invocation ${input.invocationId} is already bound to a different pending grant`
-    );
-  }
-  return existing;
-}
-
-async function loadGrantsWithAncestors(
-  view: AuthorizationStore,
-  seeds: readonly Grant[]
-): Promise<readonly Grant[]> {
-  const byId = new Map<GrantId, Grant>();
-  const queue: GrantId[] = [];
-  for (const grant of seeds) {
-    byId.set(grant.id, grant);
-    for (const parentId of grant.parentIds) {
-      if (!byId.has(parentId)) {
-        queue.push(parentId);
-      }
-    }
-  }
-  await fetchMissingAncestors(view, byId, queue);
-  return [...byId.values()];
-}
-
-async function loadAncestorMapByIds(
-  view: AuthorizationStore,
-  ids: readonly GrantId[]
-): Promise<Map<GrantId, Grant>> {
-  const byId = new Map<GrantId, Grant>();
-  await fetchMissingAncestors(view, byId, [...ids]);
-  return byId;
-}
-
-async function fetchMissingAncestors(
-  view: AuthorizationStore,
-  byId: Map<GrantId, Grant>,
-  initialQueue: GrantId[]
-): Promise<void> {
-  const seen = new Set<GrantId>(byId.keys());
-  let frontier = initialQueue.filter((id) => !seen.has(id));
-  while (frontier.length > 0) {
-    const batch = uniqueIds(frontier);
-    for (const id of batch) {
-      seen.add(id);
-    }
-    const fetched = await Promise.all(batch.map((id) => view.getGrant(id)));
-    const nextFrontier: GrantId[] = [];
-    for (const grant of fetched) {
-      if (grant === null) {
-        continue;
-      }
-      byId.set(grant.id, grant);
-      for (const parentId of grant.parentIds) {
-        if (!seen.has(parentId)) {
-          nextFrontier.push(parentId);
-        }
-      }
-    }
-    frontier = nextFrontier;
-  }
-}
-
-function validateGrantBounds(input: {
-  readonly expiresAt?: number;
-  readonly usesRemaining?: number;
-}): void {
-  if (input.usesRemaining !== undefined) {
-    assertPositiveInteger(input.usesRemaining, "usesRemaining");
-  }
-  if (input.expiresAt !== undefined) {
-    assertFiniteNumber(input.expiresAt, "expiresAt");
-  }
-}
-
-async function selectRevocationTargets(
-  view: AuthorizationStore,
-  target: RevocationTarget
-): Promise<readonly Grant[]> {
-  if (target.kind === "grant") {
-    const grant = await view.getGrant(target.grantId);
-    if (grant === null) {
-      throw new AuthorizationNotFoundError("grant", target.grantId);
-    }
-    if (
-      target.expectedRevision !== undefined &&
-      grant.revision !== target.expectedRevision
-    ) {
-      throw new AuthorizationRevisionError(
-        grant.id,
-        target.expectedRevision,
-        grant.revision
-      );
-    }
-    return isRevocableState(grant.state) ? [grant] : [];
-  }
-  if (target.kind === "issuance") {
-    const grants = await view.listGrants({ issuanceKey: target.issuanceKey });
-    return grants.filter((grant) => isRevocableState(grant.state));
-  }
-  if (target.kind === "session") {
-    const grants = await view.listGrants({ sessionId: target.sessionId });
-    return grants.filter((grant) => isRevocableState(grant.state));
-  }
-  const grants = await view.listGrants();
-  return grants.filter(
-    (grant) =>
-      isRevocableState(grant.state) &&
-      grant.holder.kind === "exact" &&
-      grant.holder.principal.kind === target.principal.kind &&
-      grant.holder.principal.id === target.principal.id &&
-      (target.principal.version === undefined ||
-        grant.holder.principal.version === target.principal.version)
-  );
-}
-
-function isRevocableState(state: Grant["state"]): boolean {
-  return state !== "revoked" && state !== "denied";
-}
-
-function matchesPendingGrantForRequest(
-  grant: Grant,
-  request: AccessRequest,
-  scope: Scope
-): boolean {
-  try {
-    return (
-      canonicalizeJson({
-        holder: grant.holder,
-        scope: grant.scope,
-        sessionId: grant.sessionId ?? null,
-      }) ===
-      canonicalizeJson({
-        holder: {
-          kind: "exact",
-          principal: exactPrincipalRef(request.principal),
-        },
-        scope,
-        sessionId: request.sessionId ?? null,
-      })
-    );
-  } catch {
-    return false;
-  }
-}
-
-function matchesPendingGrantRequestInput(
-  grant: Grant,
-  input: RequestGrantInput,
-  requiredApprovals: number
-): boolean {
-  try {
-    return (
-      grant.canDelegate === (input.canDelegate ?? false) &&
-      grant.expiresAt === input.expiresAt &&
-      grant.requiredApprovals === requiredApprovals &&
-      grant.usesRemaining === input.usesRemaining &&
-      canonicalizeJson({
-        holder: grant.holder,
-        scope: grant.scope,
-        sessionId: grant.sessionId ?? null,
-      }) ===
-        canonicalizeJson({
-          holder: input.holder,
-          scope: input.scope,
-          sessionId: input.sessionId ?? null,
-        })
-    );
-  } catch {
-    return false;
-  }
-}
-
-function stripUndefinedProperties(
-  record: Readonly<Record<string, unknown>> | undefined
-): Record<string, unknown> | null {
-  if (record === undefined) {
-    return null;
-  }
-  return stripUndefinedValue(record, new WeakSet()) as Record<string, unknown>;
-}
-
-function stripUndefinedValue(value: unknown, seen: WeakSet<object>): unknown {
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  if (seen.has(value)) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    seen.add(value);
-    try {
-      return value.map((item) => stripUndefinedValue(item, seen));
-    } finally {
-      seen.delete(value);
-    }
-  }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    return value;
-  }
-  seen.add(value);
-  try {
-    const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      if (item === undefined) {
-        continue;
-      }
-      Object.defineProperty(out, key, {
-        configurable: true,
-        enumerable: true,
-        value: stripUndefinedValue(item, seen),
-        writable: true,
-      });
-    }
-    return out;
-  } finally {
-    seen.delete(value);
-  }
-}
-
-function canonicalizeRequest(request: AccessRequest): string | null {
-  try {
-    return canonicalizeJson({
-      action: request.action,
-      attributes: stripUndefinedProperties(request.attributes),
-      constraintsDigest: request.constraintsDigest ?? null,
-      principal: {
-        attributes: stripUndefinedProperties(request.principal.attributes),
-        id: request.principal.id,
-        kind: request.principal.kind,
-        version: request.principal.version ?? null,
-      },
-      sessionId: request.sessionId ?? null,
-      target: request.target,
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function fingerprintRequest(
-  request: AccessRequest
-): Promise<string | null> {
-  const canonical = canonicalizeRequest(request);
-  if (canonical === null) {
-    return null;
-  }
-  return await sha256Hex(canonical);
-}
-
-async function matchesRequestFingerprint(
-  storedFingerprint: string | undefined,
-  request: AccessRequest
-): Promise<boolean> {
-  if (storedFingerprint === undefined) {
-    return false;
-  }
-  const canonical = canonicalizeRequest(request);
-  if (canonical === null) {
-    return false;
-  }
-  if (storedFingerprint === canonical) {
-    return true;
-  }
-  return storedFingerprint === (await sha256Hex(canonical));
-}
-
-function findIdempotentIssuance(
-  grants: readonly Grant[],
-  issuanceKey: string,
-  holder: PrincipalMatcher,
-  scope: Scope,
-  parentIds: readonly GrantId[],
-  sessionId: string | undefined
-): Grant | undefined {
-  const fingerprint = canonicalizeJson({
-    holder,
-    parentIds,
-    scope,
-    sessionId: sessionId ?? null,
-  });
-  return grants.find(
-    (grant) =>
-      grant.issuanceKey === issuanceKey &&
-      canonicalizeJson({
-        holder: grant.holder,
-        parentIds: grant.parentIds,
-        scope: grant.scope,
-        sessionId: grant.sessionId ?? null,
-      }) === fingerprint
-  );
-}
-
-function exactPrincipalRef(
-  principal: Principal
-): Pick<Principal, "kind" | "id" | "version"> {
-  return {
-    id: principal.id,
-    kind: principal.kind,
-    ...(principal.version === undefined ? {} : { version: principal.version }),
-  };
-}
-
-function uniqueIds(ids: readonly GrantId[]): readonly GrantId[] {
-  return [...new Set(ids)];
-}
-
-function assertNonEmptyText(value: string, field: string): void {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new AuthorizationValidationError(
-      `${field} must be a non-empty string`
-    );
-  }
-}
-
-function assertPositiveInteger(value: number, field: string): void {
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new AuthorizationValidationError(
-      `${field} must be a positive safe integer`
-    );
-  }
-}
-
-function assertFiniteNumber(value: number, field: string): void {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new AuthorizationValidationError(`${field} must be a finite number`);
-  }
-}
-
-function validateScope(scope: Scope): void {
-  assertNonEmptyText(scope.action, "scope.action");
 }

@@ -2,6 +2,7 @@ import {
   type BillingAccountOptions,
   type BillingReadRuntime,
   billingLimits,
+  validateBillingBaseUrl,
 } from "./billing-account";
 import type { Consumption } from "./consumption";
 import {
@@ -44,6 +45,7 @@ export interface Provider {
 export type DurationText = `${number}${"m" | "h" | "d" | "w"}`;
 
 export interface QueryOptions {
+  readonly history?: boolean;
   readonly signal?: AbortSignal;
   readonly since?: Date | DurationText;
 }
@@ -55,6 +57,7 @@ export interface QueryAllOptions extends QueryOptions {
 export interface UsageOptions {
   readonly billingTimeoutMs?: number;
   readonly clock?: () => Date;
+  readonly concurrency?: number;
   readonly fetch?: typeof globalThis.fetch;
   readonly maxBillingPages?: number;
 }
@@ -80,6 +83,11 @@ export interface Usage {
   initialize(): Promise<readonly Account[]>;
   query(name: string, options?: QueryOptions): Promise<Snapshot>;
   query(options?: QueryAllOptions): Promise<readonly Snapshot[]>;
+  queryAccount(
+    account: Account | BillingAccountOptions,
+    options?: QueryOptions
+  ): Promise<Snapshot>;
+  remove(name: string): boolean;
   share(
     name: string,
     span?: Span,
@@ -90,6 +98,7 @@ export interface Usage {
 
 const MINUTE: Duration = 60_000;
 const WEEK: Duration = 10_080 * MINUTE;
+const DEFAULT_CONCURRENCY = 8;
 const UNIT_DURATIONS = new Map<string, Duration>([
   ["m", MINUTE],
   ["h", 60 * MINUTE],
@@ -120,27 +129,64 @@ const weekStart = (reading: Reading | undefined, at: Date): Date => {
     : new Date(at.getTime() - WEEK);
 };
 
+export const mapWithConcurrency = async <T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> => {
+  if (!Number.isInteger(limit) || limit < 1) {
+    throw new RangeError("Concurrency limit must be a positive integer.");
+  }
+  if (items.length === 0) {
+    return [];
+  }
+  const workers = Math.min(items.length, limit);
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const run = async () => {
+    while (!failed && next < items.length) {
+      const index = next;
+      next += 1;
+      try {
+        results[index] = await mapper(items[index] as T);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: workers }, run));
+  return results;
+};
+
 const read = async (
   account: RegisteredAccount,
   options: {
     readonly clock: () => Date;
+    readonly history: boolean;
     readonly signal?: AbortSignal;
     readonly since?: Date;
   }
 ): Promise<Snapshot> => {
-  const { clock, signal, since } = options;
+  const { clock, history: includeHistory, signal, since } = options;
   signal?.throwIfAborted();
   const at = clock();
   const callOptions = signal ? { signal } : undefined;
   const reading = account.limits(callOptions);
-  const historyPromise = since
-    ? account.history(since, callOptions)
-    : reading
-        .catch(() => undefined)
-        .then((found) => {
-          signal?.throwIfAborted();
-          return account.history(weekStart(found, at), callOptions);
-        });
+  let historyPromise: Promise<Consumption | undefined>;
+  if (!includeHistory) {
+    historyPromise = Promise.resolve(undefined);
+  } else if (since) {
+    historyPromise = account.history(since, callOptions);
+  } else {
+    historyPromise = reading
+      .catch(() => undefined)
+      .then((found) => {
+        signal?.throwIfAborted();
+        return account.history(weekStart(found, at), callOptions);
+      });
+  }
   const [limits, history] = await Promise.allSettled([reading, historyPromise]);
   signal?.throwIfAborted();
   return snapshotOf(
@@ -189,6 +235,14 @@ const readBudget = async (
 
 const validateUsageOptions = (options: UsageOptions): void => {
   if (
+    options.concurrency !== undefined &&
+    (!Number.isInteger(options.concurrency) || options.concurrency < 1)
+  ) {
+    throw new RangeError(
+      "Usage option `concurrency` must be a finite integer >= 1."
+    );
+  }
+  if (
     options.maxBillingPages !== undefined &&
     (!Number.isInteger(options.maxBillingPages) || options.maxBillingPages < 1)
   ) {
@@ -210,6 +264,7 @@ const validateUsageOptions = (options: UsageOptions): void => {
 export const createUsage = (options: UsageOptions = {}): Usage => {
   validateUsageOptions(options);
   const clock = options.clock ?? (() => new Date());
+  const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const billingBaseRuntime: BillingReadRuntime = {
     billingTimeoutMs: options.billingTimeoutMs,
     clock,
@@ -217,6 +272,7 @@ export const createUsage = (options: UsageOptions = {}): Usage => {
     maxBillingPages: options.maxBillingPages,
   };
   const providers = new Map<string, Provider>();
+  const stubProviders = new Set<string>();
   const accounts = new Map<string, RegisteredAccount>();
 
   const billedAccount = (input: BillingAccountOptions): RegisteredAccount => {
@@ -239,6 +295,9 @@ export const createUsage = (options: UsageOptions = {}): Usage => {
       }
       return account;
     }
+    if (billing.baseUrl !== undefined) {
+      validateBillingBaseUrl(billing.baseUrl);
+    }
     const scope = id === "openai" ? billing.projectId : billing.workspaceId;
     const validKey =
       typeof billing.adminKey === "function" ||
@@ -258,14 +317,36 @@ export const createUsage = (options: UsageOptions = {}): Usage => {
     };
   };
 
+  const toRegistered = (
+    input: Account | BillingAccountOptions
+  ): RegisteredAccount => ("limits" in input ? input : billedAccount(input));
+
+  const rebindProvider = (provider: Provider): void => {
+    for (const [accountName, existing] of accounts.entries()) {
+      if (existing.provider?.id === provider.id) {
+        accounts.set(accountName, { ...existing, provider });
+      }
+    }
+  };
+
   const add = (input: Account | BillingAccountOptions): string => {
     if (accounts.has(input.name)) {
       throw new Error(`A usage account named "${input.name}" is added.`);
     }
-    const account = "limits" in input ? input : billedAccount(input);
+    const isDirectAccount = "limits" in input;
+    const account = isDirectAccount ? input : billedAccount(input);
     const { provider } = account;
-    if (provider && !providers.has(provider.id)) {
-      providers.set(provider.id, provider);
+    if (provider) {
+      if (!providers.has(provider.id)) {
+        providers.set(provider.id, provider);
+        if (!isDirectAccount) {
+          stubProviders.add(provider.id);
+        }
+      } else if (isDirectAccount && stubProviders.has(provider.id)) {
+        providers.set(provider.id, provider);
+        stubProviders.delete(provider.id);
+        rebindProvider(provider);
+      }
     }
     accounts.set(account.name, account);
     return account.name;
@@ -283,18 +364,19 @@ export const createUsage = (options: UsageOptions = {}): Usage => {
       }
       return read(account, {
         clock,
+        history: named.history ?? true,
         signal: named.signal,
         since: sinceDate(named.since, clock),
       });
     }
-    const { provider, signal, since } = nameOrOptions ?? {};
+    const { history = true, provider, signal, since } = nameOrOptions ?? {};
     signal?.throwIfAborted();
     const start = sinceDate(since, clock);
     const selected = [...accounts.values()].filter(
       (account) => provider === undefined || provider === account.provider?.id
     );
-    return Promise.all(
-      selected.map((account) => read(account, { clock, signal, since: start }))
+    return mapWithConcurrency(selected, concurrency, (account) =>
+      read(account, { clock, history, signal, since: start })
     );
   };
 
@@ -329,6 +411,33 @@ export const createUsage = (options: UsageOptions = {}): Usage => {
       );
     },
     query: query as Usage["query"],
+    queryAccount: (input, queryOptions = {}) => {
+      queryOptions.signal?.throwIfAborted();
+      return read(toRegistered(input), {
+        clock,
+        history: queryOptions.history ?? true,
+        signal: queryOptions.signal,
+        since: sinceDate(queryOptions.since, clock),
+      });
+    },
+    remove: (name) => {
+      const existing = accounts.get(name);
+      if (!existing) {
+        return false;
+      }
+      accounts.delete(name);
+      const providerId = existing.provider?.id;
+      if (providerId && stubProviders.has(providerId)) {
+        const stillReferenced = [...accounts.values()].some(
+          (account) => account.provider?.id === providerId
+        );
+        if (!stillReferenced) {
+          providers.delete(providerId);
+          stubProviders.delete(providerId);
+        }
+      }
+      return true;
+    },
     share: async (name, span?: Span, callOptions?: AccountCallOptions) => {
       callOptions?.signal?.throwIfAborted();
       const account = accounts.get(name);
@@ -347,10 +456,14 @@ export const createUsage = (options: UsageOptions = {}): Usage => {
       return limit && resolve(limit, clock()).headroom.share;
     },
     use: (provider) => {
-      if (providers.has(provider.id)) {
+      if (providers.has(provider.id) && !stubProviders.has(provider.id)) {
         throw new Error(`A usage provider "${provider.id}" is registered.`);
       }
+      const replacingStub = stubProviders.delete(provider.id);
       providers.set(provider.id, provider);
+      if (replacingStub) {
+        rebindProvider(provider);
+      }
     },
   };
 };

@@ -64,7 +64,7 @@ async function fixture() {
   const recovery = (registry: ReturnType<typeof ours>, lines: string[]) =>
     new CrashRecovery({
       activities: new HarnessActivities(),
-      artifacts: { recover: () => Promise.resolve() },
+      artifacts: { recover: () => Promise.resolve({}) },
       containerRows: stores.containers,
       containers: () => Promise.resolve(registry),
       executions: () => [],
@@ -280,7 +280,7 @@ it("takes back only its own workspace's rows and VMs, beside another workspace i
   const lines: string[] = [];
   await new CrashRecovery({
     activities: new HarnessActivities(),
-    artifacts: { recover: () => Promise.resolve() },
+    artifacts: { recover: () => Promise.resolve({}) },
     containerRows: beta.containers,
     containers: () => Promise.resolve(betaNext),
     executions: () => [],
@@ -324,7 +324,7 @@ it("keeps the names of passed-over VMs in the report as the database keeps it an
   });
   const recovered = new CrashRecovery({
     activities: new HarnessActivities(),
-    artifacts: { recover: () => Promise.resolve() },
+    artifacts: { recover: () => Promise.resolve({}) },
     containerRows: stores.containers,
     containers: () => Promise.resolve(ours()),
     executions: () => [],

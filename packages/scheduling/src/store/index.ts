@@ -50,7 +50,8 @@ export interface ScheduleStoreService {
     scheduleId: ScheduleId
   ) => Effect.Effect<Occurrence | undefined, StoreError>;
   readonly listDueSchedules?: (
-    now: Instant
+    now: Instant,
+    options?: { readonly limit?: number }
   ) => Effect.Effect<readonly Schedule[], StoreError>;
   readonly listOccurrences: (
     filter?: OccurrenceFilter

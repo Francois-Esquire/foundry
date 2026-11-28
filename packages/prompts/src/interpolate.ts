@@ -19,7 +19,7 @@ export interface Rendered {
 
 export function interpolate(
   dialect: Dialect,
-  strings: TemplateStringsArray,
+  strings: readonly string[],
   values: readonly Interpolation[]
 ): Rendered {
   const parts: string[] = [];

@@ -1,4 +1,10 @@
-import { enrichFromModelsDev } from "@foundry/models/catalog/models-dev";
+import {
+  enrichFromModelsDev,
+  indexModelsDev,
+  type ModelsDevCatalog,
+  type ModelsDevIndex,
+  matchModelsDevId,
+} from "@foundry/models/catalog/models-dev";
 import { loadedModelsDev } from "@foundry/models/catalog/models-dev-source";
 import { costFromUsage } from "@foundry/models/cost";
 
@@ -48,19 +54,52 @@ export type Price = (
 
 type Rates = Parameters<typeof costFromUsage>[0];
 
-export const listPrices = (vendor: string): Price => {
+export interface ListPricesOptions {
+  readonly catalog?: ModelsDevCatalog;
+}
+
+export const listPrices = (
+  vendor: string,
+  options?: ListPricesOptions
+): Price => {
   const rates = new Map<string, Rates | undefined>();
-  const ratesOf = (model: string): Rates | undefined => {
+  const fixedCatalog = options?.catalog;
+  let indexedCatalog: ModelsDevCatalog | undefined = fixedCatalog;
+  let index: ModelsDevIndex | undefined = fixedCatalog
+    ? indexModelsDev(fixedCatalog)
+    : undefined;
+
+  const currentIndex = (): ModelsDevIndex | undefined => {
+    if (fixedCatalog) {
+      return index;
+    }
     const catalog = loadedModelsDev();
     if (!catalog) {
       return;
     }
+    if (catalog !== indexedCatalog) {
+      indexedCatalog = catalog;
+      index = indexModelsDev(catalog);
+      rates.clear();
+    }
+    return index;
+  };
+
+  const ratesOf = (model: string): Rates | undefined => {
+    const activeIndex = currentIndex();
+    if (!activeIndex) {
+      return;
+    }
     if (!rates.has(model)) {
-      const [row] = enrichFromModelsDev(
-        [{ id: model, kind: "text", modelId: model, vendor }],
-        catalog
-      );
-      rates.set(model, row?.costs);
+      const def = { id: model, kind: "text" as const, modelId: model, vendor };
+      const key = matchModelsDevId(def, activeIndex);
+      const entry = key ? activeIndex.catalog[key] : undefined;
+      if (key && entry) {
+        const [row] = enrichFromModelsDev([def], { [key]: entry });
+        rates.set(model, row?.costs);
+      } else {
+        rates.set(model, undefined);
+      }
     }
     return rates.get(model);
   };

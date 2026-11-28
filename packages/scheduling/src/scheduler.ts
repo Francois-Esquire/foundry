@@ -26,7 +26,12 @@ import {
   type ScheduleId,
   ScheduleNotFoundError,
 } from "./domain";
-import { type Commit, type Evaluation, makeEvaluator } from "./evaluator";
+import {
+  type Commit,
+  defaultNextEventId,
+  type Evaluation,
+  makeEvaluator,
+} from "./evaluator";
 import {
   pauseSchedule,
   registerSchedule,
@@ -42,6 +47,7 @@ export interface SchedulerOptions {
   readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
   readonly maxOccurrencesPerSchedule?: number;
   readonly maxRetryDelayMs?: number;
+  readonly nextEventId?: () => string;
   readonly retryDelayMs?: number;
   readonly settlePollMs?: number;
   readonly syncIntervalMs?: number;
@@ -120,13 +126,15 @@ const makeScheduler = (options: SchedulerOptions) =>
       { readonly count: number; readonly retryAt: Instant }
     >();
 
+    const nextEventId = options.nextEventId ?? defaultNextEventId;
+
     const commit: Commit = (now, facts, write) =>
       Effect.gen(function* () {
         const events = facts.map(
           (fact): ScheduleEvent => ({
             ...fact,
             at: now,
-            id: `ev-${crypto.randomUUID()}`,
+            id: nextEventId(),
           })
         );
         yield* store.commit({ ...write, events });

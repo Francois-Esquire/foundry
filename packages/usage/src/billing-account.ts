@@ -8,6 +8,7 @@ export type AdminKeySource =
 
 interface BillingSettings {
   readonly adminKey: AdminKeySource;
+  readonly baseUrl?: string;
   readonly cap: number;
 }
 
@@ -59,7 +60,51 @@ interface Amount {
 
 const READ_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BILLING_PAGES = 50;
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com";
+const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+const TRAILING_SLASHES = /\/+$/;
 const ANTHROPIC_AMOUNT = /^-?\d+(?:\.\d+)?$/;
+
+export const validateBillingBaseUrl = (baseUrl: string): URL => {
+  if (
+    typeof baseUrl !== "string" ||
+    !baseUrl.trim() ||
+    baseUrl.includes("?") ||
+    baseUrl.includes("#")
+  ) {
+    throw new Error(
+      `Invalid billing baseUrl "${baseUrl}": must be a valid URL without a query string or fragment.`
+    );
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch (error) {
+    throw new Error(`Invalid billing baseUrl "${baseUrl}": not a valid URL.`, {
+      cause: error,
+    });
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(
+      `Invalid billing baseUrl "${baseUrl}": embedded credentials are not allowed.`
+    );
+  }
+  if (parsed.search || parsed.hash) {
+    throw new Error(
+      `Invalid billing baseUrl "${baseUrl}": query strings and fragments are not allowed.`
+    );
+  }
+  if (
+    parsed.protocol !== "https:" &&
+    !(parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname))
+  ) {
+    throw new Error(
+      `Invalid billing baseUrl "${baseUrl}": must use https: (or http: for localhost, 127.0.0.1, or [::1]).`
+    );
+  }
+  return parsed;
+};
 
 const billingSignal = (runtime: BillingReadRuntime): AbortSignal => {
   runtime.signal?.throwIfAborted();
@@ -107,6 +152,18 @@ const resolveAdminKey = async (
     throw new Error("The billing admin key resolved to an empty value.");
   }
   return key;
+};
+
+const endpointUrl = (
+  baseUrl: string | undefined,
+  defaultBase: string,
+  path: string
+): URL => {
+  const parsed = validateBillingBaseUrl(baseUrl ?? defaultBase);
+  const basePath = parsed.pathname.replace(TRAILING_SLASHES, "");
+  const url = new URL(parsed.origin);
+  url.pathname = `${basePath}${path}`;
+  return url;
 };
 
 const readCostPage = async <T>(
@@ -182,14 +239,22 @@ const readCosts = async <T>(
 };
 
 const openAICost = async (
-  { adminKey, projectId }: BillingSettings & { readonly projectId?: string },
+  {
+    adminKey,
+    baseUrl,
+    projectId,
+  }: BillingSettings & { readonly projectId?: string },
   start: Date,
   at: Date,
   runtime: BillingReadRuntime
 ) => {
   const signal = billingSignal(runtime);
   const resolvedKey = await resolveAdminKey(adminKey, signal);
-  const url = new URL("https://api.openai.com/v1/organization/costs");
+  const url = endpointUrl(
+    baseUrl,
+    DEFAULT_OPENAI_BASE_URL,
+    "/v1/organization/costs"
+  );
   url.searchParams.set("start_time", String(start.getTime() / 1000));
   url.searchParams.set("end_time", String(Math.floor(at.getTime() / 1000)));
   url.searchParams.set("limit", "31");
@@ -215,6 +280,7 @@ const openAICost = async (
 const anthropicCost = async (
   {
     adminKey,
+    baseUrl,
     workspaceId,
   }: BillingSettings & { readonly workspaceId?: string },
   start: Date,
@@ -223,8 +289,10 @@ const anthropicCost = async (
 ) => {
   const signal = billingSignal(runtime);
   const resolvedKey = await resolveAdminKey(adminKey, signal);
-  const url = new URL(
-    "https://api.anthropic.com/v1/organizations/analytics/cost"
+  const url = endpointUrl(
+    baseUrl,
+    DEFAULT_ANTHROPIC_BASE_URL,
+    "/v1/organizations/analytics/cost"
   );
   url.searchParams.set("starting_at", start.toISOString());
   url.searchParams.set("ending_at", at.toISOString());

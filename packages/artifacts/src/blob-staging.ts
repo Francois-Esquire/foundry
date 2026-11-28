@@ -31,6 +31,14 @@ export interface BlobFiles {
     options?: { readonly signal?: AbortSignal }
   ): Promise<void>;
   readonly staging?: BlobStagingArea;
+  url?(
+    path: string,
+    options?: {
+      readonly contentType?: string;
+      readonly expiresInSeconds?: number;
+      readonly signal?: AbortSignal;
+    }
+  ): Promise<string | null>;
 }
 
 export interface BlobStagingArea {
@@ -82,6 +90,7 @@ export interface StagedBytes {
 }
 
 interface StagingLimits {
+  readonly chunkBytes?: number;
   readonly files?: BlobFiles;
   readonly maxFileBytes: number;
   readonly maxTreeBytes?: number;
@@ -115,6 +124,7 @@ export class StagingTurns {
 }
 
 export class BlobStaging {
+  readonly #chunkBytes: number;
   readonly #files: BlobFiles | undefined;
   readonly #area: BlobStagingArea | undefined;
   readonly #maxFileBytes: number;
@@ -128,6 +138,7 @@ export class BlobStaging {
   readonly #ownership = new Map<string, Ownership | null>();
 
   constructor(limits: StagingLimits, turns: StagingTurns = new StagingTurns()) {
+    this.#chunkBytes = resolveChunkBytes(limits.chunkBytes);
     this.#files = limits.files;
     this.#maxTreeBytes = limits.maxTreeBytes;
     this.#turns = turns;
@@ -249,7 +260,8 @@ export class BlobStaging {
           input.source,
           this.#maxFileBytes,
           how.ahead ? how.count : undefined
-        )
+        ),
+        this.#chunkBytes
       );
       declared = input.bytes;
     } else {
@@ -261,7 +273,7 @@ export class BlobStaging {
       if (how.ahead) {
         how.count(bytes.byteLength);
       }
-      pieces = split([bytes]);
+      pieces = split([bytes], this.#chunkBytes);
       declared = bytes.byteLength;
     }
     const hold = (piece: Uint8Array): Promise<StagedChunk> => {
@@ -380,6 +392,16 @@ async function* checked(
   }
 }
 
+export function resolveChunkBytes(value: number | undefined): number {
+  if (value === undefined) {
+    return CHUNK_BYTES;
+  }
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new RangeError("chunkBytes must be a positive safe integer");
+  }
+  return value;
+}
+
 function concatParts(parts: readonly Uint8Array[], total: number): Uint8Array {
   if (parts.length === 1 && parts[0] !== undefined) {
     return parts[0].byteLength === total ? parts[0] : parts[0].slice(0, total);
@@ -394,7 +416,8 @@ function concatParts(parts: readonly Uint8Array[], total: number): Uint8Array {
 }
 
 async function* split(
-  source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>
+  source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
+  chunkBytes: number = CHUNK_BYTES
 ): AsyncIterable<Uint8Array> {
   let parts: Uint8Array[] = [];
   let filled = 0;
@@ -405,17 +428,17 @@ async function* split(
     let offset = 0;
     while (offset < bytes.byteLength) {
       const remaining = bytes.byteLength - offset;
-      if (filled === 0 && remaining >= CHUNK_BYTES) {
-        yield bytes.slice(offset, offset + CHUNK_BYTES);
-        offset += CHUNK_BYTES;
+      if (filled === 0 && remaining >= chunkBytes) {
+        yield bytes.slice(offset, offset + chunkBytes);
+        offset += chunkBytes;
         continue;
       }
-      const take = Math.min(CHUNK_BYTES - filled, remaining);
+      const take = Math.min(chunkBytes - filled, remaining);
       parts.push(bytes.slice(offset, offset + take));
       filled += take;
       offset += take;
-      if (filled === CHUNK_BYTES) {
-        yield concatParts(parts, CHUNK_BYTES);
+      if (filled === chunkBytes) {
+        yield concatParts(parts, chunkBytes);
         parts = [];
         filled = 0;
       }

@@ -127,6 +127,8 @@ class MemoryAuthorizationView implements AuthorizationStore {
 
 interface OwnedWrite {
   readonly createClaims: readonly InvocationClaim[];
+  readonly deleteClaims: readonly string[];
+  readonly deleteGrants: readonly GrantId[];
   readonly deleteRestrictions: readonly RestrictionId[];
   readonly expectedGrantRevisions: Readonly<Record<string, number>>;
   readonly putClaims: readonly InvocationClaim[];
@@ -138,6 +140,8 @@ function captureWrite(write: AuthorizationStoreWrite): OwnedWrite {
   const copy = structuredClone(write);
   return {
     createClaims: copy.createClaims ?? [],
+    deleteClaims: copy.deleteClaims ?? [],
+    deleteGrants: copy.deleteGrants ?? [],
     deleteRestrictions: copy.deleteRestrictions ?? [],
     expectedGrantRevisions: copy.expectedGrantRevisions ?? {},
     putClaims: copy.putClaims ?? [],
@@ -207,6 +211,12 @@ class StoreTables {
         );
       }
       next.claims.set(claim.invocationId, claim);
+    }
+    for (const id of write.deleteClaims) {
+      next.claims.delete(id);
+    }
+    for (const id of write.deleteGrants) {
+      next.grants.delete(id);
     }
     for (const id of write.deleteRestrictions) {
       next.restrictions.delete(id);
