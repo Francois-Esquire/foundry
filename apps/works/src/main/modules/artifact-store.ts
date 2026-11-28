@@ -212,7 +212,7 @@ export function createModulePersistence(store: ArtifactStore) {
     readNamedRoot: (id, name) => activeOps().readNamedRoot(id, name),
     readRoot: (id) => activeOps().readRoot(id),
     readThumbnail: (id) => activeOps().readThumbnail(id),
-    recover: () => base.recover(),
+    recover: (options) => base.recover(options),
     rename: (id, name) => activeOps().rename(id, name),
     revise: (input) => activeOps().revise(input),
     select: (input) => activeOps().select(input),

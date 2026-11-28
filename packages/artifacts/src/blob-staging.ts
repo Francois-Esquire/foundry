@@ -10,14 +10,26 @@ export const MAX_TREE_BYTES = 8 * 1024 * 1024 * 1024;
 
 export const CHUNK_BYTES = 8 * 1024 * 1024;
 
+export type BlobFileEntry =
+  | string
+  | { readonly modifiedAt?: Date; readonly path: string };
+
 export interface BlobFiles {
-  list(): AsyncIterable<string>;
+  list(options?: {
+    readonly signal?: AbortSignal;
+  }): AsyncIterable<BlobFileEntry>;
   publish(bytes: Uint8Array): Promise<string>;
   read(
     path: string,
-    range: { readonly start: number; readonly end: number }
+    range: {
+      readonly end: number;
+      readonly start: number;
+    }
   ): AsyncIterable<Uint8Array>;
-  remove(path: string): Promise<void>;
+  remove(
+    path: string,
+    options?: { readonly signal?: AbortSignal }
+  ): Promise<void>;
   readonly staging?: BlobStagingArea;
 }
 
@@ -368,26 +380,48 @@ async function* checked(
   }
 }
 
+function concatParts(parts: readonly Uint8Array[], total: number): Uint8Array {
+  if (parts.length === 1 && parts[0] !== undefined) {
+    return parts[0].byteLength === total ? parts[0] : parts[0].slice(0, total);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.byteLength;
+  }
+  return out;
+}
+
 async function* split(
   source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>
 ): AsyncIterable<Uint8Array> {
-  let buffer = new Uint8Array(CHUNK_BYTES);
+  let parts: Uint8Array[] = [];
   let filled = 0;
   for await (const bytes of source) {
+    if (bytes.byteLength === 0) {
+      continue;
+    }
     let offset = 0;
     while (offset < bytes.byteLength) {
-      const take = Math.min(CHUNK_BYTES - filled, bytes.byteLength - offset);
-      buffer.set(bytes.subarray(offset, offset + take), filled);
+      const remaining = bytes.byteLength - offset;
+      if (filled === 0 && remaining >= CHUNK_BYTES) {
+        yield bytes.slice(offset, offset + CHUNK_BYTES);
+        offset += CHUNK_BYTES;
+        continue;
+      }
+      const take = Math.min(CHUNK_BYTES - filled, remaining);
+      parts.push(bytes.slice(offset, offset + take));
       filled += take;
       offset += take;
       if (filled === CHUNK_BYTES) {
-        yield buffer;
-        buffer = new Uint8Array(CHUNK_BYTES);
+        yield concatParts(parts, CHUNK_BYTES);
+        parts = [];
         filled = 0;
       }
     }
   }
   if (filled > 0) {
-    yield buffer.slice(0, filled);
+    yield concatParts(parts, filled);
   }
 }

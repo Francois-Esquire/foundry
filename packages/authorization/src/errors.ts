@@ -67,16 +67,18 @@ export class AuthorizationRevisionError extends AuthorizationError {
   override readonly name = "AuthorizationRevisionError";
   readonly grantId: GrantId;
   readonly expectedRevision: number;
-  readonly actualRevision: number;
+  readonly actualRevision: number | null;
 
   constructor(
     grantId: GrantId,
     expectedRevision: number,
-    actualRevision: number
+    actualRevision: number | null
   ) {
     super(
       "revision_conflict",
-      `Grant ${grantId} revision conflict: expected ${expectedRevision}, got ${actualRevision}`
+      actualRevision === null
+        ? `Grant ${grantId} revision conflict: expected ${expectedRevision}, grant not found`
+        : `Grant ${grantId} revision conflict: expected ${expectedRevision}, got ${actualRevision}`
     );
     this.grantId = grantId;
     this.expectedRevision = expectedRevision;

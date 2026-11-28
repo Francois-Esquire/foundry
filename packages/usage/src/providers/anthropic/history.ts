@@ -51,12 +51,19 @@ const workOf = (
 
 export const readClaudeHistory = async (
   configDir: string,
-  since: Date
+  since: Date,
+  signal?: AbortSignal
 ): Promise<Work[]> => {
-  const files = await historyFiles([join(configDir, "projects")], since);
+  signal?.throwIfAborted();
+  const files = await historyFiles(
+    [join(configDir, "projects")],
+    since,
+    signal
+  );
   const perFile = await mapLimit(files, async (file) => {
+    signal?.throwIfAborted();
     const found: { key?: string; work: Work }[] = [];
-    for await (const value of jsonLines(file, [USAGE_MARKER])) {
+    for await (const value of jsonLines(file, [USAGE_MARKER], signal)) {
       const entry = workOf(value, file);
       if (entry) {
         found.push(entry);

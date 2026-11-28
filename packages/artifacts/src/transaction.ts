@@ -261,7 +261,7 @@ export class ArtifactTransaction implements ArtifactOperations {
 
   async checkWrite(input: WriteInput): Promise<ArtifactResolved> {
     const artifact = await this.#requireArtifact(input.artifactId);
-    fence(artifact, input);
+    fence(artifact, input, this.#change);
     const active = artifact.content;
     if (active && active.state !== "ready") {
       throw new ContentStateError(active.id, active.state, "write");
@@ -278,10 +278,14 @@ export class ArtifactTransaction implements ArtifactOperations {
   }> {
     const artifact = await this.#requireArtifact(input.artifactId);
     const source = await this.#requireOwnContent(artifact, input.contentId);
-    fence(artifact, {
-      expectedContentId: input.contentId,
-      expectedUpdatedAt: input.expectedUpdatedAt,
-    });
+    fence(
+      artifact,
+      {
+        expectedContentId: input.contentId,
+        expectedUpdatedAt: input.expectedUpdatedAt,
+      },
+      this.#change
+    );
     if (!isUsableContent(source)) {
       throw new ContentStateError(source.id, source.state, "revise");
     }
@@ -420,7 +424,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     readonly expectedContentId: ContentId;
   }): Promise<ArtifactResolved> {
     const artifact = await this.#requireArtifact(input.artifactId);
-    fence(artifact, input);
+    fence(artifact, input, this.#change);
     const content = await this.#requireContent(input.expectedContentId);
     if (content.state !== "failed") {
       throw new ContentStateError(content.id, content.state, "clear");
@@ -526,14 +530,14 @@ export class ArtifactTransaction implements ArtifactOperations {
     option: FreezeOption & { readonly expectedUpdatedAt?: Date } = {}
   ): Promise<Content> {
     const row = await this.#requireContent(id);
-    if (
-      option.expectedUpdatedAt !== undefined &&
-      option.expectedUpdatedAt.getTime() !== row.updatedAt.getTime()
-    ) {
-      throw new StaleContentError(row.artifactId, {
-        contentId: id,
-        updatedAt: row.updatedAt,
-      });
+    if (option.expectedUpdatedAt !== undefined) {
+      if (option.expectedUpdatedAt.getTime() !== row.updatedAt.getTime()) {
+        throw new StaleContentError(row.artifactId, {
+          contentId: id,
+          updatedAt: row.updatedAt,
+        });
+      }
+      this.#change.expectContentUpdatedAt(id, option.expectedUpdatedAt);
     }
     if (!isUsableContent(row)) {
       throw new ContentStateError(id, row.state, "freeze");
@@ -570,7 +574,7 @@ export class ArtifactTransaction implements ArtifactOperations {
     readonly expectedContentId?: ContentId | null;
   }): Promise<ArtifactResolved> {
     const artifact = await this.#requireArtifact(input.artifactId);
-    fence(artifact, input);
+    fence(artifact, input, this.#change);
     const target = await this.#requireOwnContent(artifact, input.contentId);
     const displacesUsable =
       !isUsableContent(target) && isUsableContent(artifact.content);
@@ -1123,7 +1127,11 @@ function assertStoragePaths(changes: TreeChanges): void {
   }
 }
 
-function fence(artifact: ArtifactResolved, expected: WriteFence): void {
+function fence(
+  artifact: ArtifactResolved,
+  expected: WriteFence,
+  change?: ArtifactChange
+): void {
   if (
     (expected.expectedContentId !== undefined &&
       expected.expectedContentId !== artifact.contentId) ||
@@ -1135,6 +1143,15 @@ function fence(artifact: ArtifactResolved, expected: WriteFence): void {
       contentId: artifact.contentId,
       updatedAt: artifact.content?.updatedAt ?? null,
     });
+  }
+  if (expected.expectedContentId !== undefined) {
+    change?.expectArtifactContent(artifact.id, expected.expectedContentId);
+  }
+  if (expected.expectedUpdatedAt !== undefined && artifact.content !== null) {
+    change?.expectContentUpdatedAt(
+      artifact.content.id,
+      expected.expectedUpdatedAt
+    );
   }
 }
 

@@ -14,7 +14,6 @@ import {
   type Scope,
   Stream,
 } from "effect";
-import { firstDue, validateCadence, validatePolicies } from "./cadence";
 import { ScheduleDispatch } from "./dispatch";
 import {
   type Instant,
@@ -27,12 +26,13 @@ import {
   type ScheduleId,
   ScheduleNotFoundError,
 } from "./domain";
+import { type Commit, type Evaluation, makeEvaluator } from "./evaluator";
 import {
-  type Commit,
-  type Evaluation,
-  makeEvaluator,
-  sameJson,
-} from "./evaluator";
+  pauseSchedule,
+  registerSchedule,
+  resumeSchedule,
+  unregisterSchedule,
+} from "./stateless";
 import { ScheduleStore } from "./store/index";
 
 export interface SchedulerOptions {
@@ -249,74 +249,10 @@ const makeScheduler = (options: SchedulerOptions) =>
     const changed = <A, E>(effect: Effect.Effect<A, E>) =>
       Effect.zipLeft(locked(effect), wake.open);
 
-    const retryingScheduleConflicts = <A>(
-      attempt: Effect.Effect<A, ScheduleError>
-    ) =>
-      Effect.retry(attempt, {
-        times: 3,
-        while: (error) => error._tag === "ScheduleConflictError",
-      });
-
-    const setState = (id: ScheduleId, state: Schedule["state"]) =>
-      changed(
-        retryingScheduleConflicts(
-          Effect.gen(function* () {
-            const existing = yield* requireSchedule(id);
-            const schedule = { ...existing, state };
-            const now = yield* Clock.currentTimeMillis;
-            yield* commit(
-              now,
-              [
-                {
-                  schedule,
-                  type:
-                    state === "paused" ? "schedule.paused" : "schedule.resumed",
-                },
-              ],
-              { expectedSchedules: [existing], schedules: [schedule] }
-            );
-            return schedule;
-          })
-        )
-      );
-
     const register = (input: RegisterScheduleInput) =>
-      retryingScheduleConflicts(
-        Effect.gen(function* () {
-          const cadence = yield* validateCadence(input.cadence);
-          const misfire = input.misfire ?? "run-once";
-          const overlap = input.overlap ?? "skip";
-          yield* validatePolicies(cadence, overlap, misfire);
-          const now = yield* Clock.currentTimeMillis;
-          const existing = yield* store.getSchedule(input.id);
-          const previous = yield* store.getCursor(input.id);
-          const schedule: Schedule = {
-            cadence,
-            createdAt: existing?.createdAt ?? now,
-            id: input.id,
-            misfire,
-            overlap,
-            state: input.state ?? existing?.state ?? "active",
-            target: input.target,
-          };
-          const keepsCursor =
-            existing !== undefined &&
-            previous !== undefined &&
-            sameJson(existing.cadence, cadence);
-          const cursor: ScheduleCursor = {
-            ...previous,
-            nextDueAt: firstDue(cadence, now),
-            scheduleId: input.id,
-          };
-          yield* commit(now, [{ schedule, type: "schedule.registered" }], {
-            ...(keepsCursor ? {} : { cursors: [cursor] }),
-            ...(existing === undefined
-              ? {}
-              : { expectedSchedules: [existing] }),
-            schedules: [schedule],
-          });
+      Effect.tap(registerSchedule(store, input, { commit }), () =>
+        Effect.sync(() => {
           failures.delete(input.id);
-          return schedule;
         })
       );
 
@@ -329,13 +265,11 @@ const makeScheduler = (options: SchedulerOptions) =>
       });
 
     const unregister = (id: ScheduleId) =>
-      Effect.gen(function* () {
-        yield* requireSchedule(id);
-        const now = yield* Clock.currentTimeMillis;
-        yield* commit(now, [{ scheduleId: id, type: "schedule.removed" }], {
-          removed: [id],
-        });
-      });
+      Effect.tap(unregisterSchedule(store, id, { commit }), () =>
+        Effect.sync(() => {
+          failures.delete(id);
+        })
+      );
 
     const tickWithNext = changed(
       evaluateAll((error) => Effect.fail(error), false)
@@ -346,9 +280,9 @@ const makeScheduler = (options: SchedulerOptions) =>
       get: store.getSchedule,
       latestOccurrence: store.latestOccurrence,
       list: store.listSchedules,
-      pause: (id) => setState(id, "paused"),
+      pause: (id) => changed(pauseSchedule(store, id, { commit })),
       register: (input) => changed(register(input)),
-      resume: (id) => setState(id, "active"),
+      resume: (id) => changed(resumeSchedule(store, id, { commit })),
       subscribe: Stream.fromPubSub(hub, { scoped: true }),
       tick: Effect.map(tickWithNext, (result) => result.decided),
       tickWithNext,

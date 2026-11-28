@@ -31,6 +31,7 @@ import {
 } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { SQLiteTransaction } from "drizzle-orm/sqlite-core";
+import { StaleContentError } from "../errors";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type {
   ArtifactCursor,
@@ -72,6 +73,7 @@ export type ArtifactDatabaseTransaction = SqliteTransaction;
 export interface SqliteArtifactStoreOptions {
   readonly database: ArtifactDatabase;
   readonly durability?: ArtifactStoreDurability;
+  readonly exactTotal?: boolean;
   readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: ArtifactDatabaseTransaction,
@@ -119,6 +121,7 @@ const SETTLED = "Artifact store transaction has settled";
 export class SqliteArtifactStore implements ArtifactStore {
   readonly durability: ArtifactStoreDurability;
   readonly #database: ArtifactDatabase;
+  readonly #exactTotal: boolean;
   readonly #maxParameters: number;
   readonly #scope: string;
   readonly #onCommit: SqliteArtifactStoreOptions["onCommit"];
@@ -136,6 +139,7 @@ export class SqliteArtifactStore implements ArtifactStore {
     }
     this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
+    this.#exactTotal = options.exactTotal ?? true;
     this.#maxParameters = resolveMaxParameters(options.maxParameters);
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
@@ -156,6 +160,7 @@ export class SqliteArtifactStore implements ArtifactStore {
         return Promise.reject(error);
       }
       return this.#database.transaction(async (transaction) => {
+        await this.#checkPreconditions(transaction, owned.preconditions);
         await this.#apply(transaction, rows);
         await this.#onCommit?.(transaction, owned);
       });
@@ -167,6 +172,7 @@ export class SqliteArtifactStore implements ArtifactStore {
       this.#database.transaction(async (transaction) => {
         const view = new SqliteArtifactStore({
           database: transaction,
+          exactTotal: this.#exactTotal,
           maxParameters: this.#maxParameters,
           scope: this.#scope,
           ...(this.#onCommit === undefined ? {} : { onCommit: this.#onCommit }),
@@ -399,6 +405,20 @@ export class SqliteArtifactStore implements ArtifactStore {
         query.type === undefined ? undefined : eq(artifacts.type, query.type),
         needle === undefined ? undefined : textMatch(needle)
       );
+      if (!this.#exactTotal) {
+        return this.#database
+          .select(artifactColumns)
+          .from(artifacts)
+          .where(
+            and(
+              matches,
+              query.after === undefined ? undefined : afterCursor(query.after)
+            )
+          )
+          .orderBy(asc(artifacts.createdAt), asc(artifacts.idOrder))
+          .limit(query.limit)
+          .then((page) => ({ artifacts: page }));
+      }
       return this.#database.transaction(async (transaction) => {
         const [counted] = await transaction
           .select({ total: count() })
@@ -537,6 +557,77 @@ export class SqliteArtifactStore implements ArtifactStore {
         ? Promise.reject(new Error(SETTLED))
         : operation()
     );
+  }
+
+  async #checkPreconditions(
+    transaction: ArtifactDatabaseTransaction,
+    preconditions: ArtifactStoreWrite["preconditions"]
+  ): Promise<void> {
+    if (preconditions === undefined) {
+      return;
+    }
+    for (const [id, expectedContentId] of Object.entries(
+      preconditions.artifactContentIds ?? {}
+    )) {
+      const [row] = await transaction
+        .select({ contentId: artifacts.contentId })
+        .from(artifacts)
+        .where(
+          and(
+            eq(artifacts.scope, this.#scope),
+            eq(artifacts.id, id as ArtifactId)
+          )
+        );
+      if (row === undefined || row.contentId !== expectedContentId) {
+        let updatedAt: Date | null = null;
+        if (row !== undefined && row.contentId !== null) {
+          const [contentRow] = await transaction
+            .select({ updatedAt: artifactContents.updatedAt })
+            .from(artifactContents)
+            .where(
+              and(
+                eq(artifactContents.scope, this.#scope),
+                eq(artifactContents.id, row.contentId)
+              )
+            );
+          updatedAt = contentRow?.updatedAt ?? null;
+        }
+        throw new StaleContentError(id as ArtifactId, {
+          contentId: row?.contentId ?? null,
+          updatedAt,
+        });
+      }
+    }
+    for (const [id, expectedUpdatedAt] of Object.entries(
+      preconditions.contentUpdatedAt ?? {}
+    )) {
+      const [row] = await transaction
+        .select({
+          artifactId: artifactContents.artifactId,
+          id: artifactContents.id,
+          updatedAt: artifactContents.updatedAt,
+        })
+        .from(artifactContents)
+        .where(
+          and(
+            eq(artifactContents.scope, this.#scope),
+            eq(artifactContents.id, id as ContentId)
+          )
+        );
+      if (
+        row === undefined ||
+        row.updatedAt.getTime() !== expectedUpdatedAt.getTime()
+      ) {
+        throw new StaleContentError(
+          row?.artifactId ?? null,
+          {
+            contentId: row?.id ?? null,
+            updatedAt: row?.updatedAt ?? null,
+          },
+          id as ContentId
+        );
+      }
+    }
   }
 
   async #apply(

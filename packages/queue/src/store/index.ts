@@ -37,7 +37,12 @@ export interface QueueWrite {
   readonly suspensions?: readonly Suspension[];
 }
 
+export interface QueueStoreCapabilities {
+  readonly watermark?: boolean;
+}
+
 export interface QueueStoreService {
+  readonly capabilities?: QueueStoreCapabilities;
   readonly commit: (
     write: QueueWrite
   ) => Effect.Effect<void, StoreError | WriteConflictError>;

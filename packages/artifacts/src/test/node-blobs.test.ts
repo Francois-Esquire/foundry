@@ -11,8 +11,8 @@ it("lists, reads and removes nothing in a missing directory, and makes none", as
   );
   const files = blobFiles(root);
   const listed: string[] = [];
-  for await (const name of files.list()) {
-    listed.push(name);
+  for await (const entry of files.list()) {
+    listed.push(typeof entry === "string" ? entry : entry.path);
   }
   expect(listed).toEqual([]);
   const read = async () => {

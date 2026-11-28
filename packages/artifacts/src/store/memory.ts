@@ -1,6 +1,7 @@
 import type { Page } from "@foundry/core/pagination";
 import { pageFromRows } from "@foundry/lib/pagination";
 import { Turns } from "@foundry/lib/turns";
+import { StaleContentError } from "../errors";
 import type { ArtifactId, BlobId, ContentId } from "../ids";
 import type {
   NormalizedBlobPageQuery,
@@ -218,6 +219,16 @@ class Records {
   }
 
   apply(write: ArtifactStoreWrite): Promise<void> {
+    const conflict = this.#checkPreconditions(write.preconditions);
+    if (conflict !== undefined) {
+      return Promise.reject(conflict);
+    }
+    this.#applyDeletes(write);
+    this.#applyPuts(write);
+    return Promise.resolve();
+  }
+
+  #applyDeletes(write: ArtifactStoreWrite): void {
     for (const id of write.deleteArtifacts ?? []) {
       this.#artifacts.delete(id);
     }
@@ -234,6 +245,9 @@ class Records {
       }
       this.#blobs.delete(id);
     }
+  }
+
+  #applyPuts(write: ArtifactStoreWrite): void {
     for (const artifact of write.putArtifacts ?? []) {
       this.#artifacts.set(artifact.id, artifact);
     }
@@ -253,7 +267,59 @@ class Records {
         this.#blobsByPath.set(blob.path, blob.id);
       }
     }
-    return Promise.resolve();
+  }
+
+  #checkPreconditions(
+    preconditions: ArtifactStoreWrite["preconditions"]
+  ): StaleContentError | undefined {
+    if (preconditions === undefined) {
+      return;
+    }
+    return (
+      this.#checkArtifactContentPreconditions(
+        preconditions.artifactContentIds
+      ) ??
+      this.#checkContentUpdatedAtPreconditions(preconditions.contentUpdatedAt)
+    );
+  }
+
+  #checkArtifactContentPreconditions(
+    expected: Readonly<Record<ArtifactId, ContentId | null>> | undefined
+  ): StaleContentError | undefined {
+    for (const [id, expectedContentId] of Object.entries(expected ?? {})) {
+      const current = this.#artifacts.get(id as ArtifactId);
+      if (current === undefined || current.contentId !== expectedContentId) {
+        const currentContent =
+          current === undefined || current.contentId === null
+            ? null
+            : (this.#contents.get(current.contentId) ?? null);
+        return new StaleContentError(id as ArtifactId, {
+          contentId: current?.contentId ?? null,
+          updatedAt: currentContent?.updatedAt ?? null,
+        });
+      }
+    }
+  }
+
+  #checkContentUpdatedAtPreconditions(
+    expected: Readonly<Record<ContentId, Date>> | undefined
+  ): StaleContentError | undefined {
+    for (const [id, expectedUpdatedAt] of Object.entries(expected ?? {})) {
+      const current = this.#contents.get(id as ContentId);
+      if (
+        current === undefined ||
+        current.updatedAt.getTime() !== expectedUpdatedAt.getTime()
+      ) {
+        return new StaleContentError(
+          current?.artifactId ?? null,
+          {
+            contentId: current?.id ?? null,
+            updatedAt: current?.updatedAt ?? null,
+          },
+          id as ContentId
+        );
+      }
+    }
   }
 
   getArtifact(id: ArtifactId): Promise<Artifact | null> {

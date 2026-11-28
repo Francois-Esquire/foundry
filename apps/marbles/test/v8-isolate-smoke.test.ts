@@ -42,8 +42,20 @@ import {
   sqliteBytes,
 } from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import { Prompt, prompts } from "@foundry/prompts";
+import {
+  assemble,
+  claudeCode,
+  codex,
+  Prompt,
+  pi,
+  prompts,
+} from "@foundry/prompts";
 import { createUsage } from "@foundry/usage";
+import {
+  defineProvider,
+  spendCap,
+  window as usageWindow,
+} from "@foundry/usage/provider";
 import { Models, formatSelection } from "@foundry/models";
 import { Workspaces } from "@foundry/workspaces";
 import { MemoryWorkspaceStore } from "@foundry/workspaces/store/memory";
@@ -67,10 +79,19 @@ import { Workflow } from "@foundry/workflows";
 import {
   claimRun,
   enqueueJob,
+  recoverExpiredLeases,
+  renewLease,
   settleRun,
 } from "@foundry/queue";
 import { makeMemoryQueueStore } from "@foundry/queue/store/memory";
-import { evaluateDueSchedules } from "@foundry/scheduling";
+import {
+  DEFAULT_CLAIM_TTL_MS,
+  evaluateDueSchedules,
+  pauseSchedule,
+  registerSchedule,
+  resumeSchedule,
+  unregisterSchedule,
+} from "@foundry/scheduling";
 import { statelessQueueDispatch } from "@foundry/scheduling/queue";
 import { makeMemoryScheduleStore } from "@foundry/scheduling/store/memory";
 import { Effect, Exit } from "effect";
@@ -157,15 +178,65 @@ globalThis.__smokeResult = (async () => {
 
   const renderedPrompt = prompts.claude("hello isolate").text;
   const promptApiType = typeof Prompt;
-
-  const usage = createUsage();
-  const accountName = usage.add({
-    credential: null,
-    history: () => Promise.resolve(undefined),
-    limits: () => Promise.resolve({ limits: [] }),
-    name: "smoke-account",
+  const customPrompts = assemble({
+    dialects: { claude: claudeCode, codex, pi },
+    sources: [{ skill: ["inspect"] }],
   });
+  const plainLayer = { skill: ["extra"] };
+  customPrompts.add(plainLayer);
+  const plainLayerRemoved = customPrompts.remove(plainLayer);
+
+  const usageClock = () => new Date("2026-10-15T12:00:00Z");
+  const usage = createUsage({
+    clock: usageClock,
+    fetch: async () =>
+      new Response(
+        JSON.stringify({
+          data: [{ results: [{ amount: { currency: "usd", value: 12.5 } }] }],
+          has_more: false,
+        }),
+        { headers: { "content-type": "application/json" }, status: 200 }
+      ),
+  });
+  const smokeProvider = defineProvider({
+    credential: ({ id }: { readonly id: string }) => id,
+    id: "smoke-provider",
+    limits: async () => ({
+      limits: [
+        usageWindow.weekly({
+          resetsAt: new Date("2026-10-20T12:00:00Z"),
+          usedPercent: 25,
+        }),
+        spendCap({
+          cap: 100,
+          resetsAt: new Date("2026-11-01T00:00:00Z"),
+          startsAt: new Date("2026-10-01T00:00:00Z"),
+          used: 40,
+        }),
+      ],
+    }),
+  });
+  const smokeAccount = smokeProvider({ id: "acct-1", name: "smoke-account" });
+  const accountName = usage.add(smokeAccount);
   const usageSnapshot = await usage.query(accountName);
+  const usageShare = await usage.share(accountName, "weekly");
+  const usageBudget = await usage.budget(accountName);
+  usage.add({
+    billing: {
+      adminKey: async () => " sk-smoke-admin ",
+      cap: 50,
+    },
+    name: "smoke-billed",
+    provider: "openai",
+  });
+  const billedBudget = await usage.budget("smoke-billed");
+  const usageChecks = {
+    billedRemaining: billedBudget?.remaining,
+    budgetRemaining: usageBudget?.remaining,
+    noCredentialExposed: !("credential" in smokeAccount),
+    share: usageShare,
+    snapshotName: usageSnapshot.name,
+  };
 
   const models = new Models();
   const formattedModel = formatSelection({ model: "gpt-5", provider: "openai" });
@@ -179,13 +250,24 @@ globalThis.__smokeResult = (async () => {
     name: "smoke",
     type: "text/plain",
   });
+  const revised = await artifacts.revise({
+    artifactId: createdArtifact.id,
+    changes: { put: { "hello.txt": { bytes: "world-2" } } },
+    contentId: createdArtifact.content!.id,
+    expectedUpdatedAt: createdArtifact.content!.updatedAt,
+  });
+  const frozen = await artifacts.freeze(revised.id, {
+    expectedUpdatedAt: revised.updatedAt,
+    tag: "v1",
+  });
   const rawBytes = new Uint8Array([1, 2, 3]);
   const mappedOrder = artifactsTable.idOrder.mapFromDriverValue(rawBytes.buffer);
   const mappedBlob = artifactBlobs.bytes.mapFromDriverValue(rawBytes.buffer);
   const artifactTablesOk =
     mappedOrder instanceof Uint8Array &&
     mappedBlob instanceof Uint8Array &&
-    mappedBlob.length === 3;
+    mappedBlob.length === 3 &&
+    frozen.state === "frozen";
 
   const auth = new Authorization({ store: new MemoryAuthorizationStore() });
   const principal = { id: "agent-1", kind: "agent" };
@@ -216,6 +298,17 @@ globalThis.__smokeResult = (async () => {
 
   const tasks = new Tasks({ store: new MemoryTaskStore() });
   const createdTask = await tasks.create({ title: "isolate task" });
+  const dependentTask = await tasks.create(
+    { title: "dependent task" },
+    { dependsOn: [{ id: createdTask.id }] }
+  );
+  const blockedAvail = await tasks.availability(dependentTask.id);
+  const readyBefore = await tasks.ready();
+  await tasks.remove(dependentTask.id);
+  const taskChecks = {
+    blockedKind: blockedAvail?.kind,
+    readyCount: readyBefore.items.length,
+  };
 
   const modules = new Modules({ store: new MemoryModuleStore() });
   const listedModules = await modules.listModules();
@@ -239,41 +332,57 @@ globalThis.__smokeResult = (async () => {
     Effect.gen(function* () {
       const queueStore = yield* makeMemoryQueueStore;
       const scheduleStore = yield* makeMemoryScheduleStore;
-      yield* scheduleStore.commit({
-        cursors: [{ nextDueAt: 1000, scheduleId: "smoke-sched" }],
-        schedules: [
-          {
-            cadence: { everyMs: 1000, kind: "interval" },
-            createdAt: 0,
-            id: "smoke-sched",
-            misfire: "run-once",
-            overlap: "skip",
-            state: "active",
-            target: { handler: { name: "smoke" }, input: { ok: true } },
-          },
-        ],
-      });
+      yield* registerSchedule(
+        scheduleStore,
+        {
+          cadence: { everyMs: 1000, kind: "interval" },
+          id: "smoke-sched",
+          target: { handler: { name: "smoke" }, input: { ok: true } },
+        },
+        { now: 0 }
+      );
+      yield* pauseSchedule(scheduleStore, "smoke-sched", { now: 10 });
+      yield* resumeSchedule(scheduleStore, "smoke-sched", { now: 20 });
+
       const evalResult = yield* evaluateDueSchedules({
         dispatch: statelessQueueDispatch(queueStore),
         now: 1000,
         store: scheduleStore,
       });
-      const directJob = yield* enqueueJob(queueStore, {
+      yield* unregisterSchedule(scheduleStore, "smoke-sched", { now: 1100 });
+
+      yield* enqueueJob(queueStore, {
         handler: { name: "direct" },
         input: "hi",
       });
-      const claimed = yield* claimRun(queueStore, { handlerNames: ["direct"] });
+      const claimed = yield* claimRun(queueStore, {
+        handlerNames: ["direct"],
+        leaseTtlMs: 100,
+      });
       if (claimed === undefined) throw new Error("expected claimed direct run");
-      yield* settleRun(
-        queueStore,
-        claimed.run.id,
-        claimed.lease,
-        Exit.succeed({ kind: "complete", output: "done" })
-      );
-      const settled = yield* queueStore.getJob(directJob.id);
+      const renewed = yield* renewLease(queueStore, claimed.run.id, claimed.lease, {
+        leaseTtlMs: 200,
+      });
+      const expired = yield* recoverExpiredLeases(queueStore, {
+        now: (renewed?.expiresAt ?? 0) + 50,
+      });
+      const reclaimed = yield* claimRun(queueStore, {
+        handlerNames: ["direct"],
+        leaseTtlMs: 5000,
+      });
+      if (reclaimed !== undefined) {
+        yield* settleRun(
+          queueStore,
+          reclaimed.run.id,
+          reclaimed.lease,
+          Exit.succeed({ kind: "complete", output: "done" })
+        );
+      }
+
       return {
         decidedCount: evalResult.decided.length,
-        directKind: settled?.state.kind,
+        defaultClaimTtlMs: DEFAULT_CLAIM_TTL_MS,
+        expiredCount: expired.length,
         soonest: evalResult.soonest,
       };
     })
@@ -323,13 +432,16 @@ globalThis.__smokeResult = (async () => {
     pageItems: page.items,
     parsedArgvCount: parsedArgv.length,
     pathsMarbles: paths.marbles,
+    plainLayerRemoved,
     promptApiType,
     queueResult,
     renderedPrompt,
     sandboxPath,
     sandboxRows: sandboxRows.length,
     sessionId: session.id,
+    taskChecks,
     taskId: createdTask.id,
+    usageChecks,
     usageReady: usageSnapshot.name === "smoke-account",
     wfOutput,
     workspacesCount: listedWorkspaces.items.length,
@@ -523,15 +635,28 @@ describe("Non-Node V8 isolate smoke test", () => {
       pageItems: ["a", "b"],
       parsedArgvCount: 2,
       pathsMarbles: "/virtual/marbles",
+      plainLayerRemoved: true,
       promptApiType: "function",
       queueResult: {
         decidedCount: 1,
-        directKind: "complete",
+        defaultClaimTtlMs: 60_000,
+        expiredCount: 1,
         soonest: 2000,
       },
       renderedPrompt: "hello isolate",
       sandboxPath: "/workspace/src/index.ts",
       sandboxRows: 0,
+      taskChecks: {
+        blockedKind: "blocked",
+        readyCount: 1,
+      },
+      usageChecks: {
+        billedRemaining: 37.5,
+        budgetRemaining: 60,
+        noCredentialExposed: true,
+        share: 0.75,
+        snapshotName: "smoke-account",
+      },
       usageReady: true,
       wfOutput: 42,
       workspacesCount: 0,

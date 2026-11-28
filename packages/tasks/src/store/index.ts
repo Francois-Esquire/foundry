@@ -10,6 +10,7 @@ import type {
 export type { TaskSnapshot, TaskStoreWrite } from "../schema";
 
 export interface TaskStoreListQuery {
+  readonly ids?: readonly TaskId[];
   readonly parentId?: TaskId | null;
   readonly status?: TaskStatus;
 }

@@ -150,10 +150,7 @@ describe("Codex reads through a credential", () => {
     const personal = provider({ home: "~/.codex-personal", name: "personal" });
     const reading = await personal.limits();
 
-    expect(personal.credential).toEqual({
-      home: join(home, ".codex-personal"),
-      kind: "login",
-    });
+    expect("credential" in personal).toBe(false);
     expect(spawn).toHaveBeenCalledWith("codex", ["app-server"], {
       cwd: home,
       env: {
@@ -227,31 +224,53 @@ describe("Codex reads through a credential", () => {
   });
 
   it("finds the default login by its auth file, honouring CODEX_HOME, never the environment's key", async () => {
-    const { home, provider } = await setup({});
+    const { home, provider, spawn } = await setup(signedIn);
     expect(await provider.defaultAccount()).toBeUndefined();
     await touch(join(home, ".codex", "auth.json"));
-    expect(await provider.defaultAccount()).toMatchObject({
-      credential: { home: join(home, ".codex"), kind: "login" },
-      name: "openai",
+    const found = await provider.defaultAccount();
+    expect(found?.name).toBe("openai");
+    expect(found).not.toHaveProperty("credential");
+    await found?.limits();
+    expect(spawn).toHaveBeenCalledWith("codex", ["app-server"], {
+      cwd: home,
+      env: {
+        CODEX_HOME: join(home, ".codex"),
+        HOME: home,
+        PATH: "/bin",
+      },
     });
 
+    const customSpawn = vi.fn(() => new FakeCodex(signedIn));
     const custom = createOpenAI({
       env: { CODEX_HOME: join(home, "alt") },
       home,
+      spawn: customSpawn,
     });
     await touch(join(home, "alt", "auth.json"));
-    expect((await custom.defaultAccount())?.credential).toEqual({
-      home: join(home, "alt"),
-      kind: "login",
+    const customFound = await custom.defaultAccount();
+    expect(customFound?.name).toBe("openai");
+    await customFound?.limits();
+    expect(customSpawn).toHaveBeenCalledWith("codex", ["app-server"], {
+      cwd: home,
+      env: {
+        CODEX_HOME: join(home, "alt"),
+      },
     });
   });
 
   it("finds the default account by its history alone, with no login", async () => {
-    const { home, provider } = await setup({});
+    const { home, provider, spawn } = await setup(signedIn);
     await touch(join(home, ".codex", "sessions", "2026", "rollout-a.jsonl"));
-    expect((await provider.defaultAccount())?.credential).toEqual({
-      home: join(home, ".codex"),
-      kind: "login",
+    const found = await provider.defaultAccount();
+    expect(found?.name).toBe("openai");
+    await found?.limits();
+    expect(spawn).toHaveBeenCalledWith("codex", ["app-server"], {
+      cwd: home,
+      env: {
+        CODEX_HOME: join(home, ".codex"),
+        HOME: home,
+        PATH: "/bin",
+      },
     });
   });
 });

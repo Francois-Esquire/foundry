@@ -34,10 +34,12 @@ type Pending<Id, Row> = Map<Id, Row | null>;
 
 interface ChangeState {
   active: boolean;
+  readonly artifactContentPreconditions: Map<ArtifactId, ContentId | null>;
   readonly artifacts: Pending<ArtifactId, Artifact>;
   readonly blobs: Pending<BlobId, Blob>;
   readonly clock: () => Date;
   readonly contents: Pending<ContentId, Content>;
+  readonly contentUpdatedAtPreconditions: Map<ContentId, Date>;
   readonly events: ArtifactEvent[];
   failure: { readonly error: unknown } | undefined;
   readonly id: () => string;
@@ -69,10 +71,12 @@ export class ArtifactChange {
   ): ArtifactChange {
     return new ArtifactChange({
       active: true,
+      artifactContentPreconditions: new Map(),
       artifacts: new Map(),
       blobs: new Map(),
       clock: options.clock ?? (() => new Date()),
       contents: new Map(),
+      contentUpdatedAtPreconditions: new Map(),
       events: [],
       failure: undefined,
       id: options.id ?? (() => crypto.randomUUID()),
@@ -123,6 +127,34 @@ export class ArtifactChange {
     }
   }
 
+  expectArtifactContent(
+    artifactId: ArtifactId,
+    contentId: ContentId | null
+  ): void {
+    if (
+      !(
+        this.#state.artifacts.has(artifactId) ||
+        this.#state.artifactContentPreconditions.has(artifactId)
+      )
+    ) {
+      this.#state.artifactContentPreconditions.set(artifactId, contentId);
+    }
+  }
+
+  expectContentUpdatedAt(contentId: ContentId, updatedAt: Date): void {
+    if (
+      !(
+        this.#state.contents.has(contentId) ||
+        this.#state.contentUpdatedAtPreconditions.has(contentId)
+      )
+    ) {
+      this.#state.contentUpdatedAtPreconditions.set(
+        contentId,
+        new Date(updatedAt.getTime())
+      );
+    }
+  }
+
   write(): ArtifactStoreWrite | undefined {
     if (
       this.#state.artifacts.size === 0 &&
@@ -132,6 +164,27 @@ export class ArtifactChange {
     ) {
       return;
     }
+    const hasArtifactPre = this.#state.artifactContentPreconditions.size > 0;
+    const hasContentPre = this.#state.contentUpdatedAtPreconditions.size > 0;
+    const preconditions =
+      hasArtifactPre || hasContentPre
+        ? {
+            ...(hasArtifactPre
+              ? {
+                  artifactContentIds: Object.fromEntries(
+                    this.#state.artifactContentPreconditions
+                  ) as Readonly<Record<ArtifactId, ContentId | null>>,
+                }
+              : {}),
+            ...(hasContentPre
+              ? {
+                  contentUpdatedAt: Object.fromEntries(
+                    this.#state.contentUpdatedAtPreconditions
+                  ) as Readonly<Record<ContentId, Date>>,
+                }
+              : {}),
+          }
+        : undefined;
     return {
       deleteArtifacts: deleted(this.#state.artifacts),
       deleteBlobs: deleted(this.#state.blobs),
@@ -139,6 +192,7 @@ export class ArtifactChange {
       ...(this.#state.events.length === 0
         ? {}
         : { events: [...this.#state.events] }),
+      ...(preconditions === undefined ? {} : { preconditions }),
       putArtifacts: kept(this.#state.artifacts),
       putBlobs: kept(this.#state.blobs),
       putContents: kept(this.#state.contents),

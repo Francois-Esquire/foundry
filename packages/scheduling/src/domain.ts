@@ -86,6 +86,7 @@ export type SchedulerOwner = InstanceIdentity;
 
 export interface Lease {
   readonly claimedAt: Instant;
+  readonly expiresAt?: Instant;
   readonly owner: SchedulerOwner;
 }
 

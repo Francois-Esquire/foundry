@@ -1,9 +1,9 @@
 import { anthropic } from "./providers/anthropic";
 import { openai } from "./providers/openai";
-import { createUsage, type Usage } from "./usage";
+import { createUsage, type Usage, type UsageOptions } from "./usage";
 
-export const createNodeUsage = (): Usage => {
-  const instance = createUsage();
+export const createNodeUsage = (options?: UsageOptions): Usage => {
+  const instance = createUsage(options);
   instance.use(anthropic);
   instance.use(openai);
   return instance;
@@ -12,7 +12,6 @@ export const createNodeUsage = (): Usage => {
 export const usage: Usage = createNodeUsage();
 
 export type {
-  AnthropicCredential,
   AnthropicDetails,
   AnthropicOptions,
   AnthropicProvider,
@@ -20,7 +19,6 @@ export type {
 // biome-ignore lint/performance/noBarrelFile: This is the exported @foundry/usage/node public API.
 export { anthropic } from "./providers/anthropic";
 export type {
-  OpenAICredential,
   OpenAIDetails,
   OpenAIOptions,
   OpenAIProvider,

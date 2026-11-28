@@ -1,8 +1,13 @@
 import { spendCap } from "./limit";
 import type { Reading } from "./snapshot";
+import type { AccountCallOptions } from "./usage";
+
+export type AdminKeySource =
+  | string
+  | ((options?: AccountCallOptions) => string | Promise<string>);
 
 interface BillingSettings {
-  readonly adminKey: string;
+  readonly adminKey: AdminKeySource;
   readonly cap: number;
 }
 
@@ -15,7 +20,9 @@ interface SpendReading {
 
 interface ManagedBilling {
   readonly cap: number;
-  readSpend(): SpendReading | undefined | Promise<SpendReading | undefined>;
+  readSpend(options?: {
+    readonly signal?: AbortSignal;
+  }): SpendReading | undefined | Promise<SpendReading | undefined>;
 }
 
 export type BillingAccountOptions = { readonly name: string } & (
@@ -30,6 +37,14 @@ export type BillingAccountOptions = { readonly name: string } & (
     }
 );
 
+export interface BillingReadRuntime {
+  readonly billingTimeoutMs?: number;
+  readonly clock?: () => Date;
+  readonly fetch?: typeof globalThis.fetch;
+  readonly maxBillingPages?: number;
+  readonly signal?: AbortSignal;
+}
+
 interface CostPage<T> {
   readonly data: readonly T[];
   readonly data_refreshed_at?: string | null;
@@ -43,31 +58,112 @@ interface Amount {
 }
 
 const READ_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_BILLING_PAGES = 50;
 const ANTHROPIC_AMOUNT = /^-?\d+(?:\.\d+)?$/;
+
+const billingSignal = (runtime: BillingReadRuntime): AbortSignal => {
+  runtime.signal?.throwIfAborted();
+  const timeoutMs = runtime.billingTimeoutMs ?? READ_TIMEOUT_MS;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return runtime.signal
+    ? AbortSignal.any([runtime.signal, timeoutSignal])
+    : timeoutSignal;
+};
+
+const raceAbort = async <T>(
+  work: () => T | Promise<T>,
+  signal: AbortSignal
+): Promise<T> => {
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () =>
+      reject(signal.reason ?? new Error("The operation was aborted."));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  const task = Promise.resolve().then(work);
+  task.catch(() => undefined);
+  try {
+    return await Promise.race([task, aborted]);
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+};
+
+const resolveAdminKey = async (
+  source: AdminKeySource,
+  signal: AbortSignal
+): Promise<string> => {
+  signal.throwIfAborted();
+  const raw =
+    typeof source === "function"
+      ? await raceAbort(() => source({ signal }), signal)
+      : source;
+  signal.throwIfAborted();
+  const key = typeof raw === "string" ? raw.trim() : "";
+  if (!key) {
+    throw new Error("The billing admin key resolved to an empty value.");
+  }
+  return key;
+};
+
+const readCostPage = async <T>(
+  fetchImpl: typeof globalThis.fetch,
+  url: URL,
+  headers: Record<string, string>,
+  signal: AbortSignal
+): Promise<CostPage<T>> => {
+  const response = await fetchImpl(url.href, {
+    headers,
+    redirect: "error",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`The billing report returned HTTP ${response.status}.`);
+  }
+  const page = (await response.json()) as CostPage<T>;
+  if (!(Array.isArray(page.data) && typeof page.has_more === "boolean")) {
+    throw new Error("The billing report did not contain cost data.");
+  }
+  return page;
+};
+
+const nextCursorOf = (
+  page: CostPage<unknown>,
+  cursors: Set<string>
+): string => {
+  const cursor = page.next_page;
+  if (typeof cursor !== "string" || !cursor || cursors.has(cursor)) {
+    throw new Error("The billing report did not include the next page.");
+  }
+  cursors.add(cursor);
+  return cursor;
+};
 
 const readCosts = async <T>(
   url: URL,
   headers: Record<string, string>,
-  amountOf: (row: T) => number
+  amountOf: (row: T) => number,
+  runtime: BillingReadRuntime,
+  signal: AbortSignal
 ): Promise<{ total: number; reportedThrough?: Date }> => {
-  const signal = AbortSignal.timeout(READ_TIMEOUT_MS);
+  const maxPages = runtime.maxBillingPages ?? DEFAULT_MAX_BILLING_PAGES;
+  const fetchImpl = runtime.fetch ?? globalThis.fetch;
   const cursors = new Set<string>();
   let total = 0;
   let reportedThrough: Date | undefined;
+  let pages = 0;
   let hasMore: boolean;
   do {
-    const response = await fetch(url.href, {
-      headers,
-      redirect: "error",
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`The billing report returned HTTP ${response.status}.`);
+    pages += 1;
+    if (pages > maxPages) {
+      throw new Error(
+        `The billing report exceeded the maximum page limit of ${maxPages}.`
+      );
     }
-    const page = (await response.json()) as CostPage<T>;
-    if (!(Array.isArray(page.data) && typeof page.has_more === "boolean")) {
-      throw new Error("The billing report did not contain cost data.");
-    }
+    const page = await readCostPage<T>(fetchImpl, url, headers, signal);
     if (typeof page.data_refreshed_at === "string") {
       reportedThrough = new Date(page.data_refreshed_at);
     }
@@ -79,22 +175,20 @@ const readCosts = async <T>(
     }
     hasMore = page.has_more;
     if (hasMore) {
-      const cursor = page.next_page;
-      if (typeof cursor !== "string" || !cursor || cursors.has(cursor)) {
-        throw new Error("The billing report did not include the next page.");
-      }
-      cursors.add(cursor);
-      url.searchParams.set("page", cursor);
+      url.searchParams.set("page", nextCursorOf(page, cursors));
     }
   } while (hasMore);
   return { reportedThrough, total };
 };
 
-const openAICost = (
+const openAICost = async (
   { adminKey, projectId }: BillingSettings & { readonly projectId?: string },
   start: Date,
-  at: Date
+  at: Date,
+  runtime: BillingReadRuntime
 ) => {
+  const signal = billingSignal(runtime);
+  const resolvedKey = await resolveAdminKey(adminKey, signal);
   const url = new URL("https://api.openai.com/v1/organization/costs");
   url.searchParams.set("start_time", String(start.getTime() / 1000));
   url.searchParams.set("end_time", String(Math.floor(at.getTime() / 1000)));
@@ -104,7 +198,7 @@ const openAICost = (
   }
   return readCosts<{ results: readonly { amount: Amount }[] }>(
     url,
-    { Authorization: `Bearer ${adminKey}` },
+    { Authorization: `Bearer ${resolvedKey}` },
     ({ results }) =>
       results.reduce(
         (sum, { amount }) =>
@@ -112,18 +206,23 @@ const openAICost = (
             ? sum + amount.value
             : Number.NaN,
         0
-      )
+      ),
+    runtime,
+    signal
   );
 };
 
-const anthropicCost = (
+const anthropicCost = async (
   {
     adminKey,
     workspaceId,
   }: BillingSettings & { readonly workspaceId?: string },
   start: Date,
-  at: Date
+  at: Date,
+  runtime: BillingReadRuntime
 ) => {
+  const signal = billingSignal(runtime);
+  const resolvedKey = await resolveAdminKey(adminKey, signal);
   const url = new URL(
     "https://api.anthropic.com/v1/organizations/analytics/cost"
   );
@@ -137,20 +236,27 @@ const anthropicCost = (
     {
       "anthropic-beta": "analytics-usage-cost-2026-08-24",
       "anthropic-version": "2023-06-01",
-      "x-api-key": adminKey,
+      "x-api-key": resolvedKey,
     },
     ({ cost }) =>
       cost.currency === "USD" &&
       typeof cost.amount === "string" &&
       ANTHROPIC_AMOUNT.test(cost.amount)
         ? Number(cost.amount) / 100
-        : Number.NaN
+        : Number.NaN,
+    runtime,
+    signal
   );
 };
 
-const managedLimits = async (billing: ManagedBilling): Promise<Reading> => {
-  const spend = await billing.readSpend();
-  const at = new Date();
+const managedLimits = async (
+  billing: ManagedBilling,
+  runtime: BillingReadRuntime
+): Promise<Reading> => {
+  const signal = billingSignal(runtime);
+  const spend = await raceAbort(() => billing.readSpend({ signal }), signal);
+  signal.throwIfAborted();
+  const at = runtime.clock ? runtime.clock() : new Date();
   if (
     !(
       spend &&
@@ -176,12 +282,13 @@ const managedLimits = async (billing: ManagedBilling): Promise<Reading> => {
 };
 
 export const billingLimits = async (
-  options: BillingAccountOptions
+  options: BillingAccountOptions,
+  runtime: BillingReadRuntime = {}
 ): Promise<Reading> => {
   if (options.provider === undefined) {
-    return managedLimits(options.billing);
+    return managedLimits(options.billing, runtime);
   }
-  const at = new Date();
+  const at = runtime.clock ? runtime.clock() : new Date();
   const year = at.getUTCFullYear();
   const month = at.getUTCMonth();
   const startsAt = new Date(Date.UTC(year, month, 1));
@@ -189,8 +296,8 @@ export const billingLimits = async (
   const { provider, billing } = options;
   const cost =
     provider === "openai"
-      ? await openAICost(billing, startsAt, at)
-      : await anthropicCost(billing, startsAt, at);
+      ? await openAICost(billing, startsAt, at, runtime)
+      : await anthropicCost(billing, startsAt, at, runtime);
   const { reportedThrough, total } = cost;
   if (
     provider === "anthropic" &&

@@ -22,6 +22,7 @@ import {
   or,
 } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { TaskError } from "../errors";
 import type {
   Task,
   TaskDependency,
@@ -95,6 +96,10 @@ export class SqliteTaskStore implements TaskStore {
     }
     return this.#turns.run(() =>
       this.#database.transaction(async (transaction) => {
+        await this.#checkExpectedUpdatedAt(
+          transaction,
+          owned.expectedUpdatedAt
+        );
         await this.#deleteTasks(
           transaction,
           (owned.deleteTasks ?? []).filter(storableText)
@@ -128,39 +133,83 @@ export class SqliteTaskStore implements TaskStore {
 
   list(query: TaskStoreListQuery = {}): Promise<readonly Task[]> {
     return this.#turns.run(() =>
-      this.#database.transaction(async (transaction) => {
-        if (
-          (query.status !== undefined && !storableText(query.status)) ||
-          (query.parentId !== undefined &&
-            query.parentId !== null &&
-            !storableText(query.parentId))
-        ) {
-          return [];
-        }
-        let parentCondition:
-          | ReturnType<typeof eq>
-          | ReturnType<typeof isNull>
-          | undefined;
-        if (query.parentId === null) {
-          parentCondition = isNull(tasks.parentId);
-        } else if (query.parentId !== undefined) {
-          parentCondition = eq(tasks.parentId, query.parentId);
-        }
-        return await transaction
-          .select(taskColumns)
-          .from(tasks)
-          .where(
-            and(
-              eq(tasks.scope, this.#scope),
-              query.status === undefined
-                ? undefined
-                : eq(tasks.status, query.status),
-              parentCondition
-            )
-          )
-          .orderBy(tasks.position);
-      })
+      this.#database.transaction((transaction) =>
+        this.#listInTransaction(transaction, query)
+      )
     );
+  }
+
+  async #listInTransaction(
+    transaction: TaskTransaction,
+    query: TaskStoreListQuery
+  ): Promise<readonly Task[]> {
+    if (!isStorableListQuery(query)) {
+      return [];
+    }
+    const statusCondition =
+      query.status === undefined ? undefined : eq(tasks.status, query.status);
+    const parentCondition = parentConditionOf(query.parentId);
+    if (query.ids === undefined) {
+      return await transaction
+        .select(taskColumns)
+        .from(tasks)
+        .where(
+          and(eq(tasks.scope, this.#scope), statusCondition, parentCondition)
+        )
+        .orderBy(tasks.position);
+    }
+    const validIds = [...new Set(query.ids)].filter(storableText);
+    if (validIds.length === 0) {
+      return [];
+    }
+    const reservedParameters =
+      1 +
+      (query.status === undefined ? 0 : 1) +
+      (query.parentId !== undefined && query.parentId !== null ? 1 : 0);
+    const chunks = rowBatches(
+      validIds,
+      1,
+      this.#maxParameters,
+      reservedParameters
+    );
+    if (chunks.length === 1) {
+      const [only] = chunks;
+      return only === undefined
+        ? []
+        : await transaction
+            .select(taskColumns)
+            .from(tasks)
+            .where(
+              and(
+                eq(tasks.scope, this.#scope),
+                inArray(tasks.id, only),
+                statusCondition,
+                parentCondition
+              )
+            )
+            .orderBy(tasks.position);
+    }
+    const found: { readonly position: number; readonly task: Task }[] = [];
+    for (const batch of chunks) {
+      const rows = await transaction
+        .select({ ...taskColumns, position: tasks.position })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.scope, this.#scope),
+            inArray(tasks.id, batch),
+            statusCondition,
+            parentCondition
+          )
+        )
+        .orderBy(tasks.position);
+      for (const { position, ...task } of rows) {
+        found.push({ position, task });
+      }
+    }
+    return found
+      .sort((a, b) => a.position - b.position)
+      .map((entry) => entry.task);
   }
 
   children(parentId: TaskId): Promise<readonly Task[]> {
@@ -247,6 +296,45 @@ export class SqliteTaskStore implements TaskStore {
         )
       )
     );
+  }
+
+  async #checkExpectedUpdatedAt(
+    transaction: TaskTransaction,
+    expected: Readonly<Record<string, string | null>> | undefined
+  ): Promise<void> {
+    if (expected === undefined) {
+      return;
+    }
+    const entries = Object.entries(expected);
+    if (entries.length === 0) {
+      return;
+    }
+    const ids = entries.map(([id]) => id as TaskId).filter(storableText);
+    const actualById = new Map<string, string>();
+    for (const batch of rowBatches(ids, 1, this.#maxParameters, 1)) {
+      const rows = await transaction
+        .select({ id: tasks.id, updatedAt: tasks.updatedAt })
+        .from(tasks)
+        .where(and(eq(tasks.scope, this.#scope), inArray(tasks.id, batch)));
+      for (const row of rows) {
+        actualById.set(row.id, row.updatedAt);
+      }
+    }
+    for (const [id, expectedAt] of entries) {
+      const actual = actualById.get(id);
+      if (expectedAt === null) {
+        if (actual !== undefined) {
+          throw new TaskError("conflict", `Task ${id} already exists`);
+        }
+        continue;
+      }
+      if (actual !== expectedAt) {
+        throw new TaskError(
+          "conflict",
+          `Task ${id} changed at ${actual ?? "missing"}, expected ${expectedAt}`
+        );
+      }
+    }
   }
 
   async #deleteTasks(
@@ -366,6 +454,32 @@ function unstorableField(write: TaskStoreWrite): string | undefined {
       }
     }
   }
+}
+
+function isStorableListQuery(query: TaskStoreListQuery): boolean {
+  if (query.status !== undefined && !storableText(query.status)) {
+    return false;
+  }
+  if (
+    query.parentId !== undefined &&
+    query.parentId !== null &&
+    !storableText(query.parentId)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function parentConditionOf(
+  parentId: TaskStoreListQuery["parentId"]
+): ReturnType<typeof eq> | ReturnType<typeof isNull> | undefined {
+  if (parentId === null) {
+    return isNull(tasks.parentId);
+  }
+  if (parentId !== undefined) {
+    return eq(tasks.parentId, parentId);
+  }
+  return undefined;
 }
 
 const MAX_EXPRESSION_DEPTH = 1000;

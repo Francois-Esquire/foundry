@@ -1,4 +1,5 @@
 import type { CommitEffects } from "@foundry/core/storage";
+import { sha256Hex } from "@foundry/lib/digest";
 import { canonicalizeJson } from "@foundry/lib/json";
 import { Turns } from "@foundry/lib/turns";
 import {
@@ -69,6 +70,7 @@ export type Outcome =
 
 export interface AuthorizationOptions {
   readonly clock?: () => number;
+  readonly generateId?: (prefix: "grt" | "rst") => string;
   readonly isNarrowerDigest?: NarrowOptions["isNarrowerDigest"];
   readonly store: AuthorizationStore;
 }
@@ -108,6 +110,7 @@ export class Authorization {
   readonly durability: AuthorizationStoreDurability;
   readonly #store: AuthorizationStore;
   readonly #clock: () => number;
+  readonly #generateId: (prefix: "grt" | "rst") => string;
   readonly #narrowOptions?: NarrowOptions;
   readonly #hub: EventHub;
   readonly #defaultEffects?: CommitEffects;
@@ -117,6 +120,8 @@ export class Authorization {
     this.#store = options.store;
     this.durability = options.store.durability ?? "commit";
     this.#clock = options.clock ?? (() => Date.now());
+    this.#generateId =
+      options.generateId ?? ((prefix) => `${prefix}_${crypto.randomUUID()}`);
     if (options.isNarrowerDigest !== undefined) {
       this.#narrowOptions = { isNarrowerDigest: options.isNarrowerDigest };
     }
@@ -131,6 +136,7 @@ export class Authorization {
     return new Authorization(
       {
         clock: this.#clock,
+        generateId: this.#generateId,
         ...(this.#narrowOptions === undefined
           ? {}
           : { isNarrowerDigest: this.#narrowOptions.isNarrowerDigest }),
@@ -146,10 +152,11 @@ export class Authorization {
   async check(request: AccessRequest): Promise<Decision> {
     const snapshot = structuredClone(request);
     const { grants, restrictions } = await this.#inTransaction(async (view) => {
-      const [loadedGrants, loadedRestrictions] = await Promise.all([
-        view.listGrants(),
-        view.listRestrictions(),
+      const [activeGrants, loadedRestrictions] = await Promise.all([
+        view.listGrants({ action: snapshot.action, state: "active" }),
+        view.listRestrictions({ action: snapshot.action }),
       ]);
+      const loadedGrants = await loadGrantsWithAncestors(view, activeGrants);
       return { grants: loadedGrants, restrictions: loadedRestrictions };
     });
     const now = this.#clock();
@@ -258,10 +265,19 @@ export class Authorization {
     validateGrantBounds(input);
 
     const { grant, created, now } = await this.#inTransaction(async (view) => {
-      const [grants, restrictions] = await Promise.all([
-        view.listGrants(),
-        view.listRestrictions(),
-      ]);
+      const [restrictions, pendingForInvocation, existingById] =
+        await Promise.all([
+          view.listRestrictions({ action: input.scope.action }),
+          input.invocationId === undefined
+            ? Promise.resolve<readonly Grant[]>([])
+            : view.listGrants({
+                invocationId: input.invocationId,
+                state: "pending",
+              }),
+          input.id === undefined
+            ? Promise.resolve<Grant | null>(null)
+            : view.getGrant(input.id),
+        ]);
       const at = this.#clock();
       const blocking = findBlockingDenyForGrantScope(
         input.holder,
@@ -273,33 +289,21 @@ export class Authorization {
       if (blocking !== undefined) {
         throw new AuthorizationDeniedError(blocking.reason, blocking.id);
       }
-      if (input.invocationId !== undefined) {
-        const existing = grants.find(
-          (item) =>
-            item.invocationId === input.invocationId && item.state === "pending"
-        );
-        if (existing !== undefined) {
-          if (isExpired(existing, at)) {
-            throw new AuthorizationStateError(
-              `Pending grant for invocation ${input.invocationId} has expired`
-            );
-          }
-          if (
-            !matchesPendingGrantRequestInput(existing, input, requiredApprovals)
-          ) {
-            throw new AuthorizationStateError(
-              `Invocation ${input.invocationId} is already bound to a different pending grant`
-            );
-          }
-          return { created: false, grant: existing, now: at };
-        }
+      const reused = reusePendingRequest(
+        pendingForInvocation,
+        input,
+        requiredApprovals,
+        at
+      );
+      if (reused !== undefined) {
+        return { created: false, grant: reused, now: at };
       }
-      assertUnusedGrantId(input.id, grants);
+      assertUnusedGrantRecord(input.id, existingById);
       const createdGrant = buildGrant({
         canDelegate: input.canDelegate ?? false,
         expiresAt: input.expiresAt,
         holder: input.holder,
-        id: input.id,
+        id: input.id ?? this.#nextGrantId(),
         invocationId: input.invocationId,
         issuanceKey: input.issuanceKey,
         now: at,
@@ -332,14 +336,21 @@ export class Authorization {
 
     const parentIds = uniqueIds(input.parentIds ?? []);
     const { grant, created, now } = await this.#inTransaction(async (view) => {
-      const [grants, restrictions] = await Promise.all([
-        view.listGrants(),
-        view.listRestrictions(),
-      ]);
+      const [restrictions, issuanceGrants, existingById, parentMap] =
+        await Promise.all([
+          view.listRestrictions({ action: input.scope.action }),
+          input.issuanceKey === undefined
+            ? Promise.resolve<readonly Grant[]>([])
+            : view.listGrants({ issuanceKey: input.issuanceKey }),
+          input.id === undefined
+            ? Promise.resolve<Grant | null>(null)
+            : view.getGrant(input.id),
+          loadAncestorMapByIds(view, parentIds),
+        ]);
       const at = this.#clock();
       if (input.issuanceKey !== undefined) {
         const duplicate = findIdempotentIssuance(
-          grants,
+          issuanceGrants,
           input.issuanceKey,
           input.holder,
           input.scope,
@@ -359,11 +370,10 @@ export class Authorization {
           return { created: false, grant: duplicate, now: at };
         }
       }
-      assertUnusedGrantId(input.id, grants);
-      const grantMap = new Map(grants.map((item) => [item.id, item]));
+      assertUnusedGrantRecord(input.id, existingById);
       const ancestors = this.#validateParentDelegations(
         parentIds,
-        grantMap,
+        parentMap,
         input,
         at
       );
@@ -381,7 +391,7 @@ export class Authorization {
         canDelegate: input.canDelegate ?? false,
         expiresAt: input.expiresAt,
         holder: input.holder,
-        id: input.id,
+        id: input.id ?? this.#nextGrantId(),
         issuanceKey: input.issuanceKey,
         now: at,
         parentIds,
@@ -412,16 +422,21 @@ export class Authorization {
 
     const { updated, approval, now } = await this.#inTransaction(
       async (view) => {
-        const [grants, restrictions] = await Promise.all([
-          view.listGrants(),
-          view.listRestrictions(),
-        ]);
-        const at = this.#clock();
-        const grantMap = new Map(grants.map((item) => [item.id, item]));
-        const existing = grantMap.get(grantId);
-        if (existing === undefined) {
+        const existing = await view.getGrant(grantId);
+        if (existing === null) {
           throw new AuthorizationNotFoundError("grant", grantId);
         }
+        const targetAction = (input.scope ?? existing.scope).action;
+        const seedParentIds = uniqueIds([
+          ...existing.parentIds,
+          ...(input.parentGrantId === undefined ? [] : [input.parentGrantId]),
+        ]);
+        const [restrictions, grantMap] = await Promise.all([
+          view.listRestrictions({ action: targetAction }),
+          loadAncestorMapByIds(view, seedParentIds),
+        ]);
+        grantMap.set(existing.id, existing);
+        const at = this.#clock();
         const prepared = this.#prepareApproval(
           existing,
           input,
@@ -429,7 +444,10 @@ export class Authorization {
           restrictions,
           at
         );
-        await view.commit({ putGrants: [prepared.updated] });
+        await view.commit({
+          expectedGrantRevisions: { [existing.id]: existing.revision },
+          putGrants: [prepared.updated],
+        });
         return { ...prepared, now: at };
       }
     );
@@ -466,7 +484,10 @@ export class Authorization {
         state: "denied",
         updatedAt: now,
       };
-      await view.commit({ putGrants: [denied] });
+      await view.commit({
+        expectedGrantRevisions: { [existing.id]: existing.revision },
+        putGrants: [denied],
+      });
       return denied;
     });
 
@@ -493,8 +514,10 @@ export class Authorization {
       if (matched.length === 0) {
         return [];
       }
-      const updated = matched.map(
-        (grant): Grant => ({
+      const expectedGrantRevisions: Record<GrantId, number> = {};
+      const updated = matched.map((grant): Grant => {
+        expectedGrantRevisions[grant.id] = grant.revision;
+        return {
           ...grant,
           revision: grant.revision + 1,
           revokedAt: now,
@@ -503,9 +526,12 @@ export class Authorization {
             : { revokedReason: options.reason }),
           state: "revoked",
           updatedAt: now,
-        })
-      );
-      await view.commit({ putGrants: updated });
+        };
+      });
+      await view.commit({
+        expectedGrantRevisions,
+        putGrants: updated,
+      });
       return updated.map((grant) => grant.id);
     });
 
@@ -536,7 +562,7 @@ export class Authorization {
         : { appliesUnder: input.appliesUnder }),
       createdAt: now,
       ...(input.holder === undefined ? {} : { holder: input.holder }),
-      id: input.id ?? nextRestrictionId(),
+      id: input.id ?? this.#nextRestrictionId(),
       kind: input.kind,
       reason: input.reason,
       revision: 1,
@@ -611,24 +637,32 @@ export class Authorization {
     invocationId: string,
     options: AuthorizeOptions
   ): Promise<AuthorizationTransactionResult> {
-    const [grants, restrictions, existingClaim] = await Promise.all([
-      view.listGrants(),
-      view.listRestrictions(),
-      view.getClaim(invocationId),
-    ]);
+    const [activeGrants, invocationGrants, restrictions, existingClaim] =
+      await Promise.all([
+        view.listGrants({ action: request.action, state: "active" }),
+        view.listGrants({ invocationId }),
+        view.listRestrictions({ action: request.action }),
+        view.getClaim(invocationId),
+      ]);
     const now = this.#clock();
 
     if (existingClaim !== null) {
-      return this.#handleExistingClaim(
+      const claimedGrant = await view.getGrant(existingClaim.grantId);
+      const replayGrants =
+        claimedGrant === null
+          ? []
+          : await loadGrantsWithAncestors(view, [claimedGrant]);
+      return await this.#handleExistingClaim(
         existingClaim,
         request,
-        grants,
+        replayGrants,
         restrictions,
         now,
         options
       );
     }
 
+    const grants = await loadGrantsWithAncestors(view, activeGrants);
     const evaluation = evaluateRequestAgainstGrants(
       request,
       grants,
@@ -669,7 +703,7 @@ export class Authorization {
     }
     return await this.#openOrReusePending(
       view,
-      grants,
+      invocationGrants,
       request,
       invocationId,
       now,
@@ -677,14 +711,14 @@ export class Authorization {
     );
   }
 
-  #handleExistingClaim(
+  async #handleExistingClaim(
     claim: InvocationClaim,
     request: AccessRequest,
     grants: readonly Grant[],
     restrictions: readonly Restriction[],
     now: number,
     options: AuthorizeOptions
-  ): AuthorizationTransactionResult {
+  ): Promise<AuthorizationTransactionResult> {
     if (options.idempotent !== true) {
       return {
         events: [],
@@ -692,12 +726,7 @@ export class Authorization {
         reason: `Invocation ${claim.invocationId} has already been claimed`,
       };
     }
-    const fingerprint = fingerprintRequest(request);
-    if (
-      claim.requestFingerprint === undefined ||
-      fingerprint === null ||
-      claim.requestFingerprint !== fingerprint
-    ) {
+    if (!(await matchesRequestFingerprint(claim.requestFingerprint, request))) {
       return {
         events: [],
         kind: "denied",
@@ -712,7 +741,7 @@ export class Authorization {
         reason: `Claimed grant ${claim.grantId} no longer exists`,
       };
     }
-    const grantPath = validateGrantForReplay(
+    const validated = validateGrantForReplay(
       grant,
       request,
       grants,
@@ -720,7 +749,15 @@ export class Authorization {
       now,
       claim.invocationId
     );
-    if (grantPath === null) {
+    if (validated.blockedByDeny !== undefined) {
+      return {
+        events: [],
+        kind: "denied",
+        reason: validated.blockedByDeny.reason,
+        restrictionId: validated.blockedByDeny.id,
+      };
+    }
+    if (validated.grantPath === undefined) {
       return {
         events: [],
         kind: "denied",
@@ -732,7 +769,7 @@ export class Authorization {
       kind: "permitted",
       receipt: {
         grantId: grant.id,
-        grantPath,
+        grantPath: validated.grantPath,
         invocationId: claim.invocationId,
         issuedAt: now,
       },
@@ -748,7 +785,7 @@ export class Authorization {
     invocationId: string,
     now: number
   ): Promise<AuthorizationTransactionResult> {
-    const requestFingerprint = fingerprintRequest(request);
+    const requestFingerprint = await fingerprintRequest(request);
     const claim: InvocationClaim = {
       claimedAt: now,
       grantId: selected.id,
@@ -757,11 +794,16 @@ export class Authorization {
     };
     const grantMap = new Map(grants.map((item) => [item.id, item]));
     const updatedGrants: Grant[] = [];
+    const expectedGrantRevisions: Record<GrantId, number> = {};
     const events: AuthorizationEvent[] = [];
 
     for (const id of uniqueIds(grantPath)) {
       const member = grantMap.get(id);
-      if (member === undefined || member.usesRemaining === undefined) {
+      if (member === undefined) {
+        continue;
+      }
+      expectedGrantRevisions[member.id] = member.revision;
+      if (member.usesRemaining === undefined) {
         continue;
       }
       const remaining = member.usesRemaining - 1;
@@ -791,7 +833,8 @@ export class Authorization {
     }
 
     await view.commit({
-      putClaims: [claim],
+      createClaims: [claim],
+      expectedGrantRevisions,
       ...(updatedGrants.length === 0 ? {} : { putGrants: updatedGrants }),
     });
 
@@ -867,6 +910,7 @@ export class Authorization {
         kind: "exact",
         principal: exactPrincipalRef(request.principal),
       },
+      id: this.#nextGrantId(),
       invocationId,
       now,
       parentIds: [],
@@ -1268,6 +1312,14 @@ export class Authorization {
     dispatchAll(this.#hub.permitHandlers, event);
     dispatchAll(this.#hub.observers, event);
   }
+
+  #nextGrantId(): GrantId {
+    return asGrantId(this.#generateId("grt"));
+  }
+
+  #nextRestrictionId(): RestrictionId {
+    return asRestrictionId(this.#generateId("rst"));
+  }
 }
 
 function dispatchAll(
@@ -1303,7 +1355,7 @@ interface BuildGrantFields {
   readonly canDelegate: boolean;
   readonly expiresAt?: number;
   readonly holder: PrincipalMatcher;
-  readonly id?: GrantId;
+  readonly id: GrantId;
   readonly invocationId?: string;
   readonly issuanceKey?: string;
   readonly now: number;
@@ -1324,7 +1376,7 @@ function buildGrant(fields: BuildGrantFields): Grant {
     createdAt: fields.now,
     ...(fields.expiresAt === undefined ? {} : { expiresAt: fields.expiresAt }),
     holder: fields.holder,
-    id: fields.id ?? nextGrantId(),
+    id: fields.id,
     ...(fields.invocationId === undefined
       ? {}
       : { invocationId: fields.invocationId }),
@@ -1346,12 +1398,94 @@ function buildGrant(fields: BuildGrantFields): Grant {
   };
 }
 
-function assertUnusedGrantId(
+function assertUnusedGrantRecord(
   id: GrantId | undefined,
-  grants: readonly Grant[]
+  existing: Grant | null
 ): void {
-  if (id !== undefined && grants.some((item) => item.id === id)) {
+  if (id !== undefined && existing !== null) {
     throw new AuthorizationValidationError(`Grant id ${id} already exists`);
+  }
+}
+
+function reusePendingRequest(
+  pendingForInvocation: readonly Grant[],
+  input: RequestGrantInput,
+  requiredApprovals: number,
+  at: number
+): Grant | undefined {
+  if (input.invocationId === undefined) {
+    return;
+  }
+  const [existing] = pendingForInvocation;
+  if (existing === undefined) {
+    return;
+  }
+  if (isExpired(existing, at)) {
+    throw new AuthorizationStateError(
+      `Pending grant for invocation ${input.invocationId} has expired`
+    );
+  }
+  if (!matchesPendingGrantRequestInput(existing, input, requiredApprovals)) {
+    throw new AuthorizationStateError(
+      `Invocation ${input.invocationId} is already bound to a different pending grant`
+    );
+  }
+  return existing;
+}
+
+async function loadGrantsWithAncestors(
+  view: AuthorizationStore,
+  seeds: readonly Grant[]
+): Promise<readonly Grant[]> {
+  const byId = new Map<GrantId, Grant>();
+  const queue: GrantId[] = [];
+  for (const grant of seeds) {
+    byId.set(grant.id, grant);
+    for (const parentId of grant.parentIds) {
+      if (!byId.has(parentId)) {
+        queue.push(parentId);
+      }
+    }
+  }
+  await fetchMissingAncestors(view, byId, queue);
+  return [...byId.values()];
+}
+
+async function loadAncestorMapByIds(
+  view: AuthorizationStore,
+  ids: readonly GrantId[]
+): Promise<Map<GrantId, Grant>> {
+  const byId = new Map<GrantId, Grant>();
+  await fetchMissingAncestors(view, byId, [...ids]);
+  return byId;
+}
+
+async function fetchMissingAncestors(
+  view: AuthorizationStore,
+  byId: Map<GrantId, Grant>,
+  initialQueue: GrantId[]
+): Promise<void> {
+  const seen = new Set<GrantId>(byId.keys());
+  let frontier = initialQueue.filter((id) => !seen.has(id));
+  while (frontier.length > 0) {
+    const batch = uniqueIds(frontier);
+    for (const id of batch) {
+      seen.add(id);
+    }
+    const fetched = await Promise.all(batch.map((id) => view.getGrant(id)));
+    const nextFrontier: GrantId[] = [];
+    for (const grant of fetched) {
+      if (grant === null) {
+        continue;
+      }
+      byId.set(grant.id, grant);
+      for (const parentId of grant.parentIds) {
+        if (!seen.has(parentId)) {
+          nextFrontier.push(parentId);
+        }
+      }
+    }
+    frontier = nextFrontier;
   }
 }
 
@@ -1471,22 +1605,49 @@ function stripUndefinedProperties(
   if (record === undefined) {
     return null;
   }
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (value === undefined) {
-      continue;
-    }
-    Object.defineProperty(out, key, {
-      configurable: true,
-      enumerable: true,
-      value,
-      writable: true,
-    });
-  }
-  return out;
+  return stripUndefinedValue(record, new WeakSet()) as Record<string, unknown>;
 }
 
-function fingerprintRequest(request: AccessRequest): string | null {
+function stripUndefinedValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (seen.has(value)) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    seen.add(value);
+    try {
+      return value.map((item) => stripUndefinedValue(item, seen));
+    } finally {
+      seen.delete(value);
+    }
+  }
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+  seen.add(value);
+  try {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (item === undefined) {
+        continue;
+      }
+      Object.defineProperty(out, key, {
+        configurable: true,
+        enumerable: true,
+        value: stripUndefinedValue(item, seen),
+        writable: true,
+      });
+    }
+    return out;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function canonicalizeRequest(request: AccessRequest): string | null {
   try {
     return canonicalizeJson({
       action: request.action,
@@ -1504,6 +1665,33 @@ function fingerprintRequest(request: AccessRequest): string | null {
   } catch {
     return null;
   }
+}
+
+async function fingerprintRequest(
+  request: AccessRequest
+): Promise<string | null> {
+  const canonical = canonicalizeRequest(request);
+  if (canonical === null) {
+    return null;
+  }
+  return await sha256Hex(canonical);
+}
+
+async function matchesRequestFingerprint(
+  storedFingerprint: string | undefined,
+  request: AccessRequest
+): Promise<boolean> {
+  if (storedFingerprint === undefined) {
+    return false;
+  }
+  const canonical = canonicalizeRequest(request);
+  if (canonical === null) {
+    return false;
+  }
+  if (storedFingerprint === canonical) {
+    return true;
+  }
+  return storedFingerprint === (await sha256Hex(canonical));
 }
 
 function findIdempotentIssuance(
@@ -1544,14 +1732,6 @@ function exactPrincipalRef(
 
 function uniqueIds(ids: readonly GrantId[]): readonly GrantId[] {
   return [...new Set(ids)];
-}
-
-function nextGrantId(): GrantId {
-  return asGrantId(`grt_${crypto.randomUUID()}`);
-}
-
-function nextRestrictionId(): RestrictionId {
-  return asRestrictionId(`rst_${crypto.randomUUID()}`);
 }
 
 function assertNonEmptyText(value: string, field: string): void {

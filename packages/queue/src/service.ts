@@ -58,6 +58,7 @@ export interface QueueOptions {
   readonly identity?: ProcessIdentity;
   readonly instanceId?: string;
   readonly isOwnerGone?: (owner: ProcessIdentity) => boolean;
+  readonly leaseHeartbeatMs?: number;
   readonly leaseTtlMs?: number;
   readonly pools?: readonly ConcurrencyPool[];
   readonly syncIntervalMs?: number;

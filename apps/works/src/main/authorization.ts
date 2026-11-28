@@ -27,6 +27,7 @@ const AUTHORIZATION_DDL = [
   )`,
   `CREATE INDEX IF NOT EXISTS "authorization_grants_scope_position" ON "authorization_grants" ("scope", "position")`,
   `CREATE INDEX IF NOT EXISTS "authorization_grants_scope_state" ON "authorization_grants" ("scope", "state")`,
+  `CREATE INDEX IF NOT EXISTS "authorization_grants_scope_state_action" ON "authorization_grants" ("scope", "state", "action")`,
   `CREATE INDEX IF NOT EXISTS "authorization_grants_scope_session" ON "authorization_grants" ("scope", "session_id")`,
   `CREATE INDEX IF NOT EXISTS "authorization_grants_scope_issuance" ON "authorization_grants" ("scope", "issuance_key")`,
   `CREATE INDEX IF NOT EXISTS "authorization_grants_scope_invocation" ON "authorization_grants" ("scope", "invocation_id")`,
@@ -44,6 +45,7 @@ const AUTHORIZATION_DDL = [
     PRIMARY KEY ("scope", "id")
   )`,
   `CREATE INDEX IF NOT EXISTS "authorization_restrictions_scope_position" ON "authorization_restrictions" ("scope", "position")`,
+  `CREATE INDEX IF NOT EXISTS "authorization_restrictions_scope_action" ON "authorization_restrictions" ("scope", "action")`,
   `CREATE TABLE IF NOT EXISTS "authorization_claims" (
     "claimed_at" integer NOT NULL,
     "grant_id" text NOT NULL,

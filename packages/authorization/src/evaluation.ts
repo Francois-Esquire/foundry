@@ -194,17 +194,12 @@ export function validateGrantForReplay(
   restrictions: readonly Restriction[],
   now: number,
   invocationId: string
-): readonly GrantId[] | null {
+): CandidateValidation {
   const grantMap = new Map(grants.map((item) => [item.id, item]));
-  const validated = validateCandidateGrant(
-    grant,
-    request,
-    grantMap,
-    restrictions,
-    now,
-    { allowExhausted: true, invocationId }
-  );
-  return validated.grantPath ?? null;
+  return validateCandidateGrant(grant, request, grantMap, restrictions, now, {
+    allowExhausted: true,
+    invocationId,
+  });
 }
 
 export function scopeFromRequest(request: AccessRequest): Scope | null {

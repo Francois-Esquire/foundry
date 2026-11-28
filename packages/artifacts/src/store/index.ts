@@ -46,11 +46,17 @@ export type ArtifactStoreDurability = "commit" | "host";
 export type TransactionalArtifactStore = ArtifactStore &
   Required<Pick<ArtifactStore, "transaction">>;
 
+export interface ArtifactStorePreconditions {
+  readonly artifactContentIds?: Readonly<Record<ArtifactId, ContentId | null>>;
+  readonly contentUpdatedAt?: Readonly<Record<ContentId, Date>>;
+}
+
 export interface ArtifactStoreWrite {
   readonly deleteArtifacts?: readonly ArtifactId[];
   readonly deleteBlobs?: readonly BlobId[];
   readonly deleteContents?: readonly ContentId[];
   readonly events?: readonly ArtifactEvent[];
+  readonly preconditions?: ArtifactStorePreconditions;
   readonly putArtifacts?: readonly Artifact[];
   readonly putBlobs?: readonly Blob[];
   readonly putContents?: readonly Content[];

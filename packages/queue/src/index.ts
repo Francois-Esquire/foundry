@@ -15,6 +15,7 @@ export type {
   ClaimRunOptions,
   EnqueueJobOptions,
   RecoverExpiredLeasesOptions,
+  RenewLeaseOptions,
   SaveRunCheckpointOptions,
 } from "./stateless";
 export {
@@ -22,6 +23,7 @@ export {
   claimRun,
   enqueueJob,
   recoverExpiredLeases,
+  renewLease,
   saveRunCheckpoint,
   settleRun,
 } from "./stateless";

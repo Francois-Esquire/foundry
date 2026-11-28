@@ -13,9 +13,9 @@ export type AnthropicOptions =
   | { readonly apiKey?: undefined; readonly configDir?: string }
   | { readonly apiKey: string; readonly configDir?: undefined };
 
-export type AnthropicCredential =
+type AnthropicCredential =
   | { readonly configDir: string; readonly kind: "login" }
-  | { readonly key: string; readonly kind: "api-key" };
+  | { readonly kind: "api-key" };
 
 export interface AnthropicMachine {
   readonly env?: Env;
@@ -35,28 +35,37 @@ const FOREIGN_AUTH = [
 ];
 
 export const createAnthropic = (machine: AnthropicMachine = {}) => {
-  const env = machine.env ?? process.env;
-  const home = machine.home ?? homedir();
-  const homeDir = join(home, ".claude");
+  const envOf = () => machine.env ?? process.env;
+  const homeOf = () => machine.home ?? homedir();
+  const claudeDirOf = (home = homeOf()) => join(home, ".claude");
 
   const routedEnv = (configDir: string) =>
     childEnv(
-      env,
+      envOf(),
       FOREIGN_AUTH,
-      configDir === homeDir ? {} : { CLAUDE_CONFIG_DIR: configDir }
+      configDir === claudeDirOf() ? {} : { CLAUDE_CONFIG_DIR: configDir }
     );
 
-  const looksUsed = async (configDir: string) =>
-    (await exists(join(configDir, ".credentials.json"))) ||
-    (await exists(
-      configDir === homeDir
-        ? join(home, ".claude.json")
-        : join(configDir, ".claude.json")
-    )) ||
-    exists(join(configDir, "projects"));
+  const looksUsed = async (configDir: string) => {
+    const home = homeOf();
+    return (
+      (await exists(join(configDir, ".credentials.json"))) ||
+      (await exists(
+        configDir === claudeDirOf(home)
+          ? join(home, ".claude.json")
+          : join(configDir, ".claude.json")
+      )) ||
+      exists(join(configDir, "projects"))
+    );
+  };
 
-  const configDirOf = (configDir?: string) =>
-    expandHome(configDir ?? (env.CLAUDE_CONFIG_DIR?.trim() || homeDir), home);
+  const configDirOf = (configDir?: string) => {
+    const home = homeOf();
+    return expandHome(
+      configDir ?? (envOf().CLAUDE_CONFIG_DIR?.trim() || claudeDirOf(home)),
+      home
+    );
+  };
 
   return defineProvider({
     credential: (options: AnthropicOptions): AnthropicCredential => {
@@ -65,18 +74,25 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
       }
       return options.apiKey === undefined
         ? { configDir: configDirOf(options.configDir), kind: "login" }
-        : { key: options.apiKey, kind: "api-key" };
+        : { kind: "api-key" };
     },
     detect: async () => ((await looksUsed(configDirOf())) ? {} : undefined),
-    history: async (credential, since) => {
+    history: async (credential, since, callOptions) => {
+      callOptions?.signal?.throwIfAborted();
       if (credential.kind === "api-key") {
         return;
       }
-      const works = await readClaudeHistory(credential.configDir, since);
+      const works = await readClaudeHistory(
+        credential.configDir,
+        since,
+        callOptions?.signal
+      );
+      callOptions?.signal?.throwIfAborted();
       return consumptionOf(works, since, listPrices("anthropic"), "notional");
     },
     id: "anthropic",
-    limits: async (credential) => {
+    limits: async (credential, callOptions) => {
+      callOptions?.signal?.throwIfAborted();
       if (credential.kind === "api-key") {
         return {
           limits: [],
@@ -84,12 +100,15 @@ export const createAnthropic = (machine: AnthropicMachine = {}) => {
         };
       }
       const childEnvironment = routedEnv(credential.configDir);
+      const executable = await which("claude", childEnvironment);
+      callOptions?.signal?.throwIfAborted();
       return readClaudeLimits({
-        cwd: home,
+        cwd: homeOf(),
         env: childEnvironment,
-        executable: await which("claude", childEnvironment),
+        executable,
         initTimeoutMs: machine.initTimeoutMs ?? DEFAULT_INIT_TIMEOUT_MS,
         ...(machine.query ? { query: machine.query } : {}),
+        ...(callOptions?.signal ? { signal: callOptions.signal } : {}),
         usageTimeoutMs: machine.usageTimeoutMs ?? DEFAULT_USAGE_TIMEOUT_MS,
       });
     },

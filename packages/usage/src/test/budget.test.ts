@@ -12,7 +12,6 @@ const fakeAccount = (
     limits: ReturnType<typeof spendCap | typeof window.weekly>[];
   }>
 ) => ({
-  credential: null,
   history: vi.fn(),
   limits,
   name: "work",

@@ -186,6 +186,38 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
                 undefined
               )
           ),
+        listDueSchedules: (now) =>
+          read((current) => {
+            const openSchedules = new Set<string>();
+            for (const occurrence of current.occurrences.values()) {
+              if (occurrence.state.kind === "dispatched") {
+                openSchedules.add(occurrence.scheduleId);
+              }
+            }
+            return [...current.cursors.values()]
+              .filter((cursor) => {
+                const schedule = current.schedules.get(cursor.scheduleId);
+                if (schedule === undefined) {
+                  return false;
+                }
+                return (
+                  (schedule.state === "active" &&
+                    cursor.nextDueAt !== null &&
+                    cursor.nextDueAt <= now) ||
+                  cursor.activeJobId !== undefined ||
+                  openSchedules.has(cursor.scheduleId)
+                );
+              })
+              .sort(
+                (one, other) =>
+                  (one.nextDueAt ?? Number.POSITIVE_INFINITY) -
+                  (other.nextDueAt ?? Number.POSITIVE_INFINITY)
+              )
+              .flatMap((cursor) => {
+                const schedule = current.schedules.get(cursor.scheduleId);
+                return schedule === undefined ? [] : [schedule];
+              });
+          }),
         listOccurrences: (filter = {}) =>
           read((current) =>
             [...current.occurrences.values()]
@@ -198,6 +230,19 @@ export const makeMemoryScheduleStore: Effect.Effect<ScheduleStoreService> =
               .sort((one, other) => one.scheduledFor - other.scheduledFor)
           ),
         listSchedules: read((current) => [...current.schedules.values()]),
+        nextDueAt: read((current) => {
+          let soonest: number | undefined;
+          for (const cursor of current.cursors.values()) {
+            const schedule = current.schedules.get(cursor.scheduleId);
+            if (schedule?.state === "active" && cursor.nextDueAt !== null) {
+              soonest =
+                soonest === undefined
+                  ? cursor.nextDueAt
+                  : Math.min(soonest, cursor.nextDueAt);
+            }
+          }
+          return soonest;
+        }),
         releaseClaim: (id, owner) =>
           Ref.update(records, (current) => {
             const stored = current.occurrences.get(id);

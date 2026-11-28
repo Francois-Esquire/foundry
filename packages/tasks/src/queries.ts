@@ -70,7 +70,7 @@ export const taskNodeSchema = taskSchema.extend({
 export const taskPageSchema = z.strictObject({
   items: z.array(taskNodeSchema),
   nextCursor: z.int().min(0).optional(),
-  total: z.int().min(0),
+  total: z.int().min(0).optional(),
 });
 
 export const taskRelationsSchema = z.strictObject({

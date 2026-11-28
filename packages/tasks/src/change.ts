@@ -5,12 +5,13 @@ import {
   isSettled,
 } from "./availability";
 import { TaskError } from "./errors";
-import type {
-  ChangedTask,
-  TaskChange,
-  TaskOperation,
-  TaskRef,
-  TaskToken,
+import {
+  type ChangedTask,
+  MAX_OPERATIONS_PER_CHANGE,
+  type TaskChange,
+  type TaskOperation,
+  type TaskRef,
+  type TaskToken,
 } from "./operations";
 import {
   edgeKey,
@@ -52,6 +53,12 @@ export function applyChange(
 ): AppliedChange {
   if (change.operations.length === 0) {
     throw new TaskError("invalid_operation", "empty operation batch");
+  }
+  if (change.operations.length > MAX_OPERATIONS_PER_CHANGE) {
+    throw new TaskError(
+      "invalid_operation",
+      `operation batch exceeds maximum of ${MAX_OPERATIONS_PER_CHANGE} operations`
+    );
   }
   const batch = new Batch(snapshot, now, availability, id);
   for (const operation of change.operations) {
@@ -124,11 +131,29 @@ class Batch {
     const putDependencies = [...this.putEdges.values()];
     const deleteDependencies = [...this.deletedEdges.values()];
     const event = this.event(putTasks);
+    const before = new Map(this.original.tasks.map((task) => [task.id, task]));
+    const expectedUpdatedAt: Record<string, string | null> = {};
+    for (const task of putTasks) {
+      const prior = before.get(task.id);
+      expectedUpdatedAt[task.id] = prior === undefined ? null : prior.updatedAt;
+    }
+    for (const { id } of changed) {
+      if (Object.hasOwn(expectedUpdatedAt, id)) {
+        continue;
+      }
+      const prior = before.get(id);
+      if (prior !== undefined) {
+        expectedUpdatedAt[id] = prior.updatedAt;
+      }
+    }
     return {
       changed,
       tasks: changed.map((item) => this.require(item.id)),
       write: {
         ...(putTasks.length > 0 ? { putTasks } : {}),
+        ...(Object.keys(expectedUpdatedAt).length > 0
+          ? { expectedUpdatedAt }
+          : {}),
         ...(putDependencies.length > 0 ? { putDependencies } : {}),
         ...(deleteDependencies.length > 0 ? { deleteDependencies } : {}),
         ...(event === undefined ? {} : { events: [event] }),
@@ -376,32 +401,17 @@ class Batch {
 
   private freshId(): TaskId {
     const maxAttempts = 64;
+    let lastId: TaskId | undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const raw = this.id().trim();
-      if (raw.length === 0) {
-        throw new TaskError(
-          "invalid_operation",
-          "ID generator returned an empty task ID"
-        );
-      }
-      const hex = raw.replace(UUID_DASHES, "");
-      const isUuidV4 = UUID_HEX.test(hex) && hex[12] === "4";
-      let candidate: string;
-      if (raw.startsWith(ID_PREFIX)) {
-        candidate = raw;
-      } else if (isUuidV4) {
-        candidate = `${ID_PREFIX}${hex.slice(0, ID_HEX_LENGTH)}`;
-      } else {
-        candidate = `${ID_PREFIX}${raw}`;
-      }
-      const id = taskId(candidate);
+      const id = formatGeneratedTaskId(this.id());
+      lastId = id;
       if (!this.tasks.has(id)) {
         return id;
       }
     }
     throw new TaskError(
-      "invalid_operation",
-      "ID generator could not produce a unique task ID"
+      "conflict",
+      `Task ${lastId ?? "unknown"} already exists`
     );
   }
 
@@ -444,6 +454,25 @@ class Batch {
     }
     return false;
   }
+}
+
+function formatGeneratedTaskId(raw: string): TaskId {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    throw new TaskError(
+      "invalid_operation",
+      "ID generator returned an empty task ID"
+    );
+  }
+  const hex = trimmed.replace(UUID_DASHES, "");
+  const isUuidV4 = UUID_HEX.test(hex) && hex[12] === "4";
+  if (trimmed.startsWith(ID_PREFIX)) {
+    return taskId(trimmed);
+  }
+  if (isUuidV4) {
+    return taskId(`${ID_PREFIX}${hex.slice(0, ID_HEX_LENGTH)}`);
+  }
+  return taskId(`${ID_PREFIX}${trimmed}`);
 }
 
 export function changeEvent(

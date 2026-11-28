@@ -240,10 +240,7 @@ describe("Claude reads through a credential", () => {
     await work.limits();
 
     expect(work.name).toBe("work");
-    expect(work.credential).toEqual({
-      configDir: join(home, ".claude-work"),
-      kind: "login",
-    });
+    expect("credential" in work).toBe(false);
     expect(calls.options?.env?.CLAUDE_CONFIG_DIR).toBe(
       join(home, ".claude-work")
     );
@@ -296,36 +293,39 @@ describe("Claude reads through a credential", () => {
   });
 
   it("finds the default login by presence only, never the environment's key", async () => {
-    const { home, provider } = await setup();
+    const { calls, home, provider } = await setup();
     expect(await provider.defaultAccount()).toBeUndefined();
 
     await touch(join(home, ".claude.json"));
     const found = await provider.defaultAccount();
     expect(found?.name).toBe("anthropic");
-    expect(found?.credential).toEqual({
-      configDir: join(home, ".claude"),
-      kind: "login",
-    });
+    expect(found).not.toHaveProperty("credential");
+    await found?.limits();
+    expect(calls.options?.env?.CLAUDE_CONFIG_DIR).toBeUndefined();
 
+    const customFake = fakeQuery();
     const custom = createAnthropic({
       env: { CLAUDE_CONFIG_DIR: join(home, "other") },
       home,
+      query: customFake.query,
     });
     expect(await custom.defaultAccount()).toBeUndefined();
     await touch(join(home, "other", ".credentials.json"));
-    expect((await custom.defaultAccount())?.credential).toEqual({
-      configDir: join(home, "other"),
-      kind: "login",
-    });
+    const customFound = await custom.defaultAccount();
+    expect(customFound?.name).toBe("anthropic");
+    await customFound?.limits();
+    expect(customFake.calls.options?.env?.CLAUDE_CONFIG_DIR).toBe(
+      join(home, "other")
+    );
   });
 
   it("finds the default account by its history alone, with no login", async () => {
-    const { home, provider } = await setup();
+    const { calls, home, provider } = await setup();
     await touch(join(home, ".claude", "projects", "p", "s.jsonl"));
-    expect((await provider.defaultAccount())?.credential).toEqual({
-      configDir: join(home, ".claude"),
-      kind: "login",
-    });
+    const found = await provider.defaultAccount();
+    expect(found?.name).toBe("anthropic");
+    await found?.limits();
+    expect(calls.options?.env?.CLAUDE_CONFIG_DIR).toBeUndefined();
   });
 });
 

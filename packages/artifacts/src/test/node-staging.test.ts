@@ -366,8 +366,8 @@ describe.each(STORE_KINDS)("%s store: Staged blob bytes", (kind) => {
       const [staged] = await stagedFiles(blobs);
       const name = join(".staging", required(staged));
       const listed: string[] = [];
-      for await (const path of files.list()) {
-        listed.push(path);
+      for await (const entry of files.list()) {
+        listed.push(typeof entry === "string" ? entry : entry.path);
       }
       expect(listed).toEqual([]);
       const reading = async () => {

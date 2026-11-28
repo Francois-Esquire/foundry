@@ -71,6 +71,7 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
       }
     };
     this.taskStore = {
+      children: (parentId) => this.#gate.run(() => store.children(parentId)),
       commit: (write) =>
         owning(write, (owned) =>
           this.#gate.run(async () => {
@@ -79,18 +80,30 @@ export class MemoryWorkspaceRecords implements WorkspaceRecords {
             settle(facts);
           })
         ),
+      dependenciesOf: (ids) => this.#gate.run(() => store.dependenciesOf(ids)),
       get: (id) => this.#gate.run(() => store.get(id)),
+      list: (query) => this.#gate.run(() => store.list(query)),
       snapshot: () => this.#gate.run(() => store.snapshot()),
       transaction: (work) =>
         this.#gate.run(async () => {
           const facts: RecordedFact[] = [];
-          const result = await store.transaction((view) =>
-            work({
+          const result = await store.transaction((view) => {
+            const { children, dependenciesOf, list } = view;
+            return work({
+              ...(children === undefined
+                ? {}
+                : { children: (parentId) => children.call(view, parentId) }),
               commit: (write) => owning(write, recorded(view, facts)),
+              ...(dependenciesOf === undefined
+                ? {}
+                : { dependenciesOf: (ids) => dependenciesOf.call(view, ids) }),
               get: (id) => view.get(id),
+              ...(list === undefined
+                ? {}
+                : { list: (query) => list.call(view, query) }),
               snapshot: () => view.snapshot(),
-            })
-          );
+            });
+          });
           settle(facts);
           return result;
         }),
