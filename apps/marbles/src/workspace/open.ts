@@ -2,7 +2,11 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Tasks } from "@foundry/tasks";
 import { plugin } from "bun";
-import { libraryOfLoad, prebuiltOfLoad } from "~/authoring/bound";
+import {
+  libraryOfLoad,
+  prebuiltOfLoad,
+  providersOfLoad,
+} from "~/authoring/bound";
 import { Catalog } from "~/authoring/catalog";
 import { expectHost, loadInto, setHost } from "~/authoring/runtime";
 import { initializeUsage } from "~/authoring/usage";
@@ -50,7 +54,7 @@ export interface OpenedWorkspace {
   readonly workspace: Workspace;
 }
 
-const libraryUrl = (name: "index" | "prebuilt"): string =>
+const libraryUrl = (name: "index" | "prebuilt" | "providers"): string =>
   new URL(
     import.meta.url.endsWith(".ts")
       ? `../authoring/${name}.ts`
@@ -58,12 +62,28 @@ const libraryUrl = (name: "index" | "prebuilt"): string =>
     import.meta.url
   ).href;
 
+const PROVIDER_MODULES = ["claude-code", "codex", "gateway", "pi", "vercel"];
+
+const providerUrl = (name: string): string =>
+  new URL(
+    import.meta.url.endsWith(".ts")
+      ? `../lib/providers/${name}.ts`
+      : `./providers/${name}.js`,
+    import.meta.url
+  ).href;
+
+const providerModule = (name: string) =>
+  import(fileURLToPath(providerUrl(name))) as Promise<
+    Readonly<Record<string, unknown>>
+  >;
+
 let sourceLibrary: Promise<void> | undefined;
 
 function linkSourceLibrary(): Promise<void> {
   sourceLibrary ??= (async () => {
     const library = await import(fileURLToPath(libraryUrl("index")));
     const prebuilt = await import(libraryUrl("prebuilt"));
+    const providers = await import(fileURLToPath(libraryUrl("providers")));
     plugin({
       name: "marbles-source-library",
       setup(builder) {
@@ -76,6 +96,16 @@ function linkSourceLibrary(): Promise<void> {
           exports: library,
           loader: "object",
         }));
+        builder.module("@foundry.sh/marbles/providers", () => ({
+          exports: providers,
+          loader: "object",
+        }));
+        for (const name of PROVIDER_MODULES) {
+          builder.module(`@foundry.sh/marbles/providers/${name}`, async () => ({
+            exports: await providerModule(name),
+            loader: "object",
+          }));
+        }
       },
       target: "bun",
     });
@@ -83,6 +113,14 @@ function linkSourceLibrary(): Promise<void> {
     linkLibrary("@foundry.sh/marbles/prebuilt", (load) =>
       prebuiltOfLoad(prebuilt, load)
     );
+    linkLibrary("@foundry.sh/marbles/providers", (load) =>
+      providersOfLoad(providers, load)
+    );
+    for (const name of PROVIDER_MODULES) {
+      linkLibrary(`@foundry.sh/marbles/providers/${name}`, () =>
+        providerModule(name)
+      );
+    }
   })();
   return sourceLibrary;
 }

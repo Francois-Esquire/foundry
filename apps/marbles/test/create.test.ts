@@ -16,11 +16,12 @@ import { agent, step } from "@foundry.sh/marbles";
 import { Output } from "ai";
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { catalog } from "~/authoring/catalog";
+import { Catalog, catalog } from "~/authoring/catalog";
 import { createEngine } from "~/create";
 import { DatabaseProviderStore } from "~/database/providers";
 import { stateDatabase } from "~/layout";
 import { Engine } from "~/lib/engine";
+import { vercel } from "~/lib/providers/vercel";
 import { RunScope } from "~/lib/run-scope";
 
 import { fakeCodex } from "./helpers/codex";
@@ -48,7 +49,7 @@ it("exposes the config directory and dry-run git through the engine's workspaces
   const scope = new RunScope("runtime-test", root);
   try {
     await engine.providers?.refresh();
-    expect(engine.harnesses).toEqual(["claude-code", "codex", "pi"]);
+    expect(engine.harnesses).toEqual(["claude-code", "codex"]);
     await writeFile(join(root, "notes.md"), "initial");
     const workspaces = engine.bindings.workspaces({
       frame: scope.frame(["root"]),
@@ -99,6 +100,58 @@ it("echoes git under dry in the workspace system the engine builds, too", async 
     await engine.dispose();
     await rm(root, { force: true, recursive: true });
   }
+});
+
+it("builds an engine with no providers from an empty plugin list and an empty catalog", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "runtime-")));
+  const engine = createEngine({
+    catalog: new Catalog(),
+    dry: true,
+    plugins: [],
+    print: () => undefined,
+    root,
+    workspaceId: "ws",
+  });
+  try {
+    await engine.providers?.refresh();
+    expect(engine.harnesses).toEqual([]);
+    expect(engine.models.providers).toEqual([]);
+    expect(engine.providers?.list().length).toBeGreaterThan(0);
+    expect(
+      engine.providers
+        ?.list()
+        .every((entry) => entry.problem?.includes("does not define"))
+    ).toBe(true);
+  } finally {
+    await engine.dispose();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+it("refuses a plugin given to the engine under the id of a provider the workspace defined", () => {
+  const defined = new Catalog();
+  defined.provide(vercel, undefined);
+  expect(() =>
+    createEngine({
+      catalog: defined,
+      dry: true,
+      plugins: [{ ...vercel }],
+      print: () => undefined,
+      root: process.cwd(),
+      workspaceId: "ws",
+    })
+  ).toThrow(
+    "provider \"vercel\" is defined by the workspace's source and is also one of the engine's own plugins"
+  );
+  const same = createEngine({
+    catalog: defined,
+    dry: true,
+    plugins: [vercel],
+    print: () => undefined,
+    root: process.cwd(),
+    workspaceId: "ws",
+  });
+  return same.dispose();
 });
 
 it("runs deterministic steps without any provider", async () => {

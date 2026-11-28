@@ -5,39 +5,30 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: [
-      {
-        find: /^@foundry\.sh\/marbles$/,
-        replacement: resolve(import.meta.dirname, "src/authoring/index.ts"),
-      },
-      {
-        find: "@foundry.sh/marbles/engine",
-        replacement: resolve(import.meta.dirname, "src/entries/engine.ts"),
-      },
-      {
-        find: "@foundry.sh/marbles/lib",
-        replacement: resolve(import.meta.dirname, "src/entries/lib.ts"),
-      },
-      {
-        find: "@foundry.sh/marbles/prebuilt",
-        replacement: resolve(import.meta.dirname, "src/authoring/prebuilt.ts"),
-      },
-      {
-        find: "@foundry.sh/marbles/process",
-        replacement: resolve(import.meta.dirname, "src/process/index.ts"),
-      },
-      {
-        find: "@foundry.sh/marbles/statuses",
-        replacement: resolve(
-          import.meta.dirname,
-          "src/lib/execution-statuses.ts"
-        ),
-      },
-      {
-        find: "@foundry.sh/marbles/workspace",
-        replacement: resolve(import.meta.dirname, "src/workspace/index.ts"),
-      },
-      { find: "~", replacement: resolve(import.meta.dirname, "src") },
-    ],
+      ["@foundry.sh/marbles", "src/authoring/index.ts"],
+      ["@foundry.sh/marbles/engine", "src/entries/engine.ts"],
+      ["@foundry.sh/marbles/lib", "src/entries/lib.ts"],
+      ["@foundry.sh/marbles/prebuilt", "src/authoring/prebuilt.ts"],
+      ["@foundry.sh/marbles/process", "src/process/index.ts"],
+      ["@foundry.sh/marbles/providers", "src/authoring/providers.ts"],
+      ...["claude-code", "codex", "gateway", "pi", "vercel"].map(
+        (name) =>
+          [
+            `@foundry.sh/marbles/providers/${name}`,
+            `src/lib/providers/${name}.ts`,
+          ] as const
+      ),
+      ["@foundry.sh/marbles/statuses", "src/lib/execution-statuses.ts"],
+      ["@foundry.sh/marbles/workspace", "src/workspace/index.ts"],
+    ]
+      .map(([name, file]) => ({
+        find: new RegExp(`^${name.replaceAll(".", "\\.")}$`),
+        replacement: resolve(import.meta.dirname, file),
+      }))
+      .concat({
+        find: /^~\//,
+        replacement: `${resolve(import.meta.dirname, "src")}/`,
+      }),
   },
   test: {
     exclude: ["test/**/*.integration.test.ts", "test/package.test.ts"],

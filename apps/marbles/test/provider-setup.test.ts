@@ -1,17 +1,22 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Provider } from "@foundry/models";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { DatabaseProviderStore } from "~/database/providers";
-import { registered } from "~/lib/providers/plugins";
-import { setupProviders } from "~/workspace/provider-setup";
+import {
+  discoverProviderSetup,
+  setupProviders,
+} from "~/workspace/provider-setup";
+import { fakeClaude } from "./helpers/claude";
+import { fakeCodex } from "./helpers/codex";
+import { pluginOf } from "./helpers/plugins";
 
 let state: string;
 
 const detected = (id: string, found: boolean) =>
-  registered({
+  pluginOf({
     catalog: () => [],
     create: ({ id: name }) => ({
       provider: {
@@ -170,4 +175,24 @@ it("saves nothing when a workspace takes an offered id while the question is ope
   expect(await machineIds()).toBeUndefined();
   expect(lines.at(-1)).toContain("Nothing saved");
   expect(lines.at(-1)).toContain("workspace other");
+});
+
+it("offers only Claude Code and Codex by default, with Pi on PATH beside them", async () => {
+  const bin = mkdtempSync(join(tmpdir(), "marbles-setup-bin-"));
+  try {
+    fakeClaude(bin);
+    fakeCodex(bin);
+    const pi = join(bin, "pi");
+    writeFileSync(pi, "#!/bin/sh\n");
+    chmodSync(pi, 0o755);
+    vi.stubEnv("PATH", bin);
+    const setup = await discoverProviderSetup({ state });
+    expect(setup.offered.map((entry) => entry.id).sort()).toEqual([
+      "claude-code",
+      "codex",
+    ]);
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(bin, { force: true, recursive: true });
+  }
 });
