@@ -23,10 +23,20 @@ interface Held {
   readonly modules: readonly Module[];
 }
 
+export interface ModuleStoreCapabilities {
+  readonly insertionOrder?: boolean;
+  readonly reentrancyGuard?: boolean;
+  readonly transactions?: boolean;
+}
+
 export function describeModuleStore(
   name: string,
-  open: () => ScopedModuleStores | Promise<ScopedModuleStores>
+  open: () => ScopedModuleStores | Promise<ScopedModuleStores>,
+  capabilities: ModuleStoreCapabilities = {}
 ): void {
+  const insertionOrder = capabilities.insertionOrder ?? true;
+  const transactions = capabilities.transactions ?? true;
+  const reentrancyGuard = capabilities.reentrancyGuard ?? transactions;
   async function store(scope = "scope-a"): Promise<ModuleStore> {
     return (await open())(scope);
   }
@@ -88,67 +98,83 @@ export function describeModuleStore(
       expect(read?.installation.createdAt).toBeInstanceOf(Date);
       expect(read?.installation.updatedAt.getTime()).toBe(8.64e15);
       expect(await target.getInstallation(idle.installation.id)).toEqual(idle);
-      expect(await held(target)).toEqual({
+      const actualHeld = await held(target);
+      const expectedHeld: Held = {
         installations: [running, idle],
         manifests: [retained],
         modules: [tasks],
-      });
+      };
+      if (insertionOrder) {
+        expect(actualHeld).toEqual(expectedHeld);
+      } else {
+        expect(sortHeld(actualHeld)).toEqual(sortHeld(expectedHeld));
+      }
     });
 
-    test("reads list records in the order first put; a put over one keeps its place", async () => {
-      const target = await store();
-      const [a, b, c] = [module("a"), module("b"), module("c")];
-      await target.commit({
-        putInstallations: [installation("b", b)],
-        putManifests: [manifest("b", b)],
-        putModules: [b],
-      });
-      await target.commit({
-        putInstallations: [installation("a", a), installation("c", c)],
-        putManifests: [manifest("a", a), manifest("c", c)],
-        putModules: [a, c],
-      });
-      const moved = { ...b, artifactId: artifactId("moved") };
-      const changed = installation("b", b, { installation: { generation: 9 } });
-      const replaced = manifest("b", b, { replaced: true });
-      await target.commit({
-        putInstallations: [changed],
-        putManifests: [replaced],
-        putModules: [moved],
-      });
+    test.runIf(insertionOrder)(
+      "reads list records in the order first put; a put over one keeps its place",
+      async () => {
+        const target = await store();
+        const [a, b, c] = [module("a"), module("b"), module("c")];
+        await target.commit({
+          putInstallations: [installation("b", b)],
+          putManifests: [manifest("b", b)],
+          putModules: [b],
+        });
+        await target.commit({
+          putInstallations: [installation("a", a), installation("c", c)],
+          putManifests: [manifest("a", a), manifest("c", c)],
+          putModules: [a, c],
+        });
+        const moved = { ...b, artifactId: artifactId("moved") };
+        const changed = installation("b", b, {
+          installation: { generation: 9 },
+        });
+        const replaced = manifest("b", b, { replaced: true });
+        await target.commit({
+          putInstallations: [changed],
+          putManifests: [replaced],
+          putModules: [moved],
+        });
 
-      expect(await held(target)).toEqual({
-        installations: [changed, installation("a", a), installation("c", c)],
-        manifests: [replaced, manifest("a", a), manifest("c", c)],
-        modules: [moved, a, c],
-      });
-    });
+        expect(await held(target)).toEqual({
+          installations: [changed, installation("a", a), installation("c", c)],
+          manifests: [replaced, manifest("a", a), manifest("c", c)],
+          modules: [moved, a, c],
+        });
+      }
+    );
 
-    test("deletes apply before puts, so a record deleted and put again moves last", async () => {
-      const target = await store();
-      const [a, b, c] = [module("a"), module("b"), module("c")];
-      await target.commit({
-        putInstallations: [a, b, c].map((owner) =>
-          installation(owner.id, owner)
-        ),
-        putManifests: [a, b, c].map((owner) => manifest(owner.id, owner)),
-        putModules: [a, b, c],
-      });
-      await target.commit({
-        deleteInstallations: [installationId("a")],
-        deleteManifests: [contentId("a")],
-        deleteModules: [a.id],
-        putInstallations: [installation("a", a)],
-        putManifests: [manifest("a", a)],
-        putModules: [a],
-      });
+    test.runIf(insertionOrder)(
+      "deletes apply before puts, so a record deleted and put again moves last",
+      async () => {
+        const target = await store();
+        const [a, b, c] = [module("a"), module("b"), module("c")];
+        await target.commit({
+          putInstallations: [a, b, c].map((owner) =>
+            installation(owner.id, owner)
+          ),
+          putManifests: [a, b, c].map((owner) => manifest(owner.id, owner)),
+          putModules: [a, b, c],
+        });
+        await target.commit({
+          deleteInstallations: [installationId("a")],
+          deleteManifests: [contentId("a")],
+          deleteModules: [a.id],
+          putInstallations: [installation("a", a)],
+          putManifests: [manifest("a", a)],
+          putModules: [a],
+        });
 
-      expect(await held(target)).toEqual({
-        installations: [b, c, a].map((owner) => installation(owner.id, owner)),
-        manifests: [b, c, a].map((owner) => manifest(owner.id, owner)),
-        modules: [b, c, a],
-      });
-    });
+        expect(await held(target)).toEqual({
+          installations: [b, c, a].map((owner) =>
+            installation(owner.id, owner)
+          ),
+          manifests: [b, c, a].map((owner) => manifest(owner.id, owner)),
+          modules: [b, c, a],
+        });
+      }
+    );
 
     test("deletes remove only what they name, and missing records are no-ops", async () => {
       const target = await store();
@@ -200,9 +226,15 @@ export function describeModuleStore(
         putModules: [a],
       }) as ModuleStoreWrite;
       await target.commit(write);
-      await transactionOf(target)((view) =>
-        view.commit(Object.create({ putManifests: [manifest("a", a)] }))
-      );
+      if (transactions) {
+        await transactionOf(target)((view) =>
+          view.commit(Object.create({ putManifests: [manifest("a", a)] }))
+        );
+      } else {
+        await target.commit(
+          Object.create({ putManifests: [manifest("a", a)] })
+        );
+      }
 
       expect(await held(target)).toEqual({
         installations: [installation("a", a)],
@@ -302,11 +334,13 @@ export function describeModuleStore(
         await expect(target.commit(write as ModuleStoreWrite)).rejects.toThrow(
           message
         );
-        await expect(
-          transactionOf(target)((view) =>
-            view.commit(write as ModuleStoreWrite)
-          )
-        ).rejects.toThrow(message);
+        if (transactions) {
+          await expect(
+            transactionOf(target)((view) =>
+              view.commit(write as ModuleStoreWrite)
+            )
+          ).rejects.toThrow(message);
+        }
       }
 
       expect(await held(target)).toEqual(before);
@@ -402,40 +436,46 @@ export function describeModuleStore(
       expect(await held(target)).toEqual(expected);
     });
 
-    test("takes a write as it stands when commit is called, though it waits behind a transaction", async () => {
-      const target = await store();
-      const write = callerWrite(module("a"));
-      const expected = heldAfter(write);
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      const running = transactionOf(target)(async () => {
-        entered.resolve();
-        await release.promise;
-      });
-      await entered.promise;
+    test.runIf(transactions)(
+      "takes a write as it stands when commit is called, though it waits behind a transaction",
+      async () => {
+        const target = await store();
+        const write = callerWrite(module("a"));
+        const expected = heldAfter(write);
+        const entered = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const running = transactionOf(target)(async () => {
+          entered.resolve();
+          await release.promise;
+        });
+        await entered.promise;
 
-      const landing = target.commit(write);
-      scramble(write);
-      release.resolve();
-      await Promise.all([running, landing]);
-
-      expect(await held(target)).toEqual(expected);
-    });
-
-    test("takes a write through a transaction's view as it stands when commit is called", async () => {
-      const target = await store();
-      const write = callerWrite(module("a"));
-      const expected = heldAfter(write);
-
-      await transactionOf(target)(async (view) => {
-        const committed = view.commit(write);
+        const landing = target.commit(write);
         scramble(write);
-        await committed;
-        expect(await held(view)).toEqual(expected);
-      });
+        release.resolve();
+        await Promise.all([running, landing]);
 
-      expect(await held(target)).toEqual(expected);
-    });
+        expect(await held(target)).toEqual(expected);
+      }
+    );
+
+    test.runIf(transactions)(
+      "takes a write through a transaction's view as it stands when commit is called",
+      async () => {
+        const target = await store();
+        const write = callerWrite(module("a"));
+        const expected = heldAfter(write);
+
+        await transactionOf(target)(async (view) => {
+          const committed = view.commit(write);
+          scramble(write);
+          await committed;
+          expect(await held(view)).toEqual(expected);
+        });
+
+        expect(await held(target)).toEqual(expected);
+      }
+    );
 
     test("two scopes on one storage never see each other", async () => {
       const stores = await open();
@@ -476,37 +516,40 @@ export function describeModuleStore(
       expect(await held(stores("scope-a"))).toEqual(contents);
     });
 
-    test("never hands a position out twice, so a cursor stays valid across deletes", async () => {
-      const target = await store();
-      const [a, b, c, d] = ["a", "b", "c", "d"].map((id) => module(id));
-      await target.commit({ putModules: [a, b, c] as Module[] });
-      const first = await target.listModules({ limit: 2 });
-      expect(first.items).toEqual([a, b]);
+    test.runIf(insertionOrder)(
+      "never hands a position out twice, so a cursor stays valid across deletes",
+      async () => {
+        const target = await store();
+        const [a, b, c, d] = ["a", "b", "c", "d"].map((id) => module(id));
+        await target.commit({ putModules: [a, b, c] as Module[] });
+        const first = await target.listModules({ limit: 2 });
+        expect(first.items).toEqual([a, b]);
 
-      await target.commit({ deleteModules: [b?.id, c?.id] as ModuleId[] });
-      await target.commit({ putModules: [d] as Module[] });
-      expect(
-        await target.listModules({ after: first.next as number, limit: 2 })
-      ).toEqual({ items: [d] });
+        await target.commit({ deleteModules: [b?.id, c?.id] as ModuleId[] });
+        await target.commit({ putModules: [d] as Module[] });
+        expect(
+          await target.listModules({ after: first.next as number, limit: 2 })
+        ).toEqual({ items: [d] });
 
-      await target.commit({ deleteModules: [a?.id] as ModuleId[] });
-      await target.commit({ putModules: [a] as Module[] });
-      expect(
-        await target.listModules({ after: first.next as number, limit: 5 })
-      ).toEqual({ items: [d, a] });
+        await target.commit({ deleteModules: [a?.id] as ModuleId[] });
+        await target.commit({ putModules: [a] as Module[] });
+        expect(
+          await target.listModules({ after: first.next as number, limit: 5 })
+        ).toEqual({ items: [d, a] });
 
-      await target.commit({
-        putInstallations: [installation("i", d as Module)],
-        putManifests: [manifest("m", d as Module)],
-      });
-      const installations = await target.listInstallations({
-        after: first.next as number,
-        limit: 5,
-      });
-      expect(installations.items).toHaveLength(1);
-    });
+        await target.commit({
+          putInstallations: [installation("i", d as Module)],
+          putManifests: [manifest("m", d as Module)],
+        });
+        const installations = await target.listInstallations({
+          after: first.next as number,
+          limit: 5,
+        });
+        expect(installations.items).toHaveLength(1);
+      }
+    );
 
-    test("list reads page in put order, and filter by exact values", async () => {
+    test("list reads page consistently, and filter by exact values", async () => {
       const target = await store();
       const owners = ["a", "b", "c", "d", "e"].map((id) =>
         module(id, id < "c" ? "shared" : `artifact-${id}`)
@@ -521,24 +564,49 @@ export function describeModuleStore(
       });
 
       const first = await target.listModules({ limit: 2 });
-      expect(first.items).toEqual(owners.slice(0, 2));
       expect(first.next).toBeDefined();
       const second = await target.listModules({
         after: first.next as number,
         limit: 2,
       });
-      expect(second.items).toEqual(owners.slice(2, 4));
+      expect(second.next).toBeDefined();
       const third = await target.listModules({
         after: second.next as number,
         limit: 2,
       });
-      expect(third).toEqual({ items: owners.slice(4) });
-      expect(await target.listModules({ limit: 5 })).toEqual({
-        items: owners,
+      const allFive = await target.listModules({ limit: 5 });
+      const shared = await target.listModules({
+        artifactId: artifactId("shared"),
+        limit: 5,
       });
-      expect(
-        await target.listModules({ artifactId: artifactId("shared"), limit: 5 })
-      ).toEqual({ items: owners.slice(0, 2) });
+
+      if (insertionOrder) {
+        expect(first.items).toEqual(owners.slice(0, 2));
+        expect(second.items).toEqual(owners.slice(2, 4));
+        expect(third).toEqual({ items: owners.slice(4) });
+        expect(allFive).toEqual({ items: owners });
+        expect(shared).toEqual({ items: owners.slice(0, 2) });
+      } else {
+        expect(first.items).toHaveLength(2);
+        expect(second.items).toHaveLength(2);
+        expect(third.items).toHaveLength(1);
+        expect(third.next).toBeUndefined();
+        expect(
+          sortByKey(
+            [...first.items, ...second.items, ...third.items],
+            (item) => item.id
+          )
+        ).toEqual(sortByKey(owners, (item) => item.id));
+        expect(allFive.next).toBeUndefined();
+        expect(sortByKey(allFive.items, (item) => item.id)).toEqual(
+          sortByKey(owners, (item) => item.id)
+        );
+        expect(shared.next).toBeUndefined();
+        expect(sortByKey(shared.items, (item) => item.id)).toEqual(
+          sortByKey(owners.slice(0, 2), (item) => item.id)
+        );
+      }
+
       expect(
         await target.listModules({ artifactId: artifactId("none"), limit: 5 })
       ).toEqual({ items: [] });
@@ -547,21 +615,43 @@ export function describeModuleStore(
         limit: 1,
         moduleId: moduleId("c"),
       });
-      expect(ofC.items).toEqual([installation("c-1", module("c"))]);
-      expect(
-        await target.listInstallations({
-          after: ofC.next as number,
-          limit: 1,
-          moduleId: moduleId("c"),
-        })
-      ).toEqual({
-        items: [installation("c-2", module("c"))],
+      expect(ofC.next).toBeDefined();
+      const ofCNext = await target.listInstallations({
+        after: ofC.next as number,
+        limit: 1,
+        moduleId: moduleId("c"),
       });
-      expect(
-        (await all((page) => target.listInstallations(page))).map(
-          (stored) => stored.installation.id
-        )
-      ).toEqual(owners.flatMap((owner) => [`${owner.id}-1`, `${owner.id}-2`]));
+      const allInstallationIds = (
+        await all((page) => target.listInstallations(page))
+      ).map((stored) => stored.installation.id);
+      const expectedInstallationIds = owners.flatMap((owner) => [
+        `${owner.id}-1`,
+        `${owner.id}-2`,
+      ]);
+
+      if (insertionOrder) {
+        expect(ofC.items).toEqual([installation("c-1", module("c"))]);
+        expect(ofCNext).toEqual({
+          items: [installation("c-2", module("c"))],
+        });
+        expect(allInstallationIds).toEqual(expectedInstallationIds);
+      } else {
+        expect(ofC.items).toHaveLength(1);
+        expect(ofCNext.items).toHaveLength(1);
+        expect(ofCNext.next).toBeUndefined();
+        expect(
+          sortByKey(
+            [...ofC.items, ...ofCNext.items],
+            (item) => item.installation.id
+          )
+        ).toEqual([
+          installation("c-1", module("c")),
+          installation("c-2", module("c")),
+        ]);
+        expect([...allInstallationIds].sort()).toEqual(
+          [...expectedInstallationIds].sort()
+        );
+      }
 
       expect(await target.listManifests({ moduleId: moduleId("d") })).toEqual([
         manifest("d", owners[3] as Module),
@@ -672,133 +762,150 @@ export function describeModuleStore(
       }
     });
 
-    test("a transaction reads its own commits and returns what its work returns", async () => {
-      const target = await store();
-      const a = module("a");
-      const result = await transactionOf(target)(async (view) => {
-        await view.commit({
-          putInstallations: [installation("a", a)],
-          putManifests: [manifest("a", a)],
-          putModules: [a],
-        });
-        expect(await view.getModule(a.id)).toEqual(a);
-        expect(await held(view)).toEqual({
-          installations: [installation("a", a)],
-          manifests: [manifest("a", a)],
-          modules: [a],
-        });
-        return "done";
-      });
-
-      expect(result).toBe("done");
-      expect(await target.getModule(a.id)).toEqual(a);
-    });
-
-    test("a transaction whose work throws leaves nothing, and the next one runs", async () => {
-      const target = await store();
-      const [kept, lost] = [module("kept"), module("lost")];
-      await target.commit({ putModules: [kept] });
-
-      await expect(
-        transactionOf(target)(async (view) => {
+    test.runIf(transactions)(
+      "a transaction reads its own commits and returns what its work returns",
+      async () => {
+        const target = await store();
+        const a = module("a");
+        const result = await transactionOf(target)(async (view) => {
           await view.commit({
-            deleteModules: [kept.id],
-            putInstallations: [installation("lost", lost)],
-            putManifests: [manifest("lost", lost)],
-            putModules: [lost],
+            putInstallations: [installation("a", a)],
+            putManifests: [manifest("a", a)],
+            putModules: [a],
           });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-      expect(await held(target)).toEqual({
-        installations: [],
-        manifests: [],
-        modules: [kept],
-      });
+          expect(await view.getModule(a.id)).toEqual(a);
+          expect(await held(view)).toEqual({
+            installations: [installation("a", a)],
+            manifests: [manifest("a", a)],
+            modules: [a],
+          });
+          return "done";
+        });
 
-      await transactionOf(target)((view) =>
-        view.commit({ putModules: [lost] })
-      );
-      expect(await target.getModule(lost.id)).toEqual(lost);
-    });
-
-    test("a write from outside cannot land between a transaction's read and its commit", async () => {
-      const target = await store();
-      const a = module("a");
-      await target.commit({ putModules: [a] });
-      const outside = { ...a, artifactId: artifactId("outside") };
-      const inside = { ...a, artifactId: artifactId("inside") };
-      const read = Promise.withResolvers<void>();
-      const proceed = Promise.withResolvers<void>();
-
-      const running = transactionOf(target)(async (view) => {
-        const before = await view.getModule(a.id);
-        read.resolve();
-        await proceed.promise;
-        const after = await view.getModule(a.id);
-        await view.commit({ putModules: [inside] });
-        return { after, before };
-      });
-      await read.promise;
-      const landed = target.commit({ putModules: [outside] });
-      await pause(20);
-      proceed.resolve();
-
-      expect(await running).toEqual({ after: a, before: a });
-      await landed;
-      expect(await target.getModule(a.id)).toEqual(outside);
-    });
-
-    test("a call to the store from inside its own transaction is refused at once", async () => {
-      const target = await store();
-      const a = module("a");
-      const calls: Record<string, () => Promise<unknown>> = {
-        commit: () => target.commit({ putModules: [a] }),
-        getInstallation: () => target.getInstallation(installationId("a")),
-        getManifest: () => target.getManifest(contentId("a")),
-        getModule: () => target.getModule(a.id),
-        listInstallations: () => target.listInstallations({ limit: 1 }),
-        ...(target.listInstallationsPage === undefined
-          ? {}
-          : {
-              listInstallationsPage: () =>
-                target.listInstallationsPage?.({ limit: 1 }) ??
-                Promise.resolve({ items: [] }),
-            }),
-        listManifests: () => target.listManifests(),
-        listModules: () => target.listModules({ limit: 1 }),
-        ...(target.listModulesPage === undefined
-          ? {}
-          : {
-              listModulesPage: () =>
-                target.listModulesPage?.({ limit: 1 }) ??
-                Promise.resolve({ items: [] }),
-            }),
-        transaction: () => transactionOf(target)(() => Promise.resolve()),
-      };
-      const { promise: ended, resolve: end } = Promise.withResolvers<void>();
-      let later: Promise<unknown> = Promise.resolve();
-
-      const refusals = await transactionOf(target)(async (view) => {
-        const outcomes: Record<string, string> = {};
-        for (const [method, call] of Object.entries(calls)) {
-          outcomes[method] = await settlesWithin(call(), 1000);
-        }
-        later = ended.then(() => target.commit({ putModules: [a] }));
-        await view.commit({ putModules: [module("b")] });
-        return outcomes;
-      });
-      end();
-
-      expect(Object.keys(refusals)).toEqual(Object.keys(calls));
-      for (const outcome of Object.values(refusals)) {
-        expect(outcome).toMatch(REFUSAL);
+        expect(result).toBe("done");
+        expect(await target.getModule(a.id)).toEqual(a);
       }
-      await later;
-      expect(
-        (await target.listModules({ limit: 10 })).items.map(({ id }) => id)
-      ).toEqual(["b", "a"]);
-    });
+    );
+
+    test.runIf(transactions)(
+      "a transaction whose work throws leaves nothing, and the next one runs",
+      async () => {
+        const target = await store();
+        const [kept, lost] = [module("kept"), module("lost")];
+        await target.commit({ putModules: [kept] });
+
+        await expect(
+          transactionOf(target)(async (view) => {
+            await view.commit({
+              deleteModules: [kept.id],
+              putInstallations: [installation("lost", lost)],
+              putManifests: [manifest("lost", lost)],
+              putModules: [lost],
+            });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
+        expect(await held(target)).toEqual({
+          installations: [],
+          manifests: [],
+          modules: [kept],
+        });
+
+        await transactionOf(target)((view) =>
+          view.commit({ putModules: [lost] })
+        );
+        expect(await target.getModule(lost.id)).toEqual(lost);
+      }
+    );
+
+    test.runIf(transactions)(
+      "a write from outside cannot land between a transaction's read and its commit",
+      async () => {
+        const target = await store();
+        const a = module("a");
+        await target.commit({ putModules: [a] });
+        const outside = { ...a, artifactId: artifactId("outside") };
+        const inside = { ...a, artifactId: artifactId("inside") };
+        const read = Promise.withResolvers<void>();
+        const proceed = Promise.withResolvers<void>();
+
+        const running = transactionOf(target)(async (view) => {
+          const before = await view.getModule(a.id);
+          read.resolve();
+          await proceed.promise;
+          const after = await view.getModule(a.id);
+          await view.commit({ putModules: [inside] });
+          return { after, before };
+        });
+        await read.promise;
+        const landed = target.commit({ putModules: [outside] });
+        await pause(20);
+        proceed.resolve();
+
+        expect(await running).toEqual({ after: a, before: a });
+        await landed;
+        expect(await target.getModule(a.id)).toEqual(outside);
+      }
+    );
+
+    test.runIf(transactions && reentrancyGuard)(
+      "a call to the store from inside its own transaction is refused at once",
+      async () => {
+        const target = await store();
+        const a = module("a");
+        const calls: Record<string, () => Promise<unknown>> = {
+          commit: () => target.commit({ putModules: [a] }),
+          getInstallation: () => target.getInstallation(installationId("a")),
+          getManifest: () => target.getManifest(contentId("a")),
+          getModule: () => target.getModule(a.id),
+          listInstallations: () => target.listInstallations({ limit: 1 }),
+          ...(target.listInstallationsPage === undefined
+            ? {}
+            : {
+                listInstallationsPage: () =>
+                  target.listInstallationsPage?.({ limit: 1 }) ??
+                  Promise.resolve({ items: [] }),
+              }),
+          listManifests: () => target.listManifests(),
+          listModules: () => target.listModules({ limit: 1 }),
+          ...(target.listModulesPage === undefined
+            ? {}
+            : {
+                listModulesPage: () =>
+                  target.listModulesPage?.({ limit: 1 }) ??
+                  Promise.resolve({ items: [] }),
+              }),
+          transaction: () => transactionOf(target)(() => Promise.resolve()),
+        };
+        const { promise: ended, resolve: end } = Promise.withResolvers<void>();
+        let later: Promise<unknown> = Promise.resolve();
+
+        const refusals = await transactionOf(target)(async (view) => {
+          const outcomes: Record<string, string> = {};
+          for (const [method, call] of Object.entries(calls)) {
+            outcomes[method] = await settlesWithin(call(), 1000);
+          }
+          later = ended.then(() => target.commit({ putModules: [a] }));
+          await view.commit({ putModules: [module("b")] });
+          return outcomes;
+        });
+        end();
+
+        expect(Object.keys(refusals)).toEqual(Object.keys(calls));
+        for (const outcome of Object.values(refusals)) {
+          expect(outcome).toMatch(REFUSAL);
+        }
+        await later;
+        const listedIds = (await target.listModules({ limit: 10 })).items.map(
+          ({ id }) => id
+        );
+        if (insertionOrder) {
+          expect(listedIds).toEqual(["b", "a"]);
+        } else {
+          expect([...listedIds].sort()).toEqual(["a", "b"]);
+        }
+      }
+    );
   });
 }
 
@@ -865,6 +972,21 @@ async function held(store: ModuleStore): Promise<Held> {
     installations: await all((page) => store.listInstallations(page)),
     manifests: await store.listManifests(),
     modules: await all((page) => store.listModules(page)),
+  };
+}
+
+function sortByKey<T>(items: readonly T[], key: (item: T) => string): T[] {
+  return [...items].sort((a, b) => key(a).localeCompare(key(b)));
+}
+
+function sortHeld(value: Held): Held {
+  return {
+    installations: sortByKey(
+      value.installations,
+      (item) => item.installation.id
+    ),
+    manifests: sortByKey(value.manifests, (item) => item.contentId),
+    modules: sortByKey(value.modules, (item) => item.id),
   };
 }
 

@@ -11,10 +11,14 @@ import {
   describeNumber,
   excluded,
   joinFieldPath,
+  maxBatchRows,
   RecordFault,
   replacing,
+  resolveMaxParameters,
+  rowBatches,
   SQLITE_D1_MAX_PARAMETERS,
   SQLITE_MAX_PARAMETERS,
+  sqliteBytes,
   storableNumber,
   storableText,
   UNSTORABLE_TEXT,
@@ -140,6 +144,53 @@ describe("batches", () => {
     expect(SQLITE_MAX_PARAMETERS).toBe(32_766);
     expect(SQLITE_D1_MAX_PARAMETERS).toBe(100);
     expect(batches([1, 2, 3])).toEqual([[1, 2, 3]]);
+  });
+
+  test("computes parameter-bounded row batches for D1 and standard SQLite", () => {
+    expect(resolveMaxParameters()).toBe(SQLITE_MAX_PARAMETERS);
+    expect(resolveMaxParameters(SQLITE_D1_MAX_PARAMETERS)).toBe(100);
+    expect(() => resolveMaxParameters(0)).toThrow(RangeError);
+    expect(() => resolveMaxParameters(Number.NaN)).toThrow(RangeError);
+
+    expect(maxBatchRows(6, SQLITE_D1_MAX_PARAMETERS)).toBe(16);
+    expect(maxBatchRows(1, SQLITE_D1_MAX_PARAMETERS, 1)).toBe(99);
+    expect(maxBatchRows(5, 10, 5)).toBe(1);
+    expect(() => maxBatchRows(200, SQLITE_D1_MAX_PARAMETERS)).toThrow(
+      RangeError
+    );
+    expect(() => maxBatchRows(5, 10, 6)).toThrow(RangeError);
+    expect(() => maxBatchRows(0, 100)).toThrow(RangeError);
+    expect(() => maxBatchRows(1, 100, -1)).toThrow(RangeError);
+
+    expect(rowBatches([1, 2, 3, 4, 5], 2, 5)).toEqual([[1, 2], [3, 4], [5]]);
+    expect(rowBatches([1, 2, 3, 4], 1, 3, 1)).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+  });
+
+  test("sqliteBytes maps binary driver values to plain Uint8Array without Buffer", () => {
+    const table = sqliteTable("blobs", {
+      data: sqliteBytes("data").notNull(),
+    });
+    expect(table.data.getSQLType()).toBe("blob");
+    const raw = new Uint8Array([1, 2, 3]);
+    expect(table.data.mapToDriverValue(raw)).toBe(raw);
+    const fromArrayBuffer = table.data.mapFromDriverValue(
+      raw.buffer
+    ) as Uint8Array;
+    expect(fromArrayBuffer).toBeInstanceOf(Uint8Array);
+    expect(fromArrayBuffer.constructor).toBe(Uint8Array);
+    expect([...fromArrayBuffer]).toEqual([1, 2, 3]);
+    const fromBuffer = table.data.mapFromDriverValue(
+      Buffer.from([4, 5])
+    ) as Uint8Array;
+    expect(fromBuffer.constructor).toBe(Uint8Array);
+    expect([...fromBuffer]).toEqual([4, 5]);
+    const view = new DataView(new Uint8Array([9, 8, 7]).buffer, 1, 2);
+    expect([...(table.data.mapFromDriverValue(view) as Uint8Array)]).toEqual([
+      8, 7,
+    ]);
   });
 });
 

@@ -1,9 +1,9 @@
 import {
   assertScope,
-  batches,
   describeNumber,
   replacing,
-  SQLITE_MAX_PARAMETERS,
+  resolveMaxParameters,
+  rowBatches,
   type SqliteDatabase,
   type SqliteTransaction,
   storableNumber,
@@ -42,6 +42,7 @@ export type AuthorizationTransaction = SqliteTransaction;
 export interface SqliteAuthorizationStoreOptions {
   readonly database: AuthorizationDatabase;
   readonly durability?: AuthorizationStoreDurability;
+  readonly maxParameters?: number;
   readonly scope: string;
 }
 
@@ -85,6 +86,7 @@ type ClaimRow = typeof authorizationClaims.$inferInsert;
 export class SqliteAuthorizationStore implements AuthorizationStore {
   readonly durability: AuthorizationStoreDurability;
   readonly #database: AuthorizationDatabase;
+  readonly #maxParameters: number;
   readonly #scope: string;
   readonly #turns: Turns;
 
@@ -98,6 +100,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     }
     this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
+    this.#maxParameters = resolveMaxParameters(options.maxParameters);
     this.#scope = options.scope;
     this.#turns = turnsFor(options.database);
   }
@@ -140,6 +143,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
         work(
           new SqliteAuthorizationStore({
             database: transaction,
+            maxParameters: this.#maxParameters,
             scope: this.#scope,
           })
         )
@@ -299,9 +303,11 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
     transaction: AuthorizationTransaction,
     keys: readonly RestrictionId[]
   ): Promise<void> {
-    for (const batch of batches(
+    for (const batch of rowBatches(
       keys.filter(storableText),
-      SQLITE_MAX_PARAMETERS - 1
+      1,
+      this.#maxParameters,
+      1
     )) {
       await transaction
         .delete(authorizationRestrictions)
@@ -336,7 +342,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
       position: first + index,
       scope: this.#scope,
     })) as Table["$inferInsert"][];
-    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
+    for (const batch of rowBatches(rows, columns, this.#maxParameters)) {
       await transaction
         .insert(table)
         .values(batch)
@@ -359,7 +365,7 @@ export class SqliteAuthorizationStore implements AuthorizationStore {
       ...record,
       scope: this.#scope,
     }));
-    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / columns)) {
+    for (const batch of rowBatches(rows, columns, this.#maxParameters)) {
       await transaction
         .insert(authorizationClaims)
         .values(batch)

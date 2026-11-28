@@ -1,3 +1,4 @@
+import { SQLITE_D1_MAX_PARAMETERS } from "@foundry/lib/sqlite";
 import { eq, getTableColumns, sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { describe, expect, expectTypeOf, test } from "vitest";
@@ -394,6 +395,32 @@ describe("SqliteTaskStore", () => {
       deleteTasks: records.map((task) => task.id),
     });
 
+    expect(await store.snapshot()).toEqual({ dependencies: [], tasks: [] });
+  });
+
+  test("batches writes, dependency lookups, and deletes within maxParameters (D1 100-param cap)", async () => {
+    const store = new SqliteTaskStore({
+      database: await memory.open(),
+      maxParameters: SQLITE_D1_MAX_PARAMETERS,
+      scope: "d1",
+    });
+    const records = Array.from({ length: 120 }, (_, index) =>
+      taskRecord(`d1-${index}`)
+    );
+    const edges = records.slice(1).map((task) => ({
+      dependsOnId: records[0]?.id as TaskId,
+      taskId: task.id,
+    }));
+
+    await store.commit({ putDependencies: edges, putTasks: records });
+    expect(await store.list({ status: "open" })).toHaveLength(120);
+    const deps = await store.dependenciesOf(records.map((task) => task.id));
+    expect(deps).toHaveLength(edges.length);
+
+    await store.commit({
+      deleteDependencies: edges,
+      deleteTasks: records.map((task) => task.id),
+    });
     expect(await store.snapshot()).toEqual({ dependencies: [], tasks: [] });
   });
 

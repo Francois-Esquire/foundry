@@ -4,7 +4,13 @@ export function withAbort<T>(
   reason: () => unknown = () => signal.reason
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(reason());
+    const onAbort = () => {
+      try {
+        reject(reason());
+      } catch (error) {
+        reject(error);
+      }
+    };
     if (signal.aborted) {
       onAbort();
     } else {

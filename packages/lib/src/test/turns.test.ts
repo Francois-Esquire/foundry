@@ -189,4 +189,45 @@ describe("Turns", () => {
       "third-start",
     ]);
   });
+
+  test("reports reentrancyGuarded accurately and honors AbortSignal while waiting without breaking mutual exclusion", async () => {
+    const guarded = new Turns(advice, createNodeAsyncScope());
+    const unguarded = new Turns(advice, createPassThroughAsyncScope());
+    expect(guarded.reentrancyGuarded).toBe(true);
+    expect(unguarded.reentrancyGuarded).toBe(false);
+
+    const { promise: gate, resolve: open } = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const controller = new AbortController();
+    const reason = new Error("cancelled while waiting");
+
+    const first = unguarded.run(async () => {
+      order.push("first-start");
+      await gate;
+      order.push("first-end");
+      return "first";
+    });
+    const aborted = unguarded.run(
+      () => {
+        order.push("aborted-should-not-run");
+        return Promise.resolve("never");
+      },
+      { signal: controller.signal }
+    );
+    const third = unguarded.run(() => {
+      order.push("third");
+      return Promise.resolve("third");
+    });
+
+    controller.abort(reason);
+    await expect(aborted).rejects.toBe(reason);
+    // Third must still wait for first to finish even after second aborted.
+    await Promise.resolve();
+    expect(order).toEqual(["first-start"]);
+
+    open();
+    await expect(first).resolves.toBe("first");
+    await expect(third).resolves.toBe("third");
+    expect(order).toEqual(["first-start", "first-end", "third"]);
+  });
 });

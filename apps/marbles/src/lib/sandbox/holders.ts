@@ -1,32 +1,17 @@
 import {
   isProcessIdentity,
-  type ProcessIdentity,
-  type ProcessState,
-} from "@foundry/lib/process-identity";
-import type { ContainerRow } from "@foundry/sandbox/store";
-import {
   type OwnerLiveness,
   ownerStateOf,
   PORTABLE_OWNER_LIVENESS,
-} from "~/lib/recovery/liveness";
+  type ProcessState,
+} from "@foundry/lib/process-identity";
+import type { ContainerRow } from "@foundry/sandbox/store";
 
 export function containerHolder(
   liveness: OwnerLiveness = PORTABLE_OWNER_LIVENESS
 ): string {
   const { pid, started } = liveness.identity();
   return JSON.stringify({ pid, registry: crypto.randomUUID(), started });
-}
-
-function isPortableHolder(holder: unknown): holder is ProcessIdentity {
-  return (
-    typeof holder === "object" &&
-    holder !== null &&
-    "pid" in holder &&
-    Number.isInteger(holder.pid) &&
-    holder.pid === 0 &&
-    "started" in holder &&
-    (typeof holder.started === "string" || holder.started === null)
-  );
 }
 
 export function holderState(
@@ -43,9 +28,6 @@ export function holderState(
     return "unknown";
   }
   if (isProcessIdentity(holder)) {
-    return ownerStateOf(liveness, holder);
-  }
-  if (isPortableHolder(holder) && liveness.identity().pid === 0) {
     return ownerStateOf(liveness, holder);
   }
   return "unknown";

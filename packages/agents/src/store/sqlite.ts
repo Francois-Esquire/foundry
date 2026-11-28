@@ -2,9 +2,9 @@ import type { Page } from "@foundry/core/pagination";
 import { pageFromRows, pageLimit } from "@foundry/lib/pagination";
 import {
   assertScope,
-  batches,
   replacing,
-  SQLITE_MAX_PARAMETERS,
+  resolveMaxParameters,
+  rowBatches,
   type SqliteDatabase,
   type SqliteTransaction,
   storableText,
@@ -45,6 +45,7 @@ export type SessionTransaction = SqliteTransaction;
 
 export interface SqliteSessionStoreOptions {
   readonly database: SessionDatabase;
+  readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: SessionTransaction,
     write: SessionStoreWrite
@@ -105,6 +106,7 @@ const REENTRY =
 
 export class SqliteSessionStore implements SessionStore {
   readonly #database: SessionDatabase;
+  readonly #maxParameters: number;
   readonly #scope: string;
   readonly #onCommit: SqliteSessionStoreOptions["onCommit"];
   readonly #turns = new Turns(REENTRY);
@@ -112,6 +114,7 @@ export class SqliteSessionStore implements SessionStore {
   constructor(options: SqliteSessionStoreOptions) {
     assertScope(options.scope);
     this.#database = options.database;
+    this.#maxParameters = resolveMaxParameters(options.maxParameters);
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
   }
@@ -138,6 +141,7 @@ export class SqliteSessionStore implements SessionStore {
         work(
           new SqliteSessionStore({
             database: transaction,
+            maxParameters: this.#maxParameters,
             scope: this.#scope,
             ...(this.#onCommit === undefined
               ? {}
@@ -166,9 +170,11 @@ export class SqliteSessionStore implements SessionStore {
   getSessions(ids: readonly string[]): Promise<SessionRecord[]> {
     return this.#turns.run(async () => {
       const sessions: SessionRecord[] = [];
-      for (const batch of batches(
+      for (const batch of rowBatches(
         [...new Set(ids.filter(storableText))],
-        SQLITE_MAX_PARAMETERS - 1
+        1,
+        this.#maxParameters,
+        1
       )) {
         const rows = await this.#database
           .select(sessionColumns)
@@ -190,9 +196,11 @@ export class SqliteSessionStore implements SessionStore {
   ): Promise<Map<string, MessageTally>> {
     return this.#turns.run(async () => {
       const tallies = new Map<string, MessageTally>();
-      for (const batch of batches(
+      for (const batch of rowBatches(
         [...new Set(sessionIds.filter(storableText))],
-        SQLITE_MAX_PARAMETERS - 1
+        1,
+        this.#maxParameters,
+        1
       )) {
         const rows = await this.#database
           .select({
@@ -302,9 +310,10 @@ export class SqliteSessionStore implements SessionStore {
     transaction: SessionTransaction,
     rows: readonly SessionRow[]
   ): Promise<void> {
-    for (const batch of batches(
+    for (const batch of rowBatches(
       rows,
-      SQLITE_MAX_PARAMETERS / SESSION_COLUMNS
+      SESSION_COLUMNS,
+      this.#maxParameters
     )) {
       await transaction
         .insert(agentSessions)
@@ -338,9 +347,10 @@ export class SqliteSessionStore implements SessionStore {
       placements.set(row.id, { position, sessionId: row.sessionId });
       placed.set(row.id, { ...row, position });
     }
-    for (const batch of batches(
+    for (const batch of rowBatches(
       [...placed.values()],
-      SQLITE_MAX_PARAMETERS / MESSAGE_COLUMNS
+      MESSAGE_COLUMNS,
+      this.#maxParameters
     )) {
       await transaction
         .insert(agentMessages)
@@ -360,7 +370,12 @@ export class SqliteSessionStore implements SessionStore {
       string,
       { position: number; sessionId: string }
     >();
-    for (const batch of batches([...new Set(ids)], SQLITE_MAX_PARAMETERS - 1)) {
+    for (const batch of rowBatches(
+      [...new Set(ids)],
+      1,
+      this.#maxParameters,
+      1
+    )) {
       const found = await transaction
         .select(placementColumns)
         .from(agentMessages)

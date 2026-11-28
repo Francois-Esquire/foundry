@@ -1,4 +1,5 @@
 import { ownedEvents } from "@foundry/lib/plain-json";
+import type { SqliteDatabase } from "@foundry/lib/sqlite";
 import { and, asc, eq, gt, gte, lte, min, sql } from "drizzle-orm";
 import { batches, inList } from "~/database/lists";
 import {
@@ -24,7 +25,7 @@ import { CHANGE_BATCH, COMPACTION_STEP } from "~/lib/events/log";
 import { EmitListeners } from "~/lib/events/records-gate";
 import type { Fact } from "~/lib/events/source";
 
-type CommitTransaction = Pick<StoreDatabase, "insert">;
+type CommitTransaction = Pick<SqliteDatabase, "insert">;
 
 export class ChangeRecorder {
   readonly scope: string;

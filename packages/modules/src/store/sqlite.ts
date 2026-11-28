@@ -5,10 +5,10 @@ import type { Page } from "@foundry/core/pagination";
 import { pageFromRows } from "@foundry/lib/pagination";
 import {
   assertScope,
-  batches,
   describeNumber,
   replacing,
-  SQLITE_MAX_PARAMETERS,
+  resolveMaxParameters,
+  rowBatches,
   type SqliteDatabase,
   type SqliteTransaction,
   storableNumber,
@@ -66,6 +66,7 @@ export type ModuleTransaction = SqliteTransaction;
 export interface SqliteModuleStoreOptions {
   readonly database: ModuleDatabase;
   readonly durability?: ModuleStoreDurability;
+  readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: ModuleTransaction,
     write: ModuleStoreWrite
@@ -98,6 +99,7 @@ type StoreTable =
 export class SqliteModuleStore implements ModuleStore {
   readonly durability: ModuleStoreDurability;
   readonly #database: ModuleDatabase;
+  readonly #maxParameters: number;
   readonly #scope: string;
   readonly #onCommit: SqliteModuleStoreOptions["onCommit"];
   readonly #turns = new Turns(REENTRY);
@@ -112,6 +114,7 @@ export class SqliteModuleStore implements ModuleStore {
     }
     this.durability = joined ? "host" : (options.durability ?? "commit");
     this.#database = options.database;
+    this.#maxParameters = resolveMaxParameters(options.maxParameters);
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
   }
@@ -176,6 +179,7 @@ export class SqliteModuleStore implements ModuleStore {
   openAuthorizationStore(): AuthorizationStore {
     return new SqliteAuthorizationStore({
       database: this.#database,
+      maxParameters: this.#maxParameters,
       scope: this.#scope,
     });
   }
@@ -186,6 +190,7 @@ export class SqliteModuleStore implements ModuleStore {
         work(
           new SqliteModuleStore({
             database: transaction,
+            maxParameters: this.#maxParameters,
             scope: this.#scope,
             ...(this.#onCommit === undefined
               ? {}
@@ -505,9 +510,11 @@ export class SqliteModuleStore implements ModuleStore {
     key: SQLiteColumn,
     keys: readonly string[]
   ): Promise<void> {
-    for (const batch of batches(
+    for (const batch of rowBatches(
       keys.filter(storableText),
-      SQLITE_MAX_PARAMETERS - 1
+      1,
+      this.#maxParameters,
+      1
     )) {
       await transaction
         .delete(table)
@@ -529,9 +536,10 @@ export class SqliteModuleStore implements ModuleStore {
       return { ...record, position, scope: this.#scope };
     });
     const replace = replacing(recordColumns(columns));
-    for (const batch of batches(
+    for (const batch of rowBatches(
       rows,
-      SQLITE_MAX_PARAMETERS / Object.keys(columns).length
+      Object.keys(columns).length,
+      this.#maxParameters
     )) {
       await transaction
         .insert(table)

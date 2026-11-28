@@ -16,8 +16,13 @@ import type {
 } from "./session-part";
 
 export interface HarnessCapabilities {
+  deferredApprovals?: boolean;
+  deferredQuestions?: boolean;
+  detach?: boolean;
   interruption: boolean;
+  resume?: boolean;
   steering: boolean;
+  structuredOutput?: boolean;
 }
 
 export type HarnessResponseFormat = Extract<
@@ -53,6 +58,7 @@ export type StreamPart =
 export interface HarnessTurnDriver {
   capabilities: HarnessCapabilities;
   close?: () => Promise<void>;
+  detach?: () => Promise<void>;
   id: string;
   interrupt?: () => Promise<void>;
   run(options: {

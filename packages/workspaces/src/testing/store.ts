@@ -33,27 +33,45 @@ export type WorkspaceStoreMode =
       readonly recording: () => Promise<RecordingWorkspaceStores>;
     };
 
+export interface WorkspaceStoreCapabilities {
+  readonly exactTotal?: boolean;
+  readonly largeWrites?: boolean;
+  readonly reentrancyGuard?: boolean;
+  readonly transactions?: boolean;
+}
+
 export function describeWorkspaceStore(
   name: string,
   open: () => ScopedWorkspaceStores | Promise<ScopedWorkspaceStores>,
-  mode: WorkspaceStoreMode
+  mode: WorkspaceStoreMode,
+  capabilities: WorkspaceStoreCapabilities = {}
 ): void {
+  const exactTotal = capabilities.exactTotal ?? true;
+  const largeWrites = capabilities.largeWrites ?? true;
+  const transactions = capabilities.transactions ?? true;
+  const reentrancyGuard = capabilities.reentrancyGuard ?? transactions;
   describe(`${name} WorkspaceStore conformance`, () => {
-    describeEvents(open);
+    describeEvents(open, transactions);
     if (mode.hooked) {
-      describeRecordedEvents(mode.recording);
+      describeRecordedEvents(mode.recording, transactions);
     }
-    describeReads(open);
+    describeReads(open, exactTotal);
     describeOrdering(open);
-    describeWrites(open);
-    describeScopes(open);
-    describeAtomicity(open);
-    describeDetachment(open);
-    describeOwnership(open);
-    describeLargeWrites(open);
-    describeTransactions(open);
-    describeReentry(open);
-    describeFailedTurns(open);
+    describeWrites(open, exactTotal);
+    describeScopes(open, exactTotal);
+    describeAtomicity(open, exactTotal);
+    describeDetachment(open, exactTotal);
+    describeOwnership(open, exactTotal, transactions);
+    if (largeWrites) {
+      describeLargeWrites(open, exactTotal);
+    }
+    if (transactions) {
+      describeTransactions(open, exactTotal);
+      if (reentrancyGuard) {
+        describeReentry(open);
+      }
+      describeFailedTurns(open);
+    }
   });
 }
 
@@ -225,7 +243,7 @@ function uncopyable(workspaceId: WorkspaceId): WorkspaceEntry {
   return entry;
 }
 
-function describeEvents(open: Open): void {
+function describeEvents(open: Open, transactions: boolean): void {
   describe("events", () => {
     test("a write's events change no record", async () => {
       const store = (await open())(SCOPE);
@@ -263,32 +281,35 @@ function describeEvents(open: Open): void {
       }
     );
 
-    test.each(UNPLAIN_EVENTS)(
-      "a transaction's view refuses a write whose events are %s",
-      async (_kind, events) => {
-        const store = (await open())(SCOPE);
-        const { transaction } = store;
-        if (transaction === undefined) {
-          return;
-        }
-        const refused = hostWorkspace({ path: newRoot("refused") });
-        const kept = hostWorkspace({ path: newRoot("kept") });
+    if (transactions) {
+      test.each(UNPLAIN_EVENTS)(
+        "a transaction's view refuses a write whose events are %s",
+        async (_kind, events) => {
+          const store = (await open())(SCOPE);
+          const { transaction } = store;
+          if (transaction === undefined) {
+            return;
+          }
+          const refused = hostWorkspace({ path: newRoot("refused") });
+          const kept = hostWorkspace({ path: newRoot("kept") });
 
-        await transaction.call(store, async (view) => {
-          await expect(
-            view.commit({ events: events(refused.id), workspace: refused })
-          ).rejects.toThrow(TypeError);
-          await view.commit({ workspace: kept });
-        });
-        expect(await store.getWorkspace(refused.id)).toBeNull();
-        expect(await store.getWorkspace(kept.id)).toEqual(kept);
-      }
-    );
+          await transaction.call(store, async (view) => {
+            await expect(
+              view.commit({ events: events(refused.id), workspace: refused })
+            ).rejects.toThrow(TypeError);
+            await view.commit({ workspace: kept });
+          });
+          expect(await store.getWorkspace(refused.id)).toBeNull();
+          expect(await store.getWorkspace(kept.id)).toEqual(kept);
+        }
+      );
+    }
   });
 }
 
 function describeRecordedEvents(
-  recording: () => Promise<RecordingWorkspaceStores>
+  recording: () => Promise<RecordingWorkspaceStores>,
+  transactions: boolean
 ): void {
   const recorder = async () => {
     const opened = await recording();
@@ -366,43 +387,69 @@ function describeRecordedEvents(
       expect(await recorded()).toEqual([createdEvent(workspace.id)]);
     });
 
-    test("a transaction's events are recorded only when it is kept", async () => {
-      const { recorded, store } = await recorder();
-      const { transaction } = store;
-      if (transaction === undefined) {
-        return;
-      }
-      const dropped = hostWorkspace({ path: newRoot("dropped") });
-      const kept = hostWorkspace({ path: newRoot("kept") });
-      const docs = directoryRecord(kept.id, "docs");
+    test.runIf(transactions)(
+      "a transaction's events are recorded only when it is kept",
+      async () => {
+        const { recorded, store } = await recorder();
+        const { transaction } = store;
+        if (transaction === undefined) {
+          return;
+        }
+        const dropped = hostWorkspace({ path: newRoot("dropped") });
+        const kept = hostWorkspace({ path: newRoot("kept") });
+        const docs = directoryRecord(kept.id, "docs");
 
-      await expect(
-        transaction.call(store, async (view) => {
+        await expect(
+          transaction.call(store, async (view) => {
+            await view.commit({
+              events: [createdEvent(dropped.id)],
+              workspace: dropped,
+            });
+            throw new Error("work failed");
+          })
+        ).rejects.toThrow("work failed");
+        await transaction.call(store, async (view) => {
           await view.commit({
-            events: [createdEvent(dropped.id)],
-            workspace: dropped,
+            events: [createdEvent(kept.id)],
+            workspace: kept,
           });
-          throw new Error("work failed");
-        })
-      ).rejects.toThrow("work failed");
-      await transaction.call(store, async (view) => {
-        await view.commit({ events: [createdEvent(kept.id)], workspace: kept });
-        await view.commit({
-          events: [entriesEvent(kept.id, [docs])],
-          putEntries: [docs],
-          workspace: kept,
+          await view.commit({
+            events: [entriesEvent(kept.id, [docs])],
+            putEntries: [docs],
+            workspace: kept,
+          });
         });
-      });
 
-      expect(await recorded()).toEqual([
-        createdEvent(kept.id),
-        entriesEvent(kept.id, [docs]),
-      ]);
-    });
+        expect(await recorded()).toEqual([
+          createdEvent(kept.id),
+          entriesEvent(kept.id, [docs]),
+        ]);
+      }
+    );
   });
 }
 
-function describeReads(open: Open): void {
+function expectWorkspacePage(
+  page: {
+    readonly items: readonly WorkspaceRegistration[];
+    readonly nextCursor?: number;
+    readonly total?: number;
+  },
+  expected: {
+    readonly items: readonly WorkspaceRegistration[];
+    readonly nextCursor?: number;
+    readonly total: number;
+  },
+  exactTotal: boolean
+): void {
+  expect(page.items).toEqual(expected.items);
+  expect(page.nextCursor).toBe(expected.nextCursor);
+  if (exactTotal) {
+    expect(page.total).toBe(expected.total);
+  }
+}
+
+function describeReads(open: Open, exactTotal: boolean): void {
   describe("reads", () => {
     test("answer an empty store with nothing", async () => {
       const store = (await open())(SCOPE);
@@ -413,7 +460,11 @@ function describeReads(open: Open): void {
       expect(await store.listEntries(absent)).toEqual([]);
       expect(await store.findWorkspaceByPath(newRoot("absent"))).toBeNull();
       expect(await store.findWorkspaceBySourceId("absent")).toBeNull();
-      expect(await store.listWorkspaces()).toEqual({ items: [], total: 0 });
+      expectWorkspacePage(
+        await store.listWorkspaces(),
+        { items: [], total: 0 },
+        exactTotal
+      );
     });
 
     test("round-trip a registration and its entries in path order", async () => {
@@ -503,17 +554,21 @@ function describeReads(open: Open): void {
       }
 
       const largest = await store.listWorkspaces({ limit: 1000 });
-      expect(largest.items).toEqual(created.slice(0, 200));
-      expect(largest.total).toBe(201);
-      expect(largest.nextCursor).toBe(200);
-      expect(await store.listWorkspaces({ cursor: 200, limit: 5 })).toEqual({
-        items: created.slice(200),
-        total: 201,
-      });
-      expect(await store.listWorkspaces({ cursor: 500 })).toEqual({
-        items: [],
-        total: 201,
-      });
+      expectWorkspacePage(
+        largest,
+        { items: created.slice(0, 200), nextCursor: 200, total: 201 },
+        exactTotal
+      );
+      expectWorkspacePage(
+        await store.listWorkspaces({ cursor: 200, limit: 5 }),
+        { items: created.slice(200), total: 201 },
+        exactTotal
+      );
+      expectWorkspacePage(
+        await store.listWorkspaces({ cursor: 500 }),
+        { items: [], total: 201 },
+        exactTotal
+      );
       for (const input of [
         { limit: 0 },
         { limit: 1.5 },
@@ -597,21 +652,26 @@ function describeReads(open: Open): void {
         await seed(store, workspace);
       }
 
-      expect(await store.listWorkspaces()).toEqual({
-        items: ordered,
-        total: 3,
-      });
+      expectWorkspacePage(
+        await store.listWorkspaces(),
+        { items: ordered, total: 3 },
+        exactTotal
+      );
       const firstPage = await store.listWorkspaces({ limit: 2 });
       expect(firstPage.items).toEqual(ordered.slice(0, 2));
-      expect(firstPage.total).toBe(3);
+      if (exactTotal) {
+        expect(firstPage.total).toBe(3);
+      }
       expect(firstPage.nextCursor).toBeDefined();
       const secondPage = await store.listWorkspaces({
         cursor: firstPage.nextCursor,
         limit: 2,
       });
-      expect(secondPage.items).toEqual(ordered.slice(2));
-      expect(secondPage.total).toBe(3);
-      expect(secondPage.nextCursor).toBeUndefined();
+      expectWorkspacePage(
+        secondPage,
+        { items: ordered.slice(2), total: 3 },
+        exactTotal
+      );
     });
 
     test("paginate and count entries when listEntriesPage and countEntries are implemented", async () => {
@@ -733,7 +793,7 @@ function describeReads(open: Open): void {
   });
 }
 
-function describeWrites(open: Open): void {
+function describeWrites(open: Open, exactTotal: boolean): void {
   describe("writes", () => {
     test("a save replaces the registration and applies entry changes", async () => {
       const store = (await open())(SCOPE);
@@ -799,10 +859,14 @@ function describeWrites(open: Open): void {
       expect(await store.getWorkspace(first.id)).toBeNull();
       expect(await store.findWorkspaceByPath(first.source.path)).toBeNull();
       expect(await store.listEntries(first.id)).toEqual([]);
-      expect(await store.listWorkspaces()).toEqual({
-        items: [second],
-        total: 1,
-      });
+      expectWorkspacePage(
+        await store.listWorkspaces(),
+        {
+          items: [second],
+          total: 1,
+        },
+        exactTotal
+      );
       expect(await store.listEntries(second.id)).toEqual([secondReadme]);
     });
 
@@ -881,15 +945,19 @@ function describeWrites(open: Open): void {
       await expect(
         store.commit({ removeWorkspace: newWorkspaceId() })
       ).resolves.toBeUndefined();
-      expect(await store.listWorkspaces()).toEqual({
-        items: [workspace],
-        total: 1,
-      });
+      expectWorkspacePage(
+        await store.listWorkspaces(),
+        {
+          items: [workspace],
+          total: 1,
+        },
+        exactTotal
+      );
     });
   });
 }
 
-function describeAtomicity(open: Open): void {
+function describeAtomicity(open: Open, exactTotal: boolean): void {
   describe("atomicity", () => {
     test("a failing save leaves an existing Workspace as it was", async () => {
       const store = (await open())(SCOPE);
@@ -934,17 +1002,21 @@ function describeAtomicity(open: Open): void {
         })
       ).rejects.toThrow();
 
-      expect(await everything(store, workspace)).toEqual({
-        entries: [],
-        list: { items: [], total: 0 },
-        workspace: null,
-      });
+      expectEverything(
+        await everything(store, workspace),
+        {
+          entries: [],
+          list: { items: [], total: 0 },
+          workspace: null,
+        },
+        exactTotal
+      );
       expect(await store.findWorkspaceByPath(workspace.source.path)).toBeNull();
     });
   });
 }
 
-function describeDetachment(open: Open): void {
+function describeDetachment(open: Open, exactTotal: boolean): void {
   describe("detachment", () => {
     test("a committed value is not shared with the caller", async () => {
       const store = (await open())(SCOPE);
@@ -1007,17 +1079,21 @@ function describeDetachment(open: Open): void {
       expect(await store.getWorkspace(workspace.id)).toEqual(workspace);
       expect(await store.findWorkspaceByPath(path)).toEqual(workspace);
       expect(await store.findWorkspaceBySourceId(sourceId)).toEqual(workspace);
-      expect(await store.listWorkspaces()).toEqual({
-        items: [workspace],
-        total: 1,
-      });
+      expectWorkspacePage(
+        await store.listWorkspaces(),
+        {
+          items: [workspace],
+          total: 1,
+        },
+        exactTotal
+      );
       expect(await store.getEntry(workspace.id, file.id)).toEqual(file);
       expect(await store.listEntries(workspace.id)).toEqual([file]);
     });
   });
 }
 
-function describeTransactions(open: Open): void {
+function describeTransactions(open: Open, exactTotal: boolean): void {
   describe("transactions", () => {
     test("an outside commit waits for a running transaction, then lands", async ({
       skip,
@@ -1121,16 +1197,14 @@ function describeTransactions(open: Open): void {
         };
       });
 
-      expect(seen).toEqual({
-        byPath: added,
-        bySourceId: added,
-        entries: [file],
-        entry: file,
-        gone: null,
-        list: { items: [added], total: 1 },
-        removed: null,
-        workspace: added,
-      });
+      expect(seen.byPath).toEqual(added);
+      expect(seen.bySourceId).toEqual(added);
+      expect(seen.entries).toEqual([file]);
+      expect(seen.entry).toEqual(file);
+      expect(seen.gone).toBeNull();
+      expectWorkspacePage(seen.list, { items: [added], total: 1 }, exactTotal);
+      expect(seen.removed).toBeNull();
+      expect(seen.workspace).toEqual(added);
       expect(await store.getWorkspace(added.id)).toEqual(added);
       expect(await store.getWorkspace(removed.id)).toBeNull();
     });
@@ -1255,7 +1329,7 @@ function describeOrdering(open: Open): void {
   });
 }
 
-function describeScopes(open: Open): void {
+function describeScopes(open: Open, exactTotal: boolean): void {
   describe("scopes", () => {
     test("two scopes on one storage never see each other", async () => {
       const stores = await open();
@@ -1274,7 +1348,11 @@ function describeScopes(open: Open): void {
         await second.findWorkspaceByPath(workspace.source.path)
       ).toBeNull();
       expect(await second.findWorkspaceBySourceId("shared")).toBeNull();
-      expect(await second.listWorkspaces()).toEqual({ items: [], total: 0 });
+      expectWorkspacePage(
+        await second.listWorkspaces(),
+        { items: [], total: 0 },
+        exactTotal
+      );
 
       const theirs = { ...workspace, name: "theirs" };
       const theirReadme = { ...readme, bytes: 99 };
@@ -1286,10 +1364,11 @@ function describeScopes(open: Open): void {
 
       expect(await first.getWorkspace(workspace.id)).toEqual(workspace);
       expect(await first.listEntries(workspace.id)).toEqual([readme]);
-      expect(await first.listWorkspaces()).toEqual({
-        items: [workspace],
-        total: 1,
-      });
+      expectWorkspacePage(
+        await first.listWorkspaces(),
+        { items: [workspace], total: 1 },
+        exactTotal
+      );
       expect(await stores("scope-a").getEntry(workspace.id, readme.id)).toEqual(
         readme
       );
@@ -1297,7 +1376,7 @@ function describeScopes(open: Open): void {
   });
 }
 
-function describeLargeWrites(open: Open): void {
+function describeLargeWrites(open: Open, exactTotal: boolean): void {
   describe("large writes", () => {
     test("one save can put and delete thousands of entries", async () => {
       const store = (await open())(SCOPE);
@@ -1316,11 +1395,10 @@ function describeLargeWrites(open: Open): void {
       expect(await store.listEntries(workspace.id)).toEqual(second);
 
       await store.commit({ removeWorkspace: workspace.id });
-      expect(await everything(store, workspace)).toEqual({
-        entries: [],
-        list: { items: [], total: 0 },
-        workspace: null,
-      });
+      const after = await everything(store, workspace);
+      expect(after.entries).toEqual([]);
+      expect(after.workspace).toBeNull();
+      expectWorkspacePage(after.list, { items: [], total: 0 }, exactTotal);
     });
   });
 }
@@ -1490,7 +1568,11 @@ function manyFiles(
   );
 }
 
-function describeOwnership(open: Open): void {
+function describeOwnership(
+  open: Open,
+  exactTotal: boolean,
+  transactions: boolean
+): void {
   describe("a write and a list input are the store's from the call", () => {
     async function arranged() {
       const store = (await open())(SCOPE);
@@ -1535,53 +1617,69 @@ function describeOwnership(open: Open): void {
       scramble(save, doomed);
       await landing;
 
-      expect(await everything(store, workspace)).toEqual(expected);
+      expectEverything(
+        await everything(store, workspace),
+        expected,
+        exactTotal
+      );
     });
 
-    test("a commit changed while it waits behind a transaction lands as it was called", async ({
-      skip,
-    }) => {
-      const { doomed, expected, save, store, workspace } = await arranged();
-      if (store.transaction === undefined) {
-        return skip();
-      }
-      const entered = Promise.withResolvers<undefined>();
-      const release = Promise.withResolvers<undefined>();
-      const running = store.transaction(async () => {
-        entered.resolve(undefined);
-        await release.promise;
-      });
-      await entered.promise;
+    test.runIf(transactions)(
+      "a commit changed while it waits behind a transaction lands as it was called",
+      async ({ skip }) => {
+        const { doomed, expected, save, store, workspace } = await arranged();
+        if (store.transaction === undefined) {
+          return skip();
+        }
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const running = store.transaction(async () => {
+          entered.resolve(undefined);
+          await release.promise;
+        });
+        await entered.promise;
 
-      const landing = store.commit(save);
-      scramble(save, doomed);
-      release.resolve(undefined);
-      await Promise.all([running, landing]);
-
-      expect(await everything(store, workspace)).toEqual(expected);
-    });
-
-    test("a commit through a transaction's view lands as it was called", async ({
-      skip,
-    }) => {
-      const { doomed, expected, save, store, workspace } = await arranged();
-      if (store.transaction === undefined) {
-        return skip();
-      }
-
-      await store.transaction(async (view) => {
-        const committed = view.commit(save);
+        const landing = store.commit(save);
         scramble(save, doomed);
-        await committed;
-        expect(await everything(view, workspace)).toEqual(expected);
-      });
+        release.resolve(undefined);
+        await Promise.all([running, landing]);
 
-      expect(await everything(store, workspace)).toEqual(expected);
-    });
+        expectEverything(
+          await everything(store, workspace),
+          expected,
+          exactTotal
+        );
+      }
+    );
 
-    test("listWorkspaces pages by its input as it was called, at once or behind a transaction", async ({
-      skip,
-    }) => {
+    test.runIf(transactions)(
+      "a commit through a transaction's view lands as it was called",
+      async ({ skip }) => {
+        const { doomed, expected, save, store, workspace } = await arranged();
+        if (store.transaction === undefined) {
+          return skip();
+        }
+
+        await store.transaction(async (view) => {
+          const committed = view.commit(save);
+          scramble(save, doomed);
+          await committed;
+          expectEverything(
+            await everything(view, workspace),
+            expected,
+            exactTotal
+          );
+        });
+
+        expectEverything(
+          await everything(store, workspace),
+          expected,
+          exactTotal
+        );
+      }
+    );
+
+    test("listWorkspaces pages by its input as it was called", async () => {
       const store = (await open())(SCOPE);
       const created = [0, 1, 2].map((index) =>
         hostWorkspace({
@@ -1600,25 +1698,49 @@ function describeOwnership(open: Open): void {
       const atOnce: { cursor?: number; limit?: number } = { limit: 1 };
       const listed = store.listWorkspaces(atOnce);
       change(atOnce);
-      expect(await listed).toEqual(firstPage);
-
-      if (store.transaction === undefined) {
-        return skip();
-      }
-      const entered = Promise.withResolvers<undefined>();
-      const release = Promise.withResolvers<undefined>();
-      const running = store.transaction(async () => {
-        entered.resolve(undefined);
-        await release.promise;
-      });
-      await entered.promise;
-      const queued: { cursor?: number; limit?: number } = { limit: 1 };
-      const waiting = store.listWorkspaces(queued);
-      change(queued);
-      release.resolve(undefined);
-      await running;
-      expect(await waiting).toEqual(firstPage);
+      expectWorkspacePage(await listed, firstPage, exactTotal);
     });
+
+    test.runIf(transactions)(
+      "listWorkspaces pages by its input as it was called while waiting behind a transaction",
+      async ({ skip }) => {
+        const store = (await open())(SCOPE);
+        if (store.transaction === undefined) {
+          return skip();
+        }
+        const created = [0, 1, 2].map((index) =>
+          hostWorkspace({
+            createdAt: new Date(index),
+            path: newRoot(String(index)),
+          })
+        );
+        for (const workspace of created) {
+          await seed(store, workspace);
+        }
+        const firstPage = {
+          items: created.slice(0, 1),
+          nextCursor: 1,
+          total: 3,
+        };
+        const change = (input: { cursor?: number; limit?: number }) => {
+          Object.assign(input, { cursor: 2, limit: 3 });
+        };
+
+        const entered = Promise.withResolvers<undefined>();
+        const release = Promise.withResolvers<undefined>();
+        const running = store.transaction(async () => {
+          entered.resolve(undefined);
+          await release.promise;
+        });
+        await entered.promise;
+        const queued: { cursor?: number; limit?: number } = { limit: 1 };
+        const waiting = store.listWorkspaces(queued);
+        change(queued);
+        release.resolve(undefined);
+        await running;
+        expectWorkspacePage(await waiting, firstPage, exactTotal);
+      }
+    );
   });
 }
 
@@ -1631,6 +1753,24 @@ async function everything(
     list: await store.listWorkspaces(),
     workspace: await store.getWorkspace(workspace.id),
   };
+}
+
+function expectEverything(
+  actual: Awaited<ReturnType<typeof everything>>,
+  expected: {
+    readonly entries: readonly WorkspaceEntry[];
+    readonly list: {
+      readonly items: readonly WorkspaceRegistration[];
+      readonly nextCursor?: number;
+      readonly total: number;
+    };
+    readonly workspace: WorkspaceRegistration | null;
+  },
+  exactTotal: boolean
+): void {
+  expect(actual.entries).toEqual(expected.entries);
+  expect(actual.workspace).toEqual(expected.workspace);
+  expectWorkspacePage(actual.list, expected.list, exactTotal);
 }
 
 function unstorableDate(): Date {

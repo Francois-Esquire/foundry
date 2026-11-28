@@ -5,7 +5,11 @@ import type {
   SessionHarness,
   TurnOptions,
 } from "@foundry/agents/harness";
-import type { McpClient } from "@foundry/agents/mcp";
+import {
+  McpClient,
+  type McpClientOptions,
+  type McpServerDefinition,
+} from "@foundry/agents/mcp";
 import type {
   SessionInput,
   SessionMessage,
@@ -33,7 +37,6 @@ import {
 import type {
   AgentDefinition,
   AgentLike,
-  AgentMcpServer,
   AgentRoute,
   Agents,
   SandboxAgentOptions,
@@ -97,7 +100,8 @@ export interface AgentsDeps {
   readonly containerOf: (sandbox: SandboxHandle) => Container;
   readonly context?: ExecutionContext;
   readonly createMcpClient?: (
-    server: AgentMcpServer & { readonly enabled: boolean }
+    definition: McpServerDefinition,
+    options?: McpClientOptions
   ) => McpClient;
   readonly cwd: string;
   readonly defaultExecutor: () => TurnExecutorRef;
@@ -549,14 +553,11 @@ async function connectServers(
   if (servers.length === 0) {
     return [];
   }
-  const { createMcpClient } = deps;
-  if (createMcpClient === undefined) {
-    throw new Error(
-      `agent "${definition.id}" names MCP servers, but no MCP client factory was configured`
-    );
-  }
+  const createClient =
+    deps.createMcpClient ??
+    ((serverConfig: McpServerDefinition) => new McpClient(serverConfig));
   const clients = servers.map((server) =>
-    createMcpClient({ ...server, enabled: true })
+    createClient({ ...server, enabled: true })
   );
   for (const client of clients) {
     site.retain(client);

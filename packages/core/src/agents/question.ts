@@ -22,8 +22,9 @@ export type HarnessQuestionCallback = (
   request: HarnessQuestionRequest
 ) => Promise<HarnessQuestionResult>;
 
-// biome-ignore lint/complexity/noBannedTypes: WeakSet tracks tool execute functions by reference identity.
-const questionExecutors = new WeakSet<Function>();
+const HARNESS_QUESTION_EXECUTOR = Symbol.for(
+  "@foundry/harness-question-executor"
+);
 
 export interface HarnessQuestionToolSettings {
   question?: HarnessQuestionCallback;
@@ -31,10 +32,14 @@ export interface HarnessQuestionToolSettings {
 }
 
 export function markHarnessQuestionExecutor(
-  // biome-ignore lint/complexity/noBannedTypes: Marks a tool execute function by reference identity.
+  // biome-ignore lint/complexity/noBannedTypes: Marks a tool execute function via a cross-realm symbol property.
   execute: Function
 ): void {
-  questionExecutors.add(execute);
+  Object.defineProperty(execute, HARNESS_QUESTION_EXECUTOR, {
+    configurable: true,
+    enumerable: false,
+    value: true,
+  });
 }
 
 export function isHarnessQuestionTool(candidate: {
@@ -42,6 +47,8 @@ export function isHarnessQuestionTool(candidate: {
 }): boolean {
   return (
     typeof candidate.execute === "function" &&
-    questionExecutors.has(candidate.execute)
+    (candidate.execute as unknown as Record<PropertyKey, unknown>)[
+      HARNESS_QUESTION_EXECUTOR
+    ] === true
   );
 }

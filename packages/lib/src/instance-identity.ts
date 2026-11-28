@@ -8,18 +8,56 @@ export interface LiveInstance extends ProcessIdentity {
   readonly instanceId: string;
 }
 
-const live = new Set<string>();
+export interface InstanceRegistry {
+  close(instance: LiveInstance): void;
+  isGone(
+    owner: InstanceIdentity,
+    self: InstanceIdentity,
+    processGone: (owner: ProcessIdentity) => boolean
+  ): boolean;
+  open(identity: ProcessIdentity, instanceId?: string): LiveInstance;
+}
+
+export interface InstanceRegistryOptions {
+  readonly id?: () => string;
+}
+
+export function createInstanceRegistry(
+  options: InstanceRegistryOptions = {}
+): InstanceRegistry {
+  const live = new Set<string>();
+  const generateId = options.id ?? (() => crypto.randomUUID());
+  return {
+    close(instance) {
+      live.delete(instance.instanceId);
+    },
+    isGone(owner, self, processGone) {
+      if (owner.instanceId !== undefined && live.has(owner.instanceId)) {
+        return false;
+      }
+      if (sameProcess(owner, self)) {
+        return owner.instanceId !== undefined;
+      }
+      return processGone(owner);
+    },
+    open(identity, instanceId = generateId()) {
+      live.add(instanceId);
+      return { ...identity, instanceId };
+    },
+  };
+}
+
+const defaultRegistry = createInstanceRegistry();
 
 export function openInstance(
   identity: ProcessIdentity,
-  instanceId: string = crypto.randomUUID()
+  instanceId?: string
 ): LiveInstance {
-  live.add(instanceId);
-  return { ...identity, instanceId };
+  return defaultRegistry.open(identity, instanceId);
 }
 
 export function closeInstance(instance: LiveInstance): void {
-  live.delete(instance.instanceId);
+  defaultRegistry.close(instance);
 }
 
 export function sameInstance(
@@ -39,11 +77,5 @@ export function instanceGone(
   self: InstanceIdentity,
   processGone: (owner: ProcessIdentity) => boolean
 ): boolean {
-  if (owner.instanceId !== undefined && live.has(owner.instanceId)) {
-    return false;
-  }
-  if (sameProcess(owner, self)) {
-    return owner.instanceId !== undefined;
-  }
-  return processGone(owner);
+  return defaultRegistry.isGone(owner, self, processGone);
 }

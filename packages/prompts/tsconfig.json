@@ -3,7 +3,7 @@
   "extends": "@foundry/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2022"],
-    "types": ["bun"]
+    "types": []
   },
   "include": ["src", "*.ts"],
   "exclude": ["node_modules", "dist"]

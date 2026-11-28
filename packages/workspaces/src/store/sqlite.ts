@@ -4,9 +4,9 @@ import { buildPage, pageLimit } from "@foundry/lib/pagination";
 import { ownedWrite } from "@foundry/lib/plain-json";
 import {
   assertScope,
-  batches,
   replacing,
-  SQLITE_MAX_PARAMETERS,
+  resolveMaxParameters,
+  rowBatches,
   type SqliteDatabase,
   type SqliteTransaction,
   storableText,
@@ -42,6 +42,7 @@ export type WorkspaceTransaction = SqliteTransaction;
 
 export interface SqliteWorkspaceStoreOptions {
   readonly database: WorkspaceDatabase;
+  readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: WorkspaceTransaction,
     write: WorkspaceStoreWrite
@@ -69,6 +70,7 @@ const REENTRY =
 
 export class SqliteWorkspaceStore implements WorkspaceStore {
   readonly #database: WorkspaceDatabase;
+  readonly #maxParameters: number;
   readonly #scope: string;
   readonly #onCommit: SqliteWorkspaceStoreOptions["onCommit"];
   readonly #turns = new Turns(REENTRY);
@@ -76,6 +78,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
   constructor(options: SqliteWorkspaceStoreOptions) {
     assertScope(options.scope);
     this.#database = options.database;
+    this.#maxParameters = resolveMaxParameters(options.maxParameters);
     this.#scope = options.scope;
     this.#onCommit = options.onCommit;
   }
@@ -110,6 +113,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
         work(
           new SqliteWorkspaceStore({
             database: transaction,
+            maxParameters: this.#maxParameters,
             scope: this.#scope,
             ...(this.#onCommit === undefined
               ? {}
@@ -359,7 +363,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     workspaceId: WorkspaceId,
     ids: readonly WorkspaceEntryId[]
   ): Promise<void> {
-    for (const batch of batches(ids, SQLITE_MAX_PARAMETERS - 2)) {
+    for (const batch of rowBatches(ids, 1, this.#maxParameters, 2)) {
       await transaction
         .delete(workspaceEntries)
         .where(
@@ -377,7 +381,7 @@ export class SqliteWorkspaceStore implements WorkspaceStore {
     entries: readonly WorkspaceEntry[]
   ): Promise<void> {
     const rows = entries.map((entry) => rowOfEntry(this.#scope, entry));
-    for (const batch of batches(rows, SQLITE_MAX_PARAMETERS / ENTRY_COLUMNS)) {
+    for (const batch of rowBatches(rows, ENTRY_COLUMNS, this.#maxParameters)) {
       await transaction
         .insert(workspaceEntries)
         .values(batch)

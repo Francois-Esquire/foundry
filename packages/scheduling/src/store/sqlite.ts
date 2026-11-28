@@ -1,7 +1,13 @@
 import { sameInstance } from "@foundry/lib/instance-identity";
 import { canonicalizeJson } from "@foundry/lib/json";
+import {
+  resolveMaxParameters,
+  rowBatches,
+  type SqliteDatabase,
+  type SqliteTransaction,
+} from "@foundry/lib/sqlite";
 import { Turns } from "@foundry/lib/turns";
-import type { ExtractTablesWithRelations, SQL } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
   and,
   desc,
@@ -13,10 +19,8 @@ import {
   sql,
 } from "drizzle-orm";
 import type {
-  BaseSQLiteDatabase,
   SQLiteColumn,
   SQLiteTable,
-  SQLiteTransaction,
   SQLiteUpdateSetSource,
 } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
@@ -39,21 +43,13 @@ import {
   schedulingSchedules,
 } from "./tables";
 
-export type ScheduleDatabase = BaseSQLiteDatabase<
-  "async",
-  unknown,
-  Record<string, unknown>
->;
+export type ScheduleDatabase = SqliteDatabase;
 
-export type ScheduleTransaction = SQLiteTransaction<
-  "async",
-  unknown,
-  Record<string, unknown>,
-  ExtractTablesWithRelations<Record<string, unknown>>
->;
+export type ScheduleTransaction = SqliteTransaction;
 
 export interface SqliteScheduleStoreOptions {
   readonly database: ScheduleDatabase;
+  readonly maxParameters?: number;
   readonly onCommit?: (
     transaction: ScheduleTransaction,
     write: ScheduleWrite
@@ -64,12 +60,7 @@ export interface SqliteScheduleStoreOptions {
 const REENTRY =
   "SqliteScheduleStore was called from inside its own transaction or onCommit hook; use the transaction passed to onCommit instead";
 
-const BATCH = 500;
-
-const batches = <T>(items: readonly T[], size: number): T[][] =>
-  Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>
-    items.slice(index * size, (index + 1) * size)
-  );
+const DEFAULT_BATCH_PARAMETERS = 500;
 
 const occurrenceRow = (scope: string, occurrence: Occurrence) => ({
   body: occurrence,
@@ -85,7 +76,8 @@ const upsert = async <Table extends SQLiteTable>(
   table: Table,
   target: readonly SQLiteColumn[],
   rows: readonly Table["$inferInsert"][],
-  update: readonly (keyof Table["$inferInsert"] & string)[]
+  update: readonly (keyof Table["$inferInsert"] & string)[],
+  maxParameters: number
 ) => {
   const columns: Record<string, SQLiteColumn> = getTableColumns(table);
   const set = Object.fromEntries(
@@ -94,8 +86,11 @@ const upsert = async <Table extends SQLiteTable>(
       sql.raw(`excluded."${columns[key]?.name ?? key}"`),
     ])
   ) as SQLiteUpdateSetSource<Table>;
-  const size = Math.max(1, Math.floor(BATCH / Object.keys(columns).length));
-  for (const batch of batches(rows, size)) {
+  for (const batch of rowBatches(
+    rows,
+    Object.keys(columns).length,
+    maxParameters
+  )) {
     await transaction
       .insert(table)
       .values(batch)
@@ -106,14 +101,15 @@ const upsert = async <Table extends SQLiteTable>(
 const removeSchedules = async (
   transaction: ScheduleTransaction,
   scope: string,
-  ids: readonly string[]
+  ids: readonly string[],
+  maxParameters: number
 ) => {
   for (const [table, column] of [
     [schedulingSchedules, schedulingSchedules.id],
     [schedulingCursors, schedulingCursors.scheduleId],
     [schedulingOccurrences, schedulingOccurrences.scheduleId],
   ] as const) {
-    for (const batch of batches(ids, BATCH)) {
+    for (const batch of rowBatches(ids, 1, maxParameters, 1)) {
       await transaction
         .delete(table)
         .where(and(eq(table.scope, scope), inArray(column, batch)));
@@ -196,11 +192,12 @@ const requireExpectedCursors = async (
 const writeRecords = async (
   transaction: ScheduleTransaction,
   scope: string,
-  write: ScheduleWrite
+  write: ScheduleWrite,
+  maxParameters: number
 ) => {
   await requireExpectedSchedules(transaction, scope, write);
   await requireExpectedCursors(transaction, scope, write);
-  await removeSchedules(transaction, scope, write.removed ?? []);
+  await removeSchedules(transaction, scope, write.removed ?? [], maxParameters);
   await upsert(
     transaction,
     schedulingSchedules,
@@ -210,7 +207,8 @@ const writeRecords = async (
       id: schedule.id,
       scope,
     })),
-    ["body"]
+    ["body"],
+    maxParameters
   );
   await upsert(
     transaction,
@@ -222,14 +220,16 @@ const writeRecords = async (
       scheduleId: cursor.scheduleId,
       scope,
     })),
-    ["body", "nextDueAt"]
+    ["body", "nextDueAt"],
+    maxParameters
   );
   await upsert(
     transaction,
     schedulingOccurrences,
     [schedulingOccurrences.scope, schedulingOccurrences.id],
     (write.occurrences ?? []).map((o) => occurrenceRow(scope, o)),
-    ["body", "state"]
+    ["body", "state"],
+    maxParameters
   );
   await pruneOccurrences(transaction, scope, write);
 };
@@ -241,13 +241,16 @@ export const makeSqliteScheduleStore = (
     throw new RangeError("scope must be a nonempty string");
   }
   const { database, scope } = options;
+  const maxParameters = resolveMaxParameters(
+    options.maxParameters ?? DEFAULT_BATCH_PARAMETERS
+  );
   const turns = new Turns(REENTRY);
-  const run = <A>(work: () => Promise<A>) =>
+  const run = <A>(work: () => A | PromiseLike<A>) =>
     Effect.tryPromise({
       catch: (cause) => new StoreError({ cause }),
       try: () => turns.run(work),
     });
-  const guarded = (work: () => Promise<void>) =>
+  const guarded = (work: () => void | PromiseLike<void>) =>
     Effect.tryPromise({
       catch: (cause) =>
         cause instanceof CursorConflictError ||
@@ -336,7 +339,7 @@ export const makeSqliteScheduleStore = (
     commit: (write) =>
       guarded(() =>
         database.transaction(async (transaction) => {
-          await writeRecords(transaction, scope, write);
+          await writeRecords(transaction, scope, write, maxParameters);
           await options.onCommit?.(transaction, write);
         })
       ),
