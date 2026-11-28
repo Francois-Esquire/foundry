@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { claudeCode } from "~/lib/providers/claude-code";
-import { codex } from "~/lib/providers/codex";
-import { pi } from "~/lib/providers/pi";
+import { claudeCode } from "~/providers/claude-code";
+import { codex } from "~/providers/codex";
+import { pi } from "~/providers/pi";
 
 vi.mock("~/providers/installed", () => ({
   providerInstalled: () => false,
