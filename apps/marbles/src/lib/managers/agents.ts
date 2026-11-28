@@ -37,7 +37,6 @@ import {
 import type {
   AgentDefinition,
   AgentLike,
-  AgentMcpServer,
   AgentRoute,
   Agents,
   SandboxAgentOptions,

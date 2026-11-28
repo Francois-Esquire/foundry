@@ -127,38 +127,40 @@ export class SqliteTaskStore implements TaskStore {
   }
 
   list(query: TaskStoreListQuery = {}): Promise<readonly Task[]> {
-    return this.#turns.run(async () => {
-      if (
-        (query.status !== undefined && !storableText(query.status)) ||
-        (query.parentId !== undefined &&
-          query.parentId !== null &&
-          !storableText(query.parentId))
-      ) {
-        return [];
-      }
-      let parentCondition:
-        | ReturnType<typeof eq>
-        | ReturnType<typeof isNull>
-        | undefined;
-      if (query.parentId === null) {
-        parentCondition = isNull(tasks.parentId);
-      } else if (query.parentId !== undefined) {
-        parentCondition = eq(tasks.parentId, query.parentId);
-      }
-      return await this.#database
-        .select(taskColumns)
-        .from(tasks)
-        .where(
-          and(
-            eq(tasks.scope, this.#scope),
-            query.status === undefined
-              ? undefined
-              : eq(tasks.status, query.status),
-            parentCondition
+    return this.#turns.run(() =>
+      this.#database.transaction(async (transaction) => {
+        if (
+          (query.status !== undefined && !storableText(query.status)) ||
+          (query.parentId !== undefined &&
+            query.parentId !== null &&
+            !storableText(query.parentId))
+        ) {
+          return [];
+        }
+        let parentCondition:
+          | ReturnType<typeof eq>
+          | ReturnType<typeof isNull>
+          | undefined;
+        if (query.parentId === null) {
+          parentCondition = isNull(tasks.parentId);
+        } else if (query.parentId !== undefined) {
+          parentCondition = eq(tasks.parentId, query.parentId);
+        }
+        return await transaction
+          .select(taskColumns)
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.scope, this.#scope),
+              query.status === undefined
+                ? undefined
+                : eq(tasks.status, query.status),
+              parentCondition
+            )
           )
-        )
-        .orderBy(tasks.position);
-    });
+          .orderBy(tasks.position);
+      })
+    );
   }
 
   children(parentId: TaskId): Promise<readonly Task[]> {
