@@ -88,14 +88,14 @@
     "@types/node": "^26.6.6",
     "drizzle-orm": "^0.45.4",
     "just-bash": "^3.6.1",
-    "microsandbox": "0.6.18",
+    "microsandbox": "0.7.16",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.12"
+    "vitest": "^5.1.1"
   },
   "peerDependencies": {
     "drizzle-orm": "^0.45.4",
     "just-bash": "^3.6.1",
-    "microsandbox": "0.6.18"
+    "microsandbox": "0.7.16"
   },
   "peerDependenciesMeta": {
     "drizzle-orm": {

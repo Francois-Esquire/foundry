@@ -5,11 +5,10 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@repo/orders": ["packages/orders/src/index.ts"],
-      "@repo/orders/testing": ["packages/orders/src/testing.ts"],
-      "@repo/orders/*": ["packages/orders/*"]
+      "@repo/orders": ["./packages/orders/src/index.ts"],
+      "@repo/orders/testing": ["./packages/orders/src/testing.ts"],
+      "@repo/orders/*": ["./packages/orders/*"]
     }
   }
 }

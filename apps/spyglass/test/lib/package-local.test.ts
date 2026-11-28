@@ -228,6 +228,23 @@ describe("package-local report", () => {
     expect(owned.length).toBeGreaterThan(0);
   });
 
+  it("keeps package sources when the worker runs inside that package's dist directory", () => {
+    const root = copyFixture();
+    const boundary = resolveBoundary(root, "tooling/c");
+    const expected = workspaceSourceFiles(root);
+    const expectedPackage = packageSourceFiles(root, boundary);
+    const workerDirectory = join(boundary.dir, "dist/lib");
+    mkdirSync(workerDirectory, { recursive: true });
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(workerDirectory);
+    try {
+      expect(workspaceSourceFiles(root)).toEqual(expected);
+      expect(packageSourceFiles(root, boundary)).toEqual(expectedPackage);
+      expect(expectedPackage.length).toBeGreaterThan(0);
+    } finally {
+      cwd.mockRestore();
+    }
+  });
+
   it("records each module's relationships to the package's own concept seeds", () => {
     const root = copyFixture();
     write(

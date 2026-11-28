@@ -5,11 +5,10 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@w/a": ["packages/a/src/index.ts"],
-      "@w/b": ["packages/b/src/index.ts"],
-      "@w/c": ["packages/c/src/index.ts"]
+      "@w/a": ["./packages/a/src/index.ts"],
+      "@w/b": ["./packages/b/src/index.ts"],
+      "@w/c": ["./packages/c/src/index.ts"]
     }
   }
 }

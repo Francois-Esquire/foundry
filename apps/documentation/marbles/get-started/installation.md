@@ -58,7 +58,7 @@ first step needs only Marbles; each later example states what it adds.
 
 ## Avoid development-only peers
 
-OpenTUI 0.5.11's published metadata makes React DevTools a required peer,
+OpenTUI 0.9.7's published metadata makes React DevTools a required peer,
 although its runtime loads it only with `DEV=true`. Its FFI dependency also
 declares TypeScript 5 as a required peer without importing it at runtime.
 Neither is needed to run Marbles' dashboard normally.
@@ -69,7 +69,7 @@ root `package.json`, then run `bun install`:
 ```json
 {
   "packageExtensions": {
-    "@opentui/react@0.5.11": {
+    "@opentui/react@0.9.7": {
       "peerDependenciesMeta": {
         "react-devtools-core": { "optional": true },
         "ws": { "optional": true }
@@ -114,10 +114,27 @@ Install only what you use, in the same project or global installation as Marbles
 # Codex
 bun add --global ai-sdk-provider-codex-cli@2.4.0
 # Claude Code, including the SDK used for account limits
-bun add --global ai-sdk-provider-claude-code@4.4.1 @anthropic-ai/claude-agent-sdk@0.3.283 @anthropic-ai/sdk@1.12.0
+bun add --global ai-sdk-provider-claude-code@4.4.1 @anthropic-ai/claude-agent-sdk@0.3.330 @anthropic-ai/sdk@1.12.0
 # Pi
 bun add --global ai-sdk-provider-pi@0.1.0
 ```
+
+Claude adapter 4.4.1 pins an older Agent SDK. Before installing Claude Code,
+add this override to the `package.json` at the installation root (your project,
+or Bun's global package directory for `--global`) to keep one SDK copy:
+
+```json
+{
+  "overrides": {
+    "ai-sdk-provider-claude-code@4.4.1": {
+      "@anthropic-ai/claude-agent-sdk": "0.3.330"
+    }
+  }
+}
+```
+
+Run `bun install` in that root after adding the override. Without it, the
+adapter also installs SDK 0.3.283 and its native binary alongside 0.3.330.
 
 Omit `--global` for a project installation. Codex requires CLI 0.156.0 or newer.
 Install and authenticate the CLI

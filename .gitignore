@@ -39,6 +39,7 @@ lerna-debug.log*
 .vercel
 
 coverage
+.vitest/
 .nyc_output
 
 /.worktrees/

@@ -5,11 +5,10 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@k/shared": ["packages/shared/src/index.ts"],
-      "@p/app": ["apps/app/src/index.ts"],
-      "@p/web": ["apps/web/src/index.ts"]
+      "@k/shared": ["./packages/shared/src/index.ts"],
+      "@p/app": ["./apps/app/src/index.ts"],
+      "@p/web": ["./apps/web/src/index.ts"]
     }
   }
 }

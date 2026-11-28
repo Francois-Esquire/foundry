@@ -18,6 +18,11 @@ package test covers a consumer with the repairs, including a working
 dashboard without DevTools or TypeScript. Keep Tree-sitter available for
 Markdown rendering and highlighting.
 
+Textbook 0.2.0 still declares OpenTUI 0.5.x. The root override aligns only
+Textbook's Core dependency with our OpenTUI 0.9.7 renderer so story renderables
+share one native scene and one set of types. Keep the story rendering tests
+passing when changing or removing this override.
+
 Knip cannot trace those bundled imports back to this manifest. Keep its
 `apps/marbles` dependency exceptions limited to this packaging case. Before
 removing one, inspect the build and run
@@ -44,7 +49,10 @@ connects the MCP servers an agent's definition names; its version follows
 `packages/agents`.
 The bundled Usage package loads `@anthropic-ai/claude-agent-sdk` when reading
 Claude login limits. Keep its version aligned with `@foundry/usage` and the
-Claude Code adapter's dependency to avoid duplicate native binaries.
+Claude Code adapter's dependency to avoid duplicate native binaries. Adapter
+4.4.1 pins SDK 0.3.283; the root version-scoped override selects 0.3.330.
+Standalone consumers enabling Claude Code need the same override in their
+installing root manifest. It does not propagate from this repository.
 The `@ai-sdk/provider` exception covers model types referenced by the published
 declarations; those generated imports are absent in a fresh checkout.
 The `@foundry/core` development dependency supplies transitive pagination types

@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { RPC_CHANNELS } from "~/shared/rpc";
 import {
   WINDOW_CHANNELS,
@@ -22,7 +22,10 @@ vi.mock("electron", () => ({
 const fakeWindow = { addEventListener };
 vi.stubGlobal("window", fakeWindow);
 
-await import("~/preload");
+beforeEach(async () => {
+  vi.resetModules();
+  await import("~/preload");
+});
 
 function exposedBridge(): WorksWindowBridge {
   const [exposure] = exposeInMainWorld.mock.calls;

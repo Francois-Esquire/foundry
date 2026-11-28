@@ -262,7 +262,7 @@ it("authorizes, previews, applies, and refreshes an importer rewrite through the
   );
   mkdirSync(join(root, "packages/a/src/test"), { recursive: true });
   writeFileSync(
-    join(root, "packages/a/src/test/user.test.ts"),
+    join(root, "packages/a/src/test/user.test.js"),
     'import { expect, test } from "bun:test";\nimport { used } from "../user";\ntest("internal use still works", () => { expect(used).toBe(3); });\n'
   );
   mkdirSync(join(root, ".foundry/spyglass"), { recursive: true });

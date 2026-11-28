@@ -5,12 +5,16 @@ import { bootGuest } from "./helpers/guest";
 const sdk = vi.hoisted(() => {
   class SandboxNotFoundError extends Error {}
   return {
+    installRuntime: vi.fn(() => Promise.resolve({})),
+    isRuntimeInstalled: vi.fn(() => true),
     native: {
       execStreamWith: vi.fn(),
       fs: vi.fn(() => ({ mkdir: () => Promise.resolve() })),
       stopWithTimeout: vi.fn(() => Promise.resolve()),
     },
     remove: vi.fn<(name: string) => Promise<void>>(),
+    resolveRuntime: vi.fn(() => ({ msbPath: "/runtime/msb" })),
+    resolveRuntimeVersion: vi.fn<() => Promise<string | null>>(),
     SandboxNotFoundError,
   };
 });
@@ -32,6 +36,10 @@ vi.mock("microsandbox", () => {
   }
   builder.create = () => Promise.resolve(sdk.native);
   return {
+    installRuntime: sdk.installRuntime,
+    isRuntimeInstalled: sdk.isRuntimeInstalled,
+    resolveRuntime: sdk.resolveRuntime,
+    resolveRuntimeVersion: sdk.resolveRuntimeVersion,
     Sandbox: { builder: () => builder, remove: sdk.remove },
     SandboxNotFoundError: sdk.SandboxNotFoundError,
   };
@@ -62,8 +70,34 @@ async function* exited() {
 }
 
 beforeEach(() => {
+  sdk.isRuntimeInstalled.mockReset().mockReturnValue(true);
+  sdk.resolveRuntimeVersion.mockReset().mockResolvedValue("0.7.16");
   sdk.remove.mockReset().mockResolvedValue();
   sdk.native.execStreamWith.mockReset();
+});
+
+describe("Microsandbox runtime compatibility", () => {
+  it("requires the runtime version matching the SDK", async () => {
+    const driver = createMicrosandboxDriver();
+    await expect(driver.isInstalled?.()).resolves.toBe(true);
+    for (const version of [null, "0.6.18", "0.8.3"]) {
+      sdk.resolveRuntimeVersion.mockResolvedValue(version);
+      await expect(driver.isInstalled?.()).resolves.toBe(false);
+    }
+  });
+
+  it("does not resolve an absent runtime", async () => {
+    sdk.isRuntimeInstalled.mockReturnValue(false);
+    await expect(createMicrosandboxDriver().isInstalled?.()).resolves.toBe(
+      false
+    );
+    expect(sdk.resolveRuntimeVersion).not.toHaveBeenCalled();
+  });
+
+  it("installs the pinned runtime explicitly", async () => {
+    await createMicrosandboxDriver().install?.();
+    expect(sdk.installRuntime).toHaveBeenCalledWith({}, { version: "0.7.16" });
+  });
 });
 
 describe("MicroSandbox removal", () => {
@@ -85,6 +119,26 @@ describe("MicroSandbox removal", () => {
 });
 
 describe("MicroSandbox exec handles", () => {
+  it("completes an exited process without sending EOF to its closed stdin", async () => {
+    const running = handle(exited());
+    const close = vi.fn(() =>
+      Promise.reject(new Error("execution stdin closed"))
+    );
+    running.takeStdin.mockResolvedValue({
+      close,
+      write: () => Promise.resolve(),
+    });
+    sdk.native.execStreamWith.mockResolvedValue(running);
+    const guest = await bootGuest(createMicrosandboxDriver());
+    const process = await guest.processes?.spawn?.(["true"]);
+
+    await expect(process?.exited).resolves.toEqual({ exitCode: 0 });
+    expect(close).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(running[Symbol.asyncDispose]).toHaveBeenCalledOnce()
+    );
+  });
+
   it("disposes a signalled exec's handle when it finishes", async () => {
     const running = handle(exited());
     sdk.native.execStreamWith.mockResolvedValue(running);

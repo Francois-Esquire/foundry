@@ -5,10 +5,13 @@ import { Catalog } from "~/authoring/catalog";
 import type { Current } from "~/lib/runs/scope";
 import { current } from "~/lib/runs/scope";
 
-async function collect(): Promise<void> {
-  for (let pass = 0; pass < 3; pass += 1) {
+async function collect(frames: readonly WeakRef<object>[]): Promise<void> {
+  for (let pass = 0; pass < 100; pass += 1) {
     await sleep(10);
     gc(true);
+    if (frames.every((frame) => frame.deref() === undefined)) {
+      return;
+    }
   }
 }
 
@@ -33,7 +36,7 @@ function definitionsInRuns() {
 
 it("keeps a definition made in a run answerable to its workspace without keeping the run", async () => {
   const { collected, frames } = definitionsInRuns();
-  await collect();
+  await collect(frames);
   expect(collected.definitions.size).toBe(200);
   expect(frames.filter((frame) => frame.deref() !== undefined)).toHaveLength(0);
 });

@@ -7,12 +7,18 @@ Storage contracts come from the dependency-free `@foundry/core/storage`.
 The virtual sandbox and container expose `files` implementing `Storage`, including strict
 `readDirectory` and atomic `replaceFile`, over the same files used by commands.
 Zod is the only required external runtime dependency. Install `just-bash` for
-`@foundry/sandbox/virtual` and `microsandbox` for `@foundry/sandbox/node/microsandbox`. The package lists
+`@foundry/sandbox/virtual` and `microsandbox` for `@foundry/sandbox/providers/microsandbox`. The package lists
 these peers as development dependencies to build and test its adapters.
 
-MicroSandbox is pinned to `0.6.18` in development and peer dependencies. Its
+MicroSandbox is pinned to `0.7.16` in development and peer dependencies. Its
 native inventory includes `created`, `starting`, and `paused` states. The
-`Containers` instance stops active VMs before removing them.
+`Containers` instance stops active VMs before removing them. Install a matching
+0.7.16 native runtime; 0.6 runtimes cannot launch the 0.7 SDK's `msb machine`
+entry point. The driver checks the embedded executable version and its
+`install()` method uses `installRuntime` with the pinned version. Integration
+setup requires an isolated `MSB_HOME` and installs the same runtime.
+Denied network requests keep the previous dropped-connection behavior; the
+adapter disables the SDK's new HTTP 403 denial responses.
 
 ```typescript
 interface Sandbox {
@@ -416,7 +422,7 @@ with backpressure, retains an early kill, and forwards launch errors. Use this
 for synchronous child-process hooks. Portable contracts use structural streams
 so filesystem and command consumers need no Node ambient types.
 
-SDK 0.6.18 reports `-1` for a signaled exit without the actual signal. This
+SDK 0.7.16 reports `-1` for a signaled exit without the actual signal. This
 adapter preserves that value and emits a null signal; it does not invent a
 POSIX status or claim an observed signal.
 

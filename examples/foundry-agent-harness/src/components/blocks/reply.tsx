@@ -1,4 +1,5 @@
 import { SyntaxStyle } from "@opentui/core";
+import { useRenderer } from "@opentui/react";
 import { useMemo } from "react";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -12,19 +13,23 @@ export function Reply({
   readonly streaming: boolean;
 }) {
   const theme = useTheme();
+  const renderer = useRenderer();
   const style = useMemo(
     () =>
-      SyntaxStyle.fromStyles({
-        conceal: { fg: theme.colors.mutedForeground },
-        default: { fg: theme.colors.foreground },
-        "markup.heading": { bold: true, fg: theme.colors.primary },
-        "markup.link": { fg: theme.colors.info, underline: true },
-        "markup.list": { fg: theme.colors.accent },
-        "markup.raw": { fg: theme.colors.warning },
-        "markup.raw.block": { fg: theme.colors.info },
-        "markup.strong": { bold: true },
-      }),
-    [theme]
+      SyntaxStyle.fromStyles(
+        {
+          conceal: { fg: theme.colors.mutedForeground },
+          default: { fg: theme.colors.foreground },
+          "markup.heading": { bold: true, fg: theme.colors.primary },
+          "markup.link": { fg: theme.colors.info, underline: true },
+          "markup.list": { fg: theme.colors.accent },
+          "markup.raw": { fg: theme.colors.warning },
+          "markup.raw.block": { fg: theme.colors.info },
+          "markup.strong": { bold: true },
+        },
+        renderer.nativeScene
+      ),
+    [theme, renderer]
   );
   return (
     <markdown
